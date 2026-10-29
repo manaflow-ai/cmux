@@ -91,7 +91,7 @@ test("the live line carries the turn's tokens while it times the turn, not besid
         <WorkingCountsContext.Provider value={{ ...counts, tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
       ),
     );
-  expect(drawn(<Thinking since={start} clock={fixedPageClock(start + 354_000)} />)).toBe("Thinking 5m · 2.1M tokens");
+  expect(drawn(<Thinking since={start} clock={fixedPageClock(start + 354_000)} />)).toBe("Thinking 5m · 2.1M out");
   expect(drawn(<Thinking doing="cargo test" doingShell doingAt={start} clock={fixedPageClock(start + 4_000)} />)).toBe(
     "Running cargo test 4s",
   );

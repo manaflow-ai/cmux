@@ -659,6 +659,12 @@
       "why": "p02-threads-035: two waits that were raw (a queue.sync and a DispatchSemaphore.wait with // concurrency-allow:) now go through the checked seams under the reviewed BlockingAllowance.terminate, so the detector sees them and MQ-8 counts no raw wait. RunMarkerFile.close runs in applicationWillTerminate: it waits for at most one in-flight write of about 100 bytes (no fsync) so its unlink of run.json is the last word; an async unlink would not run before the process exits, and the next launch would show the restart notice after a clean quit. QuitDeadline.wedgeMainThread (DEBUG and bench builds only, debug.quit {wedge_engine_stop: true}) blocks the main thread on purpose after the quit is decided, as the wedged CefShutdown did, so a journey proves the deadline thread still ends the process. Chrome allows blocking during browser shutdown the same way (ScopedAllowBlocking in the shutdown path, base/threading/thread_restrictions.h)."
     },
     {
+      "date": "2026-10-25",
+      "row": "observer_sites",
+      "allow": 7,
+      "why": "DesktopWallpaperWatch (from #23009): macOS posts no public notice when the desktop picture changes, so one watch per app (owned by BackdropImageStore.shared, injected into every WindowMaterialView) follows the wallpaper store folder with a file-system source (not an observer) and re-reads the main screen's picture on the seven system moments that can change it or that it must catch up after: macOS's com.apple.desktop notice, a Space switch, waking, a screen-parameter change, a window's occlusion changing (it reads nothing while no window shows, so a window shown, unhidden or uncovered catches it up), a window becoming key and a window changing screens. Each is observed once per app. The original PR's app-activation and AppleInterfaceThemeChanged observers were dropped (the view's own appearance callback covers the second); Codex review of 7bb4472 asked for wake and com.apple.desktop back."
+    },
+    {
       "date": "2026-10-26",
       "row": "blocking_allow_escapes",
       "allow": 1,
@@ -749,6 +755,12 @@
       "why": "p04-input-076: CmuxNextWakeups MainJobGateRoute.installed, the address of the one installed MainJobGate. The Swift runtime's swift_task_enqueueMainExecutor_hook is itself one process-wide variable holding a thin function with no context argument, so the hook reaches its gate only through a process-wide word; the gate is made in the composition root (CmuxNextApp.main, MainJobGateSwitch) and injected into MainJobGateHook.install, which claims the word once and refuses a second gate. Like p02-threads-130's BlockingCallHookSlot.process for the same reason (a context-free entry point), and Chrome's base::TaskAnnotator observer hook (base/task/common/task_annotator.cc)."
     },
     {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "CmuxNextUpdater SingleInstanceGuard.claim: the single-instance claim (mkdir of <Application Support>/<bundle id>, open, flock) runs once in CmuxNextApp.main before NSApp exists and before any other thread starts. Whether this process may start at all (a second copy must not reach CEF or the session) decides everything after it, so it cannot move off the main thread or after launch. Codex xhigh review of PR #25918."
+    },
+    {
       "date": "2026-10-27",
       "row": "observer_sites",
       "allow": 1,
@@ -792,6 +804,12 @@
     },
     {
       "date": "2026-10-27",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "HomeReduceMotion is the existing process-wide adapter for native Home. It additionally observes Motion.speedDidChange once per app so already-mounted working spinners stop immediately when the master/category animation switch or speed is disabled. The existing per-view Reduce Motion delivery refreshes affected cells; no observer is added per row. Tokens live with the process-wide adapter until app shutdown. PR #26385 includes independent xhigh review of this lifecycle and rationale."
+    },
+    {
+      "date": "2026-10-27",
       "row": "global_mutable_statics",
       "allow": 1,
       "why": "p06-scheduler-202: MainExecutorHook.installedBits (CmuxNextWakeups), the one word through which the priority-ordered main executor reaches its queues. swift_task_enqueueMainExecutor_hook is a thin function with no context argument, so the hook the composition root makes (MainWorkScheduler.installMainExecutorHook) is published here once (a compare-exchange from 0; a second install is refused). Off unless the mainExecutorHook feature or CMUX_MAIN_EXECUTOR_HOOK=1 asks. The same shape as GlobalJobCensus.installedBits (p08-startup-082); Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
@@ -801,6 +819,30 @@
       "row": "blocking_allow_escapes",
       "allow": 4,
       "why": "cp/fix-server-helper-sources: CmuxNextCompatCore is the seam module the privileged server helper compiles whole without CmuxNextCompat (swift-atomics, the detector), so the Mac build's helper phase never compiles a hand-picked Compat file list again. Its four escapes are not main-thread blocking: Process.runOnOwnThread's process.run() moved unchanged from CmuxNextCompat/Threading (a seam folder the rule exempts) and runs on the dedicated thread it makes; RunningCodeSigningTeam's three Security calls each run inside the blockingCall its caller passes (the app's SigningTeamInstall passes CmuxNextCompat's checked blockingCall(.systemCall), so the detector still sees each; the helper passes CmuxThreading's). Chrome: the same ScopedBlockingCall seam in a lower component (base/threading/scoped_blocking_call.h)."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "stateful_singletons",
+      "allow": 8,
+      "why": "Trunk sync (cp/sync-trunk-20261028a, lead decision 1 of fundamentals-perf.md): feat-cmux-next's own lines, unchanged, that merge origin/feat-cmux-next be569953fca brings into perf/chrome-parity. feat-cmux-next landed them under its own ratchet; perf's ratchet first counts them here, because a push that merges this branch's own upstream counts the trunk side again (arch-ratchet own_pair). Judged against the branch's pushed head a29537e2d0b the push adds no site (arch-ratchet.py --base a29537e2d0b: no count rises). Sites: AcpmuxMacApprover.shared, AcpmuxPeerReconnects.shared, AcpmuxUnresponsiveWatch.shared, AgentPaneCloudMachines.shared, DaemonUpdateBoard.shared, DaemonUpdatePolicy.shared (CmuxNextAgentPane); DebugWindowRecord.launchWatch, AppOnboardingServices.computerUseSource (CmuxNextApp). They go to the composition root when the landing slices move trunk's agent pane onto perf's injection (landing-plan.md)."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "global_mutable_statics",
+      "allow": 21,
+      "why": "Trunk sync (cp/sync-trunk-20261028a, lead decision 1 of fundamentals-perf.md): feat-cmux-next's own lines, unchanged, that merge origin/feat-cmux-next be569953fca brings into perf/chrome-parity. feat-cmux-next landed them under its own ratchet; perf's ratchet first counts them here, because a push that merges this branch's own upstream counts the trunk side again (arch-ratchet own_pair). Judged against the branch's pushed head a29537e2d0b the push adds no site (arch-ratchet.py --base a29537e2d0b: no count rises). Sites: AgentTurnStateFeed.peerSessionChanged; AcpmuxDaemonSummary.restartingHomes, AcpmuxSocketOwner.stopping, AgentPanePeerApprovals.enroll and .daemons; DebugWindowRecord.launchRecorders and .launchSeen, RoomHandlers.tails, DebugAddDevice.listing; WorkspaceSelectionCloseFlow.running; GlassPanelView.windows and .pending; and 9 more trunk statics the ratchet names past its list of 12 (CmuxNextDesign 5, CmuxNextMobile 2, CmuxNextAgentPane 1, CmuxNextPages 1)."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "observer_sites",
+      "allow": 5,
+      "why": "Trunk sync (cp/sync-trunk-20261028a, lead decision 1 of fundamentals-perf.md): feat-cmux-next's own lines, unchanged, that merge origin/feat-cmux-next be569953fca brings into perf/chrome-parity. feat-cmux-next landed them under its own ratchet; perf's ratchet first counts them here, because a push that merges this branch's own upstream counts the trunk side again (arch-ratchet own_pair). Judged against the branch's pushed head a29537e2d0b the push adds no site (arch-ratchet.py --base a29537e2d0b: no count rises). Sites: trunk's MacScreenPane notification loop, UpdateRelaunchMoment's observers, DebugWindowRecord's close observation and DesktopWallpaperWatch's four MainActorObservations, beyond the 8 the branch's earlier exceptions cover."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "Trunk sync (cp/sync-trunk-20261028a, lead decision 1 of fundamentals-perf.md): feat-cmux-next's own lines, unchanged, that merge origin/feat-cmux-next be569953fca brings into perf/chrome-parity. feat-cmux-next landed them under its own ratchet; perf's ratchet first counts them here, because a push that merges this branch's own upstream counts the trunk side again (arch-ratchet own_pair). Judged against the branch's pushed head a29537e2d0b the push adds no site (arch-ratchet.py --base a29537e2d0b: no count rises). Sites: IPhoneHostService's allowBlocking(.terminate) flush of the paired-devices file and SingleInstanceGuard's // blocking-allow: in main before NSApp exists: two trunk sites, one beyond what the earlier exceptions cover."
     }
   ],
   "observer_wrappers": [

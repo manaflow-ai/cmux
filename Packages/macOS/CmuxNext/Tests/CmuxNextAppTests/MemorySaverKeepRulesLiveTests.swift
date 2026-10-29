@@ -155,6 +155,12 @@ import Testing
             </script>
             """)
         try await rig.pressDown(page)
+        // The key press (and the rig's waits, which evaluate with a gesture) activate the page for a
+        // few seconds. The rig plans a hidden page at once, so the page is hidden only once that has
+        // passed: an active gesture in the handler can then only be cmux's.
+        try await rig.until("the key press's activation expired") {
+            (try? await page.evaluate("navigator.userActivation?.isActive !== true", world: .page, gesture: .cmux)) == .bool(true)
+        }
         rig.window.contentView = nil
         let key = try await rig.hide(page)
         try await rig.until("the page was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }

@@ -497,10 +497,13 @@ fn semantic_kind(
     let event = semantic_key(native_event);
     let tool =
         normalized.get("tool_name").and_then(Value::as_str).map(semantic_key).unwrap_or_default();
-    if tool == "askuserquestion" {
+    // A question or plan review is asked when its tool call starts. The call's completion is the
+    // person's answer and the agent going on, so it is not another question.
+    let asks = !is_tool_completion(native_event);
+    if tool == "askuserquestion" && asks {
         return "agent.question.requested";
     }
-    if tool == "exitplanmode" {
+    if tool == "exitplanmode" && asks {
         return "agent.plan_review.requested";
     }
     if event == "questionasked" {
@@ -1043,4 +1046,10 @@ pub(crate) fn semantic_key(value: &str) -> String {
         .filter(|byte| byte.is_ascii_alphanumeric())
         .map(|byte| byte.to_ascii_lowercase() as char)
         .collect()
+}
+
+/// Whether a hook event says a tool call finished (Claude's `PostToolUse`, or its failure): the
+/// agent runs on in its turn after it, so a question or approval it waited on is answered.
+pub(crate) fn is_tool_completion(native_event: &str) -> bool {
+    matches!(semantic_key(native_event).as_str(), "posttooluse" | "posttoolusefailure")
 }

@@ -9,13 +9,20 @@ extension PaneContentView {
     /// under the content, top-left at its point size, until the live page
     /// paints: an agent page is transparent until then, so the pane never
     /// shows empty at launch. While it shows in the window, `hold` holds startup open.
-    func showLaunchImage(_ image: NSImage, hold: LaunchImageHold) {
+    ///
+    /// `limit` is how long it may stay once the page it stands in for has painted
+    /// (``LaunchImageHold/imageLimit``). It is not the bound on a page that never reports a first
+    /// frame: such a page keeps its frame past it (`launchImageMayClear`), because taking it leaves
+    /// the pane empty. What bounds that case is `AgentPaneLoadingView`'s give-up, which shows the
+    /// page as it is after two unpainted checks (2 x `paintCheckInterval`, about 8 s). The startup
+    /// hold's share still ends at `limit` either way, so deferred launch work never waits on it.
+    func showLaunchImage(_ image: NSImage, hold: LaunchImageHold, limit: Duration = LaunchImageHold.imageLimit) {
         let view = NSView(frame: contentHost.bounds)
         view.wantsLayer = true
         view.layer?.contentsGravity = .topLeft
         view.layer?.contentsScale = image.recommendedLayerContentsScale(window?.backingScaleFactor ?? 2)
         view.layer?.contents = image.layerContents(forContentsScale: view.layer?.contentsScale ?? 2)
-        putUpLaunchImage(view, positioned: .below, hold: hold)
+        putUpLaunchImage(view, positioned: .below, hold: hold, limit: limit)
         DebugTimings.markLaunch("agent_pane.launch_image_shown")
     }
 
@@ -28,7 +35,8 @@ extension PaneContentView {
     }
 
     /// Puts `view` up as the pane's launch image, replacing the last one, until its limit.
-    private func putUpLaunchImage(_ view: NSView, positioned place: NSWindow.OrderingMode, hold: LaunchImageHold) {
+    private func putUpLaunchImage(_ view: NSView, positioned place: NSWindow.OrderingMode, hold: LaunchImageHold,
+                                  limit: Duration = LaunchImageHold.imageLimit) {
         // Before the old image goes, so a replaced image never ends the hold for a turn.
         let share = hold.began()
         clearLaunchImage()
@@ -36,7 +44,32 @@ extension PaneContentView {
         contentHost.addSubview(view, positioned: place, relativeTo: nil)
         launchImageView = view
         launchImageShare = share
-        launchImageDeadline.schedule(after: LaunchImageHold.imageLimit) { [weak self] in self?.clearLaunchImage(.visiblePaneTimedOut) }
+        launchImageDeadline.schedule(after: limit) { [weak self] in
+            guard let self else { return }
+            // The frame stands in for a page that has not drawn yet, so the limit alone does not
+            // take it: dropping it here used to hand the pane its empty loading state while the
+            // page was still inside its own first-paint budget, which is a chat that draws, goes
+            // dark for several seconds, then comes back (Leo 2026-10-22). What takes it instead is
+            // the page drawing over it, or the pane giving up on a page that never reports and
+            // showing it as it is (`AgentPaneLoadingView`), both of which end on the page. The
+            // give-up is still the earlier of the two budgets (about 8 s against the page's own
+            // ~10 s `CHAT_DRAW_HOLD_MS` after its handshake), so a daemon slow enough to miss it
+            // reveals the page while it is itself still blank. That narrows Leo's dark gap rather
+            // than closing it; closing it means moving one of the two budgets.
+            guard launchImageMayClear?() ?? true else {
+                // The frame stays, but startup is not held past the limit for it.
+                endLaunchImageShare(.visiblePaneTimedOut)
+                return
+            }
+            clearLaunchImage(.visiblePaneTimedOut)
+        }
+    }
+
+    /// A page's delayed reveal removes only the frame it stood behind. Another tab may have
+    /// installed its own frame in this pane while that page was still loading.
+    func clearLaunchImage(ifShowing image: NSView) {
+        guard launchImageView === image else { return }
+        clearLaunchImage()
     }
 
     /// Removes the launch image (the page painted, or the pane shows another tab).
@@ -44,6 +77,9 @@ extension PaneContentView {
     /// - Parameter reason: Why it goes, for the startup ref the last image ends.
     func clearLaunchImage(_ reason: StartupInProgressRef.Reason = .visiblePaneLoadedIdle) {
         launchImageDeadline.cancel()
+        // The next frame says for itself whether its limit may take it; `putUpLaunchImage` clears
+        // first, so a frame held over a painted page never inherits a relaunch's answer.
+        launchImageMayClear = nil
         if let launchImageView {
             DebugTimings.markLaunch("agent_pane.launch_image_cleared")
             launchImageView.removeFromSuperview()

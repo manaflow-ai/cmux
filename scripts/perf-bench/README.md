@@ -123,8 +123,8 @@ Baselines: `baseline/apple-m6-macos27.json` and `baseline/apple-m4-pro-macos27.j
 `baseline/tab-switch-apple-m6-macos27.json` (the matrix's full report).
 
 A fleet ref must have a published cmux-tui tree for the Debug build. feat-cmux-next moves faster than
-the publisher, so pin the ref first: `git push origin SHA:refs/heads/cmux-tui-pin-<sha12>` and wait
-until `files.cmux.com/cmux-tui/tree/<key>/cmux-tui-aarch64-apple-darwin.sha256` answers 200
+the publisher; re-run after a trusted feat-cmux-next publication, then wait until
+`files.cmux.com/cmux-tui/tree/<key>/cmux-tui-aarch64-apple-darwin.sha256` answers 200
 (`pin-cmux-tui.sh key --rev SHA`).
 
 ## Method

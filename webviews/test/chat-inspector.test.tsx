@@ -5,22 +5,27 @@
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
 // (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
 // commands and what it produced (Outputs). It is open by
-// default, stays open (or closed) across chat panes, floats outside the chat's layout so it never
+// default, stays open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
 // reflows the chat (the chat's column moves left only when both fit that way; Settings Push always
 // takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
 import { readFileSync } from "node:fs";
+import { accessibleName, resolveTarget } from "../src/gallery/play";
 
-import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { INSPECTOR_PLACEMENT_KEY, setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
+import { setChipHost } from "../src/agent-session/acpmux/chips/host";
+import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
+import { resetChangesStatuses } from "../src/agent-session/acpmux/inspector/changesStatus";
 import {
   ChatInspector,
+  inspectorTopOffset,
   inspectorChatShift,
   pushedWidth,
   pushes,
@@ -32,6 +37,10 @@ import {
   resetInspectorState,
   setInspectorSection,
 } from "../src/agent-session/acpmux/inspector/inspectorState";
+import { SubagentSummaryCard } from "../src/agent-session/acpmux/inspector/SubagentSummaryCard";
+import { translate } from "../src/agent-session/acpmux/i18n";
+import type { SubsessionRow } from "../src/agent-session/acpmux/subagents/subsessions";
+import type { WorkflowSummary } from "../src/agent-session/acpmux/summary/workflow";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import {
   spawnedSessions,
@@ -39,8 +48,10 @@ import {
   type StartedSession,
 } from "../src/agent-session/acpmux/started/startedSessions";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import * as subagentGroup from "../src/agent-session/acpmux/subagents/SubagentGroup";
+import * as tones from "../src/agent-session/acpmux/subagents/agentTones";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -181,6 +192,11 @@ const meta = (element: HTMLElement | null) =>
 const head = (element: HTMLElement) => element.querySelector<HTMLElement>("button.ui-disclosure-trigger")!;
 const click = (element: HTMLElement) => act(async () => element.click());
 
+test("the Inspector starts right under the header: no row for a machine and folder label", () => {
+  expect(inspectorTopOffset(0)).toBe("var(--acpmux-header-height, 28px)");
+  expect(inspectorTopOffset(28)).toBe("28px");
+});
+
 test("the Inspector opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {
   const container = installDom(true);
   const opened = await render(container, localChat);
@@ -193,13 +209,12 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   // subagents) are left out.
   expect(sectionIds(container)).toEqual(["environment", "context", "outputs"]);
 
-  // Environment: this Mac by its name, never "This computer"; the folder with its parent
-  // home-abbreviated and its full path on hover; the branch.
+  // Environment: this Mac by its name, never "This computer"; the project by its name, its full path
+  // only on hover; the branch.
   const rows = [...section(container, "environment")!.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-row")];
   expect(rows[0]!.textContent).toBe("Studio");
   expect(rows[0]!.dataset.machine).toBe("local");
-  expect(rows[1]!.textContent).toContain("atlas-web");
-  expect(rows[1]!.textContent).toContain("~/src");
+  expect(rows[1]!.textContent).toBe("atlas-web");
   expect(rows[1]!.getAttribute("title")).toBe(CWD);
   expect(rows.map((row) => row.textContent)).toContain("main");
 
@@ -236,12 +251,14 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   expect(inspectorState().open).toBe(false);
 });
 
-test("open, closed, folds and width hold in every chat pane, following another pane's change", async () => {
+test("open, closed, folds and width are this pane's, and another pane's change never reaches it", async () => {
+  // Leo, 2026-10-25: "it opens and closes on the other side too when you do one... they should all be
+  // individual per pane".
   const container = installDom(true);
   await render(container, localChat);
   await click(head(section(container, "context")!));
   await click(toggle(container)!);
-  // Another chat tab mounts closed, with Context still open from the first.
+  // The same pane drawn again (a chat shown again) keeps its state: closed, Context open.
   await act(async () => root!.unmount());
   root = undefined;
   await render(container, localChat);
@@ -249,13 +266,47 @@ test("open, closed, folds and width hold in every chat pane, following another p
   await click(toggle(container)!);
   expect(section(container, "context")!.textContent).toContain("48K / 200K");
   expect(inspectorState().sections.context).toBe(true);
+  await click(toggle(container)!);
 
-  // Another pane closes it: this one follows its storage event.
+  // Another pane opens its own: this one stays closed.
   await act(async () => {
-    localStorage.setItem("cmux.agentPane.inspector.open", "0");
+    localStorage.setItem("cmux.agentPane.inspector.open", "1");
     window.dispatchEvent(new StorageEvent("storage", { key: "cmux.agentPane.inspector.open" }));
   });
   expect(panel(container)).toBeNull();
+  expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
+});
+
+test("a pane switched to another chat shows that chat's Inspector at once, never playing the last one out", async () => {
+  const container = installDom(true);
+  const chatB = { ...localChat, sessionId: "chat-b" };
+  // Chat B was left closed, chat A open.
+  await render(container, chatB);
+  await click(toggle(container)!);
+  expect(panel(container)).toBeNull();
+  await render(container, localChat);
+  await click(toggle(container)!);
+  expect(panel(container)).not.toBeNull();
+  // Every phase change of an Inspector panel while the pane switches to chat B (chat A's panel
+  // turning to `leaving` is the last chat's panel playing out over chat B).
+  const phases: string[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const record of records)
+      phases.push(`${record.oldValue} -> ${(record.target as HTMLElement).getAttribute("data-presence")}`);
+  });
+  observer.observe(container, { subtree: true, attributeOldValue: true, attributeFilter: ["data-presence"] });
+  await render(container, chatB);
+  await act(async () => undefined);
+  phases.push(...observer.takeRecords().map((record) => `${record.oldValue} ->`));
+  observer.disconnect();
+  expect({ phases, panel: panel(container), pressed: toggle(container)?.getAttribute("aria-pressed") }).toEqual({
+    phases: [],
+    panel: null,
+    pressed: "false",
+  });
+  // And back to chat A: open again, as it was left.
+  await render(container, localChat);
+  expect(panel(container)).not.toBeNull();
 });
 
 test("a cloud session names its host; no usage and nothing produced have no sections", async () => {
@@ -343,6 +394,20 @@ test("the chat shifts left only when the chat and the panel both fit that way", 
   expect(inspectorChatShift(1600, 320)).toBe(0);
   // 1200px: a 225px gutter lacks 111px, which the left gutter has: the column moves left by 111px.
   expect(inspectorChatShift(1200, 320)).toBe(111);
+  // The rail's 36px box may overlap the text by 8px, so the usable gutter is 28px. In a 1100px
+  // pane the column moves by all 146px it lacks and leaves 44px for the rail.
+  expect(inspectorChatShift(1100, 320)).toBe(146);
+  // At 1140px the transcript's 210px gutter lacks 126px and keeps 84px, past the rail's 28px.
+  expect(inspectorChatShift(1140, 320)).toBe(126);
+  // A handoff review's form takes the transcript's place, with no rail beside it: its 190px gutter
+  // lacks 146px, and the form moves left by all of it, keeping 44px.
+  expect(inspectorChatShift(1140, 320, undefined, true)).toBe(146);
+  // It keeps its own 18px from the pane's edge (HANDOFF_FORM_EDGE): at 1114px its 177px gutter lacks
+  // 159px and keeps exactly 18px; at 1112px moving 160px would keep 16px, and at 1100px 4px, so
+  // nothing moves and the panel floats over the form.
+  expect(inspectorChatShift(1114, 320, undefined, true)).toBe(159);
+  expect(inspectorChatShift(1112, 320, undefined, true)).toBe(0);
+  expect(inspectorChatShift(1100, 320, undefined, true)).toBe(0);
   // Where the two gutters together cannot hold it, nothing moves and the panel floats over the chat.
   expect(inspectorChatShift(720, 320)).toBe(0);
   expect(inspectorChatShift(0, 320)).toBe(0);
@@ -510,6 +575,126 @@ test("Changes lists the pull requests the chat opened or touched, open ones firs
   );
 });
 
+test("Changes reads every pull request's title, state and checks from the App's cache, the issues named like #N left out", async () => {
+  const container = installDom(true);
+  const hq = "https://github.com/manaflow-ai/cmuxterm-hq/pull/2681";
+  const glaeda = "https://github.com/manaflow-ai/glaeda/pull/1546";
+  const calls: string[] = [];
+  const answer = (url: string, number: number, title: string, state: string, failed: number) => ({
+    pullRequest: {
+      url,
+      number,
+      title,
+      state,
+      review: "",
+      mergeable: "",
+      additions: 608,
+      deletions: 8,
+      checks: { state: failed ? "failing" : "passing", passed: 3, total: 3 + failed },
+      checkList: Array.from({ length: failed }, (_, index) => ({ name: `check ${index}`, state: "failed" })),
+    },
+    fetchedAt: 1_700_000_000,
+    reading: false,
+  });
+  setChipHost(async (method, params) => {
+    calls.push(method);
+    if (method !== "pr.inspect") return {};
+    if (params.url === hq) return answer(hq, 2681, "Bash scripts keep here-documents", "open", 2);
+    if (params.url === glaeda) return answer(glaeda, 1546, "ota: hosts report what they run", "merged", 0);
+    // GitHub has no pull request #9: it was an issue.
+    return { pullRequest: null, reading: false };
+  });
+  try {
+    await render(
+      container,
+      chat([
+        activity([ran("glaeda-gh wait pr manaflow-ai/cmuxterm-hq#2681 --sha abc")], 3),
+        activity([ran("glaeda-gh status pr manaflow-ai/glaeda#1546")], 2),
+        assistant("Both are in; glaeda #9 is the issue it fixes.", 1),
+      ]),
+    );
+    // The host's answers settle on promises: yield until both rows have their titles.
+    for (
+      let turn = 0;
+      turn < 20 && !/here-documents[\s\S]*hosts report/.test(section(container, "changes")?.textContent ?? "");
+      turn++
+    )
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const changes = section(container, "changes")!;
+    const rows = [...changes.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr")];
+    expect(rows.map((row) => row.querySelector(".acpmux-chat-inspector-pr__title")?.textContent)).toEqual([
+      "Bash scripts keep here-documents",
+      "ota: hosts report what they run",
+    ]);
+    expect(rows.map((row) => row.dataset.state)).toEqual(["open", "merged"]);
+    expect(rows[0]!.querySelector(".acpmux-chat-inspector-pr__checks")?.textContent).toBe("2 failing");
+    expect(rows[0]!.querySelector(".acpmux-diff-counts")?.textContent).toBe("+608-8");
+    expect(meta(changes)).toBe("2");
+    // One registration for the whole list, then the host's cache: never a GitHub read per row.
+    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(1);
+  } finally {
+    setChipHost(undefined);
+    resetPullRequestStore();
+    resetChangesStatuses();
+  }
+});
+
+test("a folded Changes registers nothing with the host and asks it nothing", async () => {
+  const container = installDom(true);
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    if (method === "link.inspect" || method === "pr.inspect") calls.push(method);
+    return method === "pr.inspect" ? { pullRequest: null, reading: true } : {};
+  });
+  setInspectorSection("changes", false);
+  try {
+    await render(container, chat([activity([opened(31, "Retry the fetch helper")], 2)]));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(section(container, "changes")).not.toBeNull();
+    expect(calls).toEqual([]);
+    // Opened: one registration for the list, then the host's cache.
+    await act(async () => setInspectorSection("changes", true));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(calls).toEqual(["link.inspect", "pr.inspect"]);
+  } finally {
+    setInspectorSection("changes", true);
+    setChipHost(undefined);
+    resetPullRequestStore();
+    resetChangesStatuses();
+  }
+});
+
+test("a folded Changes with only named pull requests the App has not confirmed keeps its header, so it can open", async () => {
+  const container = installDom(true);
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    if (method === "link.inspect" || method === "pr.inspect") calls.push(method);
+    return method === "pr.inspect" ? { pullRequest: null, reading: true } : {};
+  });
+  setInspectorSection("changes", false);
+  try {
+    // Named only in a reply: hidden until the App says they are pull requests.
+    await render(container, chat([assistant("acme/billing#9 and acme/atlas-web#12 are the ones to watch.", 1)]));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const folded = section(container, "changes");
+    expect(folded).not.toBeNull();
+    // Not presented as confirmed pull requests: no rows and no count.
+    expect(folded!.querySelectorAll("li.acpmux-chat-inspector-pr")).toHaveLength(0);
+    expect(meta(folded!)).toBeUndefined();
+    expect(calls).toEqual([]);
+    await act(async () => setInspectorSection("changes", true));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(1);
+  } finally {
+    setInspectorSection("changes", true);
+    setChipHost(undefined);
+    resetPullRequestStore();
+    resetChangesStatuses();
+  }
+});
+
 test("a pull request named only inside a quoted --body or --title is not the one the command touched", () => {
   const made = sessionSummary(
     chat([
@@ -619,7 +804,7 @@ test("Subagents names each running one on its line, and folds the ended ones int
   const subagents = section(container, "subagents")!;
   expect(meta(subagents)).toBe("3 running · 1 failed · 39 done");
   // No row of identical avatars and no "+N": the running ones by name, oldest first.
-  expect(subagents.querySelector(".cv-subagent-avatar")).toBeNull();
+  expect(subagents.querySelector(".acpmux-chat-inspector-subagents__running .cv-subagent-avatar")).toBeNull();
   expect(subagents.textContent).not.toMatch(/\+\d/);
   expect(lines(subagents)).toEqual([
     ["Agent 0", "Running"],
@@ -637,6 +822,10 @@ test("Subagents names each running one on its line, and folds the ended ones int
   // The ended ones are one row, folded.
   const ended = endedRow(subagents)!;
   expect(ended.textContent).toBe("39 done · 1 failed");
+  // The compact completed summary previews four agents without replacing their named rows.
+  expect(ended.querySelectorAll(".cv-subagent-avatar")).toHaveLength(4);
+  expect(ended.querySelector('[aria-hidden="true"]')?.querySelectorAll(".cv-subagent-avatar")).toHaveLength(4);
+  expect(ended.querySelector(".acpmux-wave-item")).toBeNull();
   expect(ended.getAttribute("aria-expanded")).toBe("false");
   expect(lines(subagents)).toHaveLength(3);
   await click(ended);
@@ -653,6 +842,48 @@ test("Subagents names each running one on its line, and folds the ended ones int
   expect(shown).toEqual(["agent-1", "agent-8"]);
   await click(ended);
   expect(subagents.querySelector(".acpmux-chat-inspector-subagents__list")).toBeNull();
+});
+
+test("200 streamed tokens do not render the completed avatar preview again", async () => {
+  const container = installDom(true);
+  const avatarRenders = spyOn(subagentGroup, "Avatar");
+  const toneHashes = spyOn(tones, "agentTone");
+  const completed = Array.from({ length: 31 }, (_, index) => subagent(index, "completed"));
+  const paint = async (tokens: number, agents = completed) => {
+    await act(async () => {
+      root ??= createRoot(container);
+      root.render(
+        <>
+          <p>{"token ".repeat(tokens)}</p>
+          {/* Streaming rows/views rebuild the folded agents: new array and objects each update. */}
+          <ChatInspector agents={agents.map((agent) => ({ ...agent, tokens }))} />
+        </>,
+      );
+    });
+  };
+  try {
+    await paint(0);
+    // The compact agent summary previews four avatars in addition to the detailed ended preview.
+    expect(avatarRenders).toHaveBeenCalledTimes(8);
+    const initialHashes = toneHashes.mock.calls.length;
+    for (let token = 1; token <= 200; token++) await paint(token);
+    expect(container.querySelector("p")?.textContent?.trim().split(" ")).toHaveLength(200);
+    expect(avatarRenders).toHaveBeenCalledTimes(8);
+    expect(toneHashes).toHaveBeenCalledTimes(initialHashes);
+    expect(endedRow(container)?.textContent).toBe("31 done");
+
+    // A new ended agent changes the preview; real changes must not be frozen by memoization.
+    await paint(201, [...completed, subagent(31, "completed")]);
+    expect(avatarRenders).toHaveBeenCalledTimes(12);
+    expect(endedRow(container)?.textContent).toBe("32 done");
+    // The same identity can receive corrected state/harness metadata after its first snapshot.
+    await paint(202, [...completed, { ...subagent(31, "failed"), harness: "codex" }]);
+    expect(avatarRenders).toHaveBeenCalledTimes(16);
+    expect(endedRow(container)?.querySelector(".cv-subagent-avatar")?.getAttribute("data-state")).toBe("failed");
+  } finally {
+    avatarRenders.mockRestore();
+    toneHashes.mockRestore();
+  }
 });
 
 test("a nested subagent waiting on the person stays under the one that spawned it", async () => {
@@ -823,15 +1054,138 @@ test("a Cloud VM chat's children, as its machine's daemon lists them with the ch
   const opened: string[] = [];
   await act(async () => {
     root = createRoot(container);
-    root.render(<ChatInspector sessions={children} onOpenSession={(id) => opened.push(id)} />);
+    root.render(
+      <ChatInspector
+        sessions={children}
+        summary={{ sessionId: "vm-root", subsessionLimits: { maxRunning: 4 } }}
+        subsessions={[{ sessionId: "vm-sub", name: "Run the e2e suite", state: "working", depth: 0 }]}
+        onOpenSession={(id) => opened.push(id)}
+      />,
+    );
   });
   const subagents = section(container, "subagents")!;
   expect(meta(subagents)).toBe("1 running · 1 done");
+  expect(compactButton(container).textContent).toContain("1 running · 1 done");
+  expect(subagents.querySelector(".acpmux-subagent-limit__text")?.textContent).toContain("Running 1 / 4 max");
   await click(endedRow(subagents)!);
   expect(lines(subagents)).toEqual([
-    ["Run the e2e suite", "Running"],
+    ["Run the e2e suite", "Working"],
     ["Draft the release notes", "Done"],
   ]);
   await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);
   expect(opened).toEqual(["vm-sub"]);
+});
+
+const compactWorkflow: WorkflowSummary = {
+  id: "workflow-summary",
+  title: "Review workflow",
+  state: "running",
+  phases: [{ id: "review", name: "Review phase", state: "running", agentIds: ["worker"] }],
+  agents: [{ id: "worker", name: "Worker", state: "running" }],
+};
+const compactButton = (container: HTMLElement) =>
+  container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-agent-summary")!;
+
+test("compact counts combine sources with slot waits queued and failed retries running", async () => {
+  const container = installDom(true);
+  const subsessions: SubsessionRow[] = [
+    { sessionId: "slot", name: "Slot queue", state: "working", slot: true, depth: 0 },
+    { sessionId: "retry", name: "Retry", state: "failed", retry: { attempt: 1, of: 4 }, depth: 0 },
+    { sessionId: "ended", name: "Ended", state: "done", depth: 0 },
+  ];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <SubagentSummaryCard
+        agents={[subagent(0, "running"), subagent(1, "failed"), subagent(2, "completed")]}
+        waiting={new Set()}
+        sessions={[{ sessionId: "started", title: "Started", state: "idle" }]}
+        subsessions={subsessions}
+        workflows={[compactWorkflow]}
+        onOpen={noop}
+      />,
+    );
+  });
+  expect(compactButton(container).querySelector(".acpmux-chat-inspector-agent-summary__counts")?.textContent).toBe(
+    [
+      translate("summary.subagents.running", { n: 3 }),
+      translate("workflow.queued", { n: 1 }),
+      translate("summary.subagents.done", { n: 3 }),
+      translate("summary.subagents.failed", { n: 1 }),
+    ].join(" · "),
+  );
+  expect(compactButton(container).textContent).toContain("Review workflow · Review phase");
+  await act(async () => {
+    root!.render(<ChatInspector subsessions={subsessions} />);
+  });
+  expect(meta(section(container, "subagents"))).toBe(
+    [
+      translate("summary.subagents.waiting", { n: 1 }),
+      translate("summary.subagents.running", { n: 1 }),
+      translate("summary.subagents.done", { n: 1 }),
+    ].join(" · "),
+  );
+});
+
+test("the compact Inspector card reveals the matching existing detail and leaves no empty group", async () => {
+  const container = installDom(true);
+  const opened: string[] = [];
+  const onSection = (id: string, open: boolean) => {
+    if (open) opened.push(id);
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ChatInspector agents={[subagent(0, "running")]} workflows={[compactWorkflow]} onSection={onSection} />,
+    );
+  });
+  await click(compactButton(container));
+  expect(opened).toContain("subagents");
+  opened.length = 0;
+  await act(async () => root!.render(<ChatInspector workflows={[compactWorkflow]} onSection={onSection} />));
+  await click(compactButton(container));
+  expect(opened).toContain("tasks");
+  await act(async () => root!.render(<ChatInspector />));
+  expect(compactButton(container)).toBeNull();
+  expect(container.querySelector('[data-group="running"]')).toBeNull();
+});
+
+test("a forty-agent compact card keeps four avatars and the full count", async () => {
+  const container = installDom(true);
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <SubagentSummaryCard
+        agents={Array.from({ length: 40 }, (_, i) => subagent(i, "completed"))}
+        waiting={new Set()}
+        sessions={[]}
+        onOpen={noop}
+      />,
+    );
+  });
+  expect(compactButton(container).querySelectorAll(".acpmux-summary-avatar")).toHaveLength(4);
+  expect(compactButton(container).textContent).toContain(translate("summary.subagents.done", { n: 40 }));
+});
+
+test("the ended-row gallery target stays distinct from the agent summary and opens its list", async () => {
+  const container = installDom(true);
+  const agents = [...Array.from({ length: 40 }, (_, index) => subagent(index, "completed")), subagent(40, "failed")];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ChatInspector agents={agents} onOpenSubagent={noop} />);
+  });
+  const target = { role: "button", name: /40 done · 1 failed/ };
+  const matches = [...container.querySelectorAll("button")].filter((button) =>
+    target.name.test(accessibleName(button)),
+  );
+  expect(matches).toHaveLength(1);
+  const ended = endedRow(section(container, "subagents")!)!;
+  expect(resolveTarget(container, target)).toBe(ended);
+  expect(accessibleName(ended)).toBe("40 done · 1 failed");
+  expect(container.querySelector(".acpmux-chat-inspector-subagents__list")).toBeNull();
+  const selected = resolveTarget(container, target);
+  if (!(selected instanceof dom!.window.HTMLElement)) throw new Error("The ended row was not found");
+  await click(selected);
+  expect(ended.getAttribute("aria-expanded")).toBe("true");
+  expect(lines(container.querySelector(".acpmux-chat-inspector-subagents__list")!)).toHaveLength(41);
 });

@@ -58,6 +58,10 @@ extension SidebarBridge {
             services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
         case let .selectTab(_, tab):
             _ = services.revealTab(tab.rawValue)
+        case let .closeTab(_, tab):
+            // A middle-click on a listed tab: Close Tab on that tab alone (an explicit target is never widened to the
+            // strip's selection), the tab strip's middle-click path, so Reopen Closed (Cmd-Shift-T) brings it back.
+            _ = services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.rawValue), origin: .user))
         case .moveTab:
             // Tab drags are committed by TabDragSession. Keep this intent
             // conservative until a sidebar-only tab move has a daemon
@@ -73,9 +77,9 @@ extension SidebarBridge {
         case .close(let ids):
             // The row's close button is an entrypoint of `closeWorkspace`,
             // so it asks the same confirmation and ends the terminals too.
-            for id in ids {
-                services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue))
-            }
+            // Several selected rows (Cmd-W, the row menu's Close, Delete) close as one batch.
+            if ids.count > 1 { return WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services) }
+            for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
         case .newWorkspace(let machine, let group):
             // A double-click in a group's empty part, or its "+": the end of that group.
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
@@ -88,7 +92,9 @@ extension SidebarBridge {
             for (daemon, key) in keys(ids) {
                 let update: FieldUpdate<String> = color.map { .set($0.rawValue) } ?? .clear
                 let resource = daemon.store.stateResourceID(workspace: key)
-                command("set-workspace-metadata", on: daemon) { c in try await c.state.setWorkspaceIdentity(key, resource: resource, color: update) }
+                // A store intent (#25657): the color stays through every live recompute until the reply settles it,
+                // and a refusal takes it back; without it the next recompute showed the old color until the echo.
+                command("set-workspace-metadata", on: daemon, intent: .setWorkspaceColor(key: key, color: color?.rawValue)) { c in try await c.state.setWorkspaceIdentity(key, resource: resource, color: update) }
             }
         case .toggleCollapse, .createGroup, .move, .renameGroup, .setGroupColor, .ungroup, .reorderGroup:
             // Workspace groups are personal (the home session's
@@ -99,11 +105,14 @@ extension SidebarBridge {
             let members = (model.group(group)?.workspaces ?? []).compactMap { services.machines.workspace(id: $0.id.rawValue) }
             model.apply(intent)
             // One gesture, one closed group per daemon: one Reopen Closed brings the group's workspaces back.
-            WorkspaceBulkClose.close(members) { daemon, label, body in command(label, on: daemon, body) }
+            WorkspaceClose.close(members) { daemon, label, body in command(label, on: daemon, body) }
         case .switchProfile(let profile):
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
             services.registry.perform("space.new", invocation: ActionInvocation())
+        case .openProfileInNewWindow(let profile):
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: profile.rawValue), origin: .user)
+            services.registry.perform("space.openInNewWindow", invocation: invocation)
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
@@ -113,7 +122,7 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
+        case .installUpdate, .downloadUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
              .hideNowPlayingCard, .addItems:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.nowPlayingSources.perform(command)
@@ -125,7 +134,8 @@ extension SidebarBridge {
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):
-            PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: index)
+            let storedIndex = services.sidebarLayout.document.storedInsertionIndex(index, in: section, from: model.layout)
+            PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: storedIndex)
         case .toggleLayoutSection:
             model.apply(intent)
         case .setIcon, .setGroupPinned, .setGroupIcon, .openGroup, .groupEditorEnded:
@@ -174,7 +184,8 @@ extension SidebarBridge {
         model.ungroupedFirst = !usesMixedOrder
         var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
-                                     newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces)
+                                     newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
+                                     harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
         sections = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)
             .applying(to: sections)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
@@ -218,8 +229,10 @@ extension SidebarBridge {
     /// it has an `intent`; a failure re-syncs the sidebar.
     private func command(_ label: String, on daemon: DaemonService, intent: Intent? = nil,
                          _ body: @escaping DaemonCommandBody) {
+        // The intent goes in the store in this turn, with the row's own update, so no recompute between shows the old value.
+        let send = intent.map { daemon.intendNow(label, $0, transaction: .generate(), body) }
         Task { [weak self, services] in
-            let ok = if let intent { await daemon.intend(label, intent, body) } else { await daemon.request(label, body) != nil }
+            let ok = if let send { await send() != nil } else { await daemon.request(label, body) != nil }
             if !ok { withExtendedLifetime(services) { self?.resync() } }
         }
     }

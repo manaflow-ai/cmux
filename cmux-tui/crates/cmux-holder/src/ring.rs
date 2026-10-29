@@ -52,6 +52,7 @@
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 // The offset protocol (publication order, adopted window, loss marker):
@@ -95,7 +96,8 @@ pub struct Ring {
     /// header's words.
     cursor: Cursor,
     /// The shared segment, `None` for a private ring (no shared memory).
-    segment: Option<OwnedFd>,
+    /// Shared with each frame that passes it ([`Self::segment`]).
+    segment: Option<Arc<OwnedFd>>,
     /// A write before this offset may store into a page marked reusable
     /// ([`Self::release_before`], or a dead holder's before this one adopted
     /// the segment): it takes its pages back first ([`reuse_pages`]). After
@@ -192,7 +194,7 @@ impl Ring {
             base,
             layout,
             cursor,
-            segment: Some(segment),
+            segment: Some(Arc::new(segment)),
             // Only a released segment keeps less than its size allows
             // ([`Self::release_before`]; writes give `oldest` back to the
             // size once they took every released page). A fresh one
@@ -223,7 +225,11 @@ impl Ring {
     }
 
     /// The shared segment, to pass to the daemon; `None` for a private ring.
-    pub fn segment(&self) -> Option<&OwnedFd> {
+    /// A frame that passes it holds a clone of this handle, not a dup of the
+    /// descriptor, so passing it costs the holder no descriptor, and the
+    /// segment stays open until the frame is written even if the ring is
+    /// gone by then.
+    pub fn segment(&self) -> Option<&Arc<OwnedFd>> {
         self.segment.as_ref()
     }
 

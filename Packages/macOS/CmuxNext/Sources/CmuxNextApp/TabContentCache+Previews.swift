@@ -147,8 +147,8 @@ extension TabContentCache {
     @discardableResult
     func showLaunchPicture(_ key: String, in pane: PaneContentView, hold: LaunchImageHold, reveal: LaunchReveal) -> Bool {
         if (pane.launchImageView as? BrowserLaunchPictureView)?.tab != key {
-            // A crash streak's deferred pages load nothing: no picture would ever be replaced.
-            guard let launchPictures, !defersRestoredPages,
+            // A page held after a restart loop loads nothing: no picture would ever be replaced.
+            guard let launchPictures, !crashedPages.contains(key),
                   let picture = launchPictures.take(key, profile: (browserProfile?(key) ?? .default).rawValue) else { return false }
             pane.showLaunchPicture(BrowserLaunchPictureView(picture, tab: key), hold: hold)
             reveal.release(pane.contentHost)  // its data is here before the pane region's

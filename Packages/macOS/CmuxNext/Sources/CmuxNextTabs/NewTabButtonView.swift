@@ -4,6 +4,12 @@ import QuartzCore
 
 /// The "+" after the last tab. Mouse handling lives in the strip.
 final class NewTabButtonView: NSView {
+    var showsChevron = false {
+        didSet {
+            setAccessibilityRole(showsChevron ? .popUpButton : .button)
+            needsLayout = true
+        }
+    }
     var isHovered = false {
         didSet {
             guard oldValue != isHovered else { return }
@@ -65,17 +71,23 @@ final class NewTabButtonView: NSView {
         CATransaction.setDisableActions(true)
         let side = min(bounds.width, bounds.height)
         let square = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
-        fillLayer.frame = square
+        fillLayer.frame = showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
         glyphLayer.frame = bounds
         let arm = Metrics.space2 + Metrics.space1 / 2
         let scale = window?.backingScaleFactor ?? 2
         glyphLayer.contentsScale = scale
-        let center = CGPoint(x: (square.midX * scale).rounded() / scale, y: (square.midY * scale).rounded() / scale)
+        let center = CGPoint(x: ((square.midX - (showsChevron ? Metrics.space2 : 0)) * scale).rounded() / scale, y: (square.midY * scale).rounded() / scale)
         let path = CGMutablePath()
         path.move(to: CGPoint(x: center.x - arm, y: center.y))
         path.addLine(to: CGPoint(x: center.x + arm, y: center.y))
         path.move(to: CGPoint(x: center.x, y: center.y - arm))
         path.addLine(to: CGPoint(x: center.x, y: center.y + arm))
+        if showsChevron {
+            let x = center.x + arm + Metrics.space3
+            path.move(to: CGPoint(x: x - Metrics.space1, y: center.y - Metrics.space1 / 2))
+            path.addLine(to: CGPoint(x: x, y: center.y + Metrics.space1 / 2))
+            path.addLine(to: CGPoint(x: x + Metrics.space1, y: center.y - Metrics.space1 / 2))
+        }
         glyphLayer.path = path
         CATransaction.commit()
     }
@@ -105,6 +117,12 @@ final class NewTabButtonView: NSView {
                 glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
             }
         }
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        guard showsChevron else { return false }
+        onPress?()
+        return true
     }
 
     override func accessibilityPerformPress() -> Bool {

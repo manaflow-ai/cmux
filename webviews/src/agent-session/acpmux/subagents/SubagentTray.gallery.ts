@@ -24,6 +24,7 @@ import {
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
+import { trayPanelLook } from "./trayPanel.experiment";
 
 const prompt = "Find out how the daemon updates itself, and check the docs agree";
 
@@ -99,7 +100,7 @@ const described = activity(
 );
 
 /** A chat this chat's agent started (`acpmux new`), its turn running or ended. */
-const child = (id: string, title: string, minutes: number, running: boolean, doing?: string) =>
+const child = (id: string, title: string, minutes: number, running: boolean, doing?: string, doingTool?: string) =>
   session({
     sessionId: id,
     title,
@@ -109,6 +110,7 @@ const child = (id: string, title: string, minutes: number, running: boolean, doi
     createdAt: minutesAgo(minutes),
     ...(running && { lane: "working" as const }),
     ...(doing && { doing }),
+    ...(doingTool && { doingTool }),
   });
 
 /** The subagents a Codex chat's records fold into, as acpmux wrote them for Leo's chat (2026-10-22):
@@ -158,6 +160,93 @@ function codexLineage(): Subagent[] {
   return fold.all().map((agent) => ({ ...agent, action: agent.parent === null ? "git show --stat" : "Edit 2 files" }));
 }
 
+/** Leo's panel (2026-10-25, synthetic names): two chats running whose doing lines are raw shell
+ *  lines, and `done` subagents that ended, one a minute apart; `done` 3 makes the two-agent panel,
+ *  116 the 118-agent one ("View all 116"). */
+const INFRA_DOING = "cd /Users/you/Projects/checkouts/workspace/broker-host-gh && sed -i '' 's/old/new/' broker.ts";
+
+function panel(done: number, running = 2) {
+  const ended = Array.from({ length: done }, (_, index) =>
+    agent(`Lane ${String(index + 1).padStart(3, "0")}`, 130 - index, "completed", {
+      kind: "general-purpose",
+      ran: 1,
+      id: `agent-lane-${index + 1}`,
+    }),
+  );
+  const base = chat(
+    [
+      user("Fan out: one lane per area, and keep me posted", 140),
+      group(ended, 130),
+      assistant("The lanes are running; the two chats below are still going.", 2),
+    ],
+    { isWorking: true },
+  );
+  return {
+    ...base,
+    sessions: [
+      ...base.sessions,
+      child("child-infra", "claude-sr2/fanout-infra", 6, true, INFRA_DOING, INFRA_DOING),
+      child(
+        "child-card",
+        "claude-sr2/subsession-card",
+        5,
+        running > 1,
+        "Check the card's doing line · Read AgentCard.tsx",
+        "Read AgentCard.tsx",
+      ),
+    ],
+  };
+}
+
+/** The tray's head is in view and inside the tray's box, and the point at its middle is the head. */
+function headInView(ctx: PlayContext): void {
+  const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+  const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+  if (!head) throw new Error("the tray's header must stay mounted");
+  const box = tray.getBoundingClientRect();
+  const rect = head.getBoundingClientRect();
+  if (rect.height < 20 || rect.top < box.top - 0.5 || rect.bottom > box.bottom + 0.5)
+    throw new Error(`the header must sit inside the tray (${rect.top}-${rect.bottom} in ${box.top}-${box.bottom})`);
+  const hit = ctx.document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  if (!hit || !head.contains(hit)) throw new Error("the header must be the thing drawn at its place");
+}
+
+/** Opens every ended line (once; a play that already opened them leaves them open), scrolls the
+ *  list to its end, then checks the head and View all stay. A panel without View all only scrolls. */
+const scrollPanel = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+  const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+  // A variant with one line has no header to keep, and nothing to scroll.
+  if (!head) return;
+  if (head.getAttribute("aria-expanded") !== "true") {
+    await ctx.click({ selector: ".acpmux-running-tray__head" });
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+  }
+  const more = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__finished");
+  if (more() && more()!.getAttribute("aria-expanded") !== "true") {
+    await ctx.click({ selector: ".acpmux-running-tray__finished" });
+    await ctx.waitFor(() => more()?.getAttribute("aria-expanded") === "true");
+  }
+  await ctx.scroll({ selector: ".acpmux-running-tray__list" }, "bottom");
+  headInView(ctx);
+  const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+  if (tray.scrollTop !== 0) throw new Error("the tray never scrolls as a whole; only its list does");
+  const foot = more()?.getBoundingClientRect();
+  if (foot && foot.bottom > tray.getBoundingClientRect().bottom + 0.5)
+    throw new Error("View all stays at the tray's foot");
+};
+
+const panelScript = [
+  {
+    name: "the panel at rest",
+    run: async (ctx: PlayContext) => {
+      await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+      if (ctx.document.querySelector(".acpmux-running-tray__head")) headInView(ctx);
+    },
+  },
+  { name: "open all and scroll to the end", run: scrollPanel },
+];
+
 /** Waits for the tray's live `count` lines, and checks no group card is left in the transcript. */
 const trayLines = (count: number) => async (ctx: PlayContext) => {
   await ctx.waitFor(
@@ -190,7 +279,35 @@ export default agentPaneEntry({
     "agent-session/acpmux/subagents/SubagentDoneLine.tsx",
     "agent-session/acpmux/subagents/restart.ts",
   ],
+  // The panel's looks (trayPanel.experiment.ts), on the two- and 118-agent panels.
+  experiment: { definition: trayPanelLook, script: panelScript },
   variants: {
+    "panel-two": {
+      note: 'Leo\'s panel with two chats running and three ended (2026-10-25: "this section, the whatever background tasks ... it\'s kind of wack"): the header pinned on top, running first, then the latest that ended; a chat\'s raw shell doing line reads "Running sed -i …", never "cd /Users/… && sed -i …".',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        headInView(ctx);
+        const details = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__kind")].map(
+          (node) => node.textContent ?? "",
+        );
+        if (details.some((text) => text.startsWith("cd ")))
+          throw new Error(`a line never shows a raw shell line: ${details.join(" | ")}`);
+      },
+      snapshot: panel(3),
+    },
+    "panel-one-running": {
+      note: "One of the two chats ended: the header and its collapse stay while ended lines show (it used to unmount once fewer than two ran).",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
+        headInView(ctx);
+      },
+      snapshot: panel(3, 1),
+    },
+    "panel-118": {
+      note: 'The same panel with 118 agents, every ended one opened and the list scrolled to its end (Leo: the collapse at the top "disappears for some reason ... sometimes"): the header stays pinned on top and View all at the foot; only the list scrolls.',
+      play: scrollPanel,
+      snapshot: panel(116),
+    },
     "one-running": {
       note: "One subagent running: its line alone above the composer, its icon in the theme's accent, what it does now, its time and state.",
       play: trayLines(1),

@@ -1,5 +1,6 @@
 /// Receives each new main-thread, pool or `.cpu` lane blocking call site once per launch (the app's
-/// `BlockingReportSink`: opt-in hang reports and consented crash reports; tests: a recorder).
+/// `BlockingReportSink`: opt-in hang reports and consented crash reports; ``BlockingLogSink``: one unified-log
+/// line per site; tests: a recorder).
 ///
 /// ``BlockingDetector/install(sink:)`` installs one at the composition root and replays to it every
 /// site recorded before. ``record(_:)`` runs

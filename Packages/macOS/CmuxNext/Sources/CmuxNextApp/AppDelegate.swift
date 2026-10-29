@@ -9,6 +9,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFeatures
+import CmuxNextImportCards
 import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextMemory
@@ -20,6 +21,7 @@ import CmuxNextPopups
 import CmuxNextSettings
 import CmuxNextSignposts
 import CmuxNextTerminal
+import CmuxNextUpdater
 import CmuxNextWakeups
 import os
 
@@ -129,6 +131,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let failure = read.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
             // cmux.json's appearance goes on the Ghostty overrides; the first config builds with them on a files lane and the launch goes on when it lands.
             TerminalThemeSetting.prime(read.snapshot)
+            // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
+            BrowserImportGate.prime(read.snapshot)
             // The Kitty image budget per screen before the first config builds: with memorySmallAppStores sized from this Mac's memory.
             GhosttyRuntime.shared.setImageStorageBytesPerScreen(GhosttyImageStorageBudget.startingBytes(memoryBudget: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface, sizedFromMemory: features?.isEnabled(.memorySmallAppStores) == true))
         }, then: { [self] read in GhosttyRuntime.shared.start(loadingOn: GhosttyLaneConfigLoader(work: launchReads.work, mainWork: mainWork)) { [self] in finishLaunching(settings: read, launchStart: launchStart) } })
@@ -141,12 +145,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.settings_read")
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start(store: ThemeScope.app.store)
+        // The glass tint and the Desktop Wallpaper background follow the desktop picture.
+        BackdropImageStore.shared.desktop.start()
         // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
         PageDescriptor.registerDiffRoot()
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
+        // Peer-route approvals: where this Mac's approver key lives, before any pane connects.
+        PeerApprovalsApp.install()
         DebugTimings.markLaunch("dfl.theme")
         let services = registerServices(launch: settingsRead)
+        // The approver's daemon registrations place their person line's limit on the app's deadlines.
+        AcpmuxMacApprover.shared.use(deadlines: services.mainDeadlines)
         DebugTimings.markLaunch("dfl.services")
         AppActions.bindAtLaunch(services, on: order.startup)  // critical `AppActions.bind`: keys work from the first frame
         services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
@@ -155,6 +165,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = registerSettings(services: services, launch: settingsRead)
         // The platform services: what the first frame or the restore reads now, the rest posted.
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
+        // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.
+        if !environment.isolatedLaunch { services.menuBarExtra.follow(settings, background: services.background) }
+        // An upgrade's payment page sends the person back here: read the plan again on each activation.
+        services.lifetimeFollowers.append(services.appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "PaidPlan.returned") { [weak services] in
+            guard let services else { return }
+            Task { await services.paidPlanReturned() }
+        })
         services.followEnergySaver(settings)
         registerSavedPicture(services: services, settings: settings)
         registerHomeFeeds(services: services, settings: settings)
@@ -168,7 +185,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let services, let settings { WorkspaceAutoNameWiring(services: services).start(settings: settings) }  // `workspaces.autoName.variant` persist (hq#1957)
         }
         services.lifetimeFollowers += BrowserOmnibarPreference.follow(settings, cache: services.cache, on: services.mainWork)
+        // `appearance.wallpaperTint` (DesignSettings, applied from the settings) turns the desktop picture's sampling on or off.
+        services.lifetimeFollowers.append(ServiceObservation(.visible, owner: "WallpaperTint.follow", on: services.mainWork) {
+            DesignSettings.shared.wallpaperTint
+        } apply: { BackdropImageStore.shared.desktop.tintEnabled = $0 })
         // The look of the first frame: the loaded theme, background and backdrop art, then each workspace's theme and the app accent.
+        order.startup.post(.afterStartup, "AutoArchive.start", on: .main) { [weak services] in services?.autoArchive.start() }  // workspaces.autoArchive: first pass 30 s after launch
+        order.startup.post(.afterStartup, "WorkspaceHibernation.start", on: .main) { [weak services] in services?.workspaceHibernation.start() }  // workspaces.hibernation: first pass 60 s after launch
         order.startup.post(.critical, "TerminalTheme.follow", on: .main) { services.terminalTheme.follow(settings) }
         order.startup.post(.critical, "Themes.start", on: .main) { services.themes.start(); services.themes.followChromeTheme(settings) }
         services.bookmarks.follow(settings)
@@ -186,6 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         order.startup.post(.afterFirstFrame, "MouseSideButtons.start", on: .main) { [weak self, weak services] in
             self?.mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         }
+        order.startup.post(.afterFirstFrame, "HarnessIcons.start", on: .main) { [weak services] in services?.harnessIcons.start() }  // the harness icons follow acpmux's list
         order.startup.post(.afterFirstFrame, "KeybindingsFile.start", on: .main) { [weak services] in services?.keybindingsFile.start() }
         registerBrowserData(services: services, profilesDirectory: profilesDirectory)
         DebugTimings.markLaunch("dfl.home_history")
@@ -254,6 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             launchOpens.hold(.activity(type: userActivity.activityType, webpageURL: userActivity.webpageURL))
             return true
         }
+        services.input.endRelaunchBehind("handoff")
         return services.externalOpen.continueActivity(type: userActivity.activityType, webpageURL: userActivity.webpageURL)
     }
 
@@ -262,6 +287,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// then `ExternalOpenRouter`.
     func routeOpenedURL(_ url: URL) {
         guard let services else { return launchOpens.hold(.url(url)) }  // routed when the launch builds them
+        // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
+        services.input.endRelaunchBehind("external open")
         let auth = services.cloudAuth
         let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
         guard destination == .auth else { return }
@@ -270,6 +297,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        // The release push's socket closes and nothing reconnects (ReleasePushListener).
+        services?.updater.stopReleasePush()
+        services?.agentTabs.pageChats.runNotices?.stop()
         AppProcessRoot.shared.hangReports?.applicationWillTerminate()
         ComputerUseHelperDaemon.shared.applicationWillTerminate()
         services?.viewers.diffPages.terminate()
@@ -301,6 +331,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Dock click with no window open: the last closed window comes back
     /// with its workspaces, else a new window (in background mode a panel or the menu bar item may count as visible).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        // A Dock click in an update relaunch's startup: the user chose cmux.
+        services?.input.endRelaunchBehind("dock click", activating: true)
         guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
         services.windows.reopenOrCreateWindow()
         return false

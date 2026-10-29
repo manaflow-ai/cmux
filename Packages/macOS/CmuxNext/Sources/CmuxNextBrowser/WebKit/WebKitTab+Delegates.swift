@@ -3,6 +3,9 @@ public import Foundation
 public import WebKit
 import CmuxNextCompat
 import CmuxNextDesign
+import os
+
+private let processLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "webkit")
 
 // MARK: - Navigation
 
@@ -43,6 +46,9 @@ extension WebKitTab: WKNavigationDelegate {
             }
             return
         }
+        // An Open Desktop page is a Cloud machine's screen, reachable only from a Chromium tab over
+        // the app's Cloud tunnel; in WebKit it would be this Mac's own loopback.
+        if BrowserNavigationGuard.isCloudDesktop(url) { return decisionHandler(.cancel, preferences) }
         // A local Markdown file shows in cmux's markdown page, not as text (LocalFileHandoff).
         if navigationAction.targetFrame?.isMainFrame ?? true, url.isHandedOff(by: .webkit) { emit(.openLocalFile(url)); return decisionHandler(.cancel, preferences) }
         if cancelsFormResubmission(navigationAction, decisionHandler: { decisionHandler(.cancel, preferences) }) { return }
@@ -175,6 +181,9 @@ extension WebKitTab: WKNavigationDelegate {
         pageBaseHold.cancel()
         setDrawsPageBackground(true)
         removeStandIn()
+        // The sad tab shows; the page reloads only when the person presses Reload.
+        let tabID = id.rawValue
+        processLogger.error("web content process ended tab=\(tabID, privacy: .public); no automatic reload")
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
         processSiteEnded()
         firstContentFrame.contentShown() // the sad tab is what the new tab shows
@@ -300,6 +309,12 @@ extension WebKitTab: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
+        // Files an agent offered (`browser.page.upload`) answer first; `[]` (a chooser they cannot fill) cancels.
+        if let offered = agentFiles.answer(multiple: parameters.allowsMultipleSelection,
+                                           folder: parameters.allowsDirectories, save: false) {
+            completionHandler(offered.isEmpty ? nil : offered)
+            return
+        }
         // The one file-input path (WebFileInputAnswering) every WebKit view shares: in the app the made-ahead panel.
         // A tab whose engine is gone ends the input as a cancel.
         guard let engine else {

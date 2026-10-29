@@ -27,12 +27,14 @@ mod control;
 mod drafts;
 mod engine_control;
 pub mod files;
+mod harness_offer;
 mod image_fit;
 pub mod images;
 mod inbox;
 pub mod media;
 mod mux_ack;
 mod outbox;
+mod outcome_ledger;
 mod owner_exit;
 mod previews;
 mod prewarm;
@@ -40,6 +42,7 @@ pub mod reaction_wake;
 mod recover;
 mod replies;
 mod reply_ledger;
+pub use outcome_ledger::UNTOLD_TAG;
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;
@@ -82,6 +85,11 @@ pub use owner_exit::OWNER_APP_EXITED;
 /// How long a handoff request waits for the running turn: past it the host
 /// stops anyway and the next host adopts the turn session.
 pub(crate) const HANDOFF_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// How long a host whose binary was replaced waits for no turn to run: it
+/// still works, so only a turn that never ends brings the cut.
+pub(crate) const BINARY_REPLACED_WAIT: std::time::Duration =
+    std::time::Duration::from_secs(24 * 60 * 60);
 
 pub enum Input {
     Daemon(Box<DaemonEvent>),
@@ -200,6 +208,15 @@ pub enum Input {
         attempt: u32,
         reason: String,
         after_network: bool,
+        online: bool,
+    },
+    /// The model endpoint answers again after the Chief's turn was cut by a
+    /// network error (`turns::Cut::Network`), or the wait for it ended
+    /// (`!online`): the cut turn whose hold is `hold` runs at `not_before`
+    /// at the earliest.
+    NetworkBack {
+        hold: Instant,
+        not_before: Instant,
         online: bool,
     },
     /// Subagent `id`, whose account hit a usage limit, continues in a new
@@ -386,6 +403,9 @@ pub enum Input {
     /// SIGUSR1 to the host: an update replaced the app, so the brain stops
     /// once no turn runs ([`HANDOFF_WHEN_IDLE`]); the app then hands acpmux
     /// off and starts the next host.
+    /// The host's binary was replaced on disk (an app update): hand off once
+    /// no turn runs (`update_watch`).
+    BinaryReplaced,
     HandoffWhenIdle,
     /// The app this host serves exited and no newer app took it over
     /// (`owner_app.rs`): the brain stops once it is idle
@@ -868,6 +888,8 @@ pub struct Brain {
     resume_at: Option<Instant>,
     /// The waits before such a turn runs again (`turns::UPSTREAM_RESUME_BACKOFF`).
     upstream_backoff: Vec<std::time::Duration>,
+    /// How often a turn cut by a network error checks the model endpoint.
+    network_poll: std::time::Duration,
     /// An update asked for a handoff: the brain stops between turns, at
     /// the latest at this deadline.
     handoff_at: Option<Instant>,
@@ -1010,6 +1032,7 @@ impl Brain {
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
+            network_poll: crate::auto_resume::NETWORK_POLL,
             handoff_at: None,
             handoff_wait: HANDOFF_DEADLINE,
             owner_gone_at: None,
@@ -1078,6 +1101,14 @@ impl Brain {
     /// mark (false, the default).
     pub fn set_sub_close_on_finish(&mut self, close: bool) {
         self.sub_close_on_finish = close;
+    }
+
+    /// Moves subagent `id`'s run start back by `by` (tests of how long a run
+    /// took; no production caller).
+    pub fn backdate_sub_run(&mut self, id: &str, by: std::time::Duration) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.run_ms = sub.run_ms.saturating_sub(by.as_millis() as u64);
+        }
     }
 
     /// Auto-resume of subagents that stop on an error (None: off), and the
@@ -1239,6 +1270,7 @@ impl Brain {
                 self.next_wake(),
                 self.next_unanswered_due(),
                 self.next_reply_due(),
+                self.next_outcome_due(),
             ]
             .into_iter()
             .flatten()
@@ -1250,6 +1282,7 @@ impl Brain {
                         self.on_timer();
                         self.fire_wakes_at(now_ms());
                         self.fire_reply_checks_at(now_ms());
+                        self.fire_outcome_checks_at(now_ms());
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
                         continue;
@@ -1345,6 +1378,11 @@ impl Brain {
                 online,
             } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
             Input::AutoMove { id, harness } => self.auto_move_due(&id, &harness),
+            Input::NetworkBack {
+                hold,
+                not_before,
+                online,
+            } => self.network_back(hold, not_before, online),
             Input::TurnView { reply } => {
                 let _ = reply.send(self.turn_view.clone());
             }
@@ -1460,6 +1498,16 @@ impl Brain {
                 // The Chief goes away: its idle cloud VMs pause now.
                 self.cloud_shutdown();
                 self.fatal = Some(format!("{STOP_REQUESTED} (signal {signal})"));
+            }
+            Input::BinaryReplaced => {
+                if self.handoff_at.is_none() {
+                    (self.log)(
+                        "this host's binary was replaced (an update): stopping once no turn runs",
+                    );
+                    // No cut of a running turn: an outdated host still works.
+                    self.handoff_at = Some(Instant::now() + BINARY_REPLACED_WAIT);
+                }
+                self.handoff_if_idle();
             }
             Input::HandoffWhenIdle => {
                 if self.handoff_at.is_none() {
@@ -1652,6 +1700,17 @@ impl Brain {
             self.cloud_idle = std::time::Duration::from_secs(secs);
             (self.log)(&format!("setting {key} = {secs}"));
             return Ok(format!("{key} = {secs}"));
+        }
+        if key == crate::chief_settings::TRACE_FULL {
+            let on = parse_bool(value)?;
+            let mut next = self.chief;
+            next.trace_full = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.trace.set_full(on);
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
         }
         if key == SHOW_AFTER_REPORT {
             let on = parse_bool(value)?;

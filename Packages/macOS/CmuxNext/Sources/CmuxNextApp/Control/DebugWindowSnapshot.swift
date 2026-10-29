@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -25,13 +26,16 @@ import CmuxNextWakeups
 /// visible child windows the image includes) and `child_windows_failed`
 /// (how many it leaves out because the window server gave no image of
 /// them; AppKit drawing never includes a child window). Child windows are
-/// composited by the window server over the window: a Chromium page draws
-/// into its own child window, and overlay panels sit above content.
+/// composited by the window server with the window: a Chromium page draws
+/// into its own child window, and overlay panels and popovers sit above content.
 /// `floating_windows` counts the app's other windows the window server shows
-/// above the window and over it, painted on top cut to its frame: an open
+/// above the window and over it, cut to its frame: an open
 /// context menu (not in AppKit's window list), a hover card or popover that is
 /// not its child; another of the app's titled windows in front at the same
-/// level, with its own child windows and sheets, is left out. The
+/// level, with its own child windows and sheets, is left out. The window, its
+/// child windows and those windows are one window server composite
+/// (``NSWindow/compositedImageWithOverlays(on:cutOverlays:)``), so a glass popover or menu
+/// blurs the window under it, as on screen (composited apart, it came out grey). The
 /// async verb also paints each engine's own image of every shown page
 /// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts),
 /// since the window server
@@ -47,6 +51,21 @@ import CmuxNextWakeups
 /// far. Check those (or `debug.toast`) instead of looking for the toast in
 /// the PNG.
 enum DebugWindowSnapshot {
+    /// How long `debug.window_snapshot` may take, instead of the 2 s control-plane deadline. The
+    /// capture runs on the main actor and takes about 50 ms once it runs, but on a capture mini
+    /// that also runs builds and tests, or while the app is still launching, the wait for the
+    /// main actor alone passed 2 s: the snapshot timed out and the capture had no still. Its
+    /// callers wait 10 to 90 s (pr-capture's driver 30 s).
+    static let deadline: Duration = .seconds(30)
+
+    /// The control route, `debug.window_snapshot`, with its own ``deadline``.
+    static func controlMethod(services: AppServices) -> ControlMethod {
+        .async("debug.window_snapshot") { [weak services] call in
+            guard let services = await MainActor.run(body: { services }) else { return .null }
+            return await captureAsync(call.params, services: services)
+        }.withDeadline(.fixed(deadline))
+    }
+
     @MainActor
     static func capture(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
@@ -54,22 +73,22 @@ enum DebugWindowSnapshot {
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
-            // The window server calls run on the system lane; main reads the plan and paints.
+            // Read before the awaits: a sheet may close meanwhile.
             let children = window.visibleChildWindows.count
-            let snapshot = try await window.snapshotImage(on: services.work)
-            // The app's menus, cards and popovers over the window go on top, as on screen.
-            let floating = await window.floatingWindows(on: services.work).flatMap { windows in
-                WindowImageLayer.composite(base: snapshot.image, window: window, layers: [.window(windows.image)])
-                    .map { (image: $0, count: windows.count) }
-            }
-            let output = floating?.image ?? snapshot.image
+            // The window with its child windows and the app's menus, cards and popovers over it, composited
+            // together as on screen (so glass over the window blurs it); else the window's own image (its
+            // window server calls on the system lane; AppKit drawing without one), no child windows.
+            let together = await window.compositedImageWithOverlays(on: services.work)
+            let snapshot: (image: CGImage, method: WindowSnapshotMethod)
+            if let together { snapshot = (together.image, .composited) } else { snapshot = try await window.snapshotImage(on: services.work) }
+            let output = snapshot.image
             try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path), on: services.work)
             return .object([
                 "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(snapshot.method.rawValue),
                 "child_windows": JSONValue(snapshot.method == .composited ? children : 0),
                 "child_windows_failed": JSONValue(snapshot.method == .composited ? 0 : children),
-                "floating_windows": JSONValue(floating?.count ?? 0),
+                "floating_windows": JSONValue(together?.floating ?? 0),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
@@ -78,12 +97,12 @@ enum DebugWindowSnapshot {
     }
 
     /// Captures the window and paints each visible page over the window
-    /// image, in screen order: the window (with its page child windows), the
-    /// WebKit pages, the Chromium pages, the overlay panels above content,
-    /// then the app's menus open over it. The base is the window server's
-    /// image whenever it gives one: it is the window as on screen, WebKit
-    /// pages included (they are layers of this window), so no WebKit image
-    /// is painted over it. AppKit drawing
+    /// image, in screen order: the window (with its child windows and the
+    /// app's menus open over it), the WebKit pages, the Chromium pages, then
+    /// the overlay panels and menus again where they cover a page. The base is
+    /// the window server's image whenever it gives one: it is the window as on
+    /// screen, WebKit pages and overlays included (WebKit pages are layers of
+    /// this window), so no WebKit image is painted over it. AppKit drawing
     /// is only the fallback (no window server image, a host without a lit
     /// display): it leaves out WebKit's remote content, so each page's own
     /// image is painted there, and it drops Liquid Glass with the views
@@ -102,20 +121,27 @@ enum DebugWindowSnapshot {
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
             let webViews = visibleWebViews(in: window)
-            // The window server's image first: it shows the window as on
-            // screen, WebKit pages included. Only without it, AppKit drawing
-            // with the live web views hidden, so the page snapshots below fill
-            // each rectangle exactly once. The overlay panels go on top at the
-            // end, so either base has only the page windows.
-            let composited = await window.compositedImage(on: services.work, includeChild: { window.isPageChild($0) })
-            let base = try composited.map { (image: $0, method: WindowSnapshotMethod.composited) }
+            // The window server's image first: the window as on screen, WebKit
+            // pages, child windows and the app's menus and popovers over it
+            // composited together, so glass over the window blurs it, and the
+            // overlays cut from that same composite (the non-page children and
+            // the floating windows), so a popover that opens during the page
+            // images' awaits is never cut from a composite it is not in. Only
+            // without it, AppKit drawing with the live web views hidden, so the
+            // page snapshots below fill each rectangle exactly once, and the
+            // overlay panels painted on top at the end. The window server calls
+            // run on the system lane; main reads the plan and paints.
+            let together = await window.compositedImageWithOverlays(on: services.work, cutOverlays: { !window.isPageChild($0) })
+            let base = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) }
                 ?? (webViews.isEmpty ? appKitBaseImage(for: window) : nativeBaseImage(for: window, hiding: webViews))
+            // The overlays cut from that composite (with it, above): not cut later from a newer window list.
+            let overlays = base.method == .composited ? together?.overlays : nil
             var layers: [WindowImageLayer] = []
             // The child windows each layer brings, so the result counts only
             // the ones the image includes (none from a missing layer).
             let children = window.visibleChildWindows
             let pageChildren = children.filter { window.isPageChild($0) }.count
-            var childrenIncluded = base.method == .composited ? pageChildren : 0
+            var childrenIncluded = base.method == .composited ? children.count : 0
             if base.method == .appkit,
                let pageWindows = await window.childWindowsImage(on: services.work, includeChild: { window.isPageChild($0) }) {
                 layers.append(.window(pageWindows))
@@ -151,17 +177,27 @@ enum DebugWindowSnapshot {
             let reactPages = PageRegistry.shownChromiumPages(in: window)
             for (page, rect) in reactPages {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
-                layers.append(.page(image, rect))
+                layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
             }
             // The overlay planes in the view tree (host mode) went under the page images: they go back over them.
             if let planes = (window as? ShellWindow)?.overlayLayer.planesOverPages(layers) { layers.append(planes) }
-            if let panels = await window.childWindowsImage(on: services.work, includeChild: { !window.isPageChild($0) }) {
-                layers.append(.window(panels))
-                childrenIncluded += children.count - pageChildren
+            var floatingCount = together?.floating ?? 0
+            if base.method == .composited {
+                // A Chromium page image covered the panels, popovers and menus over its page:
+                // their pixels come back from the window server's composite, the page under them.
+                if !layers.isEmpty, let overlays {
+                    layers.append(.window(overlays))
+                }
+            } else {
+                if let panels = await window.childWindowsImage(on: services.work, includeChild: { !window.isPageChild($0) }) {
+                    layers.append(.window(panels))
+                    childrenIncluded += children.count - pageChildren
+                }
+                // Menus, and cards or popovers not attached to the window, go on top.
+                let floating = await window.floatingWindows(on: services.work)
+                if let floating { layers.append(.window(floating.image)) }
+                floatingCount = floating?.count ?? 0
             }
-            // Menus, and cards or popovers not attached to the window, go on top.
-            let floating = await window.floatingWindows(on: services.work)
-            if let floating { layers.append(.window(floating.image)) }
             let painted = WindowImageLayer.composite(base: base.image, window: window, layers: layers)
             let output = painted ?? base.image
             // AppKit/WebKit capture and compositing stay on the main actor;
@@ -173,7 +209,7 @@ enum DebugWindowSnapshot {
                 "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(webViews.count - failed),
                 "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childrenIncluded),
                 "child_windows_failed": JSONValue(children.count - childrenIncluded),
-                "floating_windows": JSONValue(painted == nil ? 0 : floating?.count ?? 0),
+                "floating_windows": JSONValue(base.method == .composited || painted != nil ? floatingCount : 0),
                 "chromium_pages": JSONValue(pages.count + reactPages.count),
                 "chromium_pages_composited": JSONValue(pages.count + reactPages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),

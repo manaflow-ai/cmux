@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
-import { act, useState } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PendingSteer } from "./PendingSteer";
+import { PendingSteer, takesSteersBack } from "./PendingSteer";
 import { TurnActionsContext } from "./turnActions";
 import type { AcpmuxRow } from "../model";
 
@@ -49,34 +49,44 @@ afterEach(async () => {
   saved.clear();
 });
 
-async function render(sendResult: boolean) {
-  const container = installDom();
-  function Harness() {
-    const [row, setRow] = useState<AcpmuxRow>(waiting);
-    return (
-      <TurnActionsContext.Provider value={{}}>
-        <PendingSteer
-          row={row}
-          send={async () => {
-            if (sendResult) setRow({ ...row, steer: undefined, steerPromptId: undefined });
-            return sendResult;
-          }}
-        />
-      </TurnActionsContext.Provider>
-    );
-  }
+// acpmux answers send_now before the agent reads the steer: its row still says waiting then, as on
+// Leo's row (2026-10-24: "after i clicked send now and it worked it should just disappear").
+// Each steer has its own promptId: a Send now that worked is remembered by it for the page's life.
+const steers = { count: 0 };
+async function render(sendResult: boolean, row: AcpmuxRow = { ...waiting, steerPromptId: `p-${(steers.count += 1)}` }) {
+  const container = dom?.window.document.getElementById("root") ?? installDom();
+  const unsteer = async () => true;
   await act(async () => {
     root = createRoot(container);
-    root.render(<Harness />);
+    root.render(
+      <TurnActionsContext.Provider value={{ unsteer }}>
+        <PendingSteer row={row} send={async () => sendResult} />
+      </TurnActionsContext.Provider>,
+    );
   });
   return container;
 }
 
-test("Send now disappears when delivery succeeds", async () => {
-  const succeeded = await render(true);
-  const successButton = succeeded.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
-  await act(async () => successButton.click());
-  expect(succeeded.querySelector(".cv-user__send-now")).toBeNull();
+test("Send now and the X disappear immediately once delivery is accepted", async () => {
+  const container = await render(true);
+  expect(container.querySelector(".cv-user__take-back")).not.toBeNull();
+  const button = container.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
+  await act(async () => button.click());
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+});
+
+test("a row drawn again after Send now worked shows no controls while the steer still waits", async () => {
+  const steer: AcpmuxRow = { ...waiting, steerPromptId: "p-scrolled" };
+  const container = await render(true, steer);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  // The transcript dropped the row (scrolled away) and draws it again: acpmux still says waiting.
+  await act(async () => root!.unmount());
+  await render(true, steer);
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+  // Another steer that waits still shows them.
+  await act(async () => root!.unmount());
+  await render(true);
+  expect(container.querySelector(".cv-user__send-now")).not.toBeNull();
 });
 
 test("Send now remains available when delivery fails", async () => {
@@ -84,4 +94,50 @@ test("Send now remains available when delivery fails", async () => {
   const failureButton = failed.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
   await act(async () => failureButton.click());
   expect(failed.querySelector(".cv-user__send-now")).not.toBeNull();
+  expect(failed.querySelector(".cv-user__pending--leaving")).toBeNull();
+});
+
+test("Send now and the X disappear when the agent reads the steer first", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const draw = (row: AcpmuxRow) =>
+    act(async () =>
+      root!.render(
+        <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+          <PendingSteer row={row} send={() => new Promise<boolean>(() => {})} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  const steer: AcpmuxRow = { ...waiting, steerPromptId: "p-read-first" };
+  await draw(steer);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  // acpmux's snapshot says the agent read it before Send now's reply came.
+  await draw({ ...steer, version: 2, steer: "landed" });
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+});
+
+test("a steer read before it was drawn has no Send now or X", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+        <PendingSteer row={{ ...waiting, steer: "landed" }} send={async () => true} />
+      </TurnActionsContext.Provider>,
+    );
+  });
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+});
+
+// Leo, 2026-10-24: "where's the, like, X button? All I see is the send now". His Claude chats run
+// a Claude Code profile under its own family name (claude-sr2). Only acpmux's Claude Code adapter
+// takes a steer back, and `backgroundsWork` marks a chat that runs it; other agents steer too.
+test("the X is offered in every Claude Code chat, whatever its family is named, and nowhere else", () => {
+  const sr2 = { harness: "claude-sr2", family: "claude-sr2", steering: true, backgroundsWork: true };
+  const claude = { harness: "claude", family: "claude", steering: true, backgroundsWork: true };
+  const codex = { harness: "codex", family: "codex", steering: true, backgroundsWork: false };
+  expect(takesSteersBack(sr2, true)).toBe(true);
+  expect(takesSteersBack(claude, true)).toBe(true);
+  expect(takesSteersBack(codex, true)).toBe(false);
+  expect(takesSteersBack(claude, false)).toBe(false);
 });

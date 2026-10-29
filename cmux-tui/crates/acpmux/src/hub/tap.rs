@@ -11,6 +11,9 @@ use super::*;
 /// headers_ms and ttft_ms): every `message_start`, and the first `content_block_delta` after it.
 const RAW_STREAM_EVENT: &str = "claude.stream_event";
 
+/// A raw Claude `control_response` line.
+const RAW_CONTROL_RESPONSE: &str = "claude.control_response";
+
 /// The `session/update` kinds that show the model at work: what it says or does (a message, a
 /// thought, a tool call and its progress, a plan), a compaction (the model summarizing) and a
 /// subagent's progress.
@@ -77,6 +80,8 @@ impl Hub {
     pub(super) fn session_tap(self: &Arc<Self>, session: &Arc<Session>) -> crate::agent::Tap {
         let tap_session = session.clone();
         let tap_hub = self.clone();
+        // The epoch its reports count in (`FloorState::report_epoch`).
+        let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| {
@@ -93,6 +98,15 @@ impl Hub {
                 && method == crate::rpc::method::SESSION_UPDATE
             {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
+                // Counted before it is logged, so no check waits for the inbound loop to apply
+                // it (review 69 of #23322).
+                if super::full_access_bound::own_full_access_report(&tap_session, p) {
+                    // Under the meta lock the view reads it under (`FullAccessView::of_session`).
+                    let _m = tap_session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    if tap_session.floor.report_epoch.load(Ordering::SeqCst) == report_epoch {
+                        tap_session.floor.unapplied_full_access.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
             }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
@@ -116,8 +130,15 @@ impl Hub {
                     if method == crate::agent::HOST_EXIT =>
                 {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
-                    let intentional =
-                        matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // The idle exit marked it before it ended the harness (`idle.rs`); a stop clears the mark.
+                    let hibernating = tap_session.hibernated_at.load(Ordering::SeqCst) != 0
+                        && tap_session.status() != SessionStatus::Closed;
+                    let intentional = hibernating
+                        || matches!(
+                            tap_session.status(),
+                            SessionStatus::Idle | SessionStatus::Closed
+                        );
+                    tap_session.harness_turn.store(false, Ordering::SeqCst);
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     let stored = tap_hub
@@ -125,7 +146,11 @@ impl Hub {
                             &tap_session,
                             "mux",
                             if intentional { "stopped" } else { "exited" },
-                            json!({"code": code}),
+                            if hibernating {
+                                json!({"code": code, "hibernated": true})
+                            } else {
+                                json!({"code": code})
+                            },
                             host_seq,
                         )
                         .1;
@@ -135,23 +160,36 @@ impl Hub {
                     let mut kind = method.clone();
                     let timing = method == RAW_STREAM_EVENT
                         && params.as_ref().is_some_and(|p| times_request(p, &awaiting_first_delta));
-                    if method == RAW_STREAM_EVENT && !timing {
+                    // Claude Code's whole /context answer (its grid, every MCP tool) is not
+                    // logged either: the breakdown translated from it follows.
+                    let context = method == RAW_CONTROL_RESPONSE
+                        && params.as_ref().is_some_and(crate::claude_stdio::is_context_answer);
+                    if (method == RAW_STREAM_EVENT && !timing) || context {
                         // Kept nowhere: the entry counts as logged once the records before
                         // it are, so the host drops it.
                         tap_hub.touch(&tap_session);
                         return tap_hub.ticket(&tap_session, true);
                     }
                     if method.starts_with("claude.") {
-                        // Raw stream-json line; translated messages follow.
-                        let stored = tap_hub
-                            .append_logged(
-                                &tap_session,
-                                "in",
-                                &kind,
-                                params.clone().unwrap_or(Value::Null),
-                                host_seq,
-                            )
-                            .1;
+                        // Claude Code's turn, its own ones too (`Session::harness_turn`).
+                        if method == "claude.system.init" {
+                            tap_session.harness_turn.store(true, Ordering::SeqCst);
+                        } else if method.starts_with("claude.result") {
+                            tap_session.harness_turn.store(false, Ordering::SeqCst);
+                        } else if (method == "claude.system.task_started"
+                            || method == "claude.system.task_notification")
+                            && let Some(line) = params.as_ref()
+                        {
+                            // A failed subagent's resume, and its end when only these lines
+                            // show it (`subagent_retry.rs`).
+                            tap_hub.observe_task_line(&tap_session, line);
+                        }
+                        // Raw stream-json line; translated messages follow. Claude's echo of a
+                        // prompt (`--replay-user-messages`) carries its model-sized copies.
+                        let mut line = params.clone().unwrap_or(Value::Null);
+                        crate::model_copies::scrub_logged(&mut line);
+                        let stored =
+                            tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                         return tap_hub.ticket(&tap_session, stored);
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
@@ -175,14 +213,10 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, params })
                     if method == "claude.stdin" =>
                 {
+                    let mut line = params.clone().unwrap_or(Value::Null);
+                    crate::model_copies::scrub_logged(&mut line);
                     let stored = tap_hub
-                        .append_logged(
-                            &tap_session,
-                            "out",
-                            "claude.stdin",
-                            params.clone().unwrap_or(Value::Null),
-                            host_seq,
-                        )
+                        .append_logged(&tap_session, "out", "claude.stdin", line, host_seq)
                         .1;
                     return tap_hub.ticket(&tap_session, stored);
                 }
@@ -193,6 +227,16 @@ impl Hub {
             // parent (`crate::subagents`); they are not the session's own
             // message stream.
             let mut value = msg.to_value();
+            // Less the model-sized image copies acpmux wrote to the agent, and any echo of them.
+            crate::model_copies::scrub_logged(&mut value);
+            // The agent's own display line on its ask is neither logged nor shown
+            // (`permissions/display.rs`): only acpmux writes the line a person reads.
+            if d == "in"
+                && msg.method() == Some(crate::rpc::method::SESSION_REQUEST_PERMISSION)
+                && let Some(params) = value.get_mut("params")
+            {
+                super::drop_display_lines(params);
+            }
             let mut subagent = None;
             if d == "in"
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
@@ -207,7 +251,7 @@ impl Hub {
                     .clone();
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
-                subagent = tree.annotate(params);
+                subagent = tree.annotate_live(params, !kind.ends_with(".replay"));
             }
             // A live update's workflow changes feed the daemon's index of them.
             if d == "in"
@@ -226,6 +270,11 @@ impl Hub {
             if live_update {
                 tap_hub.before_agent_update(&tap_session, msg.params());
             }
+            // An update that starts or ends a subagent may change the work that runs past the
+            // chat's turn (`work_below.rs`).
+            let subagent_events = d == "in"
+                && !kind.ends_with(".replay")
+                && value.pointer("/params/_meta/acpmux/subagents").is_some();
             // A shell's output file stays in the registry, off the record.
             let output = if d == "in" && kind == "background_task_update" {
                 super::processes::take_output_file(&mut value)
@@ -236,9 +285,20 @@ impl Hub {
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
+            if subagent_events {
+                tap_hub.refresh_work_below(&tap_session);
+            }
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {
                 tap_hub.note_process(&tap_session, &rec, output.as_deref());
+            }
+            // A failed subagent's retry, once its end is logged (`subagent_retry.rs`).
+            if d == "in"
+                && !kind.ends_with(".replay")
+                && let Some(events) =
+                    rec.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
+            {
+                tap_hub.observe_subagents(&tap_session, events);
             }
             tap_hub.ticket(&tap_session, logged)
         })

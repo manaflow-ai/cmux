@@ -153,7 +153,7 @@ import Testing
         #expect(harness.moves == 1, "only the leading drag moved the divider before the frame")
         harness.frames.frame()
         #expect(harness.moves == 2, "eight drag events in a frame moved the divider \(harness.moves) times")
-        guard case let .moved(point, _, _)? = harness.events.last else {
+        guard case let .moved(point, _, _, _)? = harness.events.last else {
             Issue.record("the frame delivered no move: \(harness.kinds)")
             return
         }
@@ -262,7 +262,7 @@ import Testing
     /// The last move's real point and the point it was drawn at.
     static func lastMove(_ harness: Harness) -> (real: CGPoint, shown: CGPoint?)? {
         for event in harness.events.reversed() {
-            if case let .moved(point, _, shown) = event { return (point, shown) }
+            if case let .moved(point, _, _, shown) = event { return (point, shown) }
         }
         return nil
     }
@@ -314,7 +314,7 @@ import Testing
         for harness in [resampled, plain] { try Self.drag(harness, through: points, release: true) }
 
         #expect(resampled.events.contains { event in
-            if case .moved(_, _, .some(_)) = event { return true }
+            if case .moved(_, _, _, .some(_)) = event { return true }
             return false
         }, "the drag was drawn resampled")
         let ended = try #require(Self.endedRatio(resampled))
@@ -363,7 +363,7 @@ import Testing
         for index in 5...7 { drag(index) }
         harness.frames.frame()
         let shown = harness.events.compactMap { event -> CGPoint? in
-            if case let .moved(_, _, shown) = event { return shown }
+            if case let .moved(_, _, _, shown) = event { return shown }
             return nil
         }
         #expect(shown.count == 4, "two leading edges and two frames: \(harness.kinds)")

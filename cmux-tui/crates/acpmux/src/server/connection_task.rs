@@ -118,7 +118,15 @@ impl Conn {
             agent_tools: std::sync::OnceLock::new(),
             peer_leases: StdMutex::new(Some(Vec::new())),
             ephemeral: StdMutex::new(Some(Vec::new())),
-            media: crate::hub::media_handles::Handles::default(),
+            ended: tokio::sync::watch::Sender::new(false),
+            // A peer daemon's link carries all its clients' reads, which it caps one by one
+            // (`media_forward.rs`).
+            media: if auth == ConnAuth::PeerToken {
+                crate::hub::media_handles::Handles::for_peer_link()
+            } else {
+                crate::hub::media_handles::Handles::default()
+            },
+            remote_media: super::media_forward::RemoteMedia::default(),
             memory_vote: std::sync::OnceLock::new(),
         }
     }

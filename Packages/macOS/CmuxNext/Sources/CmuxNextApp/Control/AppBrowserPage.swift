@@ -96,6 +96,17 @@ enum AppBrowserPage {
             // Trusted input after the page's first load, as a script acts on the loaded document.
             _ = await awaitPendingNavigation(page, within: actionWait, work: services.mainWork)
             return try await services.browserNativeInputs.deliver(input, to: page, key: tabID)
+        case .upload(let upload):
+            // The page's own file chooser takes the files (`BrowserAgentFiles`); a page without one gets them
+            // through a page script (the service).
+            _ = await awaitPendingNavigation(page, within: actionWait)
+            guard let chooser = page as? any BrowserAgentFileChoosing else { return ["chooser": "unsupported"] }
+            do {
+                let (answer, outcome) = try await chooser.agentFiles.offer(upload.files, within: upload.within, clicking: upload.script, on: page)
+                return ["value": await json(answer), "chooser": .string(outcome.code)]
+            } catch {
+                throw ControlError(code: "js_error", message: String(describing: error))
+            }
         }
         // A step on a hibernated page runs once it wakes; a deferred wake keeps it for the tab's next show.
         if page is HibernatedBrowserTab, let deferral = services.cache.hibernation?.deferral(of: tabID) {
@@ -113,7 +124,7 @@ enum AppBrowserPage {
     /// ``BrowserNativeInputs``; navigation and `state` do not need it.
     static func needsLiveBrowser(_ operation: BrowserPageOperation) -> Bool {
         switch operation {
-        case .evaluate, .evaluateAsync, .screenshot, .cookies: true
+        case .evaluate, .evaluateAsync, .screenshot, .cookies, .upload: true
         case .navigate, .back, .forward, .reload, .state, .input: false
         }
     }

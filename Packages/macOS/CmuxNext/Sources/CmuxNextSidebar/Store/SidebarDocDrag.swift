@@ -18,6 +18,9 @@ public struct SidebarDocDrag {
     public var drop: ([String], SidebarDocTarget) -> Void
     /// The adopt ref (`session_id`, `workspace_id`, `workspace_key`) of a workspace the document does not place yet.
     public var adoptRef: (WorkspaceID) -> [String: String]?
+    /// Whether another window lists this open workspace (the App's window registry): a Pinned or custom group
+    /// holding it belongs to that window and is not drawn here (#25776). Without a window: every open one.
+    public var listedElsewhere: (SidebarDocWorkspaceRef) -> Bool = { _ in true }
 
     public init(item: @escaping (SidebarRowKey) -> String?, section: @escaping (SectionID) -> String?,
                 begin: @escaping ([String]) -> [String: SidebarDocAcceptance], drop: @escaping ([String], SidebarDocTarget) -> Void,

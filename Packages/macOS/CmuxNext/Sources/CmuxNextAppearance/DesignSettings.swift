@@ -16,6 +16,9 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case tabPinnedWidth
     case paletteRowHeight
     case columnGap
+    /// The visible line and draggable hit area between split panes.
+    case dividerThickness
+    case dividerHitWidth
     case panelCornerRadius
     case chromeFontSize
     /// The unified titlebar height (cmux-browser's header height reads the same key).
@@ -111,6 +114,15 @@ public final class DesignSettings {
         didSet {
             guard inactiveWindowDim != oldValue else { return }
             signals.designChanged([.inactiveDim])
+        }
+    }
+    /// `appearance.wallpaperTint`: where the desktop shows through the window, its tint takes the
+    /// desktop picture's hue (``WallpaperTint``), as macOS tints its own windows. Off until the
+    /// setting reaches it (``SettingsApplier``).
+    public var wallpaperTint = false {
+        didSet {
+            guard wallpaperTint != oldValue else { return }
+            BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
@@ -328,6 +340,8 @@ public final class DesignSettings {
         case .tabPinnedWidth: 24...120
         case .paletteRowHeight: 26...48
         case .columnGap: 0...24
+        case .dividerThickness: 0...6
+        case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
         case .titlebarHeight: 24...56

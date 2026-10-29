@@ -4,6 +4,31 @@
 use crate::no_panic::JsonExt;
 use serde_json::Value;
 
+/// A peer daemon's connection never lists this host's peers: `_acpmux/peers`, `_acpmux/status`
+/// and the `peer_*` replies answer it with an empty `peers` (as `_acpmux/peer_status` answers it
+/// with this machine's row only). Nothing on a peer reads them.
+pub(super) fn hide_peers_from_peer(reply: &mut Value) {
+    if let Some(peers) = reply.get_mut("peers").filter(|p| p.is_array()) {
+        *peers = Value::Array(Vec::new());
+    }
+}
+
+/// Nor does a `peer_unreachable` refusal name one to a peer daemon's connection: the request it
+/// forwarded for a session of a peer that is down (or of a peer's peer) was not sent, and that is
+/// all it says. No peer name, link state, last-seen time or connection error (`peer_link.rs`).
+pub(super) fn hide_unreachable_peer(e: crate::rpc::RpcError) -> crate::rpc::RpcError {
+    let reason = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
+    if reason != Some("peer_unreachable") {
+        return e;
+    }
+    crate::rpc::RpcError::internal("peer_unreachable: the request was not sent; retry later")
+        .with_data(serde_json::json!({
+            "reason": "peer_unreachable",
+            "retryable": true,
+            "detail": "the request was not sent",
+        }))
+}
+
 /// A remote-origin (Web) connection never learns a token: not the
 /// dashboard link (`webUrl` carries this listener's token) and not the
 /// userinfo, query or fragment of a peer's URL (a user may have written a
@@ -59,9 +84,9 @@ pub(super) fn redact_for_remote(method: &str, reply: &mut Value) {
 }
 
 /// The `_acpmux/host_health` fields a peer's `peer_status` row copies that
-/// are its resources.
-const PEER_RESOURCES: [&str; 8] =
-    ["cpus", "load", "ram", "swap", "disk", "pressure", "liveSessions", "uptimeSecs"];
+/// are its resources, and what its health loop found wrong (`problems`).
+const PEER_RESOURCES: [&str; 9] =
+    ["cpus", "load", "ram", "swap", "disk", "pressure", "liveSessions", "uptimeSecs", "problems"];
 
 /// A harness catalog without values that shape its process. The app and Web
 /// clients need the picker metadata, not literal argv or environment values.
@@ -188,7 +213,7 @@ fn has_content(value: &Value) -> bool {
 }
 
 /// `scheme://user:secret@host/path?q#f` -> `scheme://host/path`.
-fn url_without_secrets(url: &str) -> String {
+pub(crate) fn url_without_secrets(url: &str) -> String {
     let bare = url.split(['?', '#']).next().unwrap_or_default();
     let Some((scheme, rest)) = bare.split_once("://") else { return bare.to_owned() };
     let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));

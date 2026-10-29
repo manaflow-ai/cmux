@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextHibernation
+import CmuxNextLayout
 
 // Parked workspaces (plans/cmux-next/tab-lifecycle.md): a workspace this window showed stays mounted and
 // paused, so a switch back swaps its view in within the frame. The app's `ParkedWorkspaceBudget` follows them
@@ -9,6 +10,20 @@ extension WindowController {
     /// The shown workspace, then the parked ones from the most recently shown, each with its theme scope.
     var mountedContents: [WorkspaceContentController] {
         (content.map { [$0] } ?? []) + parked.values.sorted { $0.parkedSerial > $1.parkedSerial }
+    }
+
+    /// Workspace `id` hibernated (plans/cmux-next/workspace-hibernation-DESIGN.md): its parked content
+    /// leaves (views, panes, observations) and mounts again, cold, when shown. Never the shown
+    /// workspace, the one under a top page or one on screen beside it.
+    func releaseParked(_ id: String) {
+        guard id != state.workspaceID, !isOnScreenBeside(id), parked[id] != nil, let controller = unpark(id) else { return }
+        controller.teardown()
+    }
+
+    /// On screen beside the shown workspace: in the `sidebar.multiView` set, a shown docked workspace or the stage's
+    /// workspace while a dock has the focus (`window.dockedWorkspaces`).
+    func isOnScreenBeside(_ id: String) -> Bool {
+        state.isOnScreenBeside(id)
     }
 
     func park(_ controller: WorkspaceContentController) {
@@ -33,9 +48,9 @@ extension WindowController: ParkedWorkspaceHolder {
     }
 
     /// The window's own workspace under a top page stays (it is this window's workspace), and so do
-    /// the ones on screen beside the shown one (`sidebar.multiView`).
+    /// the ones on screen beside the shown one (`sidebar.multiView`, a docked workspace or the stage's).
     func keepsParkedWorkspace(_ id: String) -> Bool {
-        (content == nil && id == state.workspaceID) || state.viewSet?.contains(id) == true
+        (content == nil && id == state.workspaceID) || isOnScreenBeside(id)
     }
 
     /// Tears the workspace down (views, panes, observations); it mounts again when shown, as it was: it

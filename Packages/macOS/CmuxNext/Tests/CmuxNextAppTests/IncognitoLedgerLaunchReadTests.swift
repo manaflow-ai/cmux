@@ -109,7 +109,7 @@ struct IncognitoLedgerLaunchReadTests {
     @Test("The window manager's ledger reads main's launch read")
     func theManagerUsesMainsRead() async {
         _ = NSApplication.shared
-        let mains = LaunchRead<IncognitoWorkspaceLedger.Leftovers>(on: Self.work) { .ids(["from-main"]) }
+        let mains = LaunchRead<IncognitoWorkspaceLedger.Leftovers>(on: Self.work) { .ids(["from-main"], spaces: []) }
         _ = await mains.finished()
         var environment = AppEnvironment.current([:])
         environment.incognitoLeftovers = mains

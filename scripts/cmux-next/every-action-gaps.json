@@ -193,6 +193,7 @@
   "remote.openBrowserTab": "uses the Cloud, a remote machine, a phone or computer use",
   "remote.openLocalBrowserTab": "uses the Cloud, a remote machine, a phone or computer use",
   "remote.openTerminalHere": "uses the Cloud, a remote machine, a phone or computer use",
+  "remote.openRemote": "uses the Cloud, a remote machine, a phone or computer use",
   "remote.reconnect": "uses the Cloud, a remote machine, a phone or computer use",
   "remote.removeGroup": "uses the Cloud, a remote machine, a phone or computer use",
   "revealWorkspaceInFinder": "opens another app, a web site or changes system defaults",

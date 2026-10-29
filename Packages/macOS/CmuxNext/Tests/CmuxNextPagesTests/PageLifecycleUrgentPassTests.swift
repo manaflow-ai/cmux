@@ -1,5 +1,7 @@
+import CmuxNextCompat
 import CmuxNextHibernation
 @testable import CmuxNextPages
+import CmuxNextSettings
 import Testing
 
 /// ``PageLifecycle``'s side of the app's one urgent pass over tabs, chats and pages: it
@@ -53,7 +55,7 @@ struct PageLifecycleUrgentPassTests {
     private let lifecycle: PageLifecycle
 
     init() {
-        lifecycle = PageLifecycle(deadlines: rig.scheduler)
+        lifecycle = PageLifecycle(conditions: .discarding(), deadlines: rig.scheduler)
     }
 
     @Test func theUrgentPassListsHiddenPagesNothingKeepsAndDiscardsTheChosenOneAtOnce() {
@@ -121,7 +123,7 @@ struct PageLifecycleUrgentPassTests {
         let hold = event + .seconds(PageLifecyclePlanner.Timing().urgentPace.interval)
         #expect(lifecycle.nextPassAt.map { $0 < hold } == true, "no pass was armed before the event")
 
-        lifecycle.setConditions(.init(pressure: .critical))
+        lifecycle.setConditions(.discarding(.critical))
         #expect(lifecycle.noDiscardBefore == hold)
         lifecycle.urgentPassDidRun()
         var now = event
@@ -147,19 +149,61 @@ struct PageLifecycleUrgentPassTests {
         let old = FakePage("old")
         lifecycle.hide("o", page: Target(page: old, group: "viewer"))
         rig.advance(to: .seconds(200))
-        lifecycle.setConditions(.init(pressure: .critical))
+        lifecycle.setConditions(.discarding(.critical))
         #expect(lifecycle.noDiscardBefore == nil)
         lifecycle.runPass()
         #expect(lifecycle.state(of: "o") == .discarded)
+    }
+
+    /// No `browser.hibernation` written (the default, trunk #25920: a page never reloads unless the person
+    /// asks) reaches the planner as ``PageLifecyclePlanner/KeepReason/discardsOff``: a hidden page freezes,
+    /// which keeps its state, and is never discarded, at any pressure, and the urgent pass may not take
+    /// it. Writing the setting looks again at once and lets it go.
+    @Test func theDefaultFreezesAHiddenPageAndNeverDiscardsIt() {
+        let unwritten = PageLifecycle(deadlines: rig.scheduler)
+        #expect(!unwritten.conditions.setting.discardsAutomatically, "the default conditions discard on their own")
+        let old = FakePage("old"), last = FakePage("last")
+        unwritten.hide("o", page: Target(page: old, group: "agent"))
+        rig.advance(to: .seconds(1))
+        unwritten.hide("l", page: Target(page: last, group: "viewer"))
+        rig.advance(to: .seconds(12))
+        unwritten.runPass()
+        #expect(unwritten.state(of: "o") == .frozen, "a hidden page did not freeze by default")
+        #expect(unwritten.nextPassAt == nil, "a pass is armed though no page changes with time")
+        rig.advance(to: .seconds(3_600))
+        for pressure in [MemoryPressureLevel.normal, .warning, .critical] {
+            unwritten.setConditions(.init(pressure: pressure))
+            unwritten.runPass()
+            #expect(unwritten.state(of: "o") == .frozen, "\(pressure): a hidden page was discarded by default")
+            #expect(unwritten.state(of: "l") == .hidden, "\(pressure)")
+            #expect(unwritten.urgentCandidates().isEmpty, "\(pressure): the urgent pass may take a page by default")
+        }
+        #expect(old.lines == ["freeze"])
+        #expect(last.lines.isEmpty)
+
+        unwritten.setConditions(.discarding())
+        #expect(unwritten.nextPassAt == .seconds(3_600), "writing browser.hibernation armed no pass")
+        unwritten.runPass()
+        #expect(unwritten.state(of: "o") == .discarded)
+        #expect(unwritten.state(of: "l") == .discarded)
     }
 
     /// Pressure that leaves critical ends the hold: the warning pace discards on its own deadlines.
     @Test func leavingCriticalPressureEndsTheHold() {
         lifecycle.leavesCriticalEventToUrgentPass = true
         lifecycle.hide("o", page: Target(page: FakePage("old"), group: "viewer"))
-        lifecycle.setConditions(.init(pressure: .critical))
+        lifecycle.setConditions(.discarding(.critical))
         #expect(lifecycle.noDiscardBefore != nil)
-        lifecycle.setConditions(.init(pressure: .warning))
+        lifecycle.setConditions(.discarding(.warning))
         #expect(lifecycle.noDiscardBefore == nil)
+    }
+}
+
+extension PageLifecyclePlanner.Conditions {
+    /// `browser.hibernation` written ("moderate"): hidden pages are discarded on their own. With nothing
+    /// written (`.init()`, `BrowserHibernationSetting.fallback`) they only freeze (trunk #25920), so the
+    /// tests of the discard itself run under this.
+    static func discarding(_ pressure: MemoryPressureLevel = .normal) -> Self {
+        .init(setting: BrowserHibernationSetting(mode: .moderate), pressure: pressure)
     }
 }

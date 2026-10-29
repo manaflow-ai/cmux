@@ -191,6 +191,18 @@ impl LogWriter {
         lock(&self.shared.files).open.remove(id);
     }
 
+    /// Runs `f` with session `id`'s log closed and none of its lines being written: what was
+    /// queued before is written first; a line queued meanwhile waits for the files lock until `f`
+    /// returns, then opens the newest segment again (`store/compact.rs` replaces segments in
+    /// place). `f` must not wait for this writer (no `settle`): its thread may hold `id` as the
+    /// log it is writing while it waits for the files lock `f` runs under.
+    pub(super) fn with_log_closed<R>(&self, id: &str, f: impl FnOnce() -> R) -> R {
+        self.settle(id);
+        let mut files = lock(&self.shared.files);
+        files.open.remove(id);
+        f()
+    }
+
     /// Forgets session `id` before its folder is deleted: its queued lines are dropped, a write
     /// of it in progress is waited for, its log is closed.
     pub(super) fn forget(&self, id: &str) {

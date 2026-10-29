@@ -6,6 +6,7 @@ import {
   APP_THEME_KEY,
   BACKDROP_ROWS,
   CHIEF_PET_ROWS,
+  CHIEFS_ROWS,
   MACHINE_COLORS_KEY,
   THEME_EDITS_KEY,
   THEME_KEY,
@@ -40,6 +41,8 @@ export function SectionView({
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
   // The Chief Pet card draws home.chiefPetEnabled and home.chiefPetMascot.
   const pet = category.lead.includes("chiefPet");
+  // The Chiefs card draws its Engine row (home.chiefEngine).
+  const chiefsCard = [...category.lead, ...category.trail].includes("chiefs");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");
   // The Machines card draws appearance.machineColors: a color well on each machine's row.
@@ -55,6 +58,7 @@ export function SectionView({
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
+          !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
           !(machinesCard && row.key === MACHINE_COLORS_KEY) &&
           !(densityCard && DENSITY_ROWS.has(row.key)),
       ),

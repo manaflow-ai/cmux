@@ -84,6 +84,7 @@ impl RemoteSession {
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
             interactive_writer,
+            api_revision: Mutex::new(None),
             disconnect_state: disconnect::DisconnectCell::default(),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -133,6 +134,16 @@ impl RemoteSession {
                 if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
                     break Some(remote_reader_message_too_large(&mut message));
                 }
+                let Some(session) = reader_session.upgrade() else { break None };
+                let translated = session.translate_incoming_line(&message);
+                zeroize_string(&mut message);
+                let mut message = match translated {
+                    Ok(message) => message,
+                    Err(error) => {
+                        let reason = format!("remote API revision translation failed: {error}");
+                        break Some(reason);
+                    }
+                };
                 let value = match serde_json::from_str::<Value>(&message) {
                     Ok(value) => value,
                     Err(error) => {
@@ -142,7 +153,6 @@ impl RemoteSession {
                     }
                 };
                 zeroize_string(&mut message);
-                let Some(session) = reader_session.upgrade() else { break None };
                 session.handle_line(value);
             };
             // Connection lost: retain the reason before telling the app to quit.
@@ -167,6 +177,8 @@ impl RemoteSession {
         // command; an older server ignores the flag.
         let ident = self.request(json!({"cmd": "identify", "revisions": true}))?;
         validate_remote_identity(&ident)?;
+        let api_revision = api_revision::RemoteApiRevision::from_identity(&ident)?;
+        self.install_api_revision(api_revision);
         *self.capabilities.lock().recover_poison() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         // A daemon that reports API revisions learns ours, our release and
@@ -174,8 +186,13 @@ impl RemoteSession {
         // update command when it refuses (server/api_revision_wire.rs).
         if ident.get("api_revision").is_some() {
             use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
-            client_info
-                .insert("api_revision", json!(cmux_tui_core::server::api_revision_range().0));
+            client_info.insert(
+                "api_revision",
+                json!(
+                    self.api_revision()
+                        .unwrap_or_else(|| cmux_tui_core::server::api_revision_range().0)
+                ),
+            );
             client_info.insert("version", json!(DISTRIBUTION_VERSION));
             client_info.insert("install", json!(InstallChannel::current().as_str()));
         }

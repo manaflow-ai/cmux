@@ -156,6 +156,29 @@ public struct StatusMapping {
         StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
     }
 
+    /// A workspace's merged status, each tab's own (a listed tab row's mark) and whether any tab has
+    /// agent work, from one read of each tab's reports: ``summary(tabs:status:)``, ``summary(_:)``
+    /// per tab and ``isWorking(tabs:)`` at once (u9696, Lawrence's scratch/a-hover-tabs).
+    public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil)
+        -> (workspace: StatusSummary, tabs: [StatusIndicatorState], working: Bool) {
+        let honored = honored
+        var all: [StatusReport] = []
+        var states: [StatusIndicatorState] = []
+        states.reserveCapacity(tabs.count)
+        var working = false
+        for tab in tabs {
+            let own = reports(tab)
+            if own.isEmpty {
+                states.append(.idle)
+                continue
+            }
+            states.append(StatusStack.resolve(own, honoring: honored).state)
+            working = working || own.contains { $0.state.isWorking }
+            all += own
+        }
+        return (StatusStack.resolve(all + reports(status), honoring: honored), states, working)
+    }
+
     /// The reports of a workspace's status entries that carry a state (`cmux status set --state`,
     /// `status run`; cx-lko8w): busy with its progress, waiting, error, success. `info` and plain
     /// lines draw only their text. The daemon clears owned entries (TTL, owner exit).

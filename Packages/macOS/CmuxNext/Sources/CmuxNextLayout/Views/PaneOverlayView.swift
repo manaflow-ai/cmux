@@ -43,6 +43,14 @@ final class PaneOverlayView: NSView {
     /// The ring flashed when focus arrives without a click (`focus.flashOnMove`): its own layer, so
     /// the ring's opacity updates never cut the flash short.
     private let focusFlash = CALayer()
+    /// Chats sit directly on the window glass. These decorative layers otherwise draw above
+    /// their page menus when the overlay plane is hosted above Chromium child windows.
+    var showsContentFrame = true {
+        didSet {
+            guard showsContentFrame != oldValue else { return }
+            for layer in [border, ring, glowClip, focusFlash] { layer.isHidden = !showsContentFrame }
+        }
+    }
     /// This pane was the focused one at the last update.
     private var isFocusedPane = false
     private var padding: CGFloat = 0
@@ -55,6 +63,9 @@ final class PaneOverlayView: NSView {
     /// The attention ring glows (`notifications.attention.ringStyle` glow), `PaneOverlayView+Glow`.
     var ringGlows: Bool { attentionSettings.ringStyle == .glow }
     private var attentionMark: AttentionMark?
+    /// The ring is drawn for the current mark. A mark that arrived while the look was
+    /// `none` has no ring yet, so turning the look on still shows it.
+    private var attentionRingShown = false
     /// The source color of the ring flashing out: the flash keeps it after its mark is gone.
     private var dismissingColor: ThemeRGB?
     /// The ring shown or flashing out marks an agent chat (`AttentionMark.agentChat`).
@@ -103,9 +114,9 @@ final class PaneOverlayView: NSView {
     var attentionOpacity: Float { attention.opacity }
 
     /// Whether the focus ring or glow is showing (for `debug.layers`).
-    var showsRing: Bool { ring.opacity > 0 || glowClip.opacity > 0 }
+    var showsRing: Bool { showsContentFrame && (ring.opacity > 0 || glowClip.opacity > 0) }
     /// Whether the hairline border is showing (for `debug.layers`).
-    var showsBorder: Bool { border.opacity > 0 }
+    var showsBorder: Bool { showsContentFrame && border.opacity > 0 }
 
     private var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
@@ -285,6 +296,7 @@ final class PaneOverlayView: NSView {
         let previous = attentionMark
         attentionMark = mark
         guard let mark, attentionSettings.drawsRing else {
+            attentionRingShown = false
             attention.removeAnimation(forKey: "attention")
             // The look turned off (none) mid-flash: the flash and its glow go with it.
             if !attentionSettings.drawsRing {
@@ -308,15 +320,16 @@ final class PaneOverlayView: NSView {
         attention.removeAnimation(forKey: "attention-dismiss")
         attention.removeAnimation(forKey: "attention-dismiss-glow")
         dismissingColor = nil
-        guard previous?.generation != mark.generation else { return }
-        // A new notification: run the style's animation from the start and
-        // rest at its final opacity (the steady ring swells from its rest when
-        // it already shows, rather than dropping out first).
+        // Attention is on or off, not a queue (https://github.com/manaflow-ai/cmux/issues/25662): a
+        // further event on a ring that already shows leaves it as it is, so it never comes back.
+        guard !attentionRingShown else { return }
+        attentionRingShown = true
+        // Off to on: run the style's animation from the start and rest at its final opacity.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
-        if !mark.quiet, let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook, showing: previous != nil) {
+        if !mark.quiet, let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook) {
             attention.add(animation, forKey: "attention")
         }
         CATransaction.commit()

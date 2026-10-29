@@ -78,6 +78,10 @@ public nonisolated enum SurfaceExemption: String, CaseIterable, Sendable, Hashab
     /// The object's menu is a short list Lawrence fixed (the space menu,
     /// SIDEBAR-FOOTER-AND-SPACE-MENU F3); the palette and the CLI offer it.
     case minimalMenu
+    /// The action remains available in the command palette, but is intentionally
+    /// omitted from a crowded pointer menu whose scope is narrower than the
+    /// action's target object.
+    case pointerMenuTrim
 }
 
 /// A surface decision: offered, or exempt with a reason.

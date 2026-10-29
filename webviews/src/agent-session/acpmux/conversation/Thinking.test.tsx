@@ -5,7 +5,9 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import type { AcpmuxRow } from "../model";
 import { Thinking } from "./Thinking";
+import { WorkingFor } from "./WorkingFor";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -48,4 +50,23 @@ test("hides the live line before the first streamed answer token paints", () => 
 
   act(() => root!.render(<Thinking quietKey="assistant:1" />));
   expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(true);
+});
+
+test("a send in flight names who it goes to, on either live line", () => {
+  act(() => root!.render(<Thinking doing="acpmux send coord 'hi'" doingShell sendTo="coord" />));
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Sending message to coord");
+  expect(container.textContent).not.toContain("acpmux send");
+  const row: AcpmuxRow = {
+    id: "working",
+    version: 1,
+    at: Date.now(),
+    kind: "working",
+    doing: "acpmux send coord 'hi'",
+    doingCommand: true,
+    doingSendTo: "coord",
+  };
+  act(() => root!.render(<WorkingFor row={row} />));
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Sending message to coord");
+  expect(container.textContent).not.toContain("acpmux send");
+  expect(container.querySelector(".cv-worked__glyph")).toBeNull();
 });

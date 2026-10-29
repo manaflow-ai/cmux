@@ -145,6 +145,7 @@ fn own_servers_run_under_the_daemon_prefix() {
             (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
             (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
             (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
+            (crate::acpmux_mcp::SERVER_NAME, "acpmux-mcp"),
         ]
         .into_iter()
         .map(|(name, word)| {

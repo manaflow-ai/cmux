@@ -80,6 +80,17 @@ define_named_action_definitions! {
     BROWSER_EDIT_URL_DEFINITION => (Action::BrowserEditUrl, "browser-edit-url", "Edit browser URL", "ブラウザ URL を編集");
     SHOW_SHORTCUTS_DEFINITION => (Action::ShowShortcuts, "show-shortcuts", "Keyboard shortcuts", "キーボードショートカット");
     DETACH_DEFINITION => (Action::Detach, "detach", "Detach", "デタッチ");
+    DOCK_WORKSPACE_LEFT_DEFINITION => (Action::DockWorkspaceLeft, "dock-workspace-left", "Dock Workspace Left", "ワークスペースを左にドッキング");
+    DOCK_WORKSPACE_RIGHT_DEFINITION => (Action::DockWorkspaceRight, "dock-workspace-right", "Dock Workspace Right", "ワークスペースを右にドッキング");
+    DOCK_WORKSPACE_TOP_DEFINITION => (Action::DockWorkspaceTop, "dock-workspace-top", "Dock Workspace Top", "ワークスペースを上にドッキング");
+    DOCK_WORKSPACE_BOTTOM_DEFINITION => (Action::DockWorkspaceBottom, "dock-workspace-bottom", "Dock Workspace Bottom", "ワークスペースを下にドッキング");
+    UNDOCK_WORKSPACE_DEFINITION => (Action::UndockWorkspace, "undock-workspace", "Undock Workspace", "ワークスペースのドッキングを解除");
+    TOGGLE_DOCK_LEFT_DEFINITION => (Action::ToggleDockLeft, "toggle-dock-left", "Toggle Left Dock", "左のドックを切り替え");
+    TOGGLE_DOCK_RIGHT_DEFINITION => (Action::ToggleDockRight, "toggle-dock-right", "Toggle Right Dock", "右のドックを切り替え");
+    TOGGLE_DOCK_TOP_DEFINITION => (Action::ToggleDockTop, "toggle-dock-top", "Toggle Top Dock", "上のドックを切り替え");
+    TOGGLE_DOCK_BOTTOM_DEFINITION => (Action::ToggleDockBottom, "toggle-dock-bottom", "Toggle Bottom Dock", "下のドックを切り替え");
+    TOGGLE_DOCK_FLOATING_DEFINITION => (Action::ToggleDockFloating, "toggle-dock-floating", "Float Docked Workspace", "ドッキングしたワークスペースをフローティング");
+    TOGGLE_DOCK_ORIENTATION_DEFINITION => (Action::ToggleDockOrientation, "toggle-dock-orientation", "Toggle Dock Corners", "ドックの角を切り替え");
 }
 
 pub(super) static SELECT_TAB_DEFINITIONS: [ActionDefinition; 10] = [
@@ -211,7 +222,7 @@ pub(super) static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 67] = [
+    static DEFINITIONS: [&ActionDefinition; 78] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -279,6 +290,17 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &BROWSER_EDIT_URL_DEFINITION,
         &SHOW_SHORTCUTS_DEFINITION,
         &DETACH_DEFINITION,
+        &DOCK_WORKSPACE_LEFT_DEFINITION,
+        &DOCK_WORKSPACE_RIGHT_DEFINITION,
+        &DOCK_WORKSPACE_TOP_DEFINITION,
+        &DOCK_WORKSPACE_BOTTOM_DEFINITION,
+        &UNDOCK_WORKSPACE_DEFINITION,
+        &TOGGLE_DOCK_LEFT_DEFINITION,
+        &TOGGLE_DOCK_RIGHT_DEFINITION,
+        &TOGGLE_DOCK_TOP_DEFINITION,
+        &TOGGLE_DOCK_BOTTOM_DEFINITION,
+        &TOGGLE_DOCK_FLOATING_DEFINITION,
+        &TOGGLE_DOCK_ORIENTATION_DEFINITION,
     ];
     &DEFINITIONS
 }
@@ -346,6 +368,17 @@ impl Action {
             Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
             Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
             Action::Detach => &DETACH_DEFINITION,
+            Action::DockWorkspaceLeft => &DOCK_WORKSPACE_LEFT_DEFINITION,
+            Action::DockWorkspaceRight => &DOCK_WORKSPACE_RIGHT_DEFINITION,
+            Action::DockWorkspaceTop => &DOCK_WORKSPACE_TOP_DEFINITION,
+            Action::DockWorkspaceBottom => &DOCK_WORKSPACE_BOTTOM_DEFINITION,
+            Action::UndockWorkspace => &UNDOCK_WORKSPACE_DEFINITION,
+            Action::ToggleDockLeft => &TOGGLE_DOCK_LEFT_DEFINITION,
+            Action::ToggleDockRight => &TOGGLE_DOCK_RIGHT_DEFINITION,
+            Action::ToggleDockTop => &TOGGLE_DOCK_TOP_DEFINITION,
+            Action::ToggleDockBottom => &TOGGLE_DOCK_BOTTOM_DEFINITION,
+            Action::ToggleDockFloating => &TOGGLE_DOCK_FLOATING_DEFINITION,
+            Action::ToggleDockOrientation => &TOGGLE_DOCK_ORIENTATION_DEFINITION,
             // One shared fallback: presentation surfaces resolve the
             // configured display name through the command list instead of
             // this static definition, which is deliberately outside the

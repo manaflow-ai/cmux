@@ -12,6 +12,9 @@ struct AgentPaneFileRows {
     var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
     /// Save As…: asks where to save the file under the name.
     var save: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
+    /// Whether the rows may still touch the file; Copy checks it before its read and again
+    /// before the pasteboard (a path menu's: the chat is still on this Mac).
+    var allowed: @MainActor () -> Bool = { true }
     /// The app's blocking-work lanes: Copy reads an image's bytes there.
     let runner: any MayBlockRunner
 
@@ -33,6 +36,9 @@ struct AgentPaneFileRows {
 
     /// Copy: `file` (and an image's bytes) on the pasteboard.
     func copy(_ file: URL) async -> Bool {
-        copyItem(AgentPaneImageCopies.pasteboardItem(file, image: await AgentPaneImageCopies.pasteboardImage(file, runner: runner)))
+        guard allowed() else { return false }
+        let image = await AgentPaneImageCopies.pasteboardImage(file, runner: runner)
+        guard allowed() else { return false }
+        return copyItem(AgentPaneImageCopies.pasteboardItem(file, image: image))
     }
 }

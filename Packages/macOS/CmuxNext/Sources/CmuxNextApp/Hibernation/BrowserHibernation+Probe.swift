@@ -8,12 +8,13 @@ import Foundation
 // The page probe of browser hibernation and the facts it adds to (moved from BrowserHibernation.swift).
 extension BrowserHibernation {
     /// Asks hidden page `tab` what it does (`PageProbe`). Runs no page code: whether a `beforeunload`
-    /// handler would ask is learned only right before a discard (`asksBeforeUnload`).
-    static func probe(_ tab: any BrowserTab) async -> PageProbe {
+    /// handler would ask is learned only right before a discard (`asksBeforeUnload`). `limit` bounds the answer
+    /// (``pageDeadline``).
+    static func probe(_ tab: any BrowserTab, within limit: Duration = .seconds(2)) async -> PageProbe {
         // A cmux page or a remote stream runs no site script here and holds no form, media or capture: nothing to ask.
         if tab is any BrowserAppPage || tab is any BrowserStreamedPage { return PageProbe() }
         do {
-            let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
+            let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + limit) { @MainActor in
                 (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated, gesture: .cmux), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
@@ -72,7 +73,10 @@ extension BrowserHibernation {
         let capturing = (tab as? any PageInfoProviding).map { !$0.pageInfoInUse.union($0.pageInfoActivity.inUse).isEmpty } ?? false
         // A cmux page restores only when `memoryDiscardPageTabs` is on (`discardsAppPages`), a remote stream
         // only when `memoryDiscardRemoteTabs` is (`discardsStreamedPages`).
-        let restores = (tab as? any BrowserHibernationSource)?.supportsHibernation == true && (discardsAppPages || !(tab is any BrowserAppPage))
+        // A page whose renderer ended shows the crash notice until the person reloads it: a
+        // discard would drop the notice and its restore would load the page by itself.
+        let restores = tab.state.processExit == nil
+            && (tab as? any BrowserHibernationSource)?.supportsHibernation == true && (discardsAppPages || !(tab is any BrowserAppPage))
             && (discardsStreamedPages || !(tab is any BrowserStreamedPage))
         var candidate = HibernationPlanner.Candidate(
             key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
@@ -147,7 +151,7 @@ extension BrowserHibernation {
     /// its handlers once per hidden period; a page that asked, or could not be asked, stays.
     func asksBeforeUnload(_ key: String, _ tab: any BrowserTab) async -> Bool {
         if discardAttempts.contains(key) { return true }
-        return (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + .seconds(2)) { @MainActor in
+        return (try? await ControlDeadline.shared.run(method: "hibernation.beforeunload", deadline: .now + pageDeadline) { @MainActor in
             try await tab.asksBeforeUnload()
         }) ?? true
     }
@@ -168,7 +172,7 @@ extension BrowserHibernation {
     /// Under memory pressure, samples the tabs' memory when the last sample is stale, then
     /// replans with it (the heaviest of equally idle pages goes first).
     func refreshMemoryIfNeeded() {
-        guard pressure != .normal, !memoryReadings.isFresh(at: .now) else { return }
+        guard pressure != .normal, !memoryReadings.isFresh(at: now()) else { return }
         sampleMemory()
     }
 
@@ -181,7 +185,7 @@ extension BrowserHibernation {
         Task { @MainActor [weak self] in
             let sample = await measureMemory()
             guard let self else { return }
-            self.memoryReadings.land(sample, at: .now)
+            self.memoryReadings.land(sample, at: self.now())
             self.noteFrozenMemory(sample)
             self.replan()
         }

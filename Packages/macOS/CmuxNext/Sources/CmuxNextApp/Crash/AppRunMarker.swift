@@ -79,7 +79,9 @@ nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bo
 ///
 /// - `run.json`: pid, launch time, whether this run is a restart, whether it lived past the quick-crash window, and
 ///   whether a requested quit had begun (`markQuitting`); whether its startup completed, the last startup task it
-///   began before that, and the runs in a row before it that ended before theirs (`LaunchSafeMode`, ``observe(_:)``).
+///   began before that, and the runs in a row before it that ended before theirs (`LaunchSafeMode`, ``observe(_:)``);
+///   the restored pages started within that window (`notePageStarted`), what the run was doing (`record(context:)`),
+///   and its build's version and commit.
 /// - `run.launch`: this launch's streak, written before any launch cache is read (`LaunchSafeMode.Beacon`).
 /// - `run.signal`: empty until a fatal signal handler writes its number.
 ///
@@ -161,7 +163,9 @@ final class AppRunMarker {
     /// Takes the marker's launch read (``startLaunchRead(directory:in:now:bootSession:)``, which read the previous
     /// run's files and opened this run's on the files lane): decides how this launch follows the previous run, marks
     /// this run live and installs the fatal-signal handlers. No file call on the main thread.
-    init(launch: Launch) {
+    /// `build` is this build's version and commit, kept so a crash report of this run names the build that crashed,
+    /// not the one running when it is sent.
+    init(launch: Launch, build: (version: String?, commit: String?) = (nil, nil)) {
         directory = launch.directory
         // A normal quit removes `run.launch` with `run.json`: left alone it would read as a launch that ended before its marker.
         file = RunMarkerFile(url: launch.directory.appending(path: "run.json"), signalURL: launch.directory.appending(path: "run.signal"),
@@ -170,6 +174,7 @@ final class AppRunMarker {
         previousRun = launch.previous
         previousUnreported = launch.previousUnreported
         (marker, safeMode) = (launch.marker, launch.safeMode)
+        (marker.version, marker.commit) = (build.version, build.commit)
         start(launch)
     }
 
@@ -270,8 +275,25 @@ final class AppRunMarker {
         QuitSignal.reclaim()
     }
 
+    /// Stores what the run is doing (`CrashContextRecorder`) for the next launch's crash report.
+    func record(context: CrashContext) {
+        guard marker.context != context else { return }
+        marker.context = context
+        writeMarker()
+    }
+
     private func markSurvived() {
         marker.survived = true
+        marker.startedPages = nil
+        writeMarker()
+    }
+
+    /// Restored browser tab `key` started its page. Recorded only within the quick-crash window: if
+    /// this run then ends early in a restart loop, the next launch holds that page
+    /// (`LaunchRecovery.crashedPages`).
+    func notePageStarted(_ key: String) {
+        guard !marker.survived, marker.startedPages?.contains(key) != true else { return }
+        marker.startedPages = (marker.startedPages ?? []) + [key]
         writeMarker()
     }
 
@@ -307,7 +329,8 @@ final class AppRunMarker {
         unsafe unlink(exceptionFile.path)
     }
 
-    /// Hands the marker (about 200 bytes) to the background writer, which encodes it there (``encode(_:)``).
+    /// Hands the marker (about 200 bytes, up to about 2 KB with a `CrashContext`) to the background writer, which
+    /// encodes it there (``encode(_:)``).
     private func writeMarker() {
         let (run, logger) = (marker, logger)
         lastTicket = file.submit(encoding: {

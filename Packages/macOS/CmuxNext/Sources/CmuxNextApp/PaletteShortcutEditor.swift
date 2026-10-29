@@ -39,7 +39,13 @@ final class PaletteShortcutEditor: PaletteShortcutEditing {
 
     func save(_ changes: [ShortcutChange]) {
         write { settings in
-            for change in changes { try await settings.setShortcut(change.shortcut, for: change.id) }
+            for change in changes {
+                if let keys = change.keys {
+                    try await settings.setShortcuts(keys, for: change.id)
+                } else {
+                    try await settings.setShortcut(change.shortcut, for: change.id)
+                }
+            }
         }
     }
 

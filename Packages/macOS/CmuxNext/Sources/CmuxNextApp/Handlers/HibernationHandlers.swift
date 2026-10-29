@@ -35,6 +35,22 @@ enum HibernationHandlers {
             guard let host = hibernation.host(of: id.rawValue) else { return context.refuse(RefusalStrings.neverHibernateNoSite) }
             neverHibernate(host: host, context)
         })
+        // Workspace hibernation (plans/cmux-next/workspace-hibernation-DESIGN.md).
+        registry.bindEffect("workspace.hibernate") { invocation in
+            guard let (model, _) = try? context.workspace(invocation) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
+            do { try context.services.workspaceHibernation.hibernateNow(model.id) } catch { return .refused(WorkspaceHibernationActionStrings.shownRefusal) }
+            return .done
+        }
+        registry.bindEffect("workspace.toggleKeepAwake") { invocation in
+            guard let (model, _) = try? context.workspace(invocation) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
+            context.services.workspaceHibernation.toggleKeepAwake(model.id)
+            return .done
+        }
+        ActionTargetTitles.set("workspace.toggleKeepAwake", in: registry) { invocation in
+            guard let (model, _) = try? context.workspace(invocation) else { return nil }
+            return context.services.workspaceHibernation.keepAwake.contains(model.id)
+                ? WorkspaceHibernationActionStrings.allowHibernation : WorkspaceHibernationActionStrings.keepAwake
+        }
         registry.bind("wakeTab", invoke: { invocation in
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
             // Only a person's run skips the wake admission; the CLI's, MCP's or a script's takes a slot.
@@ -111,6 +127,8 @@ enum HibernationHandlers {
         if let hibernation = services.cache.hibernation {
             var setting = hibernation.setting
             setting.mode = mode
+            // The person chose a timeout: hidden pages are discarded on their own from now on.
+            setting.discardsAutomatically = true
             hibernation.apply(setting)
         }
         guard let settings = services.settings else { return }

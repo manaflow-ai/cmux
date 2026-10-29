@@ -1,11 +1,23 @@
 {
   "version": 1,
-  "count": 480,
+  "count": 517,
   "sections": [
     {
       "id": "general",
       "title": "General",
       "rows": [
+        {
+          "key": "agentPane.attachmentView",
+          "title": "Attachment View",
+          "help": "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
+          "kind": "choice",
+          "default": "inline",
+          "group": "Agent Chat",
+          "values": [
+            "inline",
+            "strip"
+          ]
+        },
         {
           "key": "agentPane.editedFiles.maxRows",
           "title": "Edited Files Shown",
@@ -79,6 +91,14 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.scrollToBottomOnSend",
+          "title": "Scroll to Bottom When I Send",
+          "help": "When off, sending while you are reading up keeps your place and shows new messages below.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.showContextUsage",
           "title": "Show Context Usage",
           "help": "The ring beside the model that fills as the chat uses its context window.",
@@ -92,6 +112,14 @@
           "help": "The microphone beside Send in every composer, including the New Tab page.",
           "kind": "toggle",
           "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.spellChecking",
+          "title": "Check Spelling While Typing",
+          "help": "Underlines misspellings and offers system suggestions in the composer.",
+          "kind": "toggle",
+          "default": false,
           "group": "Agent Chat"
         },
         {
@@ -134,7 +162,7 @@
         {
           "key": "agents.defaultPermissionMode",
           "title": "Permission Mode for New Chats",
-          "help": "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.",
+          "help": "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
           "kind": "choice",
           "default": "fullAccess",
           "group": "Agent Chat",
@@ -183,6 +211,19 @@
           "range": {
             "min": 1,
             "max": 100,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agents.subsessions.maxRunning",
+          "title": "Running Sub-sessions per Session",
+          "help": "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
+          "kind": "number",
+          "default": 16,
+          "group": "Sub-sessions",
+          "range": {
+            "min": 1,
+            "max": 1000,
             "unit": "count"
           }
         },
@@ -255,6 +296,14 @@
             "end-keep-layout",
             "end-everything"
           ]
+        },
+        {
+          "key": "app.showMenuBarIcon",
+          "title": "Show Menu Bar Icon",
+          "help": "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Window"
         },
         {
           "key": "app.startAgentGlobalHotKey",
@@ -616,6 +665,18 @@
           "kind": "toggle",
           "default": false,
           "group": "Columns"
+        },
+        {
+          "key": "layout.scrollModifier",
+          "title": "Scroll Columns and Rows With",
+          "help": "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them.",
+          "kind": "choice",
+          "default": "command",
+          "group": "Columns",
+          "values": [
+            "command",
+            "none"
+          ]
         },
         {
           "key": "layout.splitSizing",
@@ -1007,6 +1068,14 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.newTabWidgets.clock",
+          "title": "Show Clock on New Tab",
+          "help": "A quiet local time display beside the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.newTabWidgets.greeting",
           "title": "Ask What to Work On on New Tab",
           "help": "A headline over the composer that asks what to work on, with the project as a picker.",
@@ -1043,9 +1112,33 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.newTabWidgets.quote",
+          "title": "Show Quote of the Day on New Tab",
+          "help": "A bundled public-domain quote, changing daily.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.newTabWidgets.styleDots",
           "title": "Show Template Dots on New Tab",
           "help": "Dots under the page that switch its template.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.timer",
+          "title": "Show Stopwatch on New Tab",
+          "help": "A small elapsed-time stopwatch beside the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.warmGreeting",
+          "title": "Show Warm Greeting on New Tab",
+          "help": "A time-of-day greeting such as Good afternoon.",
           "kind": "toggle",
           "default": false,
           "group": "Tabs"
@@ -1157,9 +1250,9 @@
         {
           "key": "updates.downloadAutomatically",
           "title": "Download Updates Automatically",
-          "help": "Off: a found update waits, and one click downloads and installs it.",
+          "help": "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
@@ -1167,7 +1260,7 @@
           "title": "Install Within",
           "help": "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
           "kind": "number",
-          "default": 900,
+          "default": 600,
           "group": "Updates",
           "range": {
             "min": 60,
@@ -1193,7 +1286,7 @@
           "title": "Install Updates When Quitting",
           "help": "A downloaded update installs as cmux quits. Terminals keep running.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
@@ -1280,12 +1373,61 @@
           ]
         },
         {
+          "key": "workspaces.autoArchive.idleDays",
+          "title": "Idle For",
+          "help": "A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive.",
+          "kind": "number",
+          "default": 3,
+          "group": "Auto-Archive",
+          "range": {
+            "min": 1,
+            "max": 365,
+            "unit": "days"
+          }
+        },
+        {
+          "key": "workspaces.autoArchive.style",
+          "title": "Idle Workspaces",
+          "help": "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
+          "kind": "choice",
+          "default": "suggest",
+          "group": "Auto-Archive",
+          "values": [
+            "suggest",
+            "quiet",
+            "groups",
+            "manual",
+            "off"
+          ]
+        },
+        {
           "key": "workspaces.autoName",
           "title": "Name Workspaces from Tabs",
           "help": "A workspace you have not named shows its front tab's name: a page's title, an agent chat's title, or a terminal's title or folder. Your own name always wins.",
           "kind": "toggle",
           "default": true,
           "group": "Sidebar"
+        },
+        {
+          "key": "workspaces.hibernation.enabled",
+          "title": "Hibernate Idle Workspaces",
+          "help": "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.hibernation.idleMinutes",
+          "title": "Hibernate After",
+          "help": "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+          "kind": "number",
+          "default": 60,
+          "group": "Hibernation",
+          "range": {
+            "min": 5,
+            "max": 10080,
+            "unit": "minutes"
+          }
         },
         {
           "key": "workspaces.newPlacement",
@@ -1326,6 +1468,19 @@
             "max": 1.25,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "agentPane.display.environment.placement",
+          "title": "Session Info Chip",
+          "help": "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "right",
+            "off"
+          ]
         },
         {
           "key": "agentPane.display.font.lineHeight",
@@ -1386,6 +1541,27 @@
             "push",
             "overlay"
           ]
+        },
+        {
+          "key": "agentPane.display.minimap",
+          "title": "Chat Minimap",
+          "help": "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.",
+          "kind": "choice",
+          "default": "compact",
+          "group": "Agent Chat",
+          "values": [
+            "compact",
+            "full",
+            "off"
+          ]
+        },
+        {
+          "key": "agentPane.display.vscodeMinimap",
+          "title": "VS Code Minimap",
+          "help": "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.width",
@@ -1918,6 +2094,32 @@
           }
         },
         {
+          "key": "appearance.metrics.dividerHitWidth",
+          "title": "Divider Drag Width",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 1,
+            "max": 24,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.dividerThickness",
+          "title": "Divider Thickness",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 0,
+            "max": 6,
+            "unit": "points"
+          }
+        },
+        {
           "key": "appearance.metrics.sidebarWidth",
           "title": "Sidebar Width",
           "help": "",
@@ -2376,6 +2578,14 @@
           "group": "App Theme"
         },
         {
+          "key": "appearance.wallpaperTint",
+          "title": "Tint with Desktop Wallpaper",
+          "help": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Window Background"
+        },
+        {
           "key": "diff.colors",
           "title": "Diff Colors",
           "help": "",
@@ -2430,9 +2640,10 @@
           "title": "Layout",
           "help": "",
           "kind": "choice",
-          "default": "unified",
+          "default": "auto",
           "group": "Diff Viewer",
           "values": [
+            "auto",
             "split",
             "unified"
           ]
@@ -2448,6 +2659,14 @@
         {
           "key": "diff.showBackgrounds",
           "title": "Change Backgrounds",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "diff.showBulkActions",
+          "title": "Stage All and Revert All Bar",
           "help": "",
           "kind": "toggle",
           "default": true,
@@ -2800,6 +3019,14 @@
           ]
         },
         {
+          "key": "sidebar.controlsOnHover",
+          "title": "Show Sidebar Controls Only on Hover",
+          "help": "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.density",
           "title": "Sidebar Density",
           "help": "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
@@ -3055,6 +3282,14 @@
           ]
         },
         {
+          "key": "sidebar.noFade",
+          "title": "Show Whole Sidebar Without Fade",
+          "help": "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.nowPlaying.enabled",
           "title": "Show Now Playing",
           "help": "A player for what is playing, at the bottom of the sidebar.",
@@ -3198,7 +3433,7 @@
           "title": "Show Workspace Tabs",
           "help": "Lists tabs beneath each workspace in the sidebar.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Sidebar"
         },
         {
@@ -3228,7 +3463,7 @@
         {
           "key": "sidebar.spacesVisibility",
           "title": "Show Spaces",
-          "help": "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+          "help": "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then.",
           "kind": "choice",
           "default": "hover",
           "group": "Sidebar",
@@ -4230,7 +4465,7 @@
           "title": "Hibernate Hidden Tabs",
           "help": "Frees memory; history and position are kept.",
           "kind": "choice_or_number",
-          "default": "moderate",
+          "default": null,
           "group": "Memory"
         },
         {
@@ -4248,6 +4483,14 @@
           "kind": "host_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "browser.import.enabled",
+          "title": "Import from Other Browsers",
+          "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
         },
         {
           "key": "browser.keepNeighborTabsAwake",
@@ -4492,6 +4735,14 @@
           "key": "browser.openLinksInCmuxBrowser",
           "title": "Open Links in cmux Browser",
           "help": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Opening Links"
+        },
+        {
+          "key": "browser.openSignInPagesInCmux",
+          "title": "Open Sign-In Pages in cmux Browser",
+          "help": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
           "kind": "toggle",
           "default": true,
           "group": "Opening Links"
@@ -4761,6 +5012,19 @@
           ]
         },
         {
+          "key": "home.chiefEngine",
+          "title": "Engine",
+          "help": "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Engine",
+          "values": [
+            "auto",
+            "local",
+            "hosted"
+          ]
+        },
+        {
           "key": "home.chiefPetEnabled",
           "title": "Show Chief Pet",
           "help": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",
@@ -4784,7 +5048,8 @@
             "machine-blue",
             "moon",
             "moon-blue",
-            "fox"
+            "fox",
+            "mochi"
           ]
         },
         {
@@ -5040,7 +5305,7 @@
           "title": "Clear Notification When",
           "help": "",
           "kind": "choice",
-          "default": "click",
+          "default": "focus",
           "group": "Dismissal",
           "values": [
             "keystroke",
@@ -5100,6 +5365,85 @@
           "kind": "sound",
           "default": "default",
           "group": "Banners and Sound"
+        },
+        {
+          "key": "notifications.sounds.cooldownSeconds",
+          "title": "Burst Cooldown",
+          "help": "Many notifications at once sound once. An agent asking for input still sounds. 0 turns it off.",
+          "kind": "number",
+          "default": 1.5,
+          "group": "Sounds",
+          "range": {
+            "min": 0,
+            "max": 60,
+            "unit": "seconds"
+          }
+        },
+        {
+          "key": "notifications.sounds.events.bell",
+          "title": "Terminal Notification",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.error",
+          "title": "Error",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.finished",
+          "title": "Agent Finished",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.message",
+          "title": "cmux notify Message",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.events.needsInput",
+          "title": "Agent Needs Input",
+          "help": "",
+          "kind": "sound",
+          "default": null,
+          "group": "Sounds"
+        },
+        {
+          "key": "notifications.sounds.volume",
+          "title": "Volume",
+          "help": "Sounds cmux plays itself. A banner's default sound follows the system alert volume.",
+          "kind": "number",
+          "default": 1,
+          "group": "Sounds",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "notifications.sounds.when",
+          "title": "Play Sounds",
+          "help": "",
+          "kind": "choice",
+          "default": "unlessViewed",
+          "group": "Sounds",
+          "values": [
+            "unlessViewed",
+            "whenInactive",
+            "always"
+          ]
         },
         {
           "key": "notifications.sources.agent.dismissal",
@@ -5274,6 +5618,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Phone Access"
+        },
+        {
+          "key": "ssh.linkAllowedHosts",
+          "title": "Always Allowed SSH Link Hosts",
+          "help": "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+          "kind": "string_list",
+          "default": [],
+          "group": "SSH Links"
         }
       ]
     },
@@ -5295,6 +5647,22 @@
           "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
           "kind": "toggle",
           "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.voiceRoom",
+          "title": "Voice Room",
+          "help": "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.voiceRoomURL",
+          "title": "Voice Room Address",
+          "help": "The room's web address. Empty uses the room server on this Mac.",
+          "kind": "text",
+          "default": "",
           "group": "Labs"
         }
       ]

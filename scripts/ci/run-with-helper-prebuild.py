@@ -13,20 +13,32 @@ PGO_RELEASE_ENV = Path(__file__).resolve().parents[1] / "cmux-next" / "pgo" / "r
 PGO_VARIABLES = ("CMUX_PGO_PROFDATA", "CMUX_PGO_COMPANIONS")
 
 
+def signal_group(pgid, sig):
+    """Signal a process group; False when no member can take the signal.
+
+    ESRCH means the group is empty. macOS returns EPERM when every member left
+    is a zombie (an exited leader not yet reaped, or orphans awaiting launchd),
+    so EPERM on a group we created is the same "already gone" answer.
+    """
+    try:
+        os.killpg(pgid, sig)
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
 def stop_group(process):
     if process is None:
         return
     # Kill the group even if its leader exited: grandchildren can still be alive.
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
+    if not signal_group(process.pid, signal.SIGTERM):
+        # The group refused the signal; still stop a leader that has not exited.
+        if process.poll() is None:
+            process.kill()
         process.wait()
         return
     time.sleep(0.2)
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    signal_group(process.pid, signal.SIGKILL)
     process.wait()
 
 
@@ -89,8 +101,10 @@ def run(helper_command, build_command, log_path, helper_timeout=600, build_env=N
             return build.returncode if build.returncode >= 0 else 128 - build.returncode
     finally:
         # Neither an unsuccessful build nor cancellation waits for optional work.
-        stop_group(helper)
-        stop_group(build)
+        try:
+            stop_group(helper)
+        finally:
+            stop_group(build)
         for sig, handler in previous.items():
             signal.signal(sig, handler)
         if Path(log_path).exists():

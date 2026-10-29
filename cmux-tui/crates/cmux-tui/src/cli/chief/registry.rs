@@ -430,11 +430,13 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         println!("{}", t.usage);
         return 0;
     }
+    // The marker named in a refusal is the variable's name (as every agent refusal names
+    // it), never its value (the owner socket's path).
     if let Some(what) = request.write()
-        && let Some(marker) = std::env::var(super::super::chief_target::OWNER_KEY)
-            .ok()
-            .filter(|value| !value.trim().is_empty())
+        && std::env::var(super::super::chief_target::OWNER_KEY)
+            .is_ok_and(|value| !value.trim().is_empty())
     {
+        let marker = super::super::chief_target::OWNER_KEY;
         let output = if request.json { OutputMode::Json } else { global.output };
         // A Chief's own turn: its host decides, on its bound connection. A
         // person-authorized agent without the Chief owner marker proceeds to
@@ -445,7 +447,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         {
             return code;
         }
-        return super::super::wire::print_operation_error(&agent_refused(what, &marker), output);
+        return super::super::wire::print_operation_error(&agent_refused(what, marker), output);
     }
     let socket = match super::target(global, request.chief_home.as_deref()) {
         Ok(Target::Explicit(socket, derived)) => (socket, derived),

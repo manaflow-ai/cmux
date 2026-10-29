@@ -45,11 +45,17 @@ struct WebSwapGateTests {
     }
 
     @Test func aCheckIsBookedItsIntervalAfterTheLastOne() {
-        // In the front a minute after the last; behind other apps ten minutes after it.
+        // In the front a minute after the last; behind other apps two minutes after it.
         #expect(WebUpdater.delay(after: 20, interval: .seconds(60)) == .seconds(40))
-        #expect(WebUpdater.delay(after: 20, interval: .seconds(600)) == .seconds(580))
+        #expect(WebUpdater.delay(after: 20, interval: WebUpdater.defaultBackgroundInterval) == .seconds(100))
         // Overdue: now, never a negative wait.
         #expect(WebUpdater.delay(after: 900, interval: .seconds(600)) == .zero)
+    }
+
+    @Test func aBackgroundedAppChecksOftenEnoughToSwapAMergeWithinFiveMinutes() {
+        // Merge to signed pointer takes about two minutes; the background check must leave room
+        // for the download and the grace before the swap.
+        #expect(WebUpdater.defaultBackgroundInterval == .seconds(120))
     }
 }
 

@@ -45,6 +45,7 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
         term: None,
         initial_host_colors: None,
         terminal_reap_grace: Some(std::time::Duration::from_secs(30)),
+        exit_with_pid: None,
         install_key: None,
         // An owner this call starts serves chief.engine.* and chief.stop
         // through the home's brain.

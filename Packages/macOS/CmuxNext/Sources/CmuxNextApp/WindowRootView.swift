@@ -108,6 +108,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// The launch picture's regions while the launch builds this view behind it; its layout keeps
     /// each part on its area. The picture's phase owns them.
     weak var launchPictureRegions: LaunchPictureRegions?
+    /// A fullscreen page has the whole window (`WindowRootView+MainPane`): the content host
+    /// fills it (`layoutMainPaneAndTitle`), and the chrome around it hides.
+    var presentsPage = false {
+        didSet { if presentsPage != oldValue { applyPagePresentation() } }
+    }
+    /// The chrome views `presentsPage` hid.
+    var pagePresentationHidden: [NSView] = []
     /// The right sidebar's on-screen width (0 while hidden): the main pane
     /// is inset by it (`applyMainPane`, which marks the root for the window's
     /// next layout pass; a resize drag lays out once per frame, not per move).
@@ -205,9 +212,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     /// Minimal: no strip, and the sidebar header is as tall as the tab
     /// strip, so the list starts level with the panes' content.
-    private func applyTokens() {
+    func applyTokens() {
         let minimal = titlebarStyle == .minimal
-        titlebar.isHidden = minimal
+        titlebar.isHidden = minimal || presentsPage
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
         needsLayout = true // invalidate: init, or the token stream (it emits changed tokens only).
     }

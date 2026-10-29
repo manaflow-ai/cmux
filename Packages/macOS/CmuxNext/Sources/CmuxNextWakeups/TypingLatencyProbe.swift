@@ -245,8 +245,8 @@ public final class TypingLatencyProbe: Sendable {
     /// with echo sampling) and does one load while the probe is off.
     func observeCommits() {
         guard observing.compareExchange(expected: false, desired: true, ordering: .relaxed).exchanged else { return }
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
-                                                          true, 2_000_100) { [weak self] _, _ in
+        // It only stamps the commit mark: its context says so to the commit-boundary audit.
+        let observer = MainRunLoopObserver.afterCommitObserver(activities: [.beforeWaiting, .exit], order: 2_000_100) { [weak self] _ in
             guard let self, isRecording else { return }
             turnDidEnd()
         }

@@ -111,6 +111,19 @@ public final class SidebarModel {
     }
     /// Where each workspace sits in `sections`; rebuilt on the first patch after a set.
     @ObservationIgnored var rowIndex: SidebarRowIndex?
+    /// `workspaceOrder` and the `sectionsRevision` it was built at.
+    @ObservationIgnored private var workspaceOrderCache: (revision: UInt64, order: SidebarWorkspaceOrder)?
+    /// The order this window lists its workspaces in, with each one's position and neighbours in O(1)
+    /// (``SidebarWorkspaceOrder``). Built once per structural change of the rows (a move, a group change, a create
+    /// or close), so every reader after it costs no walk of the rows; a row's content patch keeps it.
+    public var workspaceOrder: SidebarWorkspaceOrder {
+        access(keyPath: \.sections)
+        if let cached = workspaceOrderCache, cached.revision == sectionsRevision { return cached.order }
+        SidebarPerfCounters.add(.orderBuilds)
+        let order = SidebarWorkspaceOrder(storedSections)
+        workspaceOrderCache = (sectionsRevision, order)
+        return order
+    }
     /// `itemOrder` and the inputs it was made from.
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
@@ -161,6 +174,8 @@ public final class SidebarModel {
     /// The section layout to draw (plans/cmux-next/sidebar-sections.md):
     /// the App fills it with the store's document plus pending intents.
     public var layout: SidebarLayoutDocument = .defaults
+    /// References hidden from list rows after the document arranges machine and group items.
+    @ObservationIgnored public var hiddenItemRefs: Set<LayoutItemRef> = []
     /// How layout items draw, by item id. Built-ins without an entry draw
     /// their own title and symbol.
     public var itemInfo: [LayoutItemID: SidebarItemInfo] = [:]
@@ -361,7 +376,7 @@ public final class SidebarModel {
         case let .select(id):
             activeWorkspaceID = id
             selection = [id]
-        case .selectTab, .moveTab:
+        case .selectTab, .moveTab, .closeTab:
             break
         case let .closeGroup(id):
             let ids = group(id)?.workspaces.map(\.id) ?? []
@@ -374,7 +389,7 @@ public final class SidebarModel {
             dropClosed(Set(ids), oldOrder: oldOrder)
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
+        case .activateItem, .installUpdate, .downloadUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
              .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .toggleWorkspaceAudio, .addItems:
             break
         case let .layout(op):
@@ -407,7 +422,7 @@ public final class SidebarModel {
         SidebarPerfCounters.add(.sectionSets) // each set arranges and compares every row
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
         let shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
-        sections = Self.folding(shown, collapsedSections) // the setter skips an unchanged list
+        sections = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections) // the setter skips an unchanged list
     }
 
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural

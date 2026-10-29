@@ -10,6 +10,7 @@ import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextUpdater
 import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Foundation
@@ -29,12 +30,22 @@ struct AppEnvironment: Sendable {
     let isolatedLaunch: Bool
     /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
     let showcase: Bool
+    /// A PR capture slot's neutral shell home (``captureShellHome(_:)``): this run is under capture, so its
+    /// terminals start their shells with that folder's rc files and its panes name the showcase Mac.
+    var captureShellHome: String?
+    /// Whether this run names the showcase Mac instead of this host (`AgentTabStore.localMachineName`):
+    /// a showcase run, or a run under capture.
+    var namesShowcaseMac: Bool { showcase || captureShellHome != nil }
     /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` in an
     /// isolated launch: where windows open for agent screenshots and benches.
     let testWindow: TestWindowPlacement?
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
+    /// This launch is the relaunch into an update nobody clicked, in an app the user was not in
+    /// (`UpdateRelaunchFocus`): it starts behind the user's app (`InputVerificationService.startNoActivateGuard`). Only the
+    /// real app process reads it.
+    var relaunchBehind: UpdateRelaunchFocus?
     /// The launch caches' crash-streak decision, made on the files lane by the first launch cache
     /// read or the run marker's launch read (`AppRunMarker.launchSafeMode`); nil reads every cache (tests).
     var launchCaches: LaunchSafeMode.Gate?
@@ -176,6 +187,7 @@ struct AppEnvironment: Sendable {
             noActivate: isolation.noActivate,
             isolatedLaunch: isolation.isolated,
             showcase: showcase,
+            captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, isolatedLaunch: isolation.isolated),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment)
                 .merging(openFiles?.childEnvironment ?? [:]) { $1 },
@@ -242,6 +254,26 @@ struct AppEnvironment: Sendable {
         // isolation markers are the app's own environment, which terminals
         // do not inherit (schemas/chief-home/vectors.json).
         terminal["CMUX_CHIEF_HOME"] = ChiefHome.resolve(tag: launch.tag, environment: environment).root.path
+        // Under capture, zsh reads the slot's neutral rc files (a `$ ` prompt), never the account's
+        // (`%n@%m`: the capture host's name, which the capture's privacy check refuses). Ghostty's and the
+        // bundled CLI's ZDOTDIR layers wrap it and hand it back before `.zshrc` runs. The terminals run zsh
+        // there: bash and fish read the account's `HOME`, which LaunchServices keeps, so they would not see them.
+        if let shellHome = captureShellHome(environment) {
+            terminal["ZDOTDIR"] = shellHome
+            terminal["SHELL"] = "/bin/zsh"
+        }
         return terminal
+    }
+
+    /// `CMUX_CAPTURE_SHELL_HOME`: the folder a PR capture slot (cmuxterm-hq capture-host) writes neutral shell
+    /// startup files into and names in the clone's `LSEnvironment`. Nil unless it is an absolute path to a folder.
+    nonisolated static func captureShellHome(_ environment: [String: String],
+                                             isFolder: (String) -> Bool = { path in
+                                                 var folder: ObjCBool = false
+                                                 return FileManager.checked.fileExists(atPath: path, isDirectory: &folder)
+                                                     && folder.boolValue
+                                             }) -> String? {
+        guard let path = environment["CMUX_CAPTURE_SHELL_HOME"], path.hasPrefix("/"), isFolder(path) else { return nil }
+        return path
     }
 }

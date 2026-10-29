@@ -77,11 +77,18 @@ extension IPhoneHostService {
     }
 
     /// The approver sync on the app's scheduler, made on first need; nil before ``wire`` or without agents.
+    /// It also hands hostd each phone's own acpmux credential.
     @discardableResult
     func ensureApproverSync() -> MobileHostApproverSync? {
         if let approverSync { return approverSync }
         guard let environment = dependencies?.acpmuxEnvironment, let deadlines else { return nil }
         let sync = MobileHostApproverSync(environment: environment, deadlines: deadlines)
+        let supervisor = supervisor
+        sync.phoneCredentialsChanged = { credentials in
+            // task-owner: one hop to the supervisor actor; setPhoneCredentials replaces the whole set
+            // main-hop-allow: main's FIFO starts the hops in the order acpmux answered, so the newest set lands last
+            Task { await supervisor.setPhoneCredentials(credentials) }
+        }
         approverSync = sync
         return sync
     }

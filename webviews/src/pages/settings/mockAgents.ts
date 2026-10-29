@@ -31,6 +31,7 @@ const HARNESSES: AgentHarnessRow[] = [
     removable: true,
     default: false,
     probeError: "the model probe timed out after 60 s",
+    iconSpec: { kind: "monogram", text: "AA", hue: 212, source: "default" },
   },
 ];
 
@@ -116,6 +117,32 @@ export class MockAgents {
         this.removedRows.delete(backup);
         this.state = { ...this.state, harnesses: [...this.state.harnesses, row], removed: undefined };
         return { id: row.id, path: `~/.config/cmux/harnesses/${row.id}.toml` };
+      }
+      case "symbol":
+        // The host's template image of the symbol (a 1x1 PNG here).
+        return {
+          src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==",
+        };
+      case "icon": {
+        // acpmux's resolution, as far as Settings shows it: the value, an image, or Automatic.
+        const iconSpec = gesture.clear
+          ? { kind: "monogram", text: "AA", hue: 212, source: "default" }
+          : gesture.data
+            ? {
+                kind: "image",
+                mime: gesture.ext === "svg" ? "image/svg+xml" : "image/png",
+                data: gesture.data,
+                source: "profile",
+              }
+            : /^\p{Extended_Pictographic}/u.test(gesture.icon ?? "")
+              ? { kind: "emoji", text: gesture.icon, source: "profile" }
+              : { kind: "symbol", name: gesture.icon, text: "AA", hue: 212, source: "profile" };
+        const icon = gesture.clear ? undefined : gesture.data ? `${gesture.id}.${gesture.ext ?? "png"}` : gesture.icon;
+        this.state = {
+          ...this.state,
+          harnesses: this.state.harnesses.map((row) => (row.id === gesture.id ? { ...row, icon, iconSpec } : row)),
+        };
+        return { id: gesture.id, icon };
       }
       case "doctor": {
         const failing = this.state.harnesses.find((row) => row.id === gesture.id)?.probeError;

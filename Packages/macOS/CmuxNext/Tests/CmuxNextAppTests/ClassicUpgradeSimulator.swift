@@ -99,6 +99,9 @@ final class ClassicUpgradeSimulator {
     private let launcher: DaemonLauncher
     /// Seconds since the migration started at which each workspace name first showed (``watch()``).
     private(set) var appeared: [String: Double] = [:]
+    /// Seconds since the migration started at which each classic key first showed in the ledger
+    /// (the run's turn for that workspace began), sampled with ``appeared``.
+    private(set) var ledgered: [String: Double] = [:]
     /// The last run's outcome (launch, relaunch, import), for its failures.
     private(set) var lastOutcome: ClassicMigrationOutcome?
     /// Workspaces the launch made before the migration (its empty New Tab page).
@@ -179,9 +182,12 @@ final class ClassicUpgradeSimulator {
         }
         result.migration = clock.now - migrating
         watcher?.cancel()
-        // The launch's empty New Tab page closes at the run's end; its close reaches the store a moment later.
+        // The run's last turns (the SSH workspaces, after their connect limit) can end it within one sampling tick.
+        sample(from: migrating)
+        // The launch's empty New Tab page closes at the run's end; its close reaches the store a moment later
+        // (a ceiling, not a budget: a loaded Mac takes longer).
         if result.outcome?.opened.isEmpty == false {
-            let settle = clock.now + .seconds(5)
+            let settle = clock.now + .seconds(60)
             while clock.now < settle, !launchMade.isDisjoint(with: made().keys) { try? await Task.sleep(for: .milliseconds(50)) }
         }
         return result
@@ -236,16 +242,25 @@ final class ClassicUpgradeSimulator {
         }
     }
 
-    /// Records when each workspace first shows, every 50 ms (test-side sampling of the store).
+    /// Records when each workspace first shows, and when each classic key first shows in the
+    /// ledger, every 50 ms (test-side sampling of the store and the ledger file).
     private func watch(from start: ContinuousClock.Instant) {
         watcher = Task { @MainActor [weak self] in
             while !Task.isCancelled, let self {
-                let seconds = (ContinuousClock.now - start).simSeconds
-                for workspace in self.services.daemon.store.workspaces where self.appeared[workspace.name] == nil {
-                    self.appeared[workspace.name] = seconds
-                }
+                self.sample(from: start)
                 try? await Task.sleep(for: .milliseconds(50))
             }
+        }
+    }
+
+    /// One sample for ``watch(from:)``: the workspaces in the store and the keys in the ledger not seen before.
+    private func sample(from start: ContinuousClock.Instant) {
+        let seconds = (ContinuousClock.now - start).simSeconds
+        for workspace in services.daemon.store.workspaces where appeared[workspace.name] == nil {
+            appeared[workspace.name] = seconds
+        }
+        if let ledger = try? mac.readLedger() {
+            for key in ledger.workspaces.keys where ledgered[key] == nil { ledgered[key] = seconds }
         }
     }
 
@@ -294,11 +309,20 @@ final class ClassicUpgradeSimulator {
     }
 
     /// Waits until the tree stops changing (the daemon's last events of a run
-    /// land after the run returns): unchanged for 0.5 s, at most 10 s.
-    /// Test-side sampling of the store, as the person's sidebar would show it.
+    /// land after the run returns): first until the store has applied every
+    /// event the daemon sent before now (its event sequence, the barrier
+    /// `WorkspaceSpawner.settled` takes), then until the workspaces and the
+    /// sidebar are unchanged for 0.5 s (the app's own follow-ups: placements,
+    /// group moves). Each wait has a 60 s ceiling, not a budget: a loaded Mac
+    /// gets there later, an idle one at once.
     func settle() async {
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(10)
+        let store = services.daemon.store
+        if let barrier = await services.daemon.connection?.eventSequence() {
+            let applied = clock.now + .seconds(60)
+            while clock.now < applied, store.appliedSequence < barrier { try? await Task.sleep(for: .milliseconds(20)) }
+        }
+        let deadline = clock.now + .seconds(60)
         var last = "\(made().sorted { $0.key < $1.key })\(windows())"
         var stableSince = clock.now
         while clock.now < deadline, clock.now - stableSince < .milliseconds(500) {

@@ -32,7 +32,9 @@ struct AgentPageHibernationLifecycleTests {
         var released = 0
         private let uptime: LifecycleRigUptime
 
-        init(wake: AgentPaneWakeState? = nil) {
+        /// - Parameter setting: `browser.hibernation` as the lifecycle starts with it: written ("moderate",
+        ///   hidden pages are discarded on their own) unless a test passes the default (`.fallback`).
+        init(wake: AgentPaneWakeState? = nil, setting: BrowserHibernationSetting = BrowserHibernationSetting(mode: .moderate)) {
             tabs = AgentTabStore(build: nil, registry: ActionRegistry(), work: BackgroundWork(label: "test.agent-pane"), webUI: .agentTabsTestHost(), input: InputEventTap(),
                                  environment: AgentPageAppTestRoot.environment, showcase: true)
             tabs.localHost = AgentPageHibernationLifecycleTests.thisMac
@@ -44,7 +46,7 @@ struct AgentPageHibernationLifecycleTests {
             self.uptime = uptime
             let queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }),
                                         uptime: { uptime.now }) { _ in LifecycleRigTimer() }
-            lifecycle = PageLifecycle(conditions: .init(setting: BrowserHibernationSetting(mode: .moderate)),
+            lifecycle = PageLifecycle(conditions: .init(setting: setting),
                                       deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()), queue: queue))
             tabs.lookup = { [unowned self] key in self.records[key].map { ($0, tree) } }
             hibernation.turnState = { [unowned self] key in self.records[key].flatMap(self.turns.state(for:)) }
@@ -128,6 +130,37 @@ struct AgentPageHibernationLifecycleTests {
         rig.pass(at: Double(due.components.seconds) + 1)
         #expect(rig.tabs.existingView("tab_running") == nil, "the chat kept its page after its turn ended")
         #expect(rig.lifecycle.state(of: "tab_running") == .discarded)
+    }
+
+    /// No `browser.hibernation` in cmux.json (trunk #25920), with `pageLifecycle` on: an idle hidden chat
+    /// and an untouched New Tab page freeze, which keeps their state, and keep their page at every
+    /// pressure, as `AgentPageHibernationTests.theDefaultKeepsEveryHiddenChatsPage` has it with the
+    /// lifecycle off. Writing the setting lets the overdue pages go.
+    @Test(arguments: [MemoryPressureLevel.normal, .warning, .critical])
+    func theDefaultKeepsEveryHiddenChatsPage(_ pressure: MemoryPressureLevel) async throws {
+        let rig = Rig(setting: .fallback)
+        let chat = try rig.chat("tab_idle", session: "s-idle")
+        let newTab = try rig.newTab("tab_new")
+        _ = try rig.chat("tab_last", session: "s-last")
+        await rig.showThenHide("tab_idle", at: 0)
+        await rig.showThenHide("tab_new", at: 0)
+        await rig.showThenHide("tab_last", at: 1)
+        rig.pass(at: 12)
+        #expect(rig.lifecycle.state(of: "tab_idle") == .frozen, "an idle hidden chat did not freeze by default")
+        #expect(rig.lifecycle.state(of: "tab_new") == .frozen)
+
+        rig.lifecycle.setConditions(.init(setting: .fallback, pressure: pressure))
+        for seconds in stride(from: 300.0, through: 7_200, by: 300) { rig.pass(at: seconds) }
+        #expect(rig.tabs.existingView("tab_idle") === chat, "\(pressure): a hidden chat was let go by default")
+        #expect(rig.tabs.existingView("tab_new") === newTab, "\(pressure): a New Tab page was let go by default")
+        #expect(rig.lifecycle.state(of: "tab_idle") == .frozen)
+        #expect(rig.displaced.isEmpty)
+        #expect(rig.released == 0)
+
+        rig.lifecycle.setConditions(.init(setting: BrowserHibernationSetting(mode: .moderate)))
+        for seconds in stride(from: 7_205.0, through: 7_230, by: 5) { rig.pass(at: seconds) }
+        #expect(rig.tabs.existingView("tab_idle") == nil, "writing browser.hibernation kept an overdue hidden chat")
+        #expect(rig.lifecycle.state(of: "tab_idle") == .discarded)
     }
 
     /// A turn that starts on a frozen hidden chat thaws it in that turn: acpmux cannot resync a frozen

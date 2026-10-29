@@ -93,6 +93,8 @@ PROBE = os.path.join(OUT, "typing.csv")
 APP_CLI = os.path.join(opts.app, "Contents/Resources/bin/cmux")
 WINDOW = (40, 40, 1200, 900)
 STATUSES = ["todo", "working", "needs-attention", "review", "done"]
+# The most one `xctrace export` may take (a 25 s Time Profiler trace exports in well under a minute).
+TRACE_EXPORT_TIMEOUT_S = 300
 results = {"tag": opts.tag, "host": os.uname().nodename, "opts": vars(opts), "log": [], "phases": [],
            "input": opts.input, "session": opts.session}
 # A profiler or stack capture during the measured keys changes them: such a run writes no result-v1.
@@ -234,10 +236,19 @@ def main_thread_profile(path):
     import xml.etree.ElementTree as ET
     if not os.path.exists(path):
         return None
-    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--toc"], capture_output=True, text=True).stdout
-    schema = "time-profile" if 'schema="time-profile"' in toc else "time-sample"
-    xml = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--xpath",
-                          f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], capture_output=True, text=True).stdout
+    # Each export is bounded: an `xctrace export` that never returns held a fleet host silent until the step's
+    # watchdog killed it (2026-10-24, cmux20-bench), losing the phases already measured. A timed-out export
+    # gives the report an error entry, and the key and hang numbers still land.
+    try:
+        toc = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--toc"], capture_output=True, text=True,
+                             timeout=TRACE_EXPORT_TIMEOUT_S).stdout
+        schema = "time-profile" if 'schema="time-profile"' in toc else "time-sample"
+        xml = subprocess.run(["xcrun", "xctrace", "export", "--input", path, "--xpath",
+                              f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], capture_output=True, text=True,
+                             timeout=TRACE_EXPORT_TIMEOUT_S).stdout
+    except subprocess.TimeoutExpired:
+        note(f"trace export timed out after {TRACE_EXPORT_TIMEOUT_S} s: {path}")
+        return {"error": f"export timed out after {TRACE_EXPORT_TIMEOUT_S} s"}
     try:
         root = ET.fromstring(xml)
     except ET.ParseError as error:

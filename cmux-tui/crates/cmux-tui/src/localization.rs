@@ -14,6 +14,7 @@ mod config;
 mod energy;
 mod foreign_viewport;
 mod graphics;
+mod host_share;
 mod layout;
 mod local_server;
 mod machine_agent;
@@ -23,6 +24,7 @@ mod pairing;
 mod remote;
 mod remote_client;
 mod runtime;
+mod sandbox_run;
 mod server_mount;
 mod session;
 mod session_reset;
@@ -57,6 +59,7 @@ pub(crate) use pairing::PairingMessages;
 pub(crate) use remote::RemoteMessages;
 pub(crate) use remote_client::RemoteClientMessages;
 pub(crate) use runtime::RuntimeMessages;
+pub(crate) use sandbox_run::SandboxRunMessages;
 pub(crate) use server_mount::server_mount;
 pub(crate) use session::SessionMessages;
 pub(crate) use session_reset::SessionResetMessages;
@@ -160,12 +163,14 @@ pub(crate) struct Catalog {
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
     pub agents_doctor: AgentsDoctorMessages,
+    pub host_share: host_share::Messages,
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
     pub billing: BillingMessages,
     pub energy: EnergyMessages,
     pub metrics: MetricsMessages,
     pub trace: TraceMessages,
+    pub sandbox_run: SandboxRunMessages,
     pub update_notice: UpdateNoticeMessages,
 }
 
@@ -183,10 +188,12 @@ static ENGLISH: Catalog = Catalog {
     energy: energy::ENGLISH,
     metrics: metrics::ENGLISH,
     trace: trace::ENGLISH,
+    sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
     agents_doctor: agents_doctor::ENGLISH,
+    host_share: host_share::ENGLISH,
     startup: startup::ENGLISH,
     terminal_input: terminal_input::ENGLISH,
     local_server: local_server::ENGLISH,
@@ -218,10 +225,12 @@ static JAPANESE: Catalog = Catalog {
     energy: energy::JAPANESE,
     metrics: metrics::JAPANESE,
     trace: trace::JAPANESE,
+    sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,
     agents_doctor: agents_doctor::JAPANESE,
+    host_share: host_share::JAPANESE,
     startup: startup::JAPANESE,
     terminal_input: terminal_input::JAPANESE,
     local_server: local_server::JAPANESE,

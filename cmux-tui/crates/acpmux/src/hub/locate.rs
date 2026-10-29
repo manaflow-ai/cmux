@@ -13,24 +13,33 @@ use crate::agent_link::AgentLink;
 impl Hub {
     /// The session `query` names, newest first when several do (`matches`), else a not-found
     /// error that says where it looked. With `bead_only`, `query` is a bead id and only the
-    /// sessions carrying it match (a session named like it does not hide them).
-    pub fn locate(&self, query: &str, bead_only: bool) -> Result<Value, RpcError> {
+    /// sessions carrying it match (a session named like it does not hide them). Without
+    /// `names_hosts` (a read-only machine's connection) it answers no more than the session list
+    /// does: this machine's name and its peers' (those with no session, their state) stay out,
+    /// and `local/NAME` names a session here.
+    pub fn locate(
+        &self,
+        query: &str,
+        bead_only: bool,
+        names_hosts: bool,
+    ) -> Result<Value, RpcError> {
         let query = query.trim();
         if query.is_empty() {
             return Err(RpcError::invalid_params(
                 "query is required: an agent link, a session id or a session name",
             ));
         }
-        let own = crate::pairing::machine_name();
+        let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
+        let shown = names_hosts.then_some(own.as_str());
         let summaries = self.all_session_summaries();
         if bead_only {
             if !crate::beads::is_bead_id(query) {
                 return Err(RpcError::invalid_params(format!("{query:?} is not a bead id")));
             }
             let found = by_bead(&summaries, query);
-            let matches: Vec<Value> = found.iter().map(|s| card(s, &own)).collect();
+            let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
             let Some(session) = matches.first() else {
-                return Err(RpcError::not_found(self.unfound(query, None, &own)));
+                return Err(RpcError::not_found(self.unfound(query, None, shown)));
             };
             return Ok(json!({"session": session, "matches": matches, "link": null}));
         }
@@ -44,9 +53,9 @@ impl Hub {
             }
             None => (None, by_key(&summaries, query, &own)),
         };
-        let matches: Vec<Value> = found.iter().map(|s| card(s, &own)).collect();
+        let matches: Vec<Value> = found.iter().map(|s| card(s, shown)).collect();
         let Some(session) = matches.first() else {
-            return Err(RpcError::not_found(self.unfound(query, link.as_ref(), &own)));
+            return Err(RpcError::not_found(self.unfound(query, link.as_ref(), shown)));
         };
         Ok(json!({
             "session": session,
@@ -61,8 +70,12 @@ impl Hub {
         }))
     }
 
-    /// Where `locate` looked, for its not-found error.
-    fn unfound(&self, query: &str, link: Option<&AgentLink>, own: &str) -> String {
+    /// Where `locate` looked, for its not-found error: this machine and its peers by name, which
+    /// are down, and a link's host that is neither, when `own` (the hosts) may be shown.
+    fn unfound(&self, query: &str, link: Option<&AgentLink>, own: Option<&str>) -> String {
+        let Some(own) = own else {
+            return not_found_text(query, link, "on this daemon or its peers");
+        };
         let peers = self.peers();
         let names: Vec<&str> = peers.iter().filter_map(|p| p["name"].as_str()).collect();
         let looked = if names.is_empty() {
@@ -70,13 +83,7 @@ impl Hub {
         } else {
             format!("on {own} or its peers ({})", names.join(", "))
         };
-        let mut text = match link {
-            Some(l) => format!("no {} session {} {looked}", l.harness, l.session),
-            None if crate::beads::is_bead_id(query) => {
-                format!("no session named, with the id or carrying the bead {query:?} {looked}")
-            }
-            None => format!("no session named or with the id {query:?} {looked}"),
-        };
+        let mut text = not_found_text(query, link, &looked);
         if let Some(host) = link.and_then(|l| l.host.as_deref())
             && !host.eq_ignore_ascii_case(own)
             && !names.iter().any(|n| n.eq_ignore_ascii_case(host))
@@ -94,6 +101,17 @@ impl Hub {
             text.push_str(&format!("; not connected now: {}", down.join(", ")));
         }
         text
+    }
+}
+
+/// That nothing `query` names was found `looked` ("on … or its peers").
+fn not_found_text(query: &str, link: Option<&AgentLink>, looked: &str) -> String {
+    match link {
+        Some(l) => format!("no {} session {} {looked}", l.harness, l.session),
+        None if crate::beads::is_bead_id(query) => {
+            format!("no session named, with the id or carrying the bead {query:?} {looked}")
+        }
+        None => format!("no session named or with the id {query:?} {looked}"),
     }
 }
 
@@ -171,9 +189,9 @@ fn by_bead<'a>(summaries: &'a [Value], id: &str) -> Vec<&'a Value> {
 
 /// What `locate` answers for one session. It keeps the keys every summary has (`sessionId`,
 /// `harness`, `lastSeq`), so a peer's connection reads its session text masked like a
-/// summary's (`server/peer_text.rs`).
-fn card(s: &Value, own: &str) -> Value {
-    let host = host_of(s, own);
+/// summary's (`server/peer_text.rs`). Without `own` a session here has no host and no link.
+fn card(s: &Value, own: Option<&str>) -> Value {
+    let host = s["peer"].as_str().or(own);
     json!({
         "host": host,
         "lastSeq": s.get("lastSeq").cloned().unwrap_or(json!(0)),
@@ -205,9 +223,11 @@ fn card(s: &Value, own: &str) -> Value {
 }
 
 /// The session's own agent link (`schemas/deeplinks/agent-link.json`), or null when it has no
-/// harness session id yet.
-fn link_of(s: &Value, host: &str) -> Value {
-    let Some(session) = s["agentSessionId"].as_str() else { return Value::Null };
+/// harness session id yet or no host to name.
+fn link_of(s: &Value, host: Option<&str>) -> Value {
+    let (Some(session), Some(host)) = (s["agentSessionId"].as_str(), host) else {
+        return Value::Null;
+    };
     let link = AgentLink {
         harness: family_of(s).to_owned(),
         session: session.to_owned(),
@@ -270,8 +290,7 @@ mod tests {
             "lastMessage": {"role": "agent", "text": format!("used {token}")},
             "lastTurn": {"status": "failed", "errorText": format!("bad {token}")},
         });
-        let reply =
-            json!({"session": card(&summary, "big-red"), "matches": [card(&summary, "big-red")]});
+        let reply = json!({"session": card(&summary, Some("big-red")), "matches": [card(&summary, Some("big-red"))]});
         let msg = crate::rpc::Message::ok(json!(1), reply);
         let Some(crate::rpc::Message::Response { result: Some(masked), .. }) =
             crate::server::peer_text::masked(&msg)
@@ -304,14 +323,14 @@ mod tests {
         named.push(json!({"sessionId": "m4", "name": "cx-ab1.2", "harness": "claude"}));
         assert_eq!(ids(&by_key(&named, "cx-ab1.2", "big-red")), ["m4"]);
         assert_eq!(ids(&by_bead(&named, "cx-ab1.2")), ["m3"]);
-        assert_eq!(card(&rows[2], "big-red")["beads"], json!(["cx-ab1.2"]));
-        assert_eq!(card(&rows[0], "big-red")["beads"], json!([]));
+        assert_eq!(card(&rows[2], Some("big-red"))["beads"], json!(["cx-ab1.2"]));
+        assert_eq!(card(&rows[0], Some("big-red"))["beads"], json!([]));
     }
 
     #[test]
     fn a_card_carries_the_sessions_own_link() {
         let rows = rows();
-        let card = card(&rows[2], "big-red");
+        let card = card(&rows[2], Some("big-red"));
         assert_eq!(card["host"], "hb");
         assert_eq!(
             card["link"],
@@ -322,6 +341,6 @@ mod tests {
     }
 
     fn card_without_agent_id() -> Value {
-        card(&json!({"sessionId": "m9", "name": "new one", "harness": "claude"}), "big-red")
+        card(&json!({"sessionId": "m9", "name": "new one", "harness": "claude"}), Some("big-red"))
     }
 }

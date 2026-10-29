@@ -73,6 +73,32 @@ fn local_store_makes_existing_state_private_and_writes_private_events() {
     assert_eq!(mode(&second), 0o600);
 }
 
+/// Review 2 of #26054: a strict read of a log whose segments cannot be listed fails; `scan`
+/// reads no record of it.
+#[test]
+fn a_strict_read_fails_when_the_log_cannot_be_listed() {
+    let temp = TempDir::new();
+    let root = temp.0.join("sessions");
+    let store = LocalStore::new(root.clone(), 64 * 1024, &crate::supervised::embedded()).unwrap();
+    let record = EventRecord {
+        seq: 1,
+        at: 1,
+        dir: "mux".into(),
+        kind: "host_started".into(),
+        msg: serde_json::json!({}),
+        host_seq: None,
+    };
+    store.append("session-1", &record).unwrap();
+    let events = root.join("session-1").join("events");
+    std::fs::remove_dir_all(&events).unwrap();
+    std::fs::write(&events, "not a directory").unwrap();
+    assert!(store.scan("session-1", 0, &mut |_| true).is_ok());
+    assert!(
+        store.scan_strict("session-1", 0, &mut |_| true).is_err(),
+        "a strict read of a log it could not list read nothing and passed"
+    );
+}
+
 #[test]
 fn local_store_refuses_a_symlinked_existing_session() {
     let temp = TempDir::new();

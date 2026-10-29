@@ -614,7 +614,13 @@ impl Mux {
                             mux,
                             state,
                             first,
-                            TabDragDestination::Split { pane, edge, ratio, keep_focus: false },
+                            TabDragDestination::Split {
+                                pane,
+                                edge,
+                                ratio,
+                                keep_focus: false,
+                                around: None,
+                            },
                             &ids,
                             false,
                         )?;

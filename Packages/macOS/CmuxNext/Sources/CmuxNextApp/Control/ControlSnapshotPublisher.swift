@@ -255,15 +255,15 @@ final class ControlSnapshotPublisher {
             topology.isLoaded = true
         }
         topology.windows = windows.controllers.map { controller in
-            let members = windows.registry.members(of: controller.state.id)
-            var info = ControlWindowInfo(
-                id: controller.state.id,
-                workspaceID: controller.state.workspaceID,
-                workspaceIDs: members,
-                isKey: controller.window?.isKeyWindow ?? false,
-                isVisible: controller.window?.isVisible ?? false,
-                focusedPaneID: controller.focusedPane?.pane.id
-            )
+            // One order for every reader: the sidebar's (`SidebarModel.workspaceOrder`), kept per structural change of its
+            // rows (a move republishes it, a row's content patch does not); membership moves only on join or leave.
+            let (model, joined) = (controller.sidebar.model, windows.registry.members(of: controller.state.id))
+            let ordered = { model.workspaceOrder.ordering(joined) }
+            let members = cache?.memo("order:" + controller.state.id, key: [joined, [String(model.observedSectionsRevision)]],
+                                      build: ordered) ?? ordered()
+            var info = ControlWindowInfo(id: controller.state.id, workspaceID: controller.state.workspaceID, workspaceIDs: members,
+                                         isKey: controller.window?.isKeyWindow ?? false, isVisible: controller.window?.isVisible ?? false,
+                                         focusedPaneID: controller.focusedPane?.pane.id)
             // What the user sees: windows kept off screen until a machine
             // reports one of their workspaces are hidden, and the count is
             // the sidebar's (current room, reported by a machine).
@@ -278,7 +278,7 @@ final class ControlSnapshotPublisher {
                                                    build: visible) ?? visible()
             return info
         }
-        cache?.retainMemos(Set(windows.controllers.map { "window:" + $0.state.id }))
+        cache?.retainMemos(Set(windows.controllers.flatMap { ["window:" + $0.state.id, "order:" + $0.state.id] }))
         if let active = windows.active {
             let pane = active.focusedPane
             // The strip's selected tab: a daemon tab, or an internal page

@@ -1,10 +1,14 @@
 //! The holder's single-threaded event loop.
 //!
 //! One `poll` set: the listening socket, the daemon link, connections that
-//! have not said HELLO yet, a self-pipe for SIGCHLD (and a launchd SIGTERM)
-//! and every PTY master. While no daemon is attached to a terminal its
-//! output is read as soon as it is ready and its ring keeps the newest
-//! bytes. While a daemon is attached nothing is lost: the holder reads a
+//! have not said HELLO yet, links another daemon superseded that still
+//! finish their last frame, a self-pipe for SIGCHLD (and a launchd SIGTERM),
+//! the start report of each child that has not run its program yet, and
+//! every PTY master. No handler waits: a SPAWN forks and returns, and its
+//! SPAWNED (or its error) follows when the child's report arrives. While no
+//! daemon is attached to a terminal its output is read as soon as it is
+//! ready and its ring keeps the newest bytes. While a daemon is attached
+//! nothing is lost: the holder reads a
 //! master only while fewer than [`UNSENT_HIGH_WATER`] bytes wait unsent,
 //! sends at most [`wire::CREDIT_WINDOW`] past what the daemon acknowledged
 //! it parsed, and a shell that prints faster than that blocks in its PTY,
@@ -27,6 +31,7 @@ use std::io;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
@@ -114,17 +119,28 @@ pub mod error_code {
     pub const CHAN_IN_USE: u16 = 9;
     /// Another daemon authenticated and took this link's place.
     pub const SUPERSEDED: u16 = 10;
+    /// The holder is out of descriptors (request kind
+    /// [`crate::wire::STREAM_FAULT`]): it could not take the descriptors
+    /// the daemon's frame passed, and ends that link. Passing descriptors
+    /// to a daemon (a WELCOME's listing, a SPAWNED) costs the holder none
+    /// ([`Terminal::descriptors`]), so nothing else is refused for want of
+    /// them.
+    pub const NO_DESCRIPTORS: u16 = 11;
     /// A [`super::Kind::TraceStart`] or [`super::Kind::TraceStop`] changed
     /// nothing; the message says why.
-    pub const TRACE_FAILED: u16 = 11;
+    pub const TRACE_FAILED: u16 = 12;
 }
 
 struct Terminal {
     id: [u8; 16],
-    master: OwnedFd,
+    /// Shared with each frame that passes it ([`Self::descriptors`]).
+    master: Arc<OwnedFd>,
     pid: libc::pid_t,
     /// This holder started the child, so it reaps it and reads its status.
     own_child: bool,
+    /// The child has not reported its start yet: nothing is sent for the
+    /// terminal, and it has not ended, until it did.
+    starting: Option<Starting>,
     ring: Ring,
     status: Option<ExitStatus>,
     /// The master read end of file or EIO: every slave closed.
@@ -166,17 +182,32 @@ struct Terminal {
     last_output: Instant,
 }
 
-/// One frame waiting for the link, with the descriptors it passes.
+/// A terminal whose child was forked and has not reported its start
+/// ([`pty::Start`]).
+struct Starting {
+    start: pty::Start,
+    /// The daemon's custody copies, passed with SPAWNED once the program
+    /// runs ([`Terminal::descriptors`]).
+    custody: Vec<Arc<OwnedFd>>,
+    /// The link whose SPAWN started it ([`Link::id`]): only that link gets
+    /// its SPAWNED, whose descriptors were made for that link's version.
+    link: u64,
+}
+
+/// One frame waiting for the link, with the descriptors it passes (shared
+/// with their terminal, kept open until the frame's first byte is written).
 struct OutFrame {
     chan: u32,
     bytes: Vec<u8>,
-    fds: Vec<OwnedFd>,
+    fds: Vec<Arc<OwnedFd>>,
     /// Bytes of it the socket already took.
     written: usize,
 }
 
 /// The authenticated daemon link.
 struct Link {
+    /// This link among every link the holder had (counting from 1).
+    id: u64,
     stream: UnixStream,
     reader: wire::Reader,
     /// The daemon acknowledges what it parsed (wire version 2).
@@ -201,7 +232,7 @@ struct Link {
 }
 
 impl Link {
-    fn push(&mut self, chan: u32, bytes: Vec<u8>, fds: Vec<OwnedFd>) {
+    fn push(&mut self, chan: u32, bytes: Vec<u8>, fds: Vec<Arc<OwnedFd>>) {
         self.out_bytes += bytes.len();
         let urgent = bytes.len() <= URGENT_FRAME_BYTES && !self.bulk_per_chan.contains_key(&chan);
         let frame = OutFrame { chan, bytes, fds, written: 0 };
@@ -232,6 +263,53 @@ impl Link {
     }
 }
 
+/// A link the holder ends while its daemon is still there to hear why:
+/// another daemon of the session took its place (ERROR SUPERSEDED, so it
+/// does not take the holder back: two daemons would take it from each
+/// other in turn), or its stream could not be read on (ERROR on request
+/// kind [`wire::STREAM_FAULT`]: the holder is out of descriptors, or the
+/// frames were not frames of the wire). Its queued frames are dropped, as
+/// for any link that ends; the frame the socket took part of is finished,
+/// so the stream stays well formed, and the ERROR follows as its last
+/// frame, whatever was queued. Polled for POLLOUT until it is written: at
+/// most a DATA chunk and a header, which the daemon's reader thread drains,
+/// or a write error once that daemon is gone.
+struct Retiring {
+    stream: UnixStream,
+    bytes: Vec<u8>,
+    written: usize,
+}
+
+impl Retiring {
+    /// `link`'s last bytes: the rest of the frame its socket took part of,
+    /// then ERROR `code` about `request_kind` on channel 0.
+    fn new(link: Link, request_kind: u16, code: u16, message: &str) -> Self {
+        let mut bytes = link
+            .current
+            .filter(|frame| frame.written > 0)
+            .map(|frame| frame.bytes[frame.written..].to_vec())
+            .unwrap_or_default();
+        let payload = Out::default().u16(request_kind).u16(code).bytes(message.as_bytes()).0;
+        bytes.extend_from_slice(&wire::encode(Kind::Error, 0, &payload));
+        Self { stream: link.stream, bytes, written: 0 }
+    }
+
+    /// Write what the socket takes. True once there is nothing more to do:
+    /// every byte is written (the stream closes as it drops), or the
+    /// daemon is gone.
+    fn write(&mut self) -> bool {
+        while self.written < self.bytes.len() {
+            match wire::send_with_fds(self.stream.as_raw_fd(), &self.bytes[self.written..], &[]) {
+                Ok(0) => return false,
+                Ok(n) => self.written += n,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return false,
+                Err(_) => return true,
+            }
+        }
+        true
+    }
+}
+
 /// A connection that has not authenticated yet. It never touches the
 /// current link: a liveness probe, a stale token or any local tool cannot
 /// drop the daemon that is attached.
@@ -240,6 +318,10 @@ struct Pending {
     reader: wire::Reader,
     deadline: Instant,
 }
+
+/// Every terminal for a new link's WELCOME: channel, LISTED payload and
+/// the descriptors it passes.
+type Listing = Vec<(u32, Vec<u8>, Vec<Arc<OwnedFd>>)>;
 
 /// What one [`Holder::read_terminal`] call ended on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -260,15 +342,46 @@ enum LinkDrop {
     Lost,
     /// Another daemon of the session took the holder.
     Superseded,
+    /// Its stream could not be read on ([`wire::Fault`]): the daemon is
+    /// still there and hears why. No strike: it did not die parsing.
+    Faulted,
+}
+
+/// Why reading the link ends it.
+#[derive(Debug)]
+enum LinkBreak {
+    /// The socket ended or failed: the daemon is gone.
+    Lost,
+    /// The stream cannot be read on, with what went wrong.
+    Fault(wire::Fault, String),
+}
+
+impl LinkBreak {
+    /// The break an error reading the link stands for.
+    fn of(error: &io::Error) -> Self {
+        match wire::Fault::of(error) {
+            Some(fault) => Self::Fault(fault, error.to_string()),
+            None => Self::Lost,
+        }
+    }
 }
 
 /// The holder state.
 pub struct Holder {
     listener: UnixListener,
+    /// The last accept failed for a want of the holder's (a descriptor,
+    /// kernel memory) and left its connection queued: the listener stays
+    /// out of the poll set, and each turn ends with another accept
+    /// ([`Self::accept`]).
+    accept_stalled: bool,
     /// The socket file, removed when the holder exits.
     socket: Option<PathBuf>,
     token: [u8; 32],
     link: Option<Link>,
+    /// Links the holder had: the next one's [`Link::id`] is one more.
+    links: u64,
+    /// Superseded links still writing their last frame.
+    retiring: Vec<Retiring>,
     pending: Vec<Pending>,
     terminals: BTreeMap<u32, Terminal>,
     /// Terminals whose child ended but whose master is not at end of file
@@ -378,9 +491,12 @@ impl Holder {
         let sigchld = unsafe { std::os::fd::FromRawFd::from_raw_fd(fds[0]) };
         Ok(Self {
             listener,
+            accept_stalled: false,
             socket,
             token,
             link: None,
+            links: 0,
+            retiring: Vec::new(),
             pending: Vec::new(),
             terminals: BTreeMap::new(),
             ending: Vec::new(),
@@ -443,8 +559,9 @@ impl Holder {
 
     /// One `poll` and the work it reports.
     fn turn(&mut self) -> io::Result<()> {
+        let listening = if self.accept_stalled { 0 } else { libc::POLLIN };
         let mut fds = vec![
-            pollfd(self.listener.as_raw_fd(), libc::POLLIN),
+            pollfd(self.listener.as_raw_fd(), listening),
             pollfd(self.sigchld.as_raw_fd(), libc::POLLIN),
         ];
         let link_at = self.link.as_ref().map(|link| {
@@ -455,11 +572,24 @@ impl Holder {
             fds.push(pollfd(link.stream.as_raw_fd(), events));
             fds.len() - 1
         });
+        let first_retiring = fds.len();
+        for retiring in &self.retiring {
+            fds.push(pollfd(retiring.stream.as_raw_fd(), libc::POLLOUT));
+        }
+        let retiring_count = self.retiring.len();
         let first_pending = fds.len();
         for pending in &self.pending {
             fds.push(pollfd(pending.stream.as_raw_fd(), libc::POLLIN));
         }
         let pending_count = self.pending.len();
+        let first_start = fds.len();
+        let mut starts = Vec::new();
+        for (chan, terminal) in &self.terminals {
+            if let Some(starting) = &terminal.starting {
+                fds.push(pollfd(starting.start.fd(), libc::POLLIN));
+                starts.push(*chan);
+            }
+        }
         let first_terminal = fds.len();
         // A terminal at end of file stays out of the set: its master would
         // report POLLHUP forever. So does one with no room while it has no
@@ -504,6 +634,21 @@ impl Holder {
             self.reap();
             self.poll_trace();
         }
+        // From the back, before anything adds to `retiring`: swap_remove
+        // moves only entries already handled.
+        for index in (0..retiring_count).rev() {
+            if fds[first_retiring + index].revents != 0 && self.retiring[index].write() {
+                self.retiring.swap_remove(index);
+            }
+        }
+        // A child that was reaped wrote its report (or nothing) before it
+        // ended: its pipe has the answer even if `poll` saw the exit first.
+        for (index, chan) in starts.iter().enumerate() {
+            let reaped = self.terminals.get(chan).is_some_and(|terminal| terminal.status.is_some());
+            if fds[first_start + index].revents != 0 || reaped {
+                self.finish_start(*chan);
+            }
+        }
         for (index, chan) in chans.iter().enumerate() {
             let revents = fds[first_terminal + index].revents;
             if revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
@@ -518,9 +663,9 @@ impl Holder {
         self.finish_ending();
         if let Some(index) = link_at
             && fds[index].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0
-            && !self.read_link()
+            && let Err(why) = self.read_link()
         {
-            self.drop_link(LinkDrop::Lost);
+            self.break_link(why);
         }
         // From the back: a handled connection leaves with swap_remove,
         // which moves only connections already handled.
@@ -540,6 +685,11 @@ impl Holder {
         self.pump();
         self.retire_closed();
         self.end_orphans(now);
+        // Last: only a turn frees a descriptor of the holder's, and this
+        // turn's work is done.
+        if self.accept_stalled {
+            self.accept();
+        }
         let idle = self.terminals.is_empty() && self.link.is_none();
         self.idle_since = if idle { Some(self.idle_since.unwrap_or(now)) } else { None };
         Ok(())
@@ -591,8 +741,30 @@ impl Holder {
 
     /// Take new connections. They wait in `pending` until they authenticate;
     /// the attached daemon keeps its link meanwhile.
+    ///
+    /// An accept that fails for a want of the holder's (no descriptor left:
+    /// EMFILE, ENFILE; no kernel memory) leaves its connection queued on
+    /// Linux, so the listener would report it again at once and the loop
+    /// would spin for as long as the holder is full. The holder then stops
+    /// polling the listener ([`Self::accept_stalled`]) and tries again at
+    /// the end of each turn: a descriptor of its own frees only in a turn
+    /// (a terminal forgotten, a link, pending connection or retiring link
+    /// dropped), so it takes the connection on the first turn after one
+    /// did, with no timer and no wakeup of its own.
     fn accept(&mut self) {
-        while let Ok((stream, _)) = self.listener.accept() {
+        self.accept_stalled = false;
+        loop {
+            let stream = match self.listener.accept() {
+                Ok((stream, _)) => stream,
+                Err(error) => match error.kind() {
+                    io::ErrorKind::WouldBlock => return,
+                    io::ErrorKind::Interrupted | io::ErrorKind::ConnectionAborted => continue,
+                    _ => {
+                        self.accept_stalled = true;
+                        return;
+                    }
+                },
+            };
             if !handshake::same_user(&stream) {
                 continue;
             }
@@ -637,21 +809,24 @@ impl Holder {
         if Kind::from_u16(frame.kind) != Some(Kind::Hello) {
             return;
         }
-        match self.check_hello(&frame.payload) {
-            Ok((version, wanted)) => self.promote(pending, version, wanted),
-            Err(code) => {
-                // Best effort: the refused peer may already be gone.
-                let payload = Out::default().u16(Kind::Hello as u16).u16(code).0;
-                let frame = wire::encode(Kind::Error, 0, &payload);
-                let _ = wire::send_with_fds(pending.stream.as_raw_fd(), &frame, &[]);
+        let code = match self.check_hello(&frame.payload) {
+            Ok((version, wanted)) => {
+                let listing = self.listing(version >= wire::RING_VERSION);
+                return self.promote(pending, version, wanted, listing);
             }
-        }
+            Err(code) => code,
+        };
+        // Best effort: the refused peer may already be gone, and dropping
+        // it closes the connection either way.
+        let payload = Out::default().u16(Kind::Hello as u16).u16(code).0;
+        let frame = wire::encode(Kind::Error, 0, &payload);
+        let _ = wire::send_with_fds(pending.stream.as_raw_fd(), &frame, &[]);
     }
 
     /// Make an authenticated connection the daemon link. The daemon it
-    /// replaces hears SUPERSEDED (when its queue lets that through) so it
-    /// does not take the holder back.
-    fn promote(&mut self, pending: Pending, version: u16, wanted: u32) {
+    /// replaces always hears SUPERSEDED, however much was queued for it
+    /// ([`Retiring`]), so it does not take the holder back.
+    fn promote(&mut self, pending: Pending, version: u16, wanted: u32, listing: Listing) {
         // A daemon that died with frames still unread (its last ACKs) ended
         // before this one connected: its end is a lost link (a strike, the
         // poison pill), not a takeover. A restart after a parser crash
@@ -660,21 +835,14 @@ impl Holder {
         if self.link_ended() {
             self.drop_link(LinkDrop::Lost);
         }
-        if self.flush_link()
-            && let Some(old) = self.link.as_ref()
-            && !old.has_output()
-        {
-            let payload = Out::default()
-                .u16(Kind::Hello as u16)
-                .u16(error_code::SUPERSEDED)
-                .bytes(b"another daemon took this holder")
-                .0;
-            let frame = wire::encode(Kind::Error, 0, &payload);
-            let _ = wire::send_with_fds(old.stream.as_raw_fd(), &frame, &[]);
+        if let Some(old) = self.drop_link(LinkDrop::Superseded) {
+            let message = "another daemon took this holder";
+            self.retire(Retiring::new(old, Kind::Hello as u16, error_code::SUPERSEDED, message));
         }
-        self.drop_link(LinkDrop::Superseded);
         let granted = wanted & self.served_capabilities();
+        self.links += 1;
         self.link = Some(Link {
+            id: self.links,
             stream: pending.stream,
             reader: pending.reader,
             credit: version >= 2,
@@ -687,20 +855,49 @@ impl Holder {
             bulk_per_chan: HashMap::new(),
             out_bytes: 0,
         });
-        self.welcome(version, granted);
+        self.welcome(version, granted, listing);
         // Frames the daemon sent right behind its HELLO.
-        if !self.drain_link_frames() {
-            self.drop_link(LinkDrop::Lost);
+        if let Err(why) = self.drain_link_frames() {
+            self.break_link(why);
         }
     }
 
-    /// Forget the link. A link that was lost counts a strike against each
-    /// terminal it was streaming (the poison pill); a DETACH before it
-    /// ended, or another daemon taking the holder, does not.
-    fn drop_link(&mut self, why: LinkDrop) {
-        if self.link.take().is_none() {
-            return;
+    /// Write what a retiring link's socket takes now; poll it for the rest.
+    fn retire(&mut self, mut retiring: Retiring) {
+        if !retiring.write() {
+            self.retiring.push(retiring);
         }
+    }
+
+    /// End the link reading it found broken. A daemon that is still there
+    /// (a [`LinkBreak::Fault`]) hears why: ERROR `NO_DESCRIPTORS` when the
+    /// holder could not take the descriptors it passed, `BAD_PAYLOAD` when
+    /// its bytes were not frames of the wire, on channel 0 with request
+    /// kind [`wire::STREAM_FAULT`], after the frame its socket had taken
+    /// part of. Only a lost link counts a strike.
+    fn break_link(&mut self, why: LinkBreak) {
+        match why {
+            LinkBreak::Lost => {
+                self.drop_link(LinkDrop::Lost);
+            }
+            LinkBreak::Fault(fault, message) => {
+                let code = match fault {
+                    wire::Fault::Descriptors => error_code::NO_DESCRIPTORS,
+                    wire::Fault::Malformed => error_code::BAD_PAYLOAD,
+                };
+                if let Some(link) = self.drop_link(LinkDrop::Faulted) {
+                    self.retire(Retiring::new(link, wire::STREAM_FAULT, code, &message));
+                }
+            }
+        }
+    }
+
+    /// Forget the link and return it (dropping it closes it). A link that
+    /// was lost counts a strike against each terminal it was streaming (the
+    /// poison pill); a DETACH before it ended, another daemon taking the
+    /// holder, or a stream the holder could not read on, does not.
+    fn drop_link(&mut self, why: LinkDrop) -> Option<Link> {
+        let link = self.link.take()?;
         self.end_link_recording();
         let now = Instant::now();
         for terminal in self.terminals.values_mut() {
@@ -711,16 +908,17 @@ impl Holder {
             terminal.held = None;
             terminal.exit_sent = false;
         }
+        Some(link)
     }
 
-    /// Read and handle the link's frames. False when the link is lost.
-    fn read_link(&mut self) -> bool {
-        let Some(link) = self.link.as_mut() else { return true };
+    /// Read and handle the link's frames; an error says why the link ends.
+    fn read_link(&mut self) -> Result<(), LinkBreak> {
+        let Some(link) = self.link.as_mut() else { return Ok(()) };
         match link.reader.fill(link.stream.as_raw_fd()) {
             Ok(true) => {}
-            Ok(false) => return false,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return true,
-            Err(_) => return false,
+            Ok(false) => return Err(LinkBreak::Lost),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+            Err(error) => return Err(LinkBreak::of(&error)),
         }
         self.drain_link_frames()
     }
@@ -739,36 +937,37 @@ impl Holder {
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                 Err(_) => return true,
             }
-            if !self.drain_link_frames() {
+            if self.drain_link_frames().is_err() {
                 return true;
             }
         }
         false
     }
 
-    /// Handle every complete frame the link has buffered. False when the
-    /// link is lost.
-    fn drain_link_frames(&mut self) -> bool {
+    /// Handle every complete frame the link has buffered; an error says
+    /// why the link ends.
+    fn drain_link_frames(&mut self) -> Result<(), LinkBreak> {
         loop {
-            let Some(link) = self.link.as_mut() else { return true };
+            let Some(link) = self.link.as_mut() else { return Ok(()) };
             let frame = match link.reader.next_frame() {
                 Ok(Some(frame)) => frame,
-                Ok(None) => return true,
-                Err(_) => return false,
+                Ok(None) => return Ok(()),
+                Err(error) => return Err(LinkBreak::of(&error)),
             };
-            if !self.handle(frame) {
-                return false;
-            }
+            self.handle(frame)?;
         }
     }
 
-    /// Handle one frame from the authenticated daemon. False closes the
+    /// Handle one frame from the authenticated daemon. An error ends the
     /// link.
-    fn handle(&mut self, frame: Frame) -> bool {
+    fn handle(&mut self, frame: Frame) -> Result<(), LinkBreak> {
         let (raw_kind, chan) = (frame.kind, frame.chan);
         let result = match Kind::from_u16(raw_kind) {
             // The link authenticated once, as a pending connection.
-            Some(Kind::Hello) => return false,
+            Some(Kind::Hello) => {
+                let message = "a HELLO on an authenticated link".to_string();
+                return Err(LinkBreak::Fault(wire::Fault::Malformed, message));
+            }
             Some(Kind::Spawn) => self.spawn(frame.chan, &frame.payload),
             Some(Kind::Adopt) => self.adopt(frame),
             Some(Kind::Attach) => self.attach(frame.chan, frame.flags, &frame.payload),
@@ -807,7 +1006,7 @@ impl Holder {
         if let Err((code, message)) = result {
             self.refuse(raw_kind, chan, code, &message);
         }
-        true
+        Ok(())
     }
 
     /// Queue the ERROR that refuses a frame of kind `raw_kind`.
@@ -829,15 +1028,67 @@ impl Holder {
         // Until the daemon's ATTACH (from 0) arrives, read no more than an
         // attached stream would.
         terminal.held = Some(terminal.ring.end());
-        let rings = self.link.as_ref().is_some_and(|link| link.rings);
-        let fds = terminal.descriptors(rings);
-        if fds.is_empty() {
-            return Err((error_code::SPAWN_FAILED, "no custody dup of the master".to_string()));
-        }
+        let (link, rings) = self.link.as_ref().map_or((0, false), |link| (link.id, link.rings));
+        let custody = terminal.descriptors(rings);
+        // Known at once, so the ATTACH right behind the SPAWN finds it;
+        // nothing is sent for it until its child reported its start.
+        terminal.starting = Some(Starting { start: spawned.start, custody, link });
         self.terminals.insert(chan, terminal);
-        let payload = Out::default().i32(spawned.pid).0;
-        self.queue_flagged(Kind::Spawned, ring_flag(&fds), chan, &payload, fds);
         Ok(())
+    }
+
+    /// A starting terminal's child reported ([`pty::Start::poll`]): once
+    /// its program runs, the hang-up of a CLOSE that came meanwhile, and
+    /// SPAWNED with the custody descriptors to the link that asked; when it could
+    /// not start, ERROR SPAWN_FAILED with what it
+    /// could not do, and the terminal is forgotten (the child exits 127, or
+    /// is killed when its report could not be read, and is reaped like any
+    /// other). The error also goes to a link that attached the terminal
+    /// meanwhile (a daemon that reconnected while it started), so its
+    /// stream ends instead of waiting for ever.
+    fn finish_start(&mut self, chan: u32) {
+        let Some(terminal) = self.terminals.get_mut(&chan) else { return };
+        let Some(result) = terminal.starting.as_mut().and_then(|starting| starting.start.poll())
+        else {
+            return;
+        };
+        let Some(starting) = terminal.starting.take() else { return };
+        let (pid, attached, reaped) =
+            (terminal.pid, terminal.sent.is_some(), terminal.status.is_some());
+        let asked = self.link.as_ref().is_some_and(|link| link.id == starting.link);
+        match result {
+            Ok(()) => {
+                // A CLOSE came while it started and its SIGKILL is still
+                // due: the program runs now, with its own dispositions (a
+                // child reaped already is not signaled: its pid is free).
+                if terminal.closing && terminal.kill_at.is_some() && !reaped {
+                    terminal.hang_up();
+                }
+                if asked {
+                    let payload = Out::default().i32(pid).0;
+                    let flags = ring_flag(&starting.custody);
+                    self.queue_flagged(Kind::Spawned, flags, chan, &payload, starting.custody);
+                }
+            }
+            Err(error) => {
+                if !reaped {
+                    // SAFETY: SIGKILL to this holder's own child, not reaped
+                    // yet (its pid is still its own).
+                    unsafe { libc::kill(pid, libc::SIGKILL) };
+                }
+                if self.terminals.remove(&chan).is_some_and(|removed| removed.closing) {
+                    self.closing -= 1;
+                }
+                if asked || attached {
+                    let payload = Out::default()
+                        .u16(Kind::Spawn as u16)
+                        .u16(error_code::SPAWN_FAILED)
+                        .bytes(error.to_string().as_bytes())
+                        .0;
+                    self.queue(Kind::Error, chan, &payload, Vec::new());
+                }
+            }
+        }
     }
 
     fn adopt(&mut self, mut frame: Frame) -> Result<(), (u16, String)> {
@@ -891,8 +1142,7 @@ impl Holder {
         // holder is never one nobody writes.
         let adopted = (version >= wire::RING_VERSION).then(|| {
             let payload = Out::default().u64(terminal.ring.oldest()).u64(terminal.ring.end()).0;
-            let fds: Vec<OwnedFd> =
-                terminal.ring.segment().and_then(|fd| fd.try_clone().ok()).into_iter().collect();
+            let fds: Vec<Arc<OwnedFd>> = terminal.ring.segment().cloned().into_iter().collect();
             (payload, fds)
         });
         self.terminals.insert(frame.chan, terminal);
@@ -988,6 +1238,7 @@ impl Holder {
         let terminal = self.terminal(chan)?;
         // SAFETY: signals this terminal's own process group (its session leader's pid).
         unsafe { libc::killpg(terminal.pid, signal) };
+        terminal.signal_starting_child(signal);
         Ok(())
     }
 
@@ -1011,8 +1262,13 @@ impl Holder {
             }
             return Ok(());
         }
-        pty::signal_terminal(terminal.pid, terminal.master.as_raw_fd(), libc::SIGHUP);
-        pty::signal_terminal(terminal.pid, terminal.master.as_raw_fd(), libc::SIGTERM);
+        // A child that has not run its program yet still has the holder's
+        // signal dispositions (the hang-up ignored) and may lead no group
+        // yet: its hang-up goes once the program runs ([`Self::finish_start`]),
+        // and the grace's SIGKILL reaches it whatever stage it is at.
+        if terminal.starting.is_none() {
+            terminal.hang_up();
+        }
         terminal.kill_at = Some(Instant::now() + Duration::from_millis(u64::from(grace)));
         if !was_closing {
             self.closing += 1;
@@ -1032,6 +1288,7 @@ impl Holder {
             if terminal.kill_at.is_some_and(|at| at <= now) {
                 terminal.kill_at = None;
                 pty::signal_terminal(terminal.pid, terminal.master.as_raw_fd(), libc::SIGKILL);
+                terminal.signal_starting_child(libc::SIGKILL);
             }
         }
     }
@@ -1265,7 +1522,7 @@ impl Holder {
         }
     }
 
-    fn queue(&mut self, kind: Kind, chan: u32, payload: &[u8], fds: Vec<OwnedFd>) {
+    fn queue(&mut self, kind: Kind, chan: u32, payload: &[u8], fds: Vec<Arc<OwnedFd>>) {
         self.queue_flagged(kind, 0, chan, payload, fds);
     }
 
@@ -1275,10 +1532,11 @@ impl Holder {
         flags: u16,
         chan: u32,
         payload: &[u8],
-        fds: Vec<OwnedFd>,
+        fds: Vec<Arc<OwnedFd>>,
     ) {
         if let Some(link) = self.link.as_mut() {
-            link.push(chan, wire::encode_flagged(kind, flags, chan, payload), fds);
+            let frame = wire::encode_with_fds(kind, flags, chan, payload, fds.len());
+            link.push(chan, frame, fds);
         }
     }
 
@@ -1294,7 +1552,7 @@ impl Holder {
             let Some(frame) = link.current.as_mut() else { return true };
             // The descriptors go with the frame's first byte.
             let fds: Vec<RawFd> = if frame.written == 0 {
-                frame.fds.iter().map(AsRawFd::as_raw_fd).collect()
+                frame.fds.iter().map(|fd| fd.as_raw_fd()).collect()
             } else {
                 Vec::new()
             };
@@ -1330,9 +1588,10 @@ impl Terminal {
         let base = ring.end();
         Self {
             id,
-            master,
+            master: Arc::new(master),
             pid,
             own_child,
+            starting: None,
             ring,
             status: None,
             eof: false,
@@ -1351,18 +1610,26 @@ impl Terminal {
         }
     }
 
-    /// Dups for a daemon: the master, then (with `rings`, when the ring is
-    /// shared) the ring segment. Empty when the master cannot be dup'd.
-    fn descriptors(&self, rings: bool) -> Vec<OwnedFd> {
-        let Ok(master) = self.master.try_clone() else { return Vec::new() };
-        let ring = rings.then(|| self.ring.segment().and_then(|fd| fd.try_clone().ok())).flatten();
-        std::iter::once(master).chain(ring).collect()
+    /// What a frame passes a daemon for this terminal: the master, then
+    /// (with `rings`, when the ring is shared) the ring segment. Handles
+    /// shared with the terminal, not dups: the frame keeps both open until
+    /// its first byte is written, even if the terminal is forgotten before,
+    /// and making them costs the holder no descriptor, so a holder short of
+    /// descriptors never lists or answers a SPAWN without one.
+    fn descriptors(&self, rings: bool) -> Vec<Arc<OwnedFd>> {
+        let mut fds = vec![self.master.clone()];
+        if rings && let Some(segment) = self.ring.segment() {
+            fds.push(segment.clone());
+        }
+        fds
     }
 
     /// The child ended (or, adopted, cannot be waited for) and no more
-    /// output will be read.
+    /// output will be read. Never before the child reported its start: a
+    /// terminal whose child could not start is forgotten with an error, not
+    /// ended.
     fn ended(&self) -> bool {
-        self.eof && (self.status.is_some() || !self.own_child)
+        self.starting.is_none() && self.eof && (self.status.is_some() || !self.own_child)
     }
 
     /// Bytes the holder may read from the master now. Attached (or adopted
@@ -1386,14 +1653,36 @@ impl Terminal {
     }
 
     /// Whether the attached daemon may be sent something now: a GAP, output
-    /// within its credit, or the EXIT after the last byte.
+    /// within its credit, or the EXIT after the last byte. Nothing before
+    /// its SPAWNED: its child has not reported its start yet.
     fn sendable(&self, credit: bool) -> bool {
-        self.sent.is_some_and(|sent| {
-            let end = self.ring.end();
-            sent < self.ring.oldest()
-                || (sent < end && sent < self.send_limit(credit))
-                || (sent >= end && !self.exit_sent && self.ended())
-        })
+        self.starting.is_none()
+            && self.sent.is_some_and(|sent| {
+                let end = self.ring.end();
+                sent < self.ring.oldest()
+                    || (sent < end && sent < self.send_limit(credit))
+                    || (sent >= end && !self.exit_sent && self.ended())
+            })
+    }
+
+    /// Hang up the terminal's groups: SIGHUP, then SIGTERM
+    /// ([`pty::signal_terminal`]).
+    fn hang_up(&self) {
+        for signal in [libc::SIGHUP, libc::SIGTERM] {
+            pty::signal_terminal(self.pid, self.master.as_raw_fd(), signal);
+        }
+    }
+
+    /// Send `signal` to the child itself while it has not run its program
+    /// yet: before its `setsid` it leads no group and the PTY has no
+    /// foreground group, so a group signal misses it (a CLOSE or SIGNAL
+    /// right behind its SPAWN). It is this holder's own child and is not
+    /// reaped yet, so its pid is still its own.
+    fn signal_starting_child(&self, signal: libc::c_int) {
+        if self.starting.is_some() && self.status.is_none() {
+            // SAFETY: signals this holder's own child, not reaped yet.
+            unsafe { libc::kill(self.pid, signal) };
+        }
     }
 
     /// Record a link that ended while it streamed this terminal.
@@ -1410,7 +1699,7 @@ impl Terminal {
 }
 
 /// [`wire::FLAG_RING`] when `fds` carries a ring segment after the master.
-fn ring_flag(fds: &[OwnedFd]) -> u16 {
+fn ring_flag(fds: &[Arc<OwnedFd>]) -> u16 {
     if fds.len() > 1 { wire::FLAG_RING } else { 0 }
 }
 

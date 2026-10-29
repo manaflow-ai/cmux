@@ -5,10 +5,11 @@ import Testing
 import CmuxNextWakeups
 
 /// POLISH audit, batch 4 (cx-2grmt): the icon picker appeared and left in one frame. It opens and
-/// closes like every native popup (`PopupFade`).
+/// closes like every native popup (`PopupFade`). The picker opens in one frame,
+/// like menus and popovers; its close still fades.
 @MainActor @Suite(.serialized) struct IconPickerMotionTests {
     @Test(.enabled("needs an awake display and animations on, or every picker snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
-    func thePickerOpensAndClosesWithMotion() async throws {
+    func thePickerOpensAtOnceAndClosesWithMotion() async throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         defer { window.orderOut(nil) }
@@ -28,7 +29,7 @@ import CmuxNextWakeups
             let panel = try #require(NSApp.windows.compactMap { $0 as? IconPickerPanel }.first { $0.parent === window })
             return (panel, panel.contentView?.layer?.animation(forKey: "sublayerTransform") != nil)
         }()
-        #expect(opened, "opened in one frame")
+        #expect(!opened, "the picker animated in")
         panel.onDismiss?()
         #expect(results.count == 1)
         #expect(panel.isVisible, "closed in one frame")

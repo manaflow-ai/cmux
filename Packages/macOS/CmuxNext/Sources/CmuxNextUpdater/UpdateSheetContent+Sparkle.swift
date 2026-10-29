@@ -16,7 +16,7 @@ extension UpdateSheetContent {
             let notes = available.releaseNotes.map { UpdateSheetButton.releaseNotes($0.url) }
             return UpdateSheetContent(symbol: "arrow.down.circle",
                                       title: version.isEmpty ? UpdaterStrings.availableNoVersion : UpdaterStrings.available(version),
-                                      detail: current, link: notes, buttons: [.later, .install])
+                                      detail: current, link: notes, buttons: [.later, .update])
         case .notFound:
             return UpdateSheetContent(symbol: "checkmark.circle", title: UpdaterStrings.upToDate,
                                       detail: UpdaterStrings.onChannel(identity.shortVersion, identity.build, UpdaterStrings.channel(identity.track)),

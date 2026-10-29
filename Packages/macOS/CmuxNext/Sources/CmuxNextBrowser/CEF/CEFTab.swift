@@ -11,7 +11,8 @@ import CmuxNextWakeups
 /// (`.inView`). The Chromium browser is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCovering, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering, BrowserCrashPageHosting {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCovering, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering, BrowserCrashPageHosting,
+    BrowserAgentFileChoosing {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -49,6 +50,16 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     @ObservationIgnored var passwordFill = PasswordFillState()
     /// The browser host's raw DevTools relay of this page.
     @ObservationIgnored public private(set) lazy var agentRelay = CEFAgentRelay(tab: self)
+    /// Files an agent offered this page's next file chooser; Chromium sends choosers to the app while one
+    /// stands (`CEFRuntime+FileDialogs`).
+    @ObservationIgnored public private(set) lazy var agentFiles: BrowserAgentFiles = {
+        let files = BrowserAgentFiles()
+        files.onArmedChange = { [weak self] armed in
+            guard let self else { return }
+            runtime.agentFileOfferChanged(self, armed: armed)
+        }
+        return files
+    }()
 
     /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {
@@ -56,6 +67,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     }
     /// A view shows in the page's place (``BrowserPageCovering``): the whole page is a hole.
     @ObservationIgnored public var isPageCovered = false { didSet { if isPageCovered != oldValue { applyOcclusion() } } }
+
+    /// Rounded native UI in `contentView` coordinates (the prompt and find
+    /// bars, `BrowserRoundedOcclusionHosting`): holes with their corners, so the page shows around them.
+    var roundedOcclusions: [CEFClipShape.RoundedRect] = [] {
+        didSet { if roundedOcclusions != oldValue { applyOcclusion() } }
+    }
 
     /// DevTools of this page (docked in `contentView` or in a window).
     public internal(set) var devTools: BrowserDevToolsState
@@ -104,7 +121,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// The page `attach` loads: an agent-driven tab was created blank
     /// (`takeInitialURLString`).
     @ObservationIgnored var loadAfterAttach: URL?
+    /// Focus cmux asked for while the page could not take it (no browser yet, or not shown):
+    /// granted once the page shows (``grantPendingFocusIfShown()``).
     @ObservationIgnored var pendingFocus = false
+    /// The last focus cmux asked for (`setFocused`), granted or not: a host page detached later
+    /// (``hostDetachedPage(browser:)``) takes it again as its embedder-active state.
+    @ObservationIgnored var focusWanted = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
     /// Host mode: the browser the Chromium Host hosts detached (``hostDetachedPage(browser:)``); a
@@ -115,9 +137,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
-    /// The renderer ended while the tab was hidden: reload when shown
-    /// (a crashed background tab reloads when it is selected).
-    @ObservationIgnored var reloadWhenShown = false
     /// The tab showed a real page (or a page opened it): its page
     /// background is Chromium's white from now on (`PageBackground`).
     /// Settable inside the module, not only this file: `reachedFirstRealPage`
@@ -289,7 +308,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         // it back on screen over the pane's current tab.
         let shown = host.visibleTab === self && !isOccluded
         host.lifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
-        if pendingFocus, shown { applyFocus(true, browser: browser) }
+        if pendingFocus, shown {
+            pendingFocus = false
+            applyFocus(true, browser: browser)
+        }
         if let action = pendingExtensionAction {
             pendingExtensionAction = nil
             runExtensionAction(action.id, anchor: action.anchor)
@@ -380,7 +402,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     }
 
     public func reload() {
-        (reloadWhenShown, isDiscardedInPlace) = (false, false)
+        isDiscardedInPlace = false
         if runtime.awaitsHostRestart { return runtime.reloadAfterHostRestart(self) }
         guard let browserID else {
             // A page its host restore brings back loads with its saved navigation (``hostRestoreShown()``).
@@ -424,10 +446,25 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     public func setFocused(_ focused: Bool) {
         let shown = host.visibleTab === self && !isOccluded
         host.lifecycleTrace.record(id, "focus(\(focused)) created=\(browserID != nil) shown=\(shown)")
-        pendingFocus = focused
-        // Never activate a hidden page's window (see `attach`).
+        focusWanted = focused
+        // Never activate a hidden page's window (see `attach`): a hidden page keeps the ask until it shows.
+        pendingFocus = focused && (!shown || browserID == nil)
         guard !focused || shown, let browserID else { return }
         applyFocus(focused, browser: browserID)
+    }
+
+    /// Grants focus asked for while this page could not take it, once it shows: its view entered a
+    /// window (`CEFPaneHost.present`) or the content lifecycle showed it (`setContentVisible`). A
+    /// Cmd-N New Tab page (a spare with a browser) asked a moment before it showed and kept no
+    /// focus: only a browser's creation used to replay the ask.
+    func grantPendingFocusIfShown() {
+        guard pendingFocus, host.visibleTab === self, !isOccluded, !awaitsWindowMove, let browserID else { return }
+        // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted):
+        // the ask waits until this page's window has the keys again.
+        if let key = NSApp.keyWindow, let owner = container.window, key !== owner, key.parent !== owner { return }
+        pendingFocus = false
+        host.lifecycleTrace.record(id, "focus(pending) granted")
+        applyFocus(true, browser: browserID)
     }
 
     /// Shows the page window (and a docked DevTools) at once, or hides it by
@@ -442,6 +479,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         // Show at once; a hide waits for the end of the turn (CEFPaneHost.setNeedsHostVisibility).
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
         devToolsController.views?.host.isHidden = !visible
+        if visible { grantPendingFocusIfShown() }
         rendererHangVisibilityChanged()
     }
 
@@ -466,6 +504,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         isClosed = true
         agentRelay.resumeWaiters(false)
         firstContentFrame.closed()
+        agentFiles.withdraw()
         titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()

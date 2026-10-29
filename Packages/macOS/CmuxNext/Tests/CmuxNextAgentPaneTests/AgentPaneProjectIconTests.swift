@@ -44,6 +44,7 @@ struct AgentPaneProjectIconTests {
             var reader = live
             reader.stat = { touches.add($0); return live.stat($0) }
             reader.read = { touches.add($0); return live.read($0) }
+            reader.readManifest = { touches.add($0); return live.readManifest($0) }
             return reader
         }
 

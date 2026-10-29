@@ -34,7 +34,7 @@
    "acpmux": 139,
    "cmux-remote": 4,
    "cmux-tui": 429,
-   "cmux-tui-core": 950,
+   "cmux-tui-core": 1131,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -76,7 +76,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 2,
+    "acpmux": 5,
     "cmux-browser-host": 4,
     "cmux-tui-core": 5
    },
@@ -107,7 +107,7 @@
     "CmuxNextAgentPane": 1,
     "CmuxNextBrowser": 11,
     "CmuxNextBrowserAutomation": 5,
-    "CmuxNextDesign": 2,
+    "CmuxNextDesign": 6,
     "CmuxNextPages": 2,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,

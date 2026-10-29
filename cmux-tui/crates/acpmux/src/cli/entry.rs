@@ -13,6 +13,13 @@ use std::ffi::OsString;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+static ORIGINAL_ARGS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// The acpmux arguments passed by its executable (also stripped of `cmux acp`).
+pub(crate) fn original_args() -> Option<&'static [String]> {
+    ORIGINAL_ARGS.get().map(Vec::as_slice)
+}
+
 pub struct Invocation {
     /// `acpmux`, or `cmux acp` inside cmux.
     pub display_name: String,
@@ -47,6 +54,26 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     // An agent host serves one harness for its controller; it has no CLI.
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
         return crate::agent_host::host::main();
+    }
+    // A background task's runner (`bg_run.rs`): one task, no CLI.
+    if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
+        return crate::bg_run::main();
+    }
+    #[cfg(target_os = "linux")]
+    if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
+        return crate::linux_sandbox::keeper::canary_unix(&args[1..]).map_err(anyhow::Error::msg);
+    }
+    #[cfg(target_os = "linux")]
+    if args.first().is_some_and(|a| a == "__remote-sandbox-canary-rename") {
+        return crate::linux_sandbox::keeper::canary_rename(&args[1..]).map_err(anyhow::Error::msg);
+    }
+    #[cfg(target_os = "linux")]
+    if args.first().is_some_and(|a| a == "__remote-sandbox-init") {
+        crate::linux_sandbox::init::main(args.into_iter().skip(1).collect());
+    }
+    #[cfg(target_os = "linux")]
+    if args.first().is_some_and(|a| a == "__remote-sandbox-keeper") {
+        crate::linux_sandbox::keeper::main(args.into_iter().skip(1).collect());
     }
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
@@ -150,6 +177,7 @@ async fn async_main(
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
+    let _ = ORIGINAL_ARGS.set(args.iter().map(|a| a.to_string_lossy().into_owned()).collect());
     let mut argv: Vec<OsString> = Vec::with_capacity(args.len() + 2);
     argv.push(invocation.display_name.clone().into());
     argv.extend(args);
@@ -167,7 +195,18 @@ async fn async_main(
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
     // clap keeps command names as `&'static str`; one per process.
     let name: &'static str = Box::leak(invocation.display_name.clone().into_boxed_str());
-    let matches = Cli::command().name(name).bin_name(name).get_matches_from(argv);
+    let mut grammar = Cli::command().name(name).bin_name(name);
+    let matches = match grammar.try_get_matches_from_mut(argv.clone()) {
+        Ok(matches) => matches,
+        // A flag another command takes says which, and what this one does instead.
+        Err(e) => match crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name) {
+            Some(refusal) => {
+                let json_out = argv.iter().take_while(|a| *a != "--").any(|a| a == "--json");
+                errors::exit_with(&refusal.into(), json_out)
+            }
+            None => e.exit(),
+        },
+    };
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     let command = cli.command.map(flatten).map(|c| match c {
         Command::New(mut a) if run_alias => {
@@ -181,6 +220,11 @@ async fn async_main(
         other => other,
     });
     match command {
+        #[cfg(unix)]
+        Some(Command::CodexAuthBroker { home, codex }) => {
+            crate::cli::codex_auth_broker::run(home, codex).await
+        }
+        Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
@@ -312,12 +356,21 @@ async fn async_main(
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
-        Some(Command::Hand(cmd)) => crate::hand::run(cmd).await,
+        Some(Command::Hand(cmd)) => match crate::hand::run(cmd, cli.json).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Hand commands historically use exit 1 for every failure; keep that
+                // contract while still emitting the shared --json envelope.
+                let app = errors::classify(&e).with_exit(1);
+                errors::exit_with(&anyhow::Error::new(app), cli.json)
+            }
+        },
         Some(Command::CuaMcp) => crate::cua_v2::run_bridge().await,
         Some(Command::SecretMcp) => crate::secret_mcp::run().await,
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,
         Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,
         Some(Command::ForumMcp) => crate::forum_mcp::run().await,
+        Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());

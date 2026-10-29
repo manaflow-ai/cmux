@@ -275,8 +275,14 @@ public final class MainThreadWatchdog: Sendable {
         }
         let early = CFRunLoopActivity.allActivities.subtracting(.beforeWaiting).rawValue
         let earlyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, early, true, CFIndex.min, beat)
-        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true,
-                                                              MainRunLoopObserver.lastOrder, beat)
+        // The late stamp draws nothing: its context says so to the commit-boundary audit. Its handler is not handed
+        // its observer, so a cell holds it for `beat`'s self-removal (main thread only; the observer's invalidation
+        // releases the handler and with it the cell).
+        let lateCell = WatchdogObserverCell()
+        let lateObserver = MainRunLoopObserver.afterCommitObserver(activities: .beforeWaiting, order: MainRunLoopObserver.lastOrder) { activity in
+            beat(lateCell.observer, activity)
+        }
+        lateCell.observer = lateObserver
         CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)
         CFRunLoopAddObserver(CFRunLoopGetMain(), lateObserver, .commonModes)
         #if DEBUG
@@ -530,4 +536,10 @@ public final class MainThreadWatchdog: Sendable {
             current = original
         }
     }
+}
+
+/// The late observer of ``MainThreadWatchdog/start()``, for its own handler: an after-commit observer's handler is
+/// not handed the observer it runs for. Written once before the observer is added; read on the main thread only.
+private nonisolated final class WatchdogObserverCell {
+    var observer: CFRunLoopObserver?
 }

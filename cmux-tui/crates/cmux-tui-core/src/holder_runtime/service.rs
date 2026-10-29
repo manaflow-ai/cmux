@@ -571,6 +571,14 @@ impl HolderService {
                     service.note_link_down(CrashKeyLink::Superseded);
                     return;
                 }
+                if let LinkEnd::Fault(code) = end {
+                    // The holder still runs every terminal and counted no
+                    // crash: the next link takes them back as after a drop.
+                    eprintln!(
+                        "cmux-tui: the terminal holder could not read this daemon's link \
+                         (error code {code}); connecting again"
+                    );
+                }
                 // The holder died: start a new one and hand it every master.
                 service.note_link_down(CrashKeyLink::Lost);
                 let _ = supervised::spawn_at(
@@ -870,8 +878,11 @@ pub(crate) mod tests {
         let payload = payload.0;
         wire::send_all(fd, &wire::encode(Kind::Welcome, 0, &payload), &[]).unwrap();
         for (chan, id) in listed {
+            // Every LISTED passes its master: a stand-in, a pipe's end.
+            let (master, _write_end) = io::pipe().unwrap();
             let entry = Out::default().i32(0).u64(0).u64(0).u8(0).bytes(id).0;
-            wire::send_all(fd, &wire::encode(Kind::Listed, *chan, &entry), &[]).unwrap();
+            let frame = wire::encode_with_fds(Kind::Listed, 0, *chan, &entry, 1);
+            wire::send_all(fd, &frame, &[master.as_raw_fd()]).unwrap();
         }
     }
 

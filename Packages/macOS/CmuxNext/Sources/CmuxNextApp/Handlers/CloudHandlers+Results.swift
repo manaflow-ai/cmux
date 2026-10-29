@@ -62,7 +62,7 @@ extension CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if !captured { CloudPresenter.failure(error, in: window(context)) }
-                return .failure(ActionWorkFailure("\(label): \(error)"))
+                return .failure(ActionWorkFailure("\(label): \(CloudStrings.errorText(error))"))
             }
         }
         guard let pendingAfter else { return context.services.registry.track(result: inner) }
@@ -107,6 +107,11 @@ extension CloudHandlers {
                 }
                 return .success(createdMachineFields(session, workspaceID: creation.workspaceID))
             case .failed(let reason)?:
+                // A refusal a paid plan lifts answers `cloud.plan.required` and names the plan, so a
+                // CLI or agent caller can start that plan's checkout (`cmux billing checkout --plan`).
+                if let refusal = creation.planRefusal {
+                    return .failure(ActionWorkFailure(code: planRequiredCode, reason: "new Cloud machine: \(reason) (plan: \(refusal.plan))"))
+                }
                 return .failure(ActionWorkFailure("new Cloud machine: \(reason)"))
             case .gone?:
                 // Declined in the confirmation (an agent's create asks the person first), or dismissed.
@@ -115,6 +120,9 @@ extension CloudHandlers {
         }
         registry.track(result: task)
     }
+
+    /// The error code of a `cloud new-machine` refused for a paid plan, as the Cloud contract names it.
+    static let planRequiredCode = "cloud.plan.required"
 
     /// How long `cloud new-machine` waits for the server's machine before it
     /// answers `pending`: inside `action.run`'s 40 s result deadline.
@@ -133,6 +141,16 @@ extension CloudHandlers {
                 continuation.resume(returning: state)
             }
         }
+    }
+
+    /// How long a run that answers `pending` itself (``createRequested(_:flow:window:_:)``) lets the create settle:
+    /// past the server's same-key create retries (``CloudService/inProgressRetries`` 15 s apart, ~17.5 min).
+    static let creationSettleLimit: Duration = .seconds(1800)
+
+    /// ``settledCreation(_:in:within:work:deadlines:)`` bounded by ``creationSettleLimit``.
+    static func settledCreation(_ creation: CloudMachineCreation, in creations: CloudCreations,
+                                services: AppServices) async -> CreatedMachine? {
+        await settledCreation(creation, in: creations, within: creationSettleLimit, work: services.mainWork, deadlines: services.mainDeadlines)
     }
 
     static func createdMachineFields(_ session: CloudMachineSession, workspaceID: String?) -> [String: ActionResultValue] {

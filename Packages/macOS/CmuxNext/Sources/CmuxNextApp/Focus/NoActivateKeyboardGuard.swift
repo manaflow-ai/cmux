@@ -58,6 +58,16 @@ final class NoActivateKeyboardGuard {
     private var pendingApplicationSequence: UInt64 = 0
     private let host: any Host
     private let onGiveBack: (GiveBack) -> Void
+    /// Off: the guard gives nothing back (an update relaunch's startup ended).
+    var isEnabled = true
+    /// The app became active with user intent (a click, Cmd-Tab, recent input): the user chose it.
+    var onUserChose: (() -> Void)?
+    /// Until then, held Command or a pressed mouse button counts as no intent: they belong to the app
+    /// the user is in when LaunchServices activates an update relaunch at launch (a held Cmd-C, a
+    /// drag). Set by the update relaunch's startup; nil trusts them at once.
+    var ignoresHeldInputUntil: ContinuousClock.Instant?
+    /// How long after the guard starts held input is not intent (``ignoresHeldInputUntil``).
+    static let launchActivationGrace: Duration = .seconds(2)
 
     init(host: any Host, frontmost: NSRunningApplication?, frontmostPID: pid_t? = nil,
          onGiveBack: @escaping (GiveBack) -> Void = { _ in }) {
@@ -105,13 +115,18 @@ final class NoActivateKeyboardGuard {
     /// The user chose this app: a click on its window (the mouse is still
     /// down at activation), Cmd-Tab (Command held), or input this recent.
     private var userIntends: Bool {
-        if host.mouseButtonDown || host.commandHeld { return true }
+        let heldCounts = ignoresHeldInputUntil.map { host.now >= $0 } ?? true
+        if heldCounts, host.mouseButtonDown || host.commandHeld { return true }
         guard let lastUserInput else { return false }
         return host.now - lastUserInput <= Self.userInputWindow
     }
 
     private func check(_ trigger: Trigger) {
-        guard host.isAppActive, !userIntends else { return }
+        guard isEnabled, host.isAppActive else { return }
+        if userIntends {
+            onUserChose?()
+            return
+        }
         if inGivenBackActivation {
             // The same activation's other notification: step aside again, count once.
             host.giveActivationBack(to: previousApp)
@@ -131,6 +146,9 @@ final class NoActivateKeyboardGuard {
 @MainActor
 final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
     private let mainWork: MainWorkScheduler
+    /// True once the guard stopped (an update relaunch's startup ended): a hand-back still queued
+    /// then does nothing, so it never undoes the click that ended it.
+    var stopped: () -> Bool = { false }
 
     /// - Parameter mainWork: The app's main-thread scheduler; the LaunchServices handoff is a task on it.
     init(mainWork: MainWorkScheduler) {
@@ -148,8 +166,8 @@ final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
         // object, avoiding both PID lookup and activation work in the observer.
         NSApp.deactivate()
         guard let app else { return }
-        mainWork.post(.visible, owner: "NoActivateKeyboardGuard.giveBack") {
-            guard !app.isTerminated else { return }
+        mainWork.post(.visible, owner: "NoActivateKeyboardGuard.giveBack") { [weak self] in
+            guard self?.stopped() != true, !app.isTerminated else { return }
             NSApp.yieldActivation(to: app)
             _ = app.activate(from: .current, options: [])
         }

@@ -105,6 +105,7 @@ package final class PageCrashRecovery {
         }
         page.loadState.set(loading: true, page: page)
         reloads += 1
+        page.logger.error("page \(page.descriptor.id, privacy: .public) web content ended while hidden; reloading automatically as it shows cause=renderer-exit")
         if let url { page.loadDocument(url) } else { page.reloadPage() }
     }
 
@@ -131,6 +132,8 @@ package final class PageCrashRecovery {
 
     private func reload(_ page: PageWebView) {
         reloads += 1
+        // Every automatic reload is in the field log (cmux#25920); a host that shows the crash notice gets none.
+        page.logger.error("page \(page.descriptor.id, privacy: .public) web content ended; reloading automatically cause=renderer-exit")
         page.reloadPage()
     }
 

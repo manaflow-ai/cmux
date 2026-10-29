@@ -82,6 +82,12 @@ processes and ~2,000 threads fewer.
   the PTY's foreground group (no process-table scan, pty-holder.md 4): an interactive shell in
   its own group under login(1) is the foreground group, so it ends with its tab and hangs up
   its own jobs.
+- SPAWN never waits (holder-core review): the holder forks and returns; the child enters its
+  directory and searches `PATH` itself (as `execvp`, after its chdir), and reports a failure on
+  its close-on-exec pipe, which sits in the poll set. SPAWNED (with the custody dups) follows at
+  the pipe's end of file, ERROR SPAWN_FAILED when a report arrives. Before, the holder ran
+  `stat` on each `PATH` entry and blocked reading the pipe until the child's chdir and execve
+  finished, so one directory on a mount that stopped answering stopped every terminal.
 - One kqueue: the daemon link socket, every PTY master (EVFILT_READ), every child
   (EVFILT_PROC NOTE_EXIT, then `waitpid` for the status: the holder is the shells' parent). No
   thread per terminal; no timers.
@@ -108,6 +114,27 @@ processes and ~2,000 threads fewer.
   dup), ADOPT (fds by SCM_RIGHTS + ids + offsets: a new holder takes over after a holder crash),
   ATTACH from offset, DATA (offset, bytes), GAP, ACK (trim), WRITE, RESIZE, SIGNAL, CLOSE, EXIT
   (status, end offset), LIST (every terminal: id, pid, offsets, state), PING/PONG, ERROR.
+  Descriptors (holder-core review): every frame of this build states how many it passes
+  (`FLAG_FDS_STATED` and a 3-bit count in its flags; an older build's frame counts by kind). The
+  receiver gives a frame exactly the descriptors that arrived with its first byte; a missing one,
+  one no frame states, or one the kernel dropped (`MSG_CTRUNC`) ends the link, never a shift of
+  every later terminal's master. A frame the holder sends passes the holder's own descriptors
+  (shared handles that keep them open until the frame is written), so a WELCOME's listing or a
+  SPAWNED costs it no descriptor: a holder short of descriptors still lists every terminal with
+  its master and ring (holder-core deep review: before, it dup'd two per terminal and refused
+  every HELLO with `NO_DESCRIPTORS`, so a daemon could not get back in after a descriptor
+  fault). An accept that fails for want of a descriptor stops the holder polling its listener
+  (Linux keeps the connection queued, so polling it spun the loop); it accepts again at the end
+  of each turn, the only place one of its descriptors frees.
+  A daemon frame whose descriptors the holder cannot take (it is out of descriptors: macOS fails
+  the read with EMFILE, measured on macOS 27, or with EMSGSIZE, XNU's `fdavail` failure, which
+  is taken as the same fault; Linux sets `MSG_CTRUNC`) or bytes
+  that are not frames end the link with ERROR `NO_DESCRIPTORS` or `BAD_PAYLOAD` on channel 0,
+  request kind 0 (`wire::STREAM_FAULT`), after the frame the socket had taken part of, and count
+  no poison strike (holder-core fix review: before, a silent close counted as a daemon crash, so
+  two reconnects that sent an ADOPT to a holder short of descriptors poisoned its terminals).
+  Tests: `cmux-holder/tests/descriptor_exhaustion.rs` (a holder under a measured low
+  `RLIMIT_NOFILE`).
 - Input: the daemon writes keystrokes to its own master dup directly (one hop less than today);
   WRITE exists for a daemon that lost its dup. The holder leaves the master non-blocking (the flag
   is shared by every dup), so the daemon's writer waits for POLLOUT on WouldBlock.
@@ -125,7 +152,10 @@ processes and ~2,000 threads fewer.
   daemon is attached and the daemon's queue per terminal stays bounded. A DATA offset past what
   the daemon has, or a GAP, cancels the parser's current sequence (CAN) instead of splicing.
 - Handshake: a connection becomes the link only after a valid HELLO; a probe or a bad token never
-  drops the attached daemon. The daemon it replaces gets ERROR SUPERSEDED and does not reconnect.
+  drops the attached daemon. The daemon it replaces gets ERROR SUPERSEDED and does not reconnect:
+  always, as the last frame of its stream, after the frame its socket had taken part of; its
+  queued frames are dropped (holder-core review: before, only when its queue was empty, so a busy
+  daemon read the close as a lost holder and took it back, and the two took turns).
 
 ## 5. Daemon side
 

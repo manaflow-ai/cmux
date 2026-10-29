@@ -25,7 +25,9 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// ```
 @MainActor
 public final class LaunchImageHold {
-    /// How long a launch image may stay when its page never reports a first frame.
+    /// How long a launch image holds startup when its page never reports a first frame. An image standing in for
+    /// a page that has not painted stays past it (`launchImageMayClear`, #24262); only its share of the hold ends
+    /// then, so what bounds the wait for deferred work is this limit, not the image.
     public static let imageLimit: Duration = .seconds(3)
 
     /// One shown image's part of the hold; ``end(_:)`` ends it once.

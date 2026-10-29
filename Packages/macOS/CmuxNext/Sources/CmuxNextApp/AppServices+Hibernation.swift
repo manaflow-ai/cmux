@@ -1,10 +1,11 @@
 import CmuxNextActions
+public import CmuxNextWakeups
+public import CmuxNextHibernation
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeatures
-package import CmuxNextHibernation
 import CmuxNextHostPressure
 import CmuxNextInput
 import CmuxNextMemory
@@ -12,7 +13,6 @@ import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
 package import CmuxNextTabs
-import CmuxNextWakeups
 import CoreGraphics
 
 // Browser hibernation and the memory-budgeted warm sets
@@ -30,6 +30,7 @@ extension AppServices {
         cache.hibernation = hibernation
         cache.webKit.hidesHiddenTabs = features.isEnabled(.webkitHiddenTabs) // WebKit tabs follow their hides too
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
+        hibernation.onMemoryLevel = { [weak self] level in self?.workspaceHibernation.pressureDidChange(level) }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in await self?.resources.sample(.everything).browserPageMemory ?? [:] }
         let readCPU = { [work = self.work, mainWork = self.mainWork, tabs = cache.tabRenderers, parent = cache.chromium.source.helperParent] (owner: String) in
@@ -52,7 +53,7 @@ extension AppServices {
         hibernation.follow(settings)
         hibernation.start()
         startIntentPrewarm(over: hibernation)
-        AppMemoryConsumers(services: self).registerHibernationSnapshots(hibernation)  // AppServices+Memory.swift
+        AppMemoryConsumers(services: self).followHibernation(hibernation, settings: settings)  // AppServices+Memory.swift
         cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: cache.normalWarmCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
     }
@@ -212,3 +213,18 @@ extension HighEnergyTabMonitor: TabEnergySource {
 
     package func discard(_ tab: TabID) { discard(tab.rawValue) }
 }
+
+// Workspace hibernation (plans/cmux-next/workspace-hibernation-DESIGN.md): what the Host forwards to.
+extension AppServices {
+    /// Whether tab `key` holds memory in this app: a terminal surface, a live page, a chat page.
+    func holdsTabMemory(_ key: String) -> Bool { cache.holdsMemory(key) || madeAgentTabs?.existingView(key) != nil }
+
+    /// Unmounts workspace `id` in every window, then frees its tabs' surfaces and pages.
+    func hibernateWorkspace(_ id: String) {
+        windows.releaseParked(id)
+        cache.hibernateTabs(machines.workspace(id: id)?.0.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id) ?? [])
+    }
+}
+
+// The app's one-shot timer is workspace hibernation's deadline (plans/cmux-next/workspace-hibernation-DESIGN.md).
+extension DemandTimer: WorkspaceHibernationDeadline {}

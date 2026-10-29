@@ -16,8 +16,11 @@ extension AgentPageHibernation {
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
         let current = now()
-        guard let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
-            for (key, at) in hiddenAt { noteDiscard(.planned(key, .agentPage, hiddenFor: (current - at).seconds, DiscardEligibility(keptFor: .disabled))) }
+        // No `browser.hibernation` written: no hidden chat goes on its own (trunk #25920).
+        guard setting.discardsAutomatically,
+              let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
+            let kept: HibernationPlanner.Exemption = setting.isEnabled ? .keepsState : .disabled
+            for (key, at) in hiddenAt { noteDiscard(.planned(key, .agentPage, hiddenFor: (current - at).seconds, DiscardEligibility(keptFor: kept))) }
             deadlineDelay = nil
             deadline.cancel()
             return
@@ -92,6 +95,9 @@ extension AgentPageHibernation {
     /// whether its view is still in a window (planning a deadline: the pane takes it out after the hide).
     func keepsPage(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? {
         if !setting.isEnabled { return .disabled }
+        // No `browser.hibernation` written: a hidden chat keeps its page (nothing goes on its own),
+        // unless its workspace hibernates (the person's workspace setting asked).
+        if !setting.discardsAutomatically, !workspaceDue.contains(key) { return .keepsState }
         guard let tabs = store(), Self.canRelease(key, in: tabs, onScreen: onScreen) else { return .unsupported }
         if isPinned(key), !setting.includesPinnedTabs { return .pinned }
         // No watch, no known turn: a chat that looks idle may be working.
@@ -104,9 +110,10 @@ extension AgentPageHibernation {
     /// command run in it.
     private static func canRelease(_ key: String, in tabs: AgentTabStore, onScreen: Bool) -> Bool {
         let key = tabs.resolve(key)
-        guard let view = tabs.views[key], !(onScreen && isOnScreen(view)), view.model.newTab == nil, !view.model.shell.hasRuns,
+        // A crashed page keeps its notice: a rebuild would reload it without the person's Reload.
+        guard let view = tabs.views[key], !view.showsCrashNotice, !(onScreen && isOnScreen(view)), view.model.newTab == nil, !view.model.shell.hasRuns,
               tabs.newTabPages[key] == nil, let (record, _) = tabs.lookup(key),
-              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) == .local,
+              AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost, listedHere: true) == .local,
               tabs.daemonForTab(key)?.isLocal != false else { return false }
         return (tabs.sessions[key] ?? view.model.sessionId ?? record.session) != nil
             && tabs.remoteSeeds[key] == nil && tabs.remoteCreations[key] == nil && tabs.remoteStarts[key] == nil

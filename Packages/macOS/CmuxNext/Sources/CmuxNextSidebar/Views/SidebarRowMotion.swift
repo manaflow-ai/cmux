@@ -24,6 +24,7 @@ struct RowMotion {
             Self.snap(targets)
             Motion.withoutAnimation { lines.changes() }
             SidebarDragSpring.stop(views)
+            Self.untuck(views)
             leaving.forEach { Self.closed($0.0, in: list) }
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
@@ -41,6 +42,7 @@ struct RowMotion {
                 }
             }
             SidebarDragSpring.stop(views)
+            Self.untuck(views)
             // Movement off: the lines and history blocks land too, their earlier springs off (`move`'s snap).
             SidebarDragSpring.move(lines.springs + companions, in: list)
             leaving.forEach { Self.closed($0.0, in: list) }
@@ -52,8 +54,10 @@ struct RowMotion {
         let opens = appearing.map(\.0.opens)
         list.rowMoves &+= 1
         let move = list.rowMoves
-        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, leavingLines = lines.leaving] in
+        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, targets, leavingLines = lines.leaving] in
             leavingLines.forEach { $0.removeFromSuperview() }
+            // Every line of this move, those that only moved too: an earlier move's tuck they kept ends here at the latest.
+            Self.untuck(targets.map(\.0) + appearing.map(\.0) + leaving.map(\.0), move: move)
             guard let list else { return }
             // A row reopened since keeps clipping until its own open ends.
             for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
@@ -61,8 +65,17 @@ struct RowMotion {
             if list.rowMoves == move { Self.land(list) }
             list.pruneOffscreen()
         }
+        let moving = Set((targets + appearing + leaving).filter { $0.0.frame != $0.1 }.map { ObjectIdentifier($0.0) })
+        let tucked = Self.tuck(appearing: appearing, leaving: leaving, move: move) {
+            Self.cover(of: $0, rows: list.rowViews, moving: moving)
+        }
+        // A line an earlier move tucked that now appears or leaves untucked (its row moves with a group) goes back to
+        // the rows' drawing order, and the shared fade takes it over (Codex review). A line that only moves keeps its
+        // tuck: no shared fade would take its place, so it would show at once; its own move's end untucks it.
+        Self.untuck((appearing + leaving).map(\.0).filter { !tucked.contains(ObjectIdentifier($0)) })
         Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
-                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving), lines: lines.changes, in: list, ended: ended)
+                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving).filter { !tucked.contains(ObjectIdentifier($0.0)) },
+                     lines: lines.changes, in: list, ended: ended)
     }
 
     /// Puts each row at its frame, whole, in one step. Set through the animator in a zero-length group, the frame
@@ -176,6 +189,7 @@ struct RowMotion {
     /// height at its slot instead of showing whole over the rows still making
     /// room (cx-ai79).
     static func place(_ view: SidebarRowView, at target: NSRect, opening: Bool, hidden: Bool, in list: SidebarListView) {
+        untuck([view]) // a parked tab line kept from a fold comes back in order, not behind the rows
         guard opening, !hidden, Motion.sidebar.animatesMovement else {
             view.frame = target
             view.alphaValue = hidden ? 0 : 1

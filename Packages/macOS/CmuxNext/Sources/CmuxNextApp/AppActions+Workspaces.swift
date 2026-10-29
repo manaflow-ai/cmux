@@ -26,7 +26,15 @@ extension AppActions {
                 return
             }
             guard let window = renameRowWindow(workspace, services, builds: true) else {
-                return services.registry.refuse(renameRowReason(workspace, services) ?? RefusalStrings.workspaceNotInSidebar)
+                if let reason = renameRowReason(workspace, services) { return services.registry.refuse(reason) }
+                // No list row to edit (a pinned workspace draws as a tile or top row): a Cmd-Shift-P step,
+                // pinned to this workspace, as Rename Screen does off the screen bar.
+                var asking = invocation
+                asking.target = ActionTargetRef(kind: .workspace, id: workspace.id)
+                if !services.registry.ask("renameWorkspace", asking, ActionArgumentAsk(argument: "name", initialText: workspace.displayName)) {
+                    services.registry.refuse(RefusalStrings.workspaceNotInSidebar)
+                }
+                return
             }
             // The name field opens on the row in the window that lists it, which comes forward.
             if window !== services.windows.active { services.windows.bringToFront(window) }
@@ -100,14 +108,14 @@ extension AppActions {
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
 
-    /// Why Rename Workspace with no name cannot open a name field for `workspace`, or nil: a
-    /// workspace no window's sidebar lists has no row to edit (Home, while the sidebar shows it as
-    /// its Home item, keeps its name).
+    /// Why Rename Workspace with no name cannot ask `workspace`'s name, or nil: Home, while the
+    /// sidebar shows it as its Home item (no row), keeps its name. Any other workspace with no list
+    /// row (a pinned tile or top row) is renamed in Cmd-Shift-P instead of its row's field.
     static func renameRowReason(_ workspace: WorkspaceModel, _ services: AppServices) -> String? {
-        guard renameRowWindow(workspace, services) == nil else { return nil }
+        guard renameRowWindow(workspace, services) == nil, HomeRules.isHome(workspace) else { return nil }
         // A restored window still waiting for its launch build lists the row once built (the rename builds it).
         if let owner = services.windows.registry.value.owner(of: workspace.id), services.windows.launchWindows?.isWaiting(owner) == true { return nil }
-        return HomeRules.isHome(workspace) ? RefusalStrings.homeKeepsItsName : RefusalStrings.workspaceNotInSidebar
+        return RefusalStrings.homeKeepsItsName
     }
 
     /// The window whose sidebar lists `workspace`'s row: the window that owns it, else the active one.
@@ -222,15 +230,15 @@ extension AppActions {
     /// person just asked for, not yet shown), never the one the window still
     /// shows (cx-7cit9). Otherwise it closes the scoped workspace after the
     /// window's earlier creates and closes (`WorkspaceLanes`). The workspace
-    /// is resolved at the press and its row leaves then; a person's run asks
-    /// about running programs afterwards (`WorkspaceCloseFlow`).
+    /// is resolved at the press. A person's run that may ask about running
+    /// programs keeps its row until the answer; otherwise the row leaves at the
+    /// press (`WorkspaceCloseFlow`).
     private static func closeWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
            lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: PendingWorkspaceRows.shared.remove) { return }
-        guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
-              !ClosingWorkspaces.shared.ids.contains(workspace.id), !WorkspaceCloseFlow.running.contains(workspace.id)
+        guard let workspace = scope(services, invocation).workspace, let key = workspace.key, WorkspaceSelectionCloseFlow.canStart(workspace.id)
         else { return } // a second press during the close sends nothing
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
@@ -240,16 +248,21 @@ extension AppActions {
         // window's lane (later creates and closes never wait for it) until it connects or leaves the app (the row then lists
         // again); a row that cannot hide says why. CLI and socket closes still fail at once.
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
-        let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
+        let id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
-                let hidden = InstantClose.begin(id, in: owner, windows: services.windows)
+                // A person's close animates its row out even when the row leaves after their answer to the question
+                // (or after the terminals' answer), past the press's window for motion (calm-sidebar-movement).
+                if invocation.origin == .user { controller?.sidebar.model.noteUserIntent() }
+                let hidden = !InstantClose.begin([id], in: owner, windows: services.windows).isEmpty
                 selected.afterPress = controller?.state.workspaceID
                 return hidden
             },
+            // A terminal that may run a program (and the warning on): the row stays until the person answers.
+            mayAsk: { WorkspaceBulkClose.mayAsk([(workspace, daemon)], warn: warn) },
             // The question, when a terminal runs a program: on the window that lists the workspace, above its pages.
             question: {
                 guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return nil }
@@ -262,9 +275,11 @@ extension AppActions {
                     }) ?? false
                 }
             },
-            // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
+            // Closed another way while the question was up (the CLI, another window): nothing to send.
             exists: { services.workspace(id: id) != nil },
             send: { hidden in
+                // Told only once the close goes ahead: a cancelled question keeps the workspace's remote terminals.
+                let terminals = WorkspaceClose.closing(workspace, on: daemon)
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
@@ -278,8 +293,8 @@ extension AppActions {
                 }
                 return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }
             },
-            // Cancel: the row is listed again, and the window shows it again unless the person moved on meanwhile
-            // (or it closed another way meanwhile).
+            // Cancel on a row that left at the press (its store read a prompt while a program ran): the row is
+            // listed again, and the window shows it again unless the person moved on meanwhile.
             restore: { hidden in
                 guard hidden else { return }
                 ClosingWorkspaces.shared.end(id, refused: false, in: nil)

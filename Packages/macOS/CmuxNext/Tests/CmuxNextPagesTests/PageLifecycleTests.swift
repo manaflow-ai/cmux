@@ -73,7 +73,7 @@ struct PageLifecycleTests {
     private let lifecycle: PageLifecycle
 
     init() {
-        lifecycle = PageLifecycle(deadlines: rig.scheduler)
+        lifecycle = PageLifecycle(conditions: .discarding(), deadlines: rig.scheduler)
         let log = log
         lifecycle.didRunPass = { log.passes += 1 }
     }
@@ -301,7 +301,7 @@ struct PageLifecycleTests {
         lifecycle.hide("c", page: Target(page: cloud))
         try fireDuePass()
         rig.advance(to: .seconds(30))
-        lifecycle.setConditions(.init(pressure: .critical))
+        lifecycle.setConditions(.discarding(.critical))
         #expect(lifecycle.nextPassAt == .seconds(30))
         try fireDuePass()
         // Chrome's urgent pace: one discard per pass, the longest hidden first, the next 5 s later.
@@ -317,7 +317,7 @@ struct PageLifecycleTests {
     /// a hidden page is never discarded, and the setting's change arms a pass.
     @Test func withHibernationOffNoPageIsDiscardedAndTheChangeArmsAPass() throws {
         let settings = page("settings")
-        var off = PageLifecyclePlanner.Conditions()
+        var off = PageLifecyclePlanner.Conditions.discarding()
         off.setting.mode = .off
         lifecycle.setConditions(off)
         lifecycle.hide("a", page: Target(page: settings))
@@ -325,7 +325,7 @@ struct PageLifecycleTests {
         #expect(lifecycle.nextPassAt == nil, "nothing to look at again while hibernation is off")
         rig.advance(to: .seconds(3_600))
         #expect(lifecycle.state(of: "a") == .hidden)
-        lifecycle.setConditions(.init())
+        lifecycle.setConditions(.discarding())
         #expect(lifecycle.nextPassAt == .seconds(3_600))
         try fireDuePass()
         #expect(lifecycle.state(of: "a") == .discarded)
@@ -480,7 +480,7 @@ struct PageLifecycleTests {
         // planner's, an owner's, or no reason at all.
         for reason in ["focused", "loading", "inspector", "confirmation", "popup", "file_drop", "dictation", "audible",
                        "web_rtc", "connected_device", "web_lock", "recently_visible", "most_recently_used",
-                       "hibernation_off", "turn_running", "page_call", "pinned", "nonsense"] {
+                       "hibernation_off", "discards_off", "turn_running", "page_call", "pinned", "nonsense"] {
             let refused = await keepAlive(reason, true)
             #expect(refused["code"]?.stringValue == "cmux.protocol.invalid_params", "\(reason)")
         }

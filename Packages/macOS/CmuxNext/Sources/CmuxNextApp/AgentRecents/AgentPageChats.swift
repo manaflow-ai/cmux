@@ -1,4 +1,7 @@
+import Foundation
+import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextSidebar
 import CmuxNextWakeups
 
@@ -27,6 +30,10 @@ final class AgentPageChats {
     /// This Mac's saved environments, one store for every page (AgentTabStore.wired); none in a
     /// run with no state folder, where New Tab pages list none.
     var environments: (any AgentPaneEnvironmentStoring)?
+    /// A new chat's Sandboxed send (``AgentPaneModel/onSandboxRun``), one runner for every page.
+    var sandboxRun: (@MainActor (String, String?, String) async -> [String: Any])?
+    /// The app-level waiter on every Sandboxed send's Run, and its notification (``SandboxRunNotices``).
+    private(set) var runNotices: SandboxRunNotices?
 
     /// Follows `feed` for every page of `tabs`; cards open through `opener`.
     static func wire(_ tabs: AgentTabStore, to feed: ChatsFeed, opener: ChatsOpenCoordinator) {
@@ -68,6 +75,55 @@ final class AgentPageChats {
         view.deviceChats = chats
         view.recentlyClosed = closed
         view.model.startFolders.environments = environments
+        view.model.onSandboxRun = sandboxRun
+    }
+
+    /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
+    /// Show Preview Features is on and Cloud isn't turned off by policy. Each waits for its Run's
+    /// receipt through ``CloudAPIClient/runSandbox(task:agent:timeoutMs:idempotencyKey:teardown:callsMargin:now:)``,
+    /// which answers by the task timeout plus teardown whatever the calls do. The Run's wait is
+    /// ``SandboxRunNotices``': it goes on after the tab closes and notifies when the Run ends.
+    static func wireSandbox(_ tabs: AgentTabStore, services: AppServices) {
+        let notices = SandboxRunNotices(services: services)
+        tabs.pageChats.runNotices = notices
+        notices.start()
+        tabs.pageChats.sandboxRun = { [weak services] task, agent, key in
+            guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
+            // Cloud turned off by policy, or the managed team it requires missing: a definite
+            // refusal, nothing was asked of the server.
+            guard !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud else {
+                return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
+            }
+            guard services.settings?.snapshot.previewFeatures == true else { return AgentPaneReply.failure(code: "labs_off", message: "labs_off") }
+            guard services.cloud.isSignedIn else { return AgentPaneReply.failure(code: "not_signed_in", message: "not_signed_in") }
+            // The send, its create's retry and its waits stay with the team it began with (and the
+            // create's retry with its account: CloudAPIClient.runSandbox).
+            // The Run is followed in the team it was created in (SandboxRunNotices).
+            let team = await services.cloud.api.currentTeam()
+            let api = services.cloud.api.pinningTeam(team)
+            let follow: @Sendable (String) async throws -> Data = { id in
+                try await notices.follow(id: id, task: task, key: key, team: team)
+            }
+            return await AgentPaneReply.sandbox({ try await api.runSandbox(task: task, agent: agent, idempotencyKey: key, follow: follow) },
+                                                code: AgentPageChats.sandboxCode)
+        }
+    }
+
+    /// A Sandboxed send's failure as the page's code (AgentPaneReply keeps only the codes it words).
+    /// A refusal answered before the server stored anything is definite, so the tab may send again.
+    nonisolated static func sandboxCode(_ error: any Error) -> String {
+        switch error as? CloudAPIError {
+        // An expired or revoked session: sign in again.
+        case .notSignedIn?, .http(401, _, _, _, _)?: "not_signed_in"
+        // A rate limit, or no backend configured: nothing was stored or sent.
+        case .http(429, _, _, _, _)?, .noBackend?: "unavailable_now"
+        // A Run API with no sandboxed Runs yet asks for a repository source and recipe. It refuses the
+        // body before storing anything, so Sandboxed isn't enabled here, and the tab may send again.
+        case .http(400, "run_source_required"?, _, _, _)?, .http(400, "run_recipe_required"?, _, _, _)?:
+            "run_sandbox_unavailable"
+        case let other?: other.code
+        case nil: "unavailable"
+        }
     }
 
     /// The newest chats, as the page cards take them.

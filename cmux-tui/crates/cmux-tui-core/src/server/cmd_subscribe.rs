@@ -328,6 +328,19 @@ impl SubscribeFilter {
                 return None;
             }
             MuxEvent::DiagnosticSite(_) if !self.diagnostic_client => return None,
+            // Who views a Cloud conversation only to a connection that
+            // asked for it (`cloud-conversation-presence-v1`).
+            MuxEvent::CloudConversation(event)
+                if matches!(
+                    event.as_ref(),
+                    crate::cloud_conversations::CloudEvent::Presence { .. }
+                ) && !self.mux.control_clients.supports_capability(
+                    self.client,
+                    super::cloud_conversations::CLOUD_PRESENCE_CAPABILITY,
+                ) =>
+            {
+                return None;
+            }
             MuxEvent::PairingRequested(challenge) => json!({
                 "event": "pairing-requested",
                 "request": challenge.id,

@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextInput
 public import CmuxNextWakeups
+public import CmuxNextDesign
 public import Foundation
 
 /// The Chromium engine: the patched CEF fork (manaflow-ai/cef, Chrome style
@@ -336,6 +337,13 @@ public final class CEFEngine: BrowserEngine {
     public var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)? {
         get { CEFRuntime.shared.openURLWithoutWindow }
         set { CEFRuntime.shared.openURLWithoutWindow = newValue }
+    }
+
+    /// Asks the person for files when a page's chooser reaches the app with no agent offer for its tab
+    /// (`CEFRuntime+FileDialogs`): the App's made-ahead panel.
+    public var fileInput: (any WebFileInputAnswering)? {
+        get { CEFRuntime.shared.fileInput }
+        set { CEFRuntime.shared.fileInput = newValue }
     }
 
     /// cmux.json `browser.builtInAdBlocker`: whether the bundled full uBlock

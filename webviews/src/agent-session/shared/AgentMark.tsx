@@ -1,13 +1,29 @@
-import React, { useId, useSyncExternalStore } from "react";
+import React, { useEffect, useId, useSyncExternalStore } from "react";
 import { agentBrand, AGENT_BRANDS, type AgentBrandSpec, type BrandTone } from "./agentBrand";
 import { AGENT_BRAND_SMALL_POINT_SIZE } from "./agentBrands.generated";
+import {
+  harnessIcon,
+  harnessIconImageURL,
+  harnessIconsSnapshot,
+  harnessSymbolsSnapshot,
+  loadHarnessSymbol,
+  monogramColors,
+  subscribeHarnessIcons,
+  type HarnessIconSpec,
+} from "./harnessIcons";
 
 export { agentBrand };
 
-/// The first of `candidates` that names a known mark (a profile's icon, then its family, then its
-/// id), else the last one given: an unknown icon falls back to its family's mark.
+/// Whether `agent` draws a mark: a known agent, or a harness whose icon acpmux sent.
+export function hasAgentMark(agent: string | undefined): boolean {
+  return !!agentBrand(agent) || !!harnessIcon(agent);
+}
+
+/// The first of `candidates` that names a known mark or a harness acpmux sent an icon for (a
+/// profile's icon, then its family, then its id), else the last one given: an unknown icon falls
+/// back to its family's mark, and a custom harness keeps its own icon over its family's mark.
 export function knownMark(...candidates: (string | undefined)[]): string | undefined {
-  return candidates.find((candidate) => agentBrand(candidate)) ?? candidates.filter(Boolean).at(-1);
+  return candidates.find((candidate) => hasAgentMark(candidate)) ?? candidates.filter(Boolean).at(-1);
 }
 
 /// How marks color: each vendor's own colors (the default), or white on dark themes
@@ -64,20 +80,117 @@ const box = (v: readonly number[]) => v.join(" ");
 /// page's theme; on a surface of the other lightness (a selected row on the accent),
 /// `onDark` says which side the surface is on. An agent without a mark draws nothing. The marks and their sources live in
 /// design/agent-icons (manifest.json); agentBrands.generated.ts is generated from it.
-export function AgentMark({
-  agent,
-  size = 16,
-  label,
-  onDark,
-  reserve,
-}: {
+type MarkProps = {
   agent?: string;
   size?: number;
   label?: string;
   onDark?: boolean;
   /** In a list: an unknown mark keeps its `size` slot (an empty box), so the names line up. */
   reserve?: boolean;
-}) {
+  /** Drawn instead when the agent has no mark and no harness icon (a generic agent glyph). */
+  fallback?: React.ReactNode;
+};
+
+/// A harness's own icon wins over the mark its id suggests when its profile sets one ("claude-sr2"
+/// with `icon = "🦊"`); a harness no mark knows draws the icon acpmux picked for it (the mark of the
+/// agent its command runs, else a monogram), so a custom harness is never a blank square.
+export function AgentMark(props: MarkProps) {
+  const icons = useSyncExternalStore(subscribeHarnessIcons, harnessIconsSnapshot, harnessIconsSnapshot);
+  const own = props.agent ? icons.get(props.agent) : undefined;
+  if (own && (own.source === "profile" || !agentBrand(props.agent))) {
+    if (own.kind === "brand") return <BrandMark {...props} agent={own.brand} />;
+    if (own.kind !== "glyph") return <HarnessIcon {...props} spec={own} />;
+  }
+  return <BrandMark {...props} />;
+}
+
+/// An emoji, an image, an SF Symbol or a monogram at `size` px. A symbol is the host's template
+/// image as a mask in the text color (shared/harnessIcons.ts); its monogram shows until the image
+/// arrives, and for good when the host draws none.
+function HarnessIcon({
+  spec,
+  size = 16,
+  label,
+  onDark,
+}: MarkProps & { spec: Exclude<HarnessIconSpec, { kind: "brand" | "glyph" }> }) {
+  const [scheme] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
+  const symbols = useSyncExternalStore(subscribeHarnessIcons, harnessSymbolsSnapshot, harnessSymbolsSnapshot);
+  const symbolName = spec.kind === "symbol" ? spec.name : undefined;
+  useEffect(() => {
+    if (symbolName) loadHarnessSymbol(symbolName);
+  }, [symbolName]);
+  const dark = onDark ?? scheme === "dark";
+  const a11y = label ? { role: "img", "aria-label": label } : { "aria-hidden": true as const };
+  const symbolSrc = symbolName ? symbols.get(symbolName) : undefined;
+  if (symbolSrc) {
+    const mask = `url("${symbolSrc}") center / contain no-repeat`;
+    return (
+      <span
+        className="agent-mark agent-mark-symbol"
+        data-symbol={symbolName}
+        style={{
+          display: "inline-flex",
+          flex: "none",
+          width: size,
+          height: size,
+          backgroundColor: "currentColor",
+          mask,
+          WebkitMask: mask,
+        }}
+        {...a11y}
+      />
+    );
+  }
+  const box: React.CSSProperties = { display: "inline-flex", flex: "none", width: size, height: size };
+  if (spec.kind === "image") {
+    return (
+      <img
+        className="agent-mark agent-mark-image"
+        src={harnessIconImageURL(spec)}
+        width={size}
+        height={size}
+        alt={label ?? ""}
+        draggable={false}
+        style={{ ...box, objectFit: "contain" }}
+        {...(label ? {} : { "aria-hidden": true })}
+      />
+    );
+  }
+  if (spec.kind === "emoji") {
+    return (
+      <span
+        className="agent-mark agent-mark-emoji"
+        style={{ ...box, alignItems: "center", justifyContent: "center", fontSize: size * 0.9, lineHeight: 1 }}
+        {...a11y}
+      >
+        {spec.text}
+      </span>
+    );
+  }
+  const { background, color } = monogramColors(spec.hue, dark);
+  return (
+    <span
+      className="agent-mark agent-mark-monogram"
+      style={{
+        ...box,
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: size * 0.28,
+        background,
+        color,
+        fontSize: size * (spec.text.length > 1 ? 0.46 : 0.58),
+        fontWeight: 600,
+        letterSpacing: spec.text.length > 1 ? "-0.02em" : undefined,
+        lineHeight: 1,
+      }}
+      {...a11y}
+    >
+      {spec.text}
+    </span>
+  );
+}
+
+function BrandMark({ agent, size = 16, label, onDark, reserve, fallback }: MarkProps) {
   const key = agentBrand(agent);
   const [scheme, style] = useSyncExternalStore(subscribe, appearance, () => "dark brand").split(" ");
   const dark = onDark ?? scheme === "dark";
@@ -93,6 +206,7 @@ export function AgentMark({
   const a11y = label ? { role: "img", "aria-label": label } : { "aria-hidden": true as const };
   // A mark nobody knows (a profile's own id, a file icon) draws nothing: a placeholder square read
   // as a broken image (Leo, 2026-10-12, the "Vercel AI Gateway" chip). The name beside it says who.
+  if (!spec && fallback !== undefined) return <>{fallback}</>;
   if (!spec)
     return reserve ? (
       <span

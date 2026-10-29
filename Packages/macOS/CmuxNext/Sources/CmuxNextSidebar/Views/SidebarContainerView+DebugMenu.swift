@@ -4,15 +4,16 @@ extension SidebarContainerView {
     /// `debug.sidebar_rows` `menu_x`/`menu_y`: the menu a right-click at a
     /// window point (from the top-left, as `debug.mouse`) opens, never shown:
     /// a layout item's menu (a workspace tile, a top row, Home) when an item
-    /// of a pinned band is there, else the list's own `menu(for:)` (so the
+    /// of a band or a document block is there, else the list's own `menu(for:)` (so the
     /// App's provider builds it).
     public func debugMenu(atWindowPoint windowPoint: CGPoint) -> NSMenu? {
         let list = sidebarView.list
         guard let window = list.window else { return nil }
         let height = window.contentView?.bounds.height ?? window.frame.height
         let location = NSPoint(x: windowPoint.x, y: height - windowPoint.y)
-        // visibility-walk-allow: the debug menu's hit test: the band regions on screen now
-        for region in sidebarView.bandRegions where !region.isHiddenOrHasHiddenAncestor {
+        // The bands, then the document's sections drawn in the list: their items open their own menus.
+        // visibility-walk-allow: the debug menu's hit test: the band and section regions on screen now
+        for region in sidebarView.bandRegions + list.blockRegions where !region.isHiddenOrHasHiddenAncestor {
             if let menu = region.debugItemMenu(atWindowPoint: location) { return menu }
         }
         guard let event = NSEvent.mouseEvent(with: .rightMouseDown, location: location,

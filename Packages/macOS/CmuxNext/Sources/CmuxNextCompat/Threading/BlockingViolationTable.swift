@@ -9,7 +9,7 @@ internal import enum CmuxSafeConcurrency.OnceContinuationError
 internal import func CmuxSafeConcurrency.withOnceContinuation
 internal import os
 
-/// The blocking detector's state (Debug and bench-checks builds, Nightly to come; Release compiles it out): the
+/// The blocking detector's state (Debug, bench-checks and Nightly builds; Release compiles it out): the
 /// violations on the main thread, on the shared pools (``BlockingContext/pool``: the Swift cooperative pool
 /// and GCD root queues), in items of BackgroundWork's `.cpu` lane (``BlockingContext/cpuLane``, each recorded
 /// as ``BlockingKind/wrongLane``) and the sync primitives in items of the lanes that may block

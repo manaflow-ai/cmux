@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextAppearance
 public import Foundation
 
@@ -9,6 +10,10 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
     public let choices: [BackdropSelection]
     /// The macOS wallpapers among ``choices``, by path.
     public let appleWallpapers: [String: AppleWallpaper]
+    /// The aerial names read once while building this catalog.
+    public let aerialNames: [String: String]
+    /// The listed aerials not downloaded when this catalog was built off main.
+    public let pendingVideoPaths: Set<String>
 
     /// The bundled art in picker order: by collection, darkest works first within each
     /// (``BackdropArt/pickerOrder``).
@@ -18,6 +23,8 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
     public init(bundledOnly: Void) {
         choices = Self.bundled
         appleWallpapers = [:]
+        aerialNames = [:]
+        pendingVideoPaths = []
     }
 
     /// Builds a catalog from an injected directory listing.
@@ -33,7 +40,12 @@ public nonisolated struct BackdropCatalog: Sendable, Equatable {
         let apple = wallpapers.pictures(assets: assets)
         appleWallpapers = Dictionary(apple.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         let yours = userImages?.list() ?? []
-        let moving = wallpapers.videos()
+        aerialNames = wallpapers.aerialNames()
+        let moving = wallpapers.videos(names: aerialNames)
+        pendingVideoPaths = Set(moving.compactMap { choice in
+            guard case .system(let path) = choice, !FileManager.checked.fileExists(atPath: path) else { return nil }
+            return path
+        })
         choices = Self.bundled + yours.filter { !$0.isVideo } + [.desktop] + apple.map { BackdropSelection.system(path: $0.path) }
             + moving + yours.filter(\.isVideo)
     }

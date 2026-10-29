@@ -68,7 +68,7 @@ describe("a machine-state conflict", () => {
     const { response, payload } = await answer("exec", cause);
     expect(response.status).toBe(409);
     expect(payload).toMatchObject({ error: "vm_state_conflict", retryable: true });
-    expect(String(payload.action)).toContain("cmux vm ls");
+    expect(String(payload.action)).toContain("cmux cloud list-machines");
     expect(isOperatorFaultVmError({ error: String(payload.error), status: response.status })).toBe(false);
   });
 

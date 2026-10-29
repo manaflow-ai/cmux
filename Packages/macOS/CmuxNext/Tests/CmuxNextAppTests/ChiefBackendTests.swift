@@ -24,12 +24,13 @@ import Testing
         #expect(ChiefBackend.muse.createsOnThisMac)
     }
 
-    @Test func titlesNameEachBackendAndShowAnUnknownIdAsItIs() {
+    /// An id that is not an official engine reads as a name, never as the raw id (#89).
+    @Test func titlesNameEachBackendAndShowAnUnknownIdByName() {
         #expect(ChiefBackend.title(for: "claude") == ChiefBackend.claude.title)
         #expect(ChiefBackend.title(for: "unii") == ChiefBackend.unii.title)
         #expect(!ChiefBackend.unii.title.isEmpty && ChiefBackend.unii.title != "unii")
-        #expect(ChiefBackend.title(for: "claude-cr") == "claude-cr")
-        #expect(ChiefBackend.title(for: "gemini") == "gemini")
+        #expect(ChiefBackend.title(for: "claude-cr") == "\(ChiefBackend.claude.title) (CodeRouter)")
+        #expect(ChiefBackend.title(for: "gemini") == "Gemini CLI")
         #expect(ChiefBackend(id: "unii") == .unii)
         #expect(ChiefBackend(id: "claude-sr") == nil)
         #expect(ChiefBackend.unii.hint != nil)
@@ -43,7 +44,7 @@ import Testing
         #expect(ChiefBackend.badge(for: "unii") == ChiefBackend.unii.title)
         #expect(ChiefBackend.badge(for: "codex") == ChiefBackend.codex.title)
         #expect(ChiefBackend.badge(for: "muse") == ChiefBackend.muse.title)
-        #expect(ChiefBackend.badge(for: "gemini") == "gemini")
+        #expect(ChiefBackend.badge(for: "gemini") == "Gemini CLI")
         for harness in [nil, "", "default", "claude", "claude-cr", "claude-sr"] as [String?] {
             #expect(ChiefBackend.badge(for: harness) == nil, "\(String(describing: harness))")
         }
@@ -54,7 +55,8 @@ import Testing
         #expect(HomeChiefSettingsView.harnesses(routeConfigured: true) == ["claude", "claude-cr", "codex", "muse", "unii"])
         let items = HomeChiefSettingsView.harnessItems(routeConfigured: true)
         #expect(items.first { $0.value == "unii" }?.title == ChiefBackend.unii.title)
-        #expect(items.first { $0.value == "claude-cr" }?.title == "claude-cr")
+        // The route reads as a name, not its id (#89).
+        #expect(items.first { $0.value == "claude-cr" }?.title == "\(ChiefBackend.claude.title) (CodeRouter)")
     }
 
     /// Lawrence 2026-10-23: "chief can choose between literally all the acpmux stuff". After the
@@ -66,7 +68,7 @@ import Testing
         #expect(HomeChiefSettingsView.harnesses(routeConfigured: true, listed: listed)
             == ["claude", "claude-cr", "codex", "muse", "unii", "opencode", "pi", "gemini", "claude-sr"])
         let items = HomeChiefSettingsView.harnessItems(routeConfigured: false, listed: ["gemini"])
-        #expect(items.last?.value == "gemini" && items.last?.title == "gemini")
+        #expect(items.last?.value == "gemini" && items.last?.title == "Gemini CLI")
     }
 
     @MainActor @Test func theNewChiefSheetHandsTheChosenBackendToItsCreate() async throws {

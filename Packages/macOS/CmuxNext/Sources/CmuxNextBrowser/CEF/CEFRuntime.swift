@@ -99,6 +99,12 @@ final class CEFRuntime {
     /// An incognito request: the App opens `url` (nil: a new tab page) in a
     /// cmux incognito window, or in the incognito window of `source`.
     var openOffTheRecord: ((URL?, CEFTab?) -> Void)?
+    /// Tabs with an agent's file offer standing: while any does, Chromium sends file choosers to the app
+    /// (`CEFRuntime+FileDialogs`).
+    var agentFileOffers: Set<ObjectIdentifier> = []
+    /// Asks the person for files when a chooser reaches the app with no offer for its tab (the App's
+    /// made-ahead panel, as WebKit tabs use); nil cancels such a chooser.
+    var fileInput: (any WebFileInputAnswering)?
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
     weak var lastShownHost: CEFPaneHost? { didSet { windowRequests.policyMayHaveChanged() } }
@@ -561,7 +567,10 @@ final class CEFRuntime {
             environment: environment, builtInExtensions: builtIn.folders,
             builtInExtensionsAtFirstTab: builtIn.atFirstTab,
             keepsUnpackedEnabled: builtIn.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty),
-            sharedRendererMemoryCaps: sharedRendererMemoryCaps
+            sharedRendererMemoryCaps: sharedRendererMemoryCaps,
+            // Debug Settings (DEV and NIGHTLY), read when Chromium starts: on the first page, well after
+            // the override file loaded; Release keeps the default.
+            asyncLiveResize: BrowserResizeTunables.dragResizeAtLaunch != .synced
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         processReusePerRendererDevTools = switchSet.arguments.contains(CEFSwitches.processReusePerRendererDevTools)

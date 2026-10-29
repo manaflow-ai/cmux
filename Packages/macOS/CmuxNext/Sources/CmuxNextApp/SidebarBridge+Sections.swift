@@ -86,11 +86,15 @@ extension SidebarBridge {
         let service = services.sidebarLayout
         let apps = services.apps.client
         let store = services.machines.local.store
+        let settings = services.settings
         let refs = WorkspaceLayoutRefs(machines: services.machines)
-        // The chosen pet character (`home.chiefPetMascot`) is the Chief item's picture: a new pick redraws it,
-        // once its file is read off the main thread (the app's one picture, so a later window has it at once).
+        // The default Chief's upload, else its pet character (`home.chiefPetMascot`), is the Chief item's picture: a new
+        // pick redraws it, once a character's file is read off the main thread (the app's one picture, so a later window
+        // has it at once); an upload's first frame comes decoded (``ChiefAvatarUploads``).
         let chiefMascot = { [weak services] in services?.settings?.snapshot.homeChiefPetMascot }
+        let chiefPictureURL = { [weak services] in services?.characterPicture(of: nil) }
         let chiefPicture = services.chiefSidebarPicture
+        let uploads = services.chiefAvatarUploads
         let home = services.home
         // Writes the sidebar's model (its rows draw it): a service observation, `visible` for a script's or a
         // program's change (an app install, an unread count), sooner for the person's.
@@ -99,15 +103,17 @@ extension SidebarBridge {
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
             _ = (apps.apps, ChiefSidebar.shared.status)
             let mascot = chiefMascot()
+            let pictureURL = chiefPictureURL()
             return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                    Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), mascot,
-                    chiefPicture.favicon(mascot: mascot))
+                    Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), mascot, pictureURL,
+                    chiefPicture.favicon(mascot: mascot, picture: pictureURL, image: pictureURL.flatMap(uploads.image(at:))),
+                    settings?.snapshot.previewFeatures == true)
         } apply: { inputs in
-            let (layout, unread, homeUnread, shortcuts, workspaces, mascot, picture) = inputs
+            let (layout, unread, homeUnread, shortcuts, workspaces, mascot, pictureURL, picture, previewFeatures) = inputs
             // `model.layout` is written with the rows it projects (SidebarBridge.show).
-            let visibleLayout = layout.withoutChats
+            let visibleLayout = SidebarRows.visibleLayout(layout, showAppStore: previewFeatures)
             // Only a layout with the Chief item (off by default) reads its picture.
-            if picture == nil, Self.showsChief(visibleLayout) { chiefPicture.load(mascot: mascot) }
+            if picture == nil, Self.showsChief(visibleLayout) { chiefPicture.load(mascot: mascot, picture: pictureURL) }
             let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                       unread: unread, homeUnread: homeUnread,
                                       app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
@@ -119,8 +125,10 @@ extension SidebarBridge {
     }
 
     /// What the sidebar's item presentation is made from: the layout, the unread count, Home's unread
-    /// conversations, the built-ins' shortcuts, the workspace items, the pet character and its picture.
-    typealias SectionInputs = (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], String?, SidebarFavicon?)
+    /// conversations, the built-ins' shortcuts, the workspace items, the pet character, the default Chief's picture file
+    /// (its worn upload or its character's), that picture, and whether preview features (the App Store item) show.
+    typealias SectionInputs = (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], String?, URL?,
+                               SidebarFavicon?, Bool)
 
     /// Whether `layout` has the Chief built-in item, the one item that draws ``ChiefSidebarPicture``.
     static func showsChief(_ layout: SidebarLayoutDocument) -> Bool {
@@ -139,7 +147,8 @@ extension SidebarBridge {
     /// Presentation of every built-in, app and workspace item in `layout` (a closed workspace dimmed); `registered` says
     /// whether an action exists. Notifications carries `unread`, Home (built-in or app) a dot for `homeUnread` (its
     /// unread conversations, ``HomeService/unreadConversations``), the Chief its status (`ChiefSidebar`) and the
-    /// `chiefPicture`, the chosen pet character's (`home.chiefPetMascot`, ``ChiefSidebarPicture``), and each
+    /// `chiefPicture`, the default Chief's worn upload's or else its chosen pet character's (`home.chiefPetMascot`,
+    /// ``ChiefSidebarPicture``), and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
     /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
@@ -204,6 +213,25 @@ extension SidebarBridge {
                                                  entries: entries)
     }
 
+    /// The open workspace a pinned workspace's tile names, or nil (another item, a closed or
+    /// another device's workspace, or a workspace tile in a section other than Pinned, which keeps
+    /// its item menu: Remove from Section, Remove from Sidebar).
+    func pinnedWorkspaceID(ofItem id: LayoutItemID) -> SidebarWorkspaceID? {
+        guard let ref = (model.layout.item(id) ?? model.listedItem(id))?.ref,
+              let (workspace, _) = WorkspaceLayoutRefs(machines: services.machines).workspace(for: ref),
+              PinCommands(context: AppActionContext(services: services)).isWorkspacePinned(workspace) else { return nil }
+        return SidebarWorkspaceID(workspace.id)
+    }
+
+    /// A pinned workspace tile's own rows, kept under its workspace menu: Show/Hide Label.
+    func tileRows(_ id: LayoutItemID) -> [NSMenuItem] {
+        let menu = services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
+                                                     entries: [.action("sidebar.item.toggleLabel")])
+        let items = menu.items.filter { !$0.isSeparatorItem }
+        menu.removeAllItems()
+        return items
+    }
+
     /// The right-click menu of a layout item: Hide only on app items.
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
@@ -214,6 +242,11 @@ extension SidebarBridge {
     }
 
     func applyLayoutOp(_ op: SidebarLayoutOp) {
-        PinCommands(context: AppActionContext(services: services)).userBandEdit(op)
+        // `model.layout` is the projected document shown by this window. A
+        // preview-disabled projection omits rows that remain in the stored
+        // legacy document, so expand item indexes before sending the op.
+        let stored = services.sidebarLayout.document
+        let translated = op.translatingHiddenItemIndex(from: model.layout, to: stored)
+        PinCommands(context: AppActionContext(services: services)).userBandEdit(translated)
     }
 }

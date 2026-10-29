@@ -70,6 +70,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         "host-resolver-rules", "ignore-certificate-errors-spki-list",
         CEFSharedRendererMemoryCaps.mainFrameSwitch, CEFSharedRendererMemoryCaps.subframeSwitch,
     ]
+    /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
+    /// drag resize (`BrowserDragResize.synced`), which lets Chromium hold a frame for the page again.
+    var asyncLiveResize = true
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass. It is
@@ -190,7 +193,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // CA transaction, no 50 ms post-commit wait), and a layer-hosted page waits up to the
         // deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync. A fork without
         // that skip keeps AsyncLiveResize: dropping it would put both waits back on the main thread.
-        if !forkFeatures.resizeWaitsOnlyForDeadline { features.append("AsyncLiveResize") }
+        // Debug Settings "Synced live" drag resize (`asyncLiveResize` false) leaves it off, so Chromium
+        // holds a frame for the page again.
+        if asyncLiveResize, !forkFeatures.resizeWaitsOnlyForDeadline { features.append("AsyncLiveResize") }
         // The app's Chromium features come last, for example `cefTimerSlack` (default off):
         // `kTimerSlackMac` (base/message_loop/message_pump_apple.mm, message_pump_kqueue.cc) gives each
         // CFRunLoop and kqueue pump's delayed timer the task's leeway. It changes renderer, GPU and
@@ -411,7 +416,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         keepsUnpackedEnabled: Bool = false,
         agentPageMainFrameCap: Int? = nil,
         pageSiteCaps: [PageSiteCap] = [],
-        sharedRendererMemoryCaps: CEFSharedRendererMemoryCaps? = nil
+        sharedRendererMemoryCaps: CEFSharedRendererMemoryCaps? = nil,
+        asyncLiveResize: Bool = true
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let developmentBundle = bundle.contains(".debug") || bundle.hasSuffix(".dev")
@@ -450,7 +456,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             benchSwitches: bench,
             agentPageMainFrameCap: agentPageMainFrameCap,
             pageSiteCaps: pageSiteCaps,
-            sharedRendererMemoryCaps: sharedRendererMemoryCaps
+            sharedRendererMemoryCaps: sharedRendererMemoryCaps,
+            asyncLiveResize: asyncLiveResize
         )
     }
 

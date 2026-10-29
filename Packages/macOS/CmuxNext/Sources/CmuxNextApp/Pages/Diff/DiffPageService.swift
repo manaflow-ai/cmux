@@ -44,6 +44,9 @@ final class DiffPageService: InternalPageProvider {
         var source: DiffOpenSource
         /// The chat turn its Last turn scope shows (D2), from the chat that opened it.
         var turn: DiffTurn?
+        /// The chat's session host. A remote tab must retain this link for every page read.
+        var gitLink: AgentPaneGitLink?
+        var runtime: DiffPageRuntime?
         var page: PageWebView?
         var provider: DiffPageProvider?
         var host: DiffTabHost?
@@ -88,6 +91,27 @@ final class DiffPageService: InternalPageProvider {
         servicesReference.resolve().map { $0.cache.node(for: $0.pages.stripTab(ofKey: key)) }
     }
 
+
+    /// Remote chats get a runtime whose status reads and grants are owned by their daemon.
+    /// Local tabs keep the shared sidecar runtime.
+    private func runtime(for link: AgentPaneGitLink) -> DiffPageRuntime {
+        link.isLocal ? runtime : DiffPageRuntime(git: link, mainWork: mainWork)
+    }
+
+    /// A missing link for a remote chat is a routing refusal, never permission to read the same
+    /// path through this Mac's checkout.
+    func gitLink(for selectedID: String?) -> AgentPaneGitLink? {
+        guard let selectedID, let services else { return localGit }
+        if let link = services.agentTabs.gitLink?(selectedID) { return link }
+        guard let (tab, _) = services.locateTab(selectedID), let record = tab.agentSession,
+              AgentPaneHostKind(record, localHost: services.agentTabs.localHost,
+                                chiefHost: services.agentTabs.chiefHost,
+                                listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else {
+            return localGit
+        }
+        return nil
+    }
+
     init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil, stores: DiffPageStores? = nil,
          clock: any Clock<Duration> = ContinuousClock()) {
         servicesReference = OwnerReference(services: services)
@@ -119,20 +143,27 @@ final class DiffPageService: InternalPageProvider {
     @discardableResult
     func open(folder: URL, source: DiffOpenSource = .default, turn: DiffTurn? = nil, in pane: PaneController,
               focus: Bool, created: (@MainActor (SurfaceID) -> Void)? = nil) async throws(DiffOpenFailure) -> String {
-        guard let repository = await runtime.repository(at: folder) else { throw .notRepository }
-        return open(repository: repository, source: source, turn: turn, in: pane, focus: focus, created: created)
+        guard let link = gitLink(for: pane.selectedTab?.id) else { throw .notRepository }
+        let tabRuntime = runtime(for: link)
+        guard let repository = await tabRuntime.repository(at: folder) else { throw .notRepository }
+        return open(repository: repository, source: source, turn: turn, gitLink: link, runtime: tabRuntime,
+                    in: pane, focus: focus, created: created)
     }
 
     /// ``open(folder:source:turn:in:focus:)`` once the repository is known. One tab per
     /// repository and scope in the window, as before; a turn open (``DiffTabReuse``) takes the
     /// window's tab of the repository in any scope and switches it to the turn.
     @discardableResult
-    func open(repository: DiffRepository, source: DiffOpenSource = .default, turn: DiffTurn? = nil, in pane: PaneController,
+    func open(repository: DiffRepository, source: DiffOpenSource = .default, turn: DiffTurn? = nil,
+              gitLink: AgentPaneGitLink? = nil, runtime: DiffPageRuntime? = nil, in pane: PaneController,
               focus: Bool, created: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
         record(repository, source: source)
         let before = Set(tabs.keys)
-        let key = show(in: pane, focus: focus, Tab(repository: repository, source: source, turn: turn), created: created) {
+        let key = show(in: pane, focus: focus,
+                       Tab(repository: repository, source: source, turn: turn, gitLink: gitLink ?? localGit,
+                           runtime: runtime), created: created) {
             DiffTabReuse.reuses(root: $0.repository?.root, source: $0.source, for: repository.root, source)
+                && $0.gitLink === (gitLink ?? localGit)
         }
         // A tab already there takes the chat's turn: a card's reloads it on the turn and file; a
         // header's newer turn is what its Last turn shows from then on, with no reload.
@@ -217,7 +248,8 @@ final class DiffPageService: InternalPageProvider {
     /// relaunch): it shows that root against its default base.
     func restore(_ route: String, for key: String) {
         guard tabs[key] == nil, route.hasPrefix("/") else { return }
-        tabs[key] = Tab(repository: DiffRepository(root: route, branch: nil, base: nil), source: .default)
+        tabs[key] = Tab(repository: DiffRepository(root: route, branch: nil, base: nil), source: .default,
+                         gitLink: localGit, runtime: runtime)
     }
 
     /// The diff page of `key`, nil for any other tab or before its view exists.
@@ -227,12 +259,15 @@ final class DiffPageService: InternalPageProvider {
 
     // MARK: Tab host
 
-    fileprivate func repository(at folder: URL) async -> DiffRepository? { await runtime.repository(at: folder) }
+    fileprivate func repository(at folder: URL, for key: String) async -> DiffRepository? {
+        await (tabs[key]?.runtime ?? runtime).repository(at: folder)
+    }
 
     /// The tab's turn goes with a grant of its own repository only.
     fileprivate func prepare(_ repository: DiffRepository, source: DiffOpenSource, for key: String) -> Task<DiffTabReady, any Error> {
         let turn = turn(for: key, in: repository.root)
-        return runtime.prepare(repository: repository, source: turn == nil && source == .turn ? .default : source, turn: turn)
+        return (tabs[key]?.runtime ?? runtime).prepare(repository: repository,
+                                                       source: turn == nil && source == .turn ? .default : source, turn: turn)
     }
 
     fileprivate func chooseFolder(start: URL?, for key: String) async -> URL? {
@@ -307,9 +342,11 @@ final class DiffPageService: InternalPageProvider {
         // its page) shows the empty state: recents and a folder chooser.
         var tab = tabs[key] ?? Tab(repository: nil, source: .default)
         let host = DiffTabHost(service: self, key: key)
-        let ready = tab.repository.map { runtime.prepare(repository: $0, source: tab.source, turn: tab.turn) }
-        let provider = DiffPageProvider(ready: ready, sidecar: runtime.sidecar, languages: runtime.languages, host: host,
-                                        stores: stores, git: diffGit)
+        let tabRuntime = tab.runtime ?? runtime
+        let ready = tab.repository.map { tabRuntime.prepare(repository: $0, source: tab.source, turn: tab.turn) }
+        let tabGit: (any DiffGitRunning)? = tab.gitLink.map { DiffAgentGit(link: $0) } ?? diffGit
+        let provider = DiffPageProvider(ready: ready, sidecar: tabRuntime.sidecar, languages: tabRuntime.languages, host: host,
+                                        stores: stores, git: tabGit)
         provider.viewState = tab.viewState
         tab.viewState = nil
         let native = AppPageNativeProvider(services: services, page: .diff)
@@ -442,7 +479,7 @@ final class DiffTabHost: DiffTabHosting {
         self.key = key
     }
 
-    func repository(at folder: URL) async -> DiffRepository? { await service?.repository(at: folder) }
+    func repository(at folder: URL) async -> DiffRepository? { await service?.repository(at: folder, for: key) }
 
     func prepare(_ repository: DiffRepository, source: DiffOpenSource) -> Task<DiffTabReady, any Error> {
         guard let service else {

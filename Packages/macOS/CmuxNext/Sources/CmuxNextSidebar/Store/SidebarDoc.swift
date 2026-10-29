@@ -113,10 +113,15 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     /// Archived (`extra.archived`): the reducer lists it after its unarchived
     /// siblings and its row draws dimmed (plans/cmux-next/archiving-DESIGN.md).
     public var archived: Bool
+    /// A group's own auto-archive rule (`extra.auto_archive`; plans/cmux-next/auto-archive-DESIGN.md);
+    /// nil when it follows the setting.
+    public var autoArchive: SidebarDocAutoArchiveRule?
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
-                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false, archived: Bool = false) {
+                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false, archived: Bool = false,
+                autoArchive: SidebarDocAutoArchiveRule? = nil) {
         self.iconURL = iconURL
+        self.autoArchive = autoArchive
         self.pinnedInGroup = pinnedInGroup && parent != nil
         self.archived = archived
         self.id = id
@@ -351,15 +356,21 @@ nonisolated extension SidebarDocRecords {
         items[item].map { $0.body.isGroup && $0.section == SidebarDocStore.pinnedSection } ?? false
     }
 
-    /// `table` with no drop in Pinned unless every dragged item is in Pinned already: a
-    /// workspace or group dragged from the list never lands between pinned items and so
-    /// never becomes a pin by a drop (Pin is the way in). Pinned items still reorder there.
+    /// `table` with no drop at Pinned's top level unless every dragged item is in Pinned already:
+    /// a workspace or group dragged from the list never lands between pinned items and so never
+    /// becomes a pin by a drop (Pin is the way in). Pinned items still reorder there, and a pinned
+    /// group still takes workspaces into its header and between its members: that joins the
+    /// group (#22259; refused, nothing could be dragged into a pinned group).
     public func keepingPinned(_ table: [String: SidebarDocAcceptance], dragging dragged: [String]) -> [String: SidebarDocAcceptance] {
         let pinned = SidebarDocStore.pinnedSection
         guard dragged.contains(where: { items[$0]?.section != pinned }) else { return table }
         var table = table
-        for key in table.keys where key == pinned || items[key]?.section == pinned {
-            table[key] = SidebarDocAcceptance(before: false, into: false, after: false, refusal: "pinned_area")
+        for (key, accepted) in table where key == pinned || items[key]?.section == pinned {
+            // A pinned group's member: its gaps stay in that group.
+            if items[key]?.parent != nil { continue }
+            // A pinned group's header: into it joins the group; beside it is the band.
+            let into = items[key]?.body.isGroup == true && accepted.into
+            table[key] = SidebarDocAcceptance(before: false, into: into, after: false, refusal: "pinned_area")
         }
         return table
     }

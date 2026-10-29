@@ -1,10 +1,12 @@
 import CmuxNextActions
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHibernation
 import CmuxNextInput
+import CmuxNextPages
 import CmuxNextSettings
 import AppKit
 import CmuxNextWakeups
@@ -180,6 +182,46 @@ struct AgentPageHibernationTests {
         // Handed out once: a reload of the woken page starts from acpmux alone.
         let again = await rebuilt.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
         #expect((again["value"] as? [String: Any])?["wake"] == nil)
+    }
+
+    /// No `browser.hibernation` in cmux.json: a hidden chat keeps its page at every pressure, as a
+    /// browser tab does. A page built again loses what ``AgentPaneWakeState`` does not carry (an open
+    /// menu or popover, the caret, a queued prompt being edited, an IME composition).
+    @Test(arguments: [MemoryPressureLevel.normal, .critical])
+    func theDefaultKeepsEveryHiddenChatsPage(_ pressure: MemoryPressureLevel) async throws {
+        let rig = Rig()
+        rig.hibernation.update(setting: .fallback, pressure: pressure)
+        let page = try rig.hiddenChat("tab_default", session: "s-default")
+        rig.advance(minutes: 120)
+        await rig.settle { rig.tabs.existingView("tab_default") == nil }
+        #expect(rig.tabs.existingView("tab_default") === page, "a hidden chat was recreated by default")
+        #expect(rig.hibernation.keepsPage("tab_default") == .keepsState)
+        #expect(!rig.hibernation.hasDeadline)
+        #expect(rig.displaced.isEmpty)
+    }
+
+    /// A chat whose page crashed shows the notice at once and does not reload by itself: the page
+    /// host keeps no automatic reload for it and reports the crash as not reloading (the page host's
+    /// own test is `PageWebViewCrashReloadTests`).
+    @Test func aCrashedChatShowsTheNoticeAndDoesNotReload() throws {
+        let rig = Rig()
+        let view = try rig.hiddenChat("tab_crash", session: "s-crash")
+        #expect(!view.page.reloadsAfterCrash, "the agent page host reloads a crashed chat")
+        view.pageCrashed(reloading: false)
+        #expect(view.crashNotice != nil, "a crashed chat showed no notice")
+    }
+
+    /// Even with a timeout written, a crashed chat keeps its page and notice: a release would
+    /// build it again when shown, a reload the person did not ask for.
+    @Test func aCrashedChatIsNeverReleased() async throws {
+        let rig = Rig()
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .critical)
+        let view = try rig.hiddenChat("tab_crashed", session: "s-crashed")
+        view.pageCrashed(reloading: false)
+        rig.advance(minutes: 61)
+        await rig.settle { rig.tabs.existingView("tab_crashed") == nil }
+        #expect(rig.tabs.existingView("tab_crashed") === view, "a crashed chat was released and rebuilt")
+        #expect(rig.hibernation.keepsPage("tab_crashed") == .unsupported)
     }
 
     /// With the acpmux turn watch down no chat's turn is known: every chat counts as busy and

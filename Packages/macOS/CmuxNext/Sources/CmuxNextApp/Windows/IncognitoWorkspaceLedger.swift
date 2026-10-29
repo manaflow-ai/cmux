@@ -12,7 +12,8 @@ import os
 /// daemon with state resources incognito workspaces are ephemeral and the
 /// daemon's flag replaces this file (`WindowManager+Ephemeral`); it keeps
 /// only incognito workspaces the daemon does not know as such (a tab torn
-/// off into a new workspace).
+/// off into a new workspace). It also lists the incognito spaces
+/// (spaces-overhaul-DESIGN.md rule 2), which the next launch deletes.
 final class IncognitoWorkspaceLedger {
     private let url: URL
     /// What the last run left, read once on a launch lane (``startLaunchRead(at:on:)``): the launch
@@ -20,7 +21,7 @@ final class IncognitoWorkspaceLedger {
     private let leftovers: LaunchRead<Leftovers>
     /// The app's blocking-work lanes: every write runs on the files lane, never on the pool.
     private let work: any MayBlockRunner
-    private var written: Set<String>?
+    private var written: (workspaces: Set<String>, spaces: Set<String>)?
     /// The latest write; the next one waits for it, so writes land in order.
     private var lastWrite: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "incognito")
@@ -29,8 +30,8 @@ final class IncognitoWorkspaceLedger {
     nonisolated enum Leftovers: Sendable, Equatable {
         /// No file: the last run left no incognito workspace (the file exists only while it lists some).
         case noFile
-        /// The ids the file lists.
-        case ids([String])
+        /// The workspace ids and the incognito space ids the file lists.
+        case ids([String], spaces: [String])
         /// A file that could not be read or decoded, or a read quit dropped: there may be some, ids unknown.
         case unknown
     }
@@ -72,6 +73,8 @@ final class IncognitoWorkspaceLedger {
 
     nonisolated private struct Document: Codable, Sendable {
         var workspaces: [String]
+        /// Incognito space ids; absent in a file an older build wrote.
+        var spaces: [String]?
     }
 
     /// What the file at `url` lists. Runs on a lane.
@@ -86,7 +89,7 @@ final class IncognitoWorkspaceLedger {
             return .unknown
         }
         guard let document = try? JSONDecoder().blockingDecode(Document.self, from: data) else { return .unknown }
-        return .ids(document.workspaces)
+        return .ids(document.workspaces, spaces: document.spaces ?? [])
     }
 
     /// Whether the last run may have left incognito workspaces: what the launch read found, and true while
@@ -95,7 +98,7 @@ final class IncognitoWorkspaceLedger {
     var mayHaveLeftovers: Bool {
         switch leftovers.value {
         case .noFile: false
-        case .ids(let ids): !ids.isEmpty
+        case .ids(let ids, let spaces): !ids.isEmpty || !spaces.isEmpty
         case .unknown, nil: true
         }
     }
@@ -103,16 +106,24 @@ final class IncognitoWorkspaceLedger {
     /// The ids the last run left (the launch read's; the caller suspends until it ends). None for a file
     /// that could not be read: the restore has no id to close.
     func load() async -> [String] {
-        if case .ids(let ids) = await leftovers.finished() { return ids }
+        if case .ids(let ids, _) = await leftovers.finished() { return ids }
+        return []
+    }
+
+    /// The incognito spaces the last run left (the launch read's; the caller suspends until it ends).
+    func loadSpaces() async -> [String] {
+        if case .ids(_, let spaces) = await leftovers.finished() { return spaces }
         return []
     }
 
     /// Records `ids` when they changed, on the files lane. While the launch read has not listed the last
     /// run's ids (it still runs, or the file could not be read, or quit dropped the read), each write keeps the
-    /// ids the file still lists: they are what closes a crashed run's incognito pages at the next launch.
-    func record(_ ids: Set<String>) {
-        guard ids != written else { return }
-        written = ids
+    /// ids the file still lists: they are what closes a crashed run's incognito pages at the next launch. `spaces` are
+    /// the incognito spaces. Returns the write, which a caller may await (nil when nothing changed).
+    @discardableResult
+    func record(_ ids: Set<String>, spaces: Set<String> = []) -> Task<Void, Never>? {
+        if let written, written.workspaces == ids, written.spaces == spaces { return nil }
+        written = (ids, spaces)
         let url = url, logger = logger, work = work
         let keepsLeftovers: Bool = switch leftovers.value {
         case .noFile, .ids: false
@@ -126,10 +137,13 @@ final class IncognitoWorkspaceLedger {
             do {
                 // The ledger is what closes a crashed run's incognito pages: quit waits for this small write.
                 try await work.runFiles(.bestEffort, shutdown: .blockShutdown) {
-                    var all = ids
-                    if keepsLeftovers, case .ids(let left) = Self.read(url) { all.formUnion(left) }
-                    let data = try? JSONEncoder().encode(Document(workspaces: all.sorted()))
-                    if let data, !all.isEmpty {
+                    var all = ids, allSpaces = spaces
+                    if keepsLeftovers, case .ids(let left, let leftSpaces) = Self.read(url) {
+                        all.formUnion(left)
+                        allSpaces.formUnion(leftSpaces)
+                    }
+                    let data = try? JSONEncoder().encode(Document(workspaces: all.sorted(), spaces: allSpaces.isEmpty ? nil : allSpaces.sorted()))
+                    if let data, !all.isEmpty || !allSpaces.isEmpty {
                         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                         try data.write(to: url, options: .atomic)
                     } else if FileManager.default.fileExists(atPath: url.path) {
@@ -140,5 +154,6 @@ final class IncognitoWorkspaceLedger {
                 logger.error("incognito ledger write failed: \(String(describing: error), privacy: .public)")
             }
         }
+        return lastWrite
     }
 }

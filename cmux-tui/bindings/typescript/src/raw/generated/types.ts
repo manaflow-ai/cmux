@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR 0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -519,6 +519,11 @@ export type CloseTerminalResult = {
   "terminal_revision": bigint;
 };
 
+export type CloudConversationPresenceParticipant = {
+  "participant": string;
+  "viewing": boolean;
+};
+
 export type ColorHex = string;
 
 export type ColumnMoveDirection = "left" | "right";
@@ -974,6 +979,7 @@ export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
+  "build_time"?: (bigint) | null;
   "bulk_frame_max"?: (number) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;

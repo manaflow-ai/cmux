@@ -63,11 +63,8 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
         case middle
     }
 
-    /// The room between a target and a `.beside` card (the update card); a sidebar row's card
-    /// stands `edgeGap(scale:)` off the sidebar's edge instead.
-    public static let rowGap: CGFloat = 10
-
-    /// The room between the sidebar column's visible edge and a row's card: one device pixel of
+    /// The room between the sidebar column's visible edge and a row's card, and between a target
+    /// and a `.beside` card (the update card, a pull request badge's card): one device pixel of
     /// `scale` (Lawrence 2026-10-21: "horizontally only 1 pixel gap").
     public static func edgeGap(scale: CGFloat) -> CGFloat { 1 / max(scale, 1) }
 

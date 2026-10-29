@@ -3,6 +3,7 @@ import CmuxNextChiefPetWiring
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextWakeups
+import ImageIO
 
 /// The transcript header's live parts: its top-right panel toggles and the Chief's avatar.
 extension HomeHostView {
@@ -43,7 +44,7 @@ extension HomeHostView {
 
     /// The picture of the pet character the Chief shown here wears (its own pick).
     private var characterPicture: URL? {
-        ChiefPetSettingsRows.avatarURL(of: control.services.chiefMascotPicks.mascot(of: petRows.chief, in: control.services.settings?.snapshot))
+        control.services.characterPicture(of: petRows.chief)
     }
 
     /// The header avatar of the Chief shown here: its registry picture, else its profile's text,
@@ -64,14 +65,22 @@ extension HomeHostView {
             } else {
                 await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback, on: lanes)
             }
+            // Decoded here, off the main actor: an upload's still or the registry picture.
+            let decoded = avatar.picture.flatMap(Self.decode)
             work.postFromAnyThread(.visible, owner: "HomeHost.chiefAvatar") { [weak self] in
                 // A read for the Chief or the character shown before (another came in since) is dropped.
                 guard let self, control.brainHome == home, fallback == characterPicture else { return }
-                let picture = avatar.picture.flatMap(NSImage.init(data:))
+                let picture = decoded.map { NSImage(cgImage: $0, size: .zero) }
                 let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
                 transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
                 settingsView.setAvatar(picture: picture, text: text)
             }
         }
+    }
+
+    /// The first frame of the picture `data` holds, decoded now.
+    nonisolated static func decode(_ data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
     }
 }

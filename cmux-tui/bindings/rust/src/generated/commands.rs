@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3.
+// cmux-tui mux protocol 12, IR 0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1435,6 +1435,16 @@ pub struct CloudConversationOpRequest {
 
 #[rustfmt::skip]
 pub type CloudConversationOpResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationPresenceRequest {
+    pub conversation: String,
+    pub viewing: bool,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationPresenceResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5662,6 +5672,10 @@ impl CmuxClient {
 
     pub fn cloud_conversation_op(&mut self, request: CloudConversationOpRequest) -> Result<CloudConversationOpResult> {
         self.execute(&CLOUD_CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_presence(&mut self, request: CloudConversationPresenceRequest) -> Result<CloudConversationPresenceResult> {
+        self.execute(&CLOUD_CONVERSATION_PRESENCE_METADATA, &request)
     }
 
     pub fn cloud_conversation_run(&mut self, request: CloudConversationRunRequest) -> Result<CloudConversationRunResult> {

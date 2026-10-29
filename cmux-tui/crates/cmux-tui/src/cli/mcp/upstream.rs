@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+use super::computer_use_gate::{self, Gate};
 use crate::cli::json_fields::JsonFields;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
@@ -441,11 +442,19 @@ pub(super) struct ProxiedCall {
     pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
     pub name: String,
     pub arguments: Value,
+    /// A computer use call's setup check (`computer_use_gate`).
+    pub gate: Gate,
 }
 
 impl ProxiedCall {
-    /// The server's result, or a tool error with the call's state.
+    /// The server's result, or a tool error with the call's state. A
+    /// computer use call first waits for setup when it is not done.
     pub(super) fn run(self, cap: Option<Duration>) -> Value {
+        if let Gate::Check(check) = self.gate
+            && let Some(result) = check.run()
+        {
+            return result;
+        }
         let mut upstream = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let Some(tool) = upstream.owns(&self.name) else {
             let error = json!({"code": "upstream.failed", "message": format!(
@@ -528,10 +537,24 @@ impl<B: super::Backend> super::Server<B> {
             // Not started yet (no list so far), or gone: list it now.
             proxied.refresh();
         }
-        proxied.lists(name).then(|| ProxiedCall {
-            inner: proxied.inner.clone(),
-            name: name.to_owned(),
-            arguments: Value::Object(arguments.clone()),
-        })
+        if !proxied.lists(name) {
+            return None;
+        }
+        let inner = proxied.inner.clone();
+        let computer_use = (proxied.name == computer_use_gate::SERVER)
+            .then(|| name[proxied.prefix.len() + 1..].to_owned());
+        let arguments = Value::Object(arguments.clone());
+        let gate = match computer_use {
+            Some(tool) => computer_use_gate::gate(
+                &tool,
+                &arguments,
+                self.backend.app_caller(),
+                super::super::app::caller_from(|key| std::env::var(key).ok()),
+                // The time the script has left, not its whole limit.
+                self.call_deadline.map(|end| end.saturating_duration_since(Instant::now())),
+            ),
+            None => Gate::Run,
+        };
+        Some(ProxiedCall { inner, name: name.to_owned(), arguments, gate })
     }
 }

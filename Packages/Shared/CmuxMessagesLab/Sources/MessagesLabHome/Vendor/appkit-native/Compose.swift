@@ -70,7 +70,9 @@ final class FieldTextView: NSTextView {
     /// it has no window (the offscreen harness and captures). AppKit sets it again on each backing
     /// change and window move, so this runs after AppKit does (and from `ComposeView.rescale`).
     func applyScale() {
-        let s = window?.backingScaleFactor ?? DisplayScale.current
+        // cmux: in a zoomed Chief chat (MessagesLabHomeView.zoom) the text draws at the window's scale times the zoom,
+        // so the magnified field text stays sharp.
+        let s = window.map { $0.backingScaleFactor * enclosingContentZoom } ?? DisplayScale.current
         if let l = layer, l.contentsScale != s { l.contentsScale = s }
     }
     override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); applyScale() }
@@ -1389,7 +1391,7 @@ final class ComposeView: UIView {
         guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: shown) else { return }
         // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
         // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
-        let scale = tv.window?.backingScaleFactor ?? renderScale
+        let scale = tv.window.map { $0.backingScaleFactor * tv.enclosingContentZoom } ?? renderScale  // cmux: a zoomed Chief chat
         // no trap on a NaN or huge size (crash ratchet)
         let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
         if rep.pixelsWide != wide || rep.pixelsHigh != high,

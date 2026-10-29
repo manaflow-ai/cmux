@@ -68,8 +68,8 @@ import Testing
 
     @Test func aCommandLeavesACrashDeferredPageForThePerson() async throws {
         let f = RestoredPageFixture()
-        f.cache.defersRestoredPages = true
         let tab = try f.restore(surface: 4_007)
+        f.cache.crashedPages = [tab.id]
         let deferred = try #require(f.cache.browser(for: tab)?.tab as? DeferredBrowserTab)
         let page = await AppBrowserPage.awakePage(tab.id, page: deferred, cache: f.cache, within: .seconds(1))
         #expect(page === deferred)

@@ -240,8 +240,8 @@ mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
     AgentReportOrigin, AgentReportTarget, AgentRosterHost, TerminalAgentRecord,
-    agent_hook_notification, agent_provider_identity, agent_state_for_hook_kind,
-    legacy_hook_session_id, parse_projection_agent_state, published_agent_session_id,
+    agent_hook_notification, agent_provider_identity, legacy_hook_session_id,
+    parse_projection_agent_state, published_agent_session_id,
 };
 mod events;
 pub(crate) mod layout_invariants;

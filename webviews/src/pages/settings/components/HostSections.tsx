@@ -28,12 +28,15 @@ function ListRows({
   empty,
   marks = false,
   trailing,
+  below,
 }: {
   rows: HostListRow[];
   empty: string;
   marks?: boolean;
   /** Controls at the row's end (a machine's color). */
   trailing?: (row: HostListRow) => ReactNode;
+  /** More of the row, under its title (a Cloud machine's switch). */
+  below?: (row: HostListRow) => ReactNode;
 }) {
   if (rows.length === 0) {
     return (
@@ -57,6 +60,7 @@ function ListRows({
         {row.active && <span className="host-active" aria-hidden="true" />}
       </div>
       {trailing?.(row)}
+      {below?.(row)}
     </div>
   ));
 }
@@ -110,6 +114,7 @@ export function MachinesSection({ title }: { title: string }) {
                 write={(next) => void store.set(MACHINE_COLORS_KEY, next)}
               />
             )}
+            below={(row) => <MachineVmHost row={row} />}
           />
         </div>
         <div className="host-footer">
@@ -226,6 +231,46 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * A Cloud machine's "Dedicated agent machine" switch (acpmux vmHost): on (the default), the machine
+ * takes the VM boundary when this app's own link asks for it, so chats from this Mac run without the
+ * sandbox there; off, they keep it. The host sends it only while the Cloud API says the signed-in
+ * caller owns the machine. Turning it on takes the person's click.
+ */
+function MachineVmHost({ row }: { row: HostListRow }) {
+  const store = useStore();
+  const [setting, setSetting] = useState(false);
+  const vm = row.vm_host;
+  if (!vm) return null;
+  const label = `machine-vm-host-${row.id}`;
+  return (
+    <div className="row-main device-full-access" data-machine-vm-host={row.id}>
+      <div className="row-label">
+        <div className="row-title" id={label}>
+          {t("settingsWindow.vmHost")}
+        </div>
+        <div className="row-help">{t("settingsWindow.vmHostHelp")}</div>
+        {vm.error && (
+          <div className="row-help" role="alert">
+            {vm.error}
+          </div>
+        )}
+      </div>
+      <div className="row-control">
+        <Switch
+          checked={vm.on}
+          disabled={setting || vm.busy}
+          labelId={label}
+          onToggle={(on) => {
+            setSetting(true);
+            void store.setMachineVmHost(row.id, on).finally(() => setSetting(false));
+          }}
+        />
+      </div>
+    </div>
   );
 }
 

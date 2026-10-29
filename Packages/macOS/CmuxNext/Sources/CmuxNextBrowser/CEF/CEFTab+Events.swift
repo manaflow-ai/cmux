@@ -200,6 +200,10 @@ extension CEFTab {
 
     public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
+        // `runtime` is `unowned`, so it is read once here, while it is known alive, and held for the
+        // calls below: an isolated-world evaluate is four round trips, and re-reading it after one
+        // of them would trap once the runtime's last owner went (see `CEFMediaBridge.run`).
+        let runtime = self.runtime
         // No DevTools session for the tab's own scripts (fork API 29): its renderer stays shareable.
         if runtime.forkFeatures.rendererPaths {
             let result = try await runtime.evaluate(browserID, world: world == .isolated ? "cmux" : "", script: script,

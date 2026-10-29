@@ -212,18 +212,21 @@ public final class AgentActivityModel {
     // MARK: User operations (sent to the host; no optimistic change)
 
     public func perform(_ op: AgentActivityUserOp) {
-        if case let .watch(session, on) = op {
-            if on { watching.insert(session) } else { watching.remove(session) }
-            notifyChange()
-        }
         let mainWork = mainWork
         // The host's answer is the rest of the person's operation: one userBlocking task (Chrome kUserBlocking).
         Task { @concurrent [weak self] in
             guard let result = await self?.send(op) else { return }
             await mainWork.apply(.userBlocking, owner: "AgentActivityModel.operation") { [weak self] () -> Void in
-                self?.operationEnded(result)
+                self?.operationEnded(op, result)
             }
         }
+    }
+
+    /// Reports the host's result to page callers as well as native controls.
+    public func performAndWait(_ op: AgentActivityUserOp) async throws {
+        let result = await send(op)
+        operationEnded(op, result)
+        if case .failure(let error) = result { throw error }
     }
 
     /// Sends `op` to its host; the failure, if any.
@@ -236,8 +239,17 @@ public final class AgentActivityModel {
         }
     }
 
-    private func operationEnded(_ result: Result<Void, any Error>) {
-        if case .failure(let error) = result { lastOperationError = String(describing: error) } else { lastOperationError = nil }
+    /// The host's answer to `op`: a watch changes only once its host accepted it.
+    private func operationEnded(_ op: AgentActivityUserOp, _ result: Result<Void, any Error>) {
+        switch result {
+        case .success:
+            lastOperationError = nil
+            if case let .watch(session, on) = op {
+                if on { watching.insert(session) } else { watching.remove(session) }
+            }
+        case .failure(let error):
+            lastOperationError = String(describing: error)
+        }
         notifyChange()
     }
 

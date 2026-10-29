@@ -77,9 +77,13 @@ public final class TerminalHostView: NSView {
     }
 
     /// The accessory's height, 0 while there is none or it is hidden.
-    private var accessoryHeight: CGFloat {
+    private var accessoryHeight: CGFloat { accessoryHeight(forHostHeight: bounds.height) }
+
+    /// The accessory's height in a host `height` points tall (at most all of it): a pane's spring measures
+    /// it against the size the host will rest at, not the size it has now (a composer taller than a short pane).
+    private func accessoryHeight(forHostHeight height: CGFloat) -> CGFloat {
         guard let bottomAccessory, !bottomAccessory.isHidden else { return 0 }
-        return min(bounds.height, ceil(bottomAccessory.fittingSize.height))
+        return min(height, ceil(bottomAccessory.fittingSize.height))
     }
 
     /// The part of the host the terminal shows in: all of it, less the accessory's strip.
@@ -315,7 +319,7 @@ public final class TerminalHostView: NSView {
     /// The size the surface takes in a host of `hostSize` points: less the accessory's strip and a legacy
     /// scroller's.
     func surfaceSize(forHostSize hostSize: CGSize) -> CGSize {
-        CGSize(width: max(0, hostSize.width - scroller.reservedWidth), height: max(0, hostSize.height - accessoryHeight))
+        CGSize(width: max(0, hostSize.width - scroller.reservedWidth), height: max(0, hostSize.height - accessoryHeight(forHostHeight: hostSize.height)))
     }
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.

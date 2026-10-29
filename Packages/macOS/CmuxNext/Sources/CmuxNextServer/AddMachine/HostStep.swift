@@ -22,12 +22,14 @@ public nonisolated struct HostStep: RawRepresentable, Hashable, Sendable, Codabl
     public static let install = HostStep(rawValue: "install")
     public static let daemon = HostStep(rawValue: "daemon")
     public static let harness = HostStep(rawValue: "harness")
+    /// How the daemon stays current (a Linux host's acpmux-update.timer).
+    public static let update = HostStep(rawValue: "update")
     public static let peer = HostStep(rawValue: "peer")
     public static let peerBack = HostStep(rawValue: "peer-back")
     public static let identity = HostStep(rawValue: "identity")
 
     /// The steps in the order they run. A newer cmux-tui may send others; they show by their raw name.
-    public static let known: [HostStep] = [.reach, .install, .daemon, .harness, .peer, .peerBack, .identity]
+    public static let known: [HostStep] = [.reach, .install, .daemon, .update, .harness, .peer, .peerBack, .identity]
 }
 
 public nonisolated enum HostStepState: String, Equatable, Sendable, Codable {
@@ -59,11 +61,15 @@ public nonisolated struct HostStepResult: Equatable, Sendable, Codable {
     public var detail: String
     /// A sentence for a person; never a command cmux runs for them.
     public var fix: String?
-    /// Why it failed, for a failure the app acts on (acpmux `host_steps.rs`): `wrong-platform`, or
-    /// `not-this-program` (the host needs a binary only the app has).
+    /// Why it failed, for a failure the app acts on (acpmux `host_steps.rs`):
+    /// `wrong-platform`, `peer_version_skew`, or `not-this-program` (the host
+    /// needs a binary only the app has).
     public var reason: String?
 
     public static let wrongPlatform = "wrong-platform"
+    /// The peer's build is stale and its platform is known to differ; the
+    /// app should install the target-aware binary for that platform.
+    public static let peerVersionSkew = "peer_version_skew"
     public static let notThisProgram = "not-this-program"
 
     public init(step: HostStep, state: HostStepState, detail: String = "", fix: String? = nil, reason: String? = nil) {

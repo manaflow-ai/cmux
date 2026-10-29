@@ -1390,8 +1390,11 @@ def park_table_main(argv):
 
 def launch_config(opts):
     """The app's cmux-next.json for a run. --every-page-hidden turns page freezing off (p13-webui.md section 3.C:
-    `browser.freezeHiddenTabs` "off" is a freeze-only keep reason), so its window measures pages that still run."""
-    browser = {"defaultEngine": opts.engine}
+    `browser.freezeHiddenTabs` "off" is a freeze-only keep reason), so its window measures pages that still run.
+    `browser.hibernation` is written ("moderate", the default timeouts): with it unwritten hidden pages only freeze
+    and are never discarded on their own, at any pressure (the planner's discards_off keep reason, trunk #25920), and
+    the discard and pressure rows measure discards."""
+    browser = {"defaultEngine": opts.engine, "hibernation": "moderate"}
     if opts.every_page_hidden or opts.mode == "push":
         browser["freezeHiddenTabs"] = "off"
     return {"browser": browser, "appearance": {"backgroundOpacity": 1}}

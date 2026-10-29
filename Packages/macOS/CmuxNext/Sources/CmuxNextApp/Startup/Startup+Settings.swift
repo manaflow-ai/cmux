@@ -44,6 +44,13 @@ extension AppDelegate {
         order.startup.post(.afterFirstFrame, "Settings.followActivation", on: .main) { [weak settings, events = services.appEvents] in
             settings?.followActivation(on: events)
         }
+        // A full-screen window an update relaunch kept back enters once the user is in cmux (`enterRestoredFullScreens`).
+        order.startup.post(.afterFirstFrame, "Windows.enterRestoredFullScreensOnActivation", on: .main) { [weak services] in
+            guard let services else { return }
+            services.lifetimeFollowers.append(services.appEvents.subscribeToActivation(owner: "Windows.enterRestoredFullScreens") { [weak services] in
+                services?.windows.enterRestoredFullScreens()
+            })
+        }
         // Every palette-exposed schema setting in the palette (R93), and the recorder's writes; neither builds the palette.
         order.startup.post(.afterFirstFrame, "Palette.settingsSource", on: .main) { [weak services, weak settings] in
             guard let services, let settings else { return }
@@ -90,6 +97,7 @@ extension AppDelegate {
             services.lifetimeFollowers += ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath,
                                                                  on: services.mainWork)
             AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
+            AgentPageChats.wireSandbox(services.agentTabs, services: services)  // Sandboxed sends (sandbox.run)
         }
         services.home.postLaunchFeeds(startup: order.startup)
         // The GitHub connection is deliberately off by default. Changes in

@@ -28,16 +28,21 @@ package final class ChildProcess: Sendable {
     private let arguments: [String]
     private let environment: [String: String]
     private let launcher: ProcessLauncher
+    private let input: Data?
 
+    /// - Parameter input: Written to the child's stdin, which then closes: how a secret (the
+    ///   WireGuard config, the hub's client token) reaches it without argv, the environment or
+    ///   a file. Nil gives the child no stdin.
     /// - Parameter launcher: spawns the child; nil is one at ``WorkPriority/userVisible`` for the queue and
     ///   the child: the link and hub carry the sessions on screen.
     package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment,
-                 launcher: ProcessLauncher? = nil) {
+                 input: Data? = nil, launcher: ProcessLauncher? = nil) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
         self.launcher = launcher
             ?? ProcessLauncher(label: "com.cmuxterm.next.child.\(executable.lastPathComponent)", priority: .userVisible)
+        self.input = input
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
@@ -48,7 +53,8 @@ package final class ChildProcess: Sendable {
         process.executableURL = executable
         process.arguments = arguments
         process.environment = environment
-        process.standardInput = FileHandle.nullDevice
+        let stdin = input.map { _ in Pipe() }
+        process.standardInput = stdin ?? FileHandle.nullDevice
         let stdout = Pipe(), stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
@@ -81,6 +87,14 @@ package final class ChildProcess: Sendable {
                 return state.exitWaiters
             } ?? []
             for waiter in waiters { waiter.resume(returning: status) }
+        }
+        if let stdin, let input {
+            // Written before the child starts: the read end is still ours, so no SIGPIPE, and
+            // a secret within the pipe's 16 KB buffer never blocks. The child reads it, then EOF.
+            guard input.count <= 16 * 1024 else { throw CocoaError(.fileWriteOutOfSpace) }
+            let writer = stdin.fileHandleForWriting
+            defer { try? writer.close() }
+            try writer.write(contentsOf: input)
         }
         try await launcher.launched(process)
         state.withLock { $0.process = process }

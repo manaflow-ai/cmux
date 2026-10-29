@@ -2,13 +2,15 @@
 // Chief Pet card too, for the rows it owns.
 import { ChiefPetCard } from "../components/ChiefPetCard";
 import { ChiefsCard } from "../components/ChiefsCard";
+import { NoticesCard } from "../components/NoticesCard";
 import { VoiceInputCard } from "../components/VoiceInputCard";
 import type { SectionModule } from "../lazySections";
 
 export const cards: SectionModule["cards"] = {
-  chiefs: () => <ChiefsCard />,
+  chiefs: (focus) => <ChiefsCard focus={focus} />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   voiceInput: () => <VoiceInputCard />,
+  notices: () => <NoticesCard />,
 };
 
 export const searchCards: SectionModule["searchCards"] = {

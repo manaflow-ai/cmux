@@ -17,11 +17,16 @@ let package = Package(
     products: [
         .library(name: "CmuxConversationCore", targets: ["CmuxConversationCore"]),
         .library(name: "CmuxConversationUI", targets: ["CmuxConversationUI"]),
+        // The bubble outline alone (CoreGraphics), for surfaces that draw a
+        // transcript without the chat UI (the notification content extension).
+        .library(name: "CmuxConversationGeometry", targets: ["CmuxConversationGeometry"]),
         .library(name: "CmuxConversationMacUI", targets: ["CmuxConversationMacUI"]),
     ],
     dependencies: [
         // OnceContinuation, the continuation that resumes exactly once.
         .package(path: "../../Shared/CmuxSafeConcurrency"),
+        // The composer's keyboard dock (MobileKeyboardDock), iOS only.
+        .package(path: "../CmuxMobileSupport"),
     ],
     targets: [
         .target(
@@ -38,8 +43,11 @@ let package = Package(
         ),
         .target(
             name: "CmuxConversationUI",
-            dependencies: ["CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation",
-                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            dependencies: [
+                "CmuxConversationCore", "CmuxConversationGeometry", "CmuxConversationTranslation",
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+                .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+            ],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings
         ),

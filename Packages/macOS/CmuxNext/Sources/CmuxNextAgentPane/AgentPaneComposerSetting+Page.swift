@@ -2,16 +2,17 @@ import CmuxNextCompat
 public import CmuxNextSettings
 public import CmuxNextWakeups
 
-/// `agentPane.showContextUsage` and `agentPane.showDictation` (``AgentPaneComposerSetting``) reach
-/// the page as the `composer` event, read by the page's composerSettings.ts. The same event carries
-/// the Debug Settings reasoning slider toggle and visual style, `plainFooter`, Debug Settings'
-/// plain footer look (``AgentPaneTunables/composerPlainFooter``), `modelMenu`, what the model
-/// chip opens (``AgentPaneTunables/modelMenu``), and `harnessSwitch`, whether a started chat can
-/// switch harness (``AgentPaneTunables/harnessSwitchInStartedChat``), and `escapeDoublePress`,
-/// whether Esc stops a turn on a double press (``AgentPaneTunables/escapeStopDoublePress``). None of
-/// the last four is a setting: each is read here, on the pane's side, each time the event is made.
+/// `agentPane.showContextUsage`, `agentPane.showDictation`, `agentPane.spellChecking`,
+/// `agentPane.attachmentView` and `agentPane.scrollToBottomOnSend` (``AgentPaneComposerSetting``) reach the page as the `composer`
+/// event, read by the page's composerSettings.ts. The same event carries the Debug Settings
+/// reasoning slider toggle and visual style, `plainFooter`, Debug Settings' plain footer look
+/// (``AgentPaneTunables/composerPlainFooter``), `modelMenu`, what the model chip opens
+/// (``AgentPaneTunables/modelMenu``), and `harnessSwitch`, whether a started chat can switch
+/// harness (``AgentPaneTunables/harnessSwitchInStartedChat``), and `escapeDoublePress`, whether Esc
+/// stops a turn on a double press (``AgentPaneTunables/escapeStopDoublePress``). None of the last
+/// four is a setting: each is read here, on the pane's side, each time the event is made.
 extension AgentPageEvent {
-    /// The composer's settings: `{showContextUsage, showDictation, spellChecking, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch, escapeDoublePress}`.
+    /// The composer's settings: `{showContextUsage, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch, escapeDoublePress}`.
     public static func composer(_ setting: AgentPaneComposerSetting) -> AgentPageEvent {
         AgentPageEvent(kind: "composer", value: setting.pageValueWithLook)
     }
@@ -32,6 +33,7 @@ extension AgentPaneComposerSetting {
     var pageValueWithLook: JSONValue {
         var value = pageValue.objectValue ?? [:]
         value["plainFooter"] = .bool(AgentPaneTunables.composerPlainFooter.value)
+        value["harnessPlacement"] = .string(AgentPaneTunables.harnessPlacement.value.rawValue)
         value["modelMenu"] = .string(AgentPaneTunables.modelMenu.value.rawValue)
         value["harnessSwitch"] = .bool(AgentPaneTunables.harnessSwitchInStartedChat.value)
         value["escapeDoublePress"] = .bool(AgentPaneTunables.escapeStopDoublePress.value)
@@ -40,7 +42,7 @@ extension AgentPaneComposerSetting {
 
     /// Debug Settings' plain footer look, model menu and harness switch as the pages last got them,
     /// and whether a change is being pushed (``push(to:)`` then sends every page the event again).
-    @MainActor private static var lookShown = Look(plainFooter: false, modelMenu: .compact, harnessSwitch: false,
+    @MainActor private static var lookShown = Look(plainFooter: false, modelMenu: .compact, harnessPlacement: .left, harnessSwitch: false,
                                                    escapeDoublePress: true)
     @MainActor private static var lookChanging = false
 
@@ -52,7 +54,7 @@ extension AgentPaneComposerSetting {
     /// - Returns: The follow; the caller keeps it, and releasing it ends the follow.
     @MainActor public static func followLook(on mainWork: MainWorkScheduler, _ push: @escaping () -> Void) -> AnyObject {
         ServiceObservation(.visible, owner: "AgentPaneComposerSetting.look", on: mainWork) {
-            Look(plainFooter: AgentPaneTunables.composerPlainFooter.value, modelMenu: AgentPaneTunables.modelMenu.value,
+            Look(plainFooter: AgentPaneTunables.composerPlainFooter.value, modelMenu: AgentPaneTunables.modelMenu.value, harnessPlacement: AgentPaneTunables.harnessPlacement.value,
                  harnessSwitch: AgentPaneTunables.harnessSwitchInStartedChat.value,
                  escapeDoublePress: AgentPaneTunables.escapeStopDoublePress.value)
         } apply: { on in
@@ -69,6 +71,7 @@ extension AgentPaneComposerSetting {
 nonisolated private struct Look: Equatable, Sendable {
     var plainFooter: Bool
     var modelMenu: AgentPaneModelMenuStyle
+    var harnessPlacement: AgentPaneHarnessPlacement
     var harnessSwitch: Bool
     var escapeDoublePress: Bool
 }

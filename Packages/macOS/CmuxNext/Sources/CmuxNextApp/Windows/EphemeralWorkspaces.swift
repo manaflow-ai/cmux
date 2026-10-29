@@ -26,7 +26,8 @@ enum EphemeralWorkspaces {
     /// workspace whose terminal tab is replaced by one incognito browser
     /// tab on `address`. The window waits in `pendingEphemeralWindows` for
     /// the workspace (reconcile gives it the first ephemeral orphan).
-    static func newIncognitoWorkspace(_ manager: WindowManager, window windowID: String, address: String, choice: BrowserEngineChoice) {
+    static func newIncognitoWorkspace(_ manager: WindowManager, window windowID: String, address: String, choice: BrowserEngineChoice,
+                                      space: ProfileID? = nil) {
         let services = manager.services, daemon = services.daemon, logger = daemon.logger
         let browserTabs = services.cache.browserTabs, mainWork = services.mainWork
         manager.pendingEphemeralWindows.append(windowID)
@@ -39,6 +40,12 @@ enum EphemeralWorkspaces {
                 do {
                     let created = try await connection.state.createWorkspace(name: nil, ephemeral: true, terminal: true, focus: true)
                     await daemon.appliedThroughReply(on: connection, after: "create incognito workspace")
+                    // New Incognito Space: the workspace is pinned to that space before the window claims it.
+                    if let space, let key = await mainWork.apply(.visible, owner: "EphemeralWorkspaces.key", {
+                        daemon.store.workspace(resourceID: created.workspaceID)?.key
+                    }) {
+                        try await manager.pinToIncognitoSpace(key, space, on: daemon)
+                    }
                     let claimed = await mainWork.apply(.visible, owner: "EphemeralWorkspaces.claim") { () -> ClaimedTab? in
                         scopes.applying { EphemeralWorkspaces.claim(manager, window: windowID, created: created) }
                     }

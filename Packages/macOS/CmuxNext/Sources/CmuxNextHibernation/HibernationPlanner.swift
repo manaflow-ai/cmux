@@ -41,6 +41,15 @@ package nonisolated struct HibernationPlanner: Sendable {
         ContentDiscardPlanner().eligibility(of: candidate, setting: setting, for: .external).reason
     }
 
+    /// Why a workspace's hibernation (plans/cmux-next/workspace-hibernation-DESIGN.md) keeps hidden page
+    /// `candidate`, or nil when it may go: the rules that keep a page from the timeout (a pinned tab, an
+    /// excluded site, DevTools, capture, a download, a form result, an agent lease, an engine that cannot
+    /// restore it), with no wait for the timeout; hibernation off keeps every page.
+    package static func workspaceRefusal(_ candidate: Candidate, setting: BrowserHibernationSetting) -> Exemption? {
+        if !setting.isEnabled { return .disabled }
+        return ContentDiscardPlanner().eligibility(of: candidate, setting: setting, for: .proactive).reason
+    }
+
     /// The share of the timeout each doubling of recent focus buys
     /// (``ContentDiscardPlanner/focusCreditPerDoubling``).
     package static let focusCreditPerDoubling = ContentDiscardPlanner.focusCreditPerDoubling
@@ -63,11 +72,22 @@ package nonisolated struct HibernationPlanner: Sendable {
     /// proactive plan without pressure, an urgent one with it. With hibernation off every page is
     /// kept, as disabled unless an earlier rule (a neighbor) keeps it.
     ///
+    /// Without `discardsAutomatically` no page is due, at any memory pressure: a discarded page
+    /// reloads when it wakes, which the person did not ask for. Each page is kept as
+    /// ``CannotDiscardReason/keepsState`` unless an earlier rule keeps it.
+    ///
     /// - Parameter urgent: The pace at critical pressure; browser pages use ``UrgentPace/browsers``.
     package static func plan(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel,
                              urgent: UrgentPace = .browsers, candidates: [Candidate]) -> Plan {
         let planner = ContentDiscardPlanner()
         let reason = discardReason(at: pressure)
+        if setting.isEnabled, !setting.discardsAutomatically {
+            var plan = Plan()
+            for candidate in candidates {
+                plan.exemptions[candidate.key] = planner.eligibility(of: candidate, setting: setting, for: reason).reason ?? .keepsState
+            }
+            return plan
+        }
         guard let threshold = threshold(setting, pressure: pressure == .critical ? .warning : pressure) else {
             var plan = Plan()
             for candidate in candidates {
@@ -83,6 +103,8 @@ package nonisolated struct HibernationPlanner: Sendable {
     /// (hibernation off keeps every page). A page the probe kept lately is protected, so it goes after
     /// the others, as in ``ContentDiscardPlanner/plan(_:for:threshold:pace:candidates:)``.
     package static func urgentCandidates(_ setting: BrowserHibernationSetting, candidates: [Candidate]) -> [UrgentDiscardRanker.Candidate] {
+        // Without `discardsAutomatically` no page goes on its own, at any memory pressure (``plan(_:pressure:urgent:candidates:)``).
+        guard !setting.isEnabled || setting.discardsAutomatically else { return [] }
         let planner = ContentDiscardPlanner()
         return candidates.compactMap { candidate in
             guard candidate.hiddenFor >= criticalPace.minimumHidden,

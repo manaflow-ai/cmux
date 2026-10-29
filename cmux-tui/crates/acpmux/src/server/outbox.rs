@@ -25,7 +25,7 @@ use crate::hub::outbox::{Delivery, State};
 
 /// What an attempt that did not deliver leaves the delivery as.
 #[derive(Debug, PartialEq)]
-enum Next {
+pub(super) enum Next {
     /// Tried again after the next delay.
     Retry,
     /// A refusal: failed, with its error.
@@ -72,6 +72,8 @@ pub(super) async fn handle(
         return Err(RpcError::invalid_params(format!("no session: {target}"))
             .with_data(json!({"reason": "no_session", "session": target})));
     }
+    // Over the caps it is refused now, never kept (`attach.rs`).
+    crate::attach::check_wire(&request)?;
     let mux = request
         .as_object_mut()
         .map(|r| r.entry("_meta").or_insert_with(|| json!({})))
@@ -95,12 +97,53 @@ pub(super) async fn handle(
         created_at: now,
         updated_at: now,
     };
+    // Its attachments are kept beside outbox.json, once, not in each rewrite of it.
+    let kept = hub.outbox.attachments_path(&new);
+    if let Some(path) = kept.clone() {
+        let request = new.request.clone();
+        tokio::task::spawn_blocking(move || crate::hub::outbox::keep_attachments(&path, &request))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| RpcError::internal(format!("cannot keep the attachments: {e:#}")))?;
+    }
     let delivery = hub.outbox.add(new.clone());
     // The same prompt id again: the first delivery, already on its way.
     if delivery.id == new.id {
         spawn(hub.clone(), delivery.id.clone());
+    } else {
+        if let Some(path) = kept {
+            forget_attachments(path).await;
+        }
+        drop_own_uploads(hub, &new, &delivery).await;
     }
     Ok(delivery.status())
+}
+
+/// A send that the outbox answered with an earlier delivery of the same prompt id: the uploads
+/// it named as its own and the earlier one names not at all (`attach::blocks_for` uploaded them
+/// for this send) are never read, so they go, on this daemon or on the peer that holds the chat.
+/// Each cancel carries its owner token, which the daemon that holds the upload checks.
+async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
+    let blocks = |d: &Delivery| {
+        d.request.get("prompt").and_then(Value::as_array).cloned().unwrap_or_default()
+    };
+    let keep = crate::prompt_uploads::upload_ids(&blocks(kept));
+    let own = crate::prompt_uploads::owned_refs(&blocks(new));
+    let spelled = |id: &str| uuid::Uuid::try_parse(id).map(|id| id.to_string()).ok();
+    for (upload, token) in
+        own.into_iter().filter(|(id, _)| spelled(id).is_some_and(|id| !keep.contains(&id)))
+    {
+        if let Ok(session) = hub.resolve(&new.target) {
+            let params = json!({"uploadId": upload, "ownerToken": token});
+            let id = session.id.clone();
+            let _ =
+                tokio::task::spawn_blocking(move || crate::hub::file_uploads::cancel(&id, &params))
+                    .await;
+        } else if let Some((peer, id, _)) = hub.resolve_remote(&new.target) {
+            let params = json!({"sessionId": id, "uploadId": upload, "ownerToken": token});
+            let _ = peer.request(method::MUX_FILE_PUT_CANCEL, params).await;
+        }
+    }
 }
 
 async fn status(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
@@ -153,13 +196,18 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         {
             mux.insert("resend".into(), json!(true));
         }
-        match attempt_once(hub, delivery.caller.as_deref(), request).await {
+        match attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await {
             Ok(accepted) => {
                 hub.outbox.update(id, |d| {
                     d.state = State::Delivered;
                     d.error = None;
                     d.accepted = Some(accepted);
+                    // Settled: its record keeps no attachment bytes (`attach.rs`).
+                    crate::attach::strip(&mut d.request);
                 });
+                if let Some(path) = hub.outbox.attachments_path(&delivery) {
+                    forget_attachments(path).await;
+                }
                 return;
             }
             Err((error, next)) => {
@@ -171,20 +219,50 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         _ => State::Failed,
                     };
                     d.error = Some(error);
+                    if d.settled() {
+                        crate::attach::strip(&mut d.request);
+                    }
                 });
-                let Some(secs) = delay else { return };
+                let Some(secs) = delay else {
+                    if let Some(path) = hub.outbox.attachments_path(&delivery) {
+                        forget_attachments(path).await;
+                    }
+                    return;
+                };
                 tokio::time::sleep(Duration::from_secs(*secs)).await;
             }
         }
     }
 }
 
-/// One attempt: the target's acceptance, or the error and whether to try again.
-async fn attempt_once(
+/// Deletes a settled delivery's kept attachments.
+async fn forget_attachments(path: std::path::PathBuf) {
+    let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
+}
+
+/// One attempt: the target's acceptance, or the error and whether to try again. It runs on a
+/// connection of `origin`: the unix socket's for a send here, a peer's for a message the mesh
+/// relay delivers (`mesh_relay.rs`), so each is held to its origin's rules.
+pub(super) async fn attempt_once(
     hub: &Arc<Hub>,
     caller: Option<&str>,
     request: Value,
+    origin: Origin,
 ) -> Result<Value, (String, Next)> {
+    let target = request.get("sessionId").and_then(Value::as_str).unwrap_or_default();
+    let summary = hub
+        .resolve(target)
+        .ok()
+        .map(|session| hub.session_summary(&session))
+        .or_else(|| hub.resolve_remote(target).map(|(_, _, summary)| summary));
+    if let Some(summary) = summary {
+        let config = hub.config.read().await.machine_wake.clone();
+        if let Some(config) = config
+            && let Err(error) = crate::machine_wake::wake(&config, &summary).await
+        {
+            return Err((format!("machine wake failed: {error}"), Next::Retry));
+        }
+    }
     let prompt_id = request
         .pointer("/_meta/acpmux/promptId")
         .and_then(Value::as_str)
@@ -192,12 +270,7 @@ async fn attempt_once(
         .to_owned();
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut out_rx) = mpsc::channel(1024);
-    crate::supervised::spawn_scoped(serve_connection_with(
-        hub.clone(),
-        in_rx,
-        out_tx,
-        Origin::Local,
-    ));
+    crate::supervised::spawn_scoped(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
     let mut hello = json!({
         "protocolVersion": 1,
         "clientCapabilities": {},

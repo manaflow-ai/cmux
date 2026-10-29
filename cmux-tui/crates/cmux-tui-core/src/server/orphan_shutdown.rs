@@ -13,7 +13,7 @@ use super::*;
 
 /// The registry's handoff reservation holder for an orphan exit. Client ids
 /// start at 1, so no connection can own or release it.
-const ORPHAN_SHUTDOWN_REQUESTER: u64 = 0;
+pub(super) const ORPHAN_SHUTDOWN_REQUESTER: u64 = 0;
 
 impl ClientRegistry {
     /// Adds a callback for client arrivals and departures. It runs with no
@@ -48,9 +48,19 @@ impl ClientRegistry {
     /// it is held, a new connection is closed at registration. False when a
     /// client is connected or another handoff runs.
     fn begin_orphan_shutdown(&self, own_plugin: Option<u32>) -> bool {
+        self.begin_owner_shutdown(true, own_plugin)
+    }
+
+    /// Reserves the daemon handoff for an exit the owner starts itself (an
+    /// orphan exit, or the exit of the process it was started for,
+    /// `starter_exit`). With `require_no_clients`, only while no client but
+    /// `own_plugin` (the daemon's own plugin) is connected. False when another
+    /// handoff runs (or such a client is connected and `require_no_clients`).
+    pub(super) fn begin_owner_shutdown(&self, require_no_clients: bool, own_plugin: Option<u32>) -> bool {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.daemon_handoff.is_some()
-            || state.clients.values().any(|record| !is_own_plugin(record, own_plugin))
+            || (require_no_clients
+                && state.clients.values().any(|record| !is_own_plugin(record, own_plugin)))
         {
             return false;
         }

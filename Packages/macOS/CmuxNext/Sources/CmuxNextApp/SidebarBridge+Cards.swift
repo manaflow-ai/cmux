@@ -14,6 +14,7 @@ extension SidebarBridge {
     func observeCards() {
         cards?.cancel()
         priority?.cancel()
+        updateButton?.cancel()
         topItems?.cancel()
         let requests = services.cache.pageRequests
         nowPlayingFeed = model.followNowPlaying(services.nowPlayingSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry,
@@ -21,6 +22,8 @@ extension SidebarBridge {
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
         priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
         cards = SidebarCardFeed.start(model: model, updater: services.updater, registry: services.registry, asks: services.machineAsks, on: services.mainWork)
+        // The titlebar's quiet Update Available button (#25283).
+        updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater, on: services.mainWork)
         // A window's sidebar also follows its top items (`SidebarModel.followTopItems`).
         topItems = state == nil ? nil : model.followTopItems(on: services.mainWork)
     }
@@ -59,6 +62,18 @@ enum SidebarCardFeed {
         }
     }
 
+    /// The sidebar footer's quiet Update Available button (``UpdaterService/availableButton``) on `view`:
+    /// a service observation, `visible`. The caller holds the token (the window's sidebar bridge,
+    /// cancelled with the cards); releasing it stops the button following.
+    static func followAvailableUpdate(_ view: SidebarView, updater: UpdaterService,
+                                      on work: MainWorkScheduler) -> ServiceObservation<String?> {
+        ServiceObservation(.visible, owner: "SidebarCardFeed.updateAvailable", on: work) { () -> String? in
+            updater.availableButton?.label
+        } apply: { [weak view] label in
+            view?.showUpdateAvailable(label)
+        }
+    }
+
     /// The bottom-left cards' intents (UPDATE-CARD, BOTTOM-LEFT-CARDS K1): the
     /// update card's button installs and relaunches (the relaunch keeps every
     /// session), its checkbox writes the setting, a popover link opens; a
@@ -67,6 +82,7 @@ enum SidebarCardFeed {
     static func handle(_ intent: SidebarIntent, services: AppServices) {
         switch intent {
         case .installUpdate: services.updater.installClicked()
+        case .downloadUpdate: services.updater.downloadClicked()
         case .setAutomaticUpdates(let on): services.updater.setAutomaticUpdates(on)
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .openUpdateChanges: _ = services.updater.openStagedChangelog()

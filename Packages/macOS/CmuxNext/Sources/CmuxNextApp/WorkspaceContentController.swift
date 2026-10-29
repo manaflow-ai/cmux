@@ -63,6 +63,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
     /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
+    #if DEBUG
+    /// This controller's share of `DebugLayoutCounters.workspaceApplies` and `.topologySends`: the
+    /// process-wide counters also count every other workspace (tests run side by side).
+    var debugApplies: UInt64 = 0
+    var debugTopologySends: UInt64 = 0
+    #endif
     /// When its window parked it (`WindowController.mountedContents` order).
     private(set) var parkedSerial: UInt64 = 0
     /// Parked and not on screen beside the shown workspace: it draws nothing, so its panes do no
@@ -204,6 +210,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
         if let record { restoreScroll(record) }
+        // A Home with no pane yet is still being made (its dock, then the Chief conversation, over
+        // several daemon replies): it stays clear until its conversation is in, never in pieces.
+        if workspace.kind == "home", layoutModel.screens.allSatisfy({ $0.layout.panes.isEmpty }) {
+            services.launchReveal.hold(contentView, until: .home)
+        }
     }
 
     // MARK: View record
@@ -256,6 +267,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             services.paneMounts.changed() // as `releaseContentView`: a pane left, its readers look again
         }
         pendingTabStrips.removeAll()
+        // A Home closed before its page came stops counting toward `.home`'s wait.
+        services.launchReveal.release(contentView)
         contentView.removeFromSuperview()
     }
 
@@ -358,6 +371,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
         #if DEBUG
         DebugLayoutCounters.workspaceApplies &+= 1
+        debugApplies &+= 1
         DebugLayoutCounters.note(force ? "apply(force)" : "apply", file, line)
         #endif
         let wasApplying = isApplying
@@ -496,6 +510,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             services.mainWork.post(.visible, owner: "AppStore.firstPane") { apps.windowDidShowContent() }
         }
         return controller.view
+    }
+
+    func holdsContentInMotion(for pane: LayoutPaneID) -> Bool {
+        guard let content = panes[pane]?.currentContent else { return false }
+        if case .agent = content { return true }
+        return false
     }
 
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {

@@ -112,6 +112,7 @@ IPC_NAME_ARM = re.compile(r'\bSelf::\w+\s*=>\s*"([a-z][a-z0-9.-]*)"')
 # Capabilities of other servers that the app gates on with the same helpers.
 PEERS = {
     "serve.owner-pid": "the computer-use helper's manifest (CuaHelperManifestReader)",
+    "serve.motion": "the computer-use helper's manifest (CuaHelperManifestReader)",
     "optchat-chief-brain": "the cloud pairing server (CloudPairingSource)",
     "daemon_lane.v1": "the iOS client's mobile host info (MobileCompatHostInfo)",
 }

@@ -2,8 +2,8 @@
 # Builds the React agent pane (webviews/src/agent-session/acpmux) into the page
 # that CmuxNextAgentPane ships as a module resource: index.html (markup, styles
 # and the modulepreload links of its first load), its entry app-<hash>.js and
-# chunks/ (code it loads when used: shiki's grammars, KaTeX), highlight-worker.js
-# and locales/ (strings and the loader that picks them). The page runs no inline
+# chunks/ (code it loads when used: shiki's grammars, KaTeX), highlight-worker.js,
+# image-worker.js and locales/ (strings and the loader that picks them). The page runs no inline
 # script (CSP script-src 'self' plus the shared chunk origin), so markup an agent
 # gets rendered cannot run script. The output is build output (gitignored;
 # scripts/cmux-next/build-web-bundles.sh builds it before every app build).
@@ -112,6 +112,9 @@ bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$W
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
 # with a policy that allows no network.
 bun scripts/agent-pane/bundle.mjs node_modules/@pierre/diffs/dist/worker/worker.js "$SRC/acpmux/shiki" "$WORK/page/highlight-worker.js"
+# An attached image's decode, scale and encode run in a worker beside the page too
+# (composer/imagePool.ts), so pasting large screenshots never blocks typing.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/composer/imageWorker.ts" - "$WORK/page/image-worker.js"
 
 # The page's sheets, derived, never a hand-kept list here (a sheet missing from one shipped its
 # component unstyled in the app only, and five times this month failed every app build at the check

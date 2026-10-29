@@ -33,6 +33,9 @@ extension RemoteLocalhostService {
     /// the turn it is made, so its first route follows them.
     static func made(for services: AppServices) -> RemoteLocalhostService {
         let made = services.machines.makeRemoteLocalhost(following: services.settings, mainWork: services.mainWork)
+        // A Cloud machine's localhost (Open Desktop, or a machine whose cmux-tui has no loopback
+        // forward) goes over the app's own WireGuard tunnel, as in cmux Classic.
+        made.cloudTunnelSocket = services.cloud.tunnelSocket
         services.madeRemoteLocalhost = made
         return made
     }
@@ -56,5 +59,19 @@ extension MachineRegistry: RemoteLocalhostMachines {
 
     func personalAddress(ofWorkspace id: String) -> (session: String, key: String)? {
         WindowProfiles.qualified(id, machines: self).map { ($0.session, $0.key) }
+    }
+
+    /// A Cloud machine's private address on its Cloud network (the app's WireGuard tunnel reaches it).
+    func cloudTunnelAddress(machine machineID: String) -> String? {
+        cloudSession(machineID)?.machine.address?.ipv4
+    }
+
+    func cloudMachineBadge(machine machineID: String) -> String? {
+        cloudSession(machineID)?.machine.title
+    }
+
+    /// Open Desktop's URL carries the id lowercased (a DNS label).
+    private func cloudSession(_ machineID: String) -> CloudMachineSession? {
+        session(machineID) ?? cloud.first { $0.machineID.lowercased() == machineID.lowercased() }
     }
 }

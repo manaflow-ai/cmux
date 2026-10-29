@@ -129,6 +129,13 @@ public struct MobileHostLaunch: Sendable, Equatable {
         line(["type": "acpmux", "url": url.absoluteString, "token": token])
     }
 
+    /// The control line that hands hostd each paired phone's own acpmux credential, by phone
+    /// device id (`phone_credentials`): that phone's acpmux channel presents it, so its
+    /// Full-access setting can cover it. Carries secrets: stdin only, never logged.
+    public static func phoneCredentialsLine(_ credentials: [String: String]) -> Data {
+        anyLine(["type": "phone_credentials", "credentials": credentials])
+    }
+
     /// The control line that tells hostd which phones this Mac approved, and
     /// which identity keys the user refused (`pairing.rs`).
     public static func devicesLine(_ devices: MobileHostPairedDevices) -> Data {

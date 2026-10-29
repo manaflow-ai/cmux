@@ -29,6 +29,15 @@ public final class UpdateController {
     /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
     let isDevLikeBundle: Bool
 
+    /// Background mode owns the staged installer so a later feed check can replace it. Keep this
+    /// preference mutation beside the private defaults store; extensions use this narrow seam.
+    @discardableResult
+    func disableSparkleSilentStagingIfNeeded() -> Bool {
+        guard defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey) else { return false }
+        defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
+        return true
+    }
+
     /// Host actions the updater delegates upward (retry, relaunch prep). Forwarded to the driver.
     public weak var actionDelegate: (any UpdateActionDelegate)? {
         didSet { driver.actionDelegate = actionDelegate }

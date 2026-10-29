@@ -47,6 +47,8 @@ extension ThreadRegistry {
         ThreadDeclaration("com.cmuxterm.next.settings.watcher", qos: .utility),
         ThreadDeclaration("cmux.files.fsevents", qos: .utility),
         ThreadDeclaration("cmux.files.tree-fsevents", qos: .utility),
+        // Design: the desktop wallpaper watch's reads (CmuxNextDesign DesktopWallpaperWatch).
+        ThreadDeclaration("com.cmuxterm.next.desktop-picture", qos: .utility),
         // Energy: the power-source notifications and their IOKit reads (CmuxNextEnergy PowerSourceMonitor).
         ThreadDeclaration("com.cmuxterm.next.energy.power-source", qos: .utility),
         ThreadDeclaration("com.cmuxterm.home.cache", qos: .userInitiated),
@@ -57,6 +59,7 @@ extension ThreadRegistry {
         // Remote and mobile. The remote view's render queue is on the closed user-interactive list: a
         // compositor-class motion path (Chrome's kDisplayCritical, base/threading/platform_thread.h).
         ThreadDeclaration("com.cmuxterm.next.remote-localhost", qos: .userInitiated),
+        ThreadDeclaration("com.cmuxterm.next.cloud-hub-loopback", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.cloud-browser-proxy", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.remote-fetch", qos: .userInitiated),
         ThreadDeclaration("cmux.remote-view.render", qos: .userInteractive),

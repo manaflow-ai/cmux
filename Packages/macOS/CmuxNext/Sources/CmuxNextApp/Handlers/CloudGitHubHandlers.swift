@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompatAppKit
+import CmuxNextPages
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -15,7 +16,7 @@ enum CloudGitHubHandlers {
         CloudHandlers.bind("cloudSetupGitHub", registry, reason: reason) { invocation in
             // A CLI, MCP or script run names its machine (#23155); a person's may mean the one they see.
             let session = try CloudHandlers.machine(invocation, context)
-            guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable) }
+            guard session.machine.allows(.exec) else { throw ActionFailure(message: CloudStrings.execUnavailable(session.machineID)) }
             // A nested perform inside a CLI run is built with the user origin: the enclosing
             // run's scope decides too, so only `--focus` (or a person) opens the browser.
             let opensBrowser = invocation.allowsViewChange && ActionRunScope.viewChangeAllowed()
@@ -59,9 +60,9 @@ enum CloudGitHubHandlers {
         return CloudStrings.gitHubConfirmBody(name: identity.name ?? "—", email: identity.email ?? "—")
     }
 
-    /// GitHub's device page (a constant, never a URL the machine printed), in the default browser.
+    /// GitHub's device page (a constant, never a URL the machine printed), in a cmux tab (`browser.openSignInPagesInCmux`).
     private static func openVerificationPage() {
         guard let url = URL(string: CloudGitHubSetup.verificationURI) else { return }
-        NSWorkspace.shared.openInBackground(url)
+        LinkRouter.shared.open(url)
     }
 }

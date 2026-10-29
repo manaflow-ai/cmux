@@ -110,7 +110,6 @@ import CmuxNextWakeupsTestSupport
         updater.cancelStaged = { sparkle.cancels += 1; return true }
         updater.stagedRefresh.replaceable = { replaceable }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
-        updater.stagedRefresh.deltaWindow = 45 * 60
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: interval, downloadAutomatically: true, ring: ring)
         updater.start()
         updater.debugIndicatorPhase = .ready(version: "3.0.0")
@@ -201,16 +200,15 @@ import CmuxNextWakeupsTestSupport
         #expect(h.sparkle.cancels == 0)
     }
 
-    /// A scheduled swap waits for the deltas nightly-next lists minutes after a build's full
-    /// archive, as Sparkle's scheduled check does; a build that lists them, or a check the person
-    /// asked for, swaps at once.
-    @Test func aFreshDevBuildWithNoDeltasWaitsForTheNextScheduledCheck() async throws {
+    /// A scheduled swap never waits for the deltas nightly-next lists minutes after a build's full
+    /// archive: a newer build replaces the staged one at once, deltas listed or not.
+    @Test func aFreshDevBuildWithNoDeltasSwapsAtOnce() async throws {
         let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: 10))
         h.rig.advance(by: .seconds(Self.interval))
         h.rig.fireAtNow()
         try await settle(h, fetches: 1)
-        #expect(h.sparkle.cancels == 0, "a build whose deltas may still come replaced the staged one")
-        #expect(h.updater.stagedRefresh.timer.isScheduled, "the next scheduled check was not armed")
+        #expect(h.sparkle.cancels == 1, "a newer build was held back for its deltas")
+        #expect(h.sparkle.backgroundChecks == 1)
     }
 
     @Test func aFreshDevBuildThatListsDeltasSwapsAtOnce() async throws {

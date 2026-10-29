@@ -25,6 +25,7 @@ import CmuxNextHome
 import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextResources
+import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextTerminal
@@ -224,8 +225,27 @@ struct AppMemoryConsumers {
     static let pageThumbnailsName = "page-thumbnails"
     static let internalPagePicturesName = "internal-page-pictures"
 
+    /// The consumers that start with the hibernation (`startHibernation` calls it once it made it): its pictures
+    /// (``registerHibernationSnapshots(_:)``), and page tabs' discards, which follow its setting from now
+    /// (``followPageDiscards(_:)``).
+    func followHibernation(_ hibernation: BrowserHibernation, settings: SettingsController) {
+        registerHibernationSnapshots(hibernation)
+        followPageDiscards(settings)
+    }
+
+    /// Page tabs' discards (`memoryDiscardInternalPages` with `pageLifecycle` off) follow `browser.hibernation`, the
+    /// current value now: off or not written, no page tab goes on its own, at any pressure, as browser tabs and the
+    /// page lifecycle (trunk #25920: a page never reloads unless the person asks). `background`, as the Memory Saver
+    /// mode: the scheduler's next look runs on its deadline, never in the flush's turn.
+    private func followPageDiscards(_ settings: SettingsController) {
+        guard let discards = services.pages.discards else { return }
+        services.lifetimeFollowers.append(ServiceObservation(.background, owner: "AppMemoryConsumers.pageDiscards", on: services.mainWork) {
+            settings.snapshot.browserHibernation
+        } apply: { [weak discards] setting in discards?.update(browserHibernation: setting) })
+    }
+
     /// `memoryImageCaches` (default off): `hibernation`'s pictures are a lossy consumer that keeps only the
-    /// neighbors' pictures at critical (p07-memory-058). `startHibernation` calls it once it made the hibernation.
+    /// neighbors' pictures at critical (p07-memory-058). ``followHibernation(_:settings:)`` calls it.
     func registerHibernationSnapshots(_ hibernation: BrowserHibernation) {
         guard services.features.isEnabled(.memoryImageCaches) else { return }
         hibernation.snapshots.registerMemoryConsumer(with: services.memoryCoordinator)
@@ -355,9 +375,14 @@ struct AppMemoryConsumers {
 
     /// `memoryDiscardInternalPages` (default off): hidden page tabs' views go after their policy. With
     /// `pageLifecycle` on, that lifecycle is page tabs' one discard controller, so this one stays off.
+    /// A discard rebuilds the page when it shows, so they go only once cmux.json sets `browser.hibernation`,
+    /// as browser tabs and the page lifecycle (trunk #25920): they start with the setting's default, which
+    /// keeps every page, and follow the loaded setting once the hibernation starts (``followPageDiscards(_:)``).
     private func registerInternalPageDiscards() {
         guard services.features.isEnabled(.memoryDiscardInternalPages), !services.features.isEnabled(.pageLifecycle) else { return }
-        services.pages.enableDiscards(ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator), on: services.cache)
+        let discards = ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator)
+        discards.update(browserHibernation: .fallback)
+        services.pages.enableDiscards(discards, on: services.cache)
     }
 
     /// `memorySmallAppStores` (default off): the glass lens stills are one lossless consumer, the last quit's

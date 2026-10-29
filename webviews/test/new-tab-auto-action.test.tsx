@@ -177,6 +177,8 @@ test("Tab steps the suggestions, and Shift-Tab is not consumed", async () => {
 test("Tab on the last row moves focus on instead of wrapping", async () => {
   const field = await render([]);
   await type(field, "ff");
+  // Up from the top row goes back to the text; from there Up takes the last row.
+  await key(field, "ArrowUp");
   await key(field, "ArrowUp");
   const event = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => void field.dispatchEvent(event));

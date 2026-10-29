@@ -94,13 +94,15 @@ public final class RemoteDesktopPane {
         settings: RemoteDesktopSettings = RemoteDesktopSettings(),
         presenter: RemotePresenterKind = RemoteViewTunables().presenter.value,
         initialMode: RemoteControlMode = .control,
-        scaling: RemoteViewGeometry.Scaling = .native
+        scaling: RemoteViewGeometry.Scaling = .native,
+        viaCloudTunnel: Bool = false
     ) {
         self.source = source
         self.inputSink = inputSink
         self.mainWork = mainWork
         self.settings = settings
         state = RemotePaneState(hostName: hostName, requestedMode: initialMode, interactiveMaxRttMs: settings.interactiveMaxRttMs)
+        state.viaCloudTunnel = viaCloudTunnel
         self.presenter = RemoteFramePresenters().make(presenter, mainWork: mainWork)
         presenterKind = self.presenter.kind
         view.video.install(self.presenter)

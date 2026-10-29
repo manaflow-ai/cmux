@@ -59,6 +59,11 @@ enum DebugTimings {
     /// time marks. The temperature is ``LaunchSlices``'s (``launchMarks``).
     private nonisolated static let launchCounters = LaunchCounterLog(sink: LaunchMarkSink.shared)
 
+    /// Milliseconds since the process started, on the launch marks' clock.
+    nonisolated static func millisecondsSinceProcessStart(at date: Date = Date()) -> Double {
+        date.timeIntervalSince(processStartDate) * 1_000
+    }
+
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread. The first record of a name goes to
     /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
@@ -135,6 +140,9 @@ enum DebugTimings {
     ///   - watchdog: Sends main-thread turns over 1 ms to `startupTrace` until it closes.
     ///   - startupTrace: The launch's startup trace (``makeStartupTrace()``), or nil.
     static func install(watchdog: MainThreadWatchdog, startupTrace: StartupTrace?) {
+        #if DEBUG
+        DebugWindowRecord.watchLaunch()
+        #endif
         if let startupTrace {
             watchdog.setMainTurnSink(minimumNanos: StartupTrace.mainTurnThresholdNanos) { startupTrace.mainTurn(start: $0, end: $1) }
             // Closed, the trace takes nothing more: the sink comes off and a main turn is one relaxed load again.

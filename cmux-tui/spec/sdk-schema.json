@@ -112,7 +112,7 @@
   "cloud": {
    "id": 16,
    "description": "cmux Cloud session, host replica, conversations and inbox.",
-   "next_ordinal": 29
+   "next_ordinal": 30
   },
   "assets": {
    "id": 17,
@@ -152,7 +152,7 @@
   "cloud-events": {
    "id": 198,
    "description": "cmux Cloud session, conversations and inbox.",
-   "next_ordinal": 12
+   "next_ordinal": 13
   },
   "apps": {
    "id": 18,
@@ -2174,6 +2174,17 @@
      "nullable": true,
      "constraints": [
       "The longest stream frame, in bytes, a connection writes whole; longer frames leave in chunks between control replies (CMUX_IPC_BULK_FRAME_MAX). Only with identify {revisions: true}."
+     ]
+    },
+    "build_time": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "Unix seconds of the source commit this daemon was built from; null when unknown. A client that updates the machine compares it with its own to never move the machine back to an older build. Only with identify {revisions: true}."
      ]
     },
     "sdk_schema_digest": {
@@ -9209,6 +9220,28 @@
    },
    "additional_properties": false
   },
+  "CloudConversationPresenceParticipant": {
+   "kind": "object",
+   "fields": {
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "viewing": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "HomeInboxKind": {
    "kind": "enum",
    "values": [
@@ -14732,6 +14765,7 @@
    "durability": "read_only",
    "stream_scoped": true,
    "clients": [
+    "macos",
     "sdk"
    ]
   },
@@ -21247,6 +21281,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "macos",
     "sdk"
    ]
   },
@@ -21925,6 +21960,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "macos",
     "sdk"
    ]
   },
@@ -21950,6 +21986,7 @@
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "macos",
     "sdk"
    ]
   },
@@ -21975,6 +22012,7 @@
    "priority": "control",
    "durability": "read_only",
    "clients": [
+    "macos",
     "sdk"
    ]
   },
@@ -23013,6 +23051,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "cli",
     "sdk"
    ]
   },
@@ -23092,6 +23131,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "cli",
     "sdk"
    ]
   },
@@ -23259,6 +23299,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "cli",
     "sdk"
    ]
   },
@@ -23386,6 +23427,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "cli",
     "sdk"
    ]
   },
@@ -30744,6 +30786,47 @@
    "durability": "memory",
    "clients": [
     "macos",
+    "sdk"
+   ]
+  },
+  "cloud-conversation-presence": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversation-presence-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "viewing": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "While some client of the daemon subscribes the conversation (not_subscribed). The person views while any client of the daemon views; a change of that goes out as the owner's ephemeral presence.set {conversation, viewing} frame on the shared socket once it is live, again on a new socket while viewing, and off when the last viewing client closes or unsubscribes; nothing is stored. Answers the subscription's state. See spec/commands.md."
+   ],
+   "method_id": 4125,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
     "sdk"
    ]
   },
@@ -41711,6 +41794,57 @@
     "additional_properties": false
    },
    "event_id": 50692,
+   "priority": "control"
+  },
+  "cloud-conversation-presence": {
+   "since": 12,
+   "capability": "cloud-conversation-presence-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-conversation-presence"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "participants": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "CloudConversationPresenceParticipant"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "event_id": 50700,
    "priority": "control"
   },
   "cloud-inbox-changed": {

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextInput
 #endif
@@ -10,7 +11,7 @@ public import WebKit
 /// A browser tab backed by one `WKWebView`.
 @MainActor
 @Observable
-public final class WebKitTab: NSObject, BrowserTab {
+public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
     public let id: BrowserTabID
     public let profileID: BrowserProfileID
     public let engineKind: BrowserEngineKind = .webkit
@@ -41,6 +42,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored var standInCap: DemandTimer?
     /// Web Inspector's visibility, for the toolbar's DevTools button.
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
+    /// Files an agent offered this page's next file chooser (`runOpenPanelWith` takes them first).
+    @ObservationIgnored public let agentFiles = BrowserAgentFiles()
 
     private var machine = BrowserTabStateMachine() {
         didSet { if machine.state.phase != oldValue.state.phase { pageWaiters.notePhase(machine.state.phase) } }
@@ -302,6 +305,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         guard !isClosed else { return }
         isClosed = true
         visibilityNode?.cancelDeferred(key: Self.progressKey)
+        agentFiles.withdraw()
         removeStandIn()
         firstContentFrame.closed()
         faviconTask?.cancel()
@@ -316,7 +320,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
-        webView.removeFromSuperview()
+        WebViewRetirement.retire(webView)
         container.removeFromSuperview()
     }
 

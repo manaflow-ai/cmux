@@ -119,7 +119,9 @@ extension CEFRuntime {
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):
-            fileDialogAsked(dialogID, browser: browser, request: ChromiumFileDialogRequest(mode: mode, acceptTypes: acceptTypes, defaultPath: defaultPath))
+            // The tab's agent file offer first, then cmux's host picker or the person's panel (`CEFRuntime+FileDialogs`).
+            answerFileDialog(dialogID, browser: browser,
+                             request: ChromiumFileDialogRequest(mode: mode, acceptTypes: acceptTypes, defaultPath: defaultPath))
         case .devToolsResult(let browser, let messageID, let success, let json):
             let key = CEFDevToolsKey(browser: browser, message: messageID)
             let result: Result<String, any Error> = success ? .success(json) : .failure(BrowserTabError.javaScript(json))

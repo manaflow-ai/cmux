@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
-@@ -57,18 +57,18 @@
+@@ -57,22 +57,52 @@
          contentView = clip
          documentView = document
          verticalScroller = SequenceScroller()
@@ -25,7 +25,41 @@
  
      /// The shared window view's transcript list (a layer-only scroll view).
      var collection: UIScrollView? { demo?.collection }
-@@ -128,7 +128,7 @@
+ 
++    /// cmux: a wheel or trackpad event over the transcript: true when the open thread view took it.
++    /// While a thread or reply view is open, every wheel is the view's (it scrolls when taller than its
++    /// space, MessagesWindowView.scrollThread) and the dimmed transcript under it never moves; with no
++    /// view open the transcript takes the wheel as before.
++    func routeThreadWheel(_ e: NSEvent) -> Bool {
++        guard let demo, demo.threadOpen else { return false }
++        let dy = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY : e.scrollingDeltaY * verticalLineScroll
++        demo.scrollThread(by: dy)
++        return true
++    }
++
++    /// cmux: the thread view's wheel route. A local monitor, not a scrollWheel(_:) override, so the
++    /// transcript keeps responsive scrolling; only wheels over this scroll view (not the field above it).
++    private var threadWheelMonitor: Any?
++    override func viewDidMoveToWindow() {
++        super.viewDidMoveToWindow()
++        if window == nil, let m = threadWheelMonitor { NSEvent.removeMonitor(m); threadWheelMonitor = nil }
++        guard window != nil, threadWheelMonitor == nil else { return }
++        threadWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] e in
++            guard let self, self.demo?.threadOpen == true, e.window === self.window, self.isUnderPointer(e) else { return e }
++            return self.routeThreadWheel(e) ? nil : e
++        }
++    }
++
++    /// cmux: the event's view is this scroll view or one of its subviews.
++    private func isUnderPointer(_ e: NSEvent) -> Bool {
++        guard let frameView = window?.contentView?.superview else { return false }
++        return frameView.hitTest(e.locationInWindow)?.isDescendant(of: self) ?? false
++    }
++
+     func attach(_ demo: MessagesWindowView) {
+         self.demo = demo
+         // The window view stays the list's delegate through this bridge.
+@@ -128,7 +158,7 @@
  
      // MARK: Clip view -> model
  
@@ -34,7 +68,7 @@
          if PacingLog.shared.isOn { logClip() }
          pinContent()
          guard applyingModel == 0, let demo, let cv = collection else { return }
-@@ -417,7 +417,7 @@
+@@ -417,7 +447,7 @@
      /// The next page in the direction of the move gets its row bitmaps off main now: the rows a
      /// following click (or a scroll) shows first are ready when it comes.
      private func prerenderPage(beyond dir: Int) {
@@ -43,7 +77,7 @@
          let b = r.bounds, h = b.height
          let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
          let n = r.layout.model.count
-@@ -601,7 +601,8 @@
+@@ -601,7 +631,8 @@
      /// Pointer in the scroller strip while the thumb shows (wide thumb and track).
      private(set) var expanded = false
      private var pointerInside = false
@@ -53,7 +87,7 @@
      static let showDelay: TimeInterval = 0, fadeInTime: TimeInterval = 0.24
      /// Our own delay from a main-thread timer firing to the first changed frame on screen (the
      /// timer's run-loop turn, the commit, one render frame): 2 frames at 120 Hz, measured on the
-@@ -625,7 +626,7 @@
+@@ -625,7 +656,7 @@
      static let dragReleaseHold: TimeInterval = 0.53
      /// Legacy scrollers (the system setting): always shown, never faded.
      var legacy: Bool { NSScroller.preferredScrollerStyle == .legacy }
@@ -62,7 +96,7 @@
      private var wheelMonitor: Any?
      override func viewDidMoveToWindow() {
          super.viewDidMoveToWindow()
-@@ -639,14 +640,14 @@
+@@ -639,14 +670,14 @@
              }
          }
          if styleObserver == nil {
@@ -79,7 +113,7 @@
          if legacy { shown = true; alphaValue = 1 } else if !dragging && !pointerInside { shown = false; expanded = false; alphaValue = 0 }
          needsDisplay = true
      }
-@@ -659,16 +660,22 @@
+@@ -659,16 +690,22 @@
      /// Messages widens the thumb 0.075 s after the pointer enters the strip (four lossless
      /// takes: 0.074-0.083 s from the entry to the first wide frame), less our timer-to-screen delay.
      static let expandDelay: TimeInterval = 0.075 - timerToScreen
@@ -106,7 +140,7 @@
              guard let self, self.pointerInside || self.dragging, self.shown else { return }
              self.expanded = true
              self.needsDisplay = true
-@@ -676,7 +683,7 @@
+@@ -676,7 +713,7 @@
      }
      override func mouseExited(with event: NSEvent) {
          pointerInside = false
@@ -115,7 +149,7 @@
          guard shown, !dragging else { return }
          scheduleHide(after: Self.leaveHold - Self.sinceInput(event), fade: Self.leaveFade, curve: CAMediaTimingFunction(controlPoints: 0.294, 0.493, 0.389, 0.946))
      }
-@@ -691,8 +698,7 @@
+@@ -691,8 +728,7 @@
              shown = true
              alphaValue = 0
              needsDisplay = true
@@ -125,7 +159,7 @@
                  guard let self, self.shown else { return }
                  NSAnimationContext.runAnimationGroup { c in
                      c.duration = Self.fadeInTime
-@@ -700,7 +706,7 @@
+@@ -700,7 +736,7 @@
                      self.animator().alphaValue = 1
                  }
              }
@@ -134,7 +168,7 @@
              // Scrolling again during the fade-out: back to full at once.
              alphaValue = 1
          }
-@@ -714,14 +720,14 @@
+@@ -714,14 +750,14 @@
      /// transcript stopped 0.14 s before it (scrollbar-scroll-fade, mark back). A wheel that
      /// moves nothing does not show a hidden scroller (scrollbar-hover +9.6 s).
      private func wheelSeen(_ e: NSEvent) {
@@ -151,7 +185,7 @@
          layer?.removeAnimation(forKey: Self.hideKey)
      }
      /// The fade is a render-server animation that begins `hold` from now (the callers pass the
-@@ -741,7 +747,7 @@
+@@ -741,7 +777,7 @@
              a.isRemovedOnCompletion = false
              layer.add(a, forKey: Self.hideKey)
          }

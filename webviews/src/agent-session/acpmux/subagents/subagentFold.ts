@@ -1,6 +1,7 @@
 import type { AcpmuxRow } from "../model";
 import { childRows, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName } from "../hiddenTools";
+import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 import {
   type AgentRun,
@@ -36,6 +37,8 @@ export type Subagent = {
   /// The title of its latest tool call, or what the harness says it does now (Claude's progress
   /// summary or last tool; a workflow's current step).
   action?: string;
+  /// `action` is a shell call's title, the command as typed (its call's ACP kind is `execute`).
+  actionShell?: boolean;
   /// Tokens it has used and tool calls it has made so far (Claude's task progress).
   tokens?: number;
   toolUses?: number;
@@ -77,13 +80,25 @@ export type Subagent = {
   /// xhigh". It has no `prompt`: Restart and Stop are a Claude subagent's.
   harness?: string;
   model?: string;
+  effort?: string;
   command?: string;
   session?: string;
   host?: string;
   result?: string;
+  lastMessage?: string;
   /// The acpmux sub-session it is (`acpmux run --parent`), by id: Open chat opens it, and its
   /// records (``reduceChild``) say its state and reply.
   child?: string;
+  /// The acpmux session that started this sub-session. This is session lineage, not pane nesting;
+  /// direct children keep `parent: null` so retry and automatic pane opening still apply.
+  startedBySession?: string;
+  /// acpmux's retry while one waits, whether acpmux can retry it, and the retry it gave up on
+  /// (retryState.ts).
+  retry?: RetryState;
+  retryable?: boolean;
+  retriedOut?: RetryState;
+  /// Why it failed, as acpmux recorded it (`error`): its end line says it.
+  error?: string;
 };
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
@@ -159,6 +174,8 @@ export class SubagentFold {
   /// Each subagent's newest tool call, and every call it made: an update to an older one does not
   /// take its action back.
   private readonly latestCall = new Map<string, string>();
+  /// Each subagent's calls whose ACP kind is `execute` (`agent\u0000call`): a shell call's title is its command.
+  private readonly shellCalls = new Set<string>();
   private readonly calls = new Set<string>();
   /// Plumbing calls each subagent made (hiddenTools.ts): they and their results set no action.
   private readonly hiddenCalls = new Set<string>();
@@ -191,7 +208,20 @@ export class SubagentFold {
         this.latestCall.set(owner.id, call);
       }
       const newest = call === undefined || (this.latestCall.get(owner.id) ?? call) === call;
-      if (tool && update.title && newest) owner.action = String(update.title);
+      if (tool && update.title && newest) {
+        owner.action = String(update.title);
+        // A shell call's title is its command as typed (ACP kind `execute`); the tray says it in words.
+        // An update that omits its kind keeps what its own call said, never another call's.
+        const key = call === undefined ? undefined : `${owner.id}\u0000${call}`;
+        if (key && typeof update.kind === "string") {
+          if (update.kind === "execute") this.shellCalls.add(key);
+          else this.shellCalls.delete(key);
+        }
+        const shell =
+          update.kind === "execute" || (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
+        if (shell) owner.actionShell = true;
+        else delete owner.actionShell;
+      }
       const kind = update?.sessionUpdate;
       // The Agent call that spawned it is the parent's, not a step of its own.
       const spawnCall = typeof update?.toolCallId === "string" && this.spawnCalls.has(update.toolCallId);
@@ -307,6 +337,7 @@ export class SubagentFold {
       command,
       ...(run.harness && { harness: run.harness }),
       ...(model && { model }),
+      ...(run.effort && { effort: run.effort }),
       ...(run.session && { session: run.session }),
       ...(run.host && { host: run.host }),
       ...(update.rawInput.run_in_background === true && { background: true }),
@@ -330,16 +361,34 @@ export class SubagentFold {
   /// with acpmux's harness, model and effort; each `turn_ended` says its state and its reply. A
   /// child the `start_session` tool started has its card already (SubsessionCallCard.tsx). Returns
   /// the call whose row the run now stands for.
+  /// A `subagent_retry` record (retryState.ts ``applyRetryStep``): whether acpmux gave up on one.
+  reduceRetryStep(record: any): void {
+    const agent = typeof record?.subagentId === "string" ? this.agents.get(record.subagentId) : undefined;
+    if (agent && applyRetryStep(agent, record)) this.touch(agent);
+  }
+
   reduceChild(event: Event, record: any): string | undefined {
     const child = text(record?.childSessionId);
     if (!child) return undefined;
     if (record.event === "started") return this.startChild(record, child);
     const agent = record.event === "turn_ended" ? this.agents.get(this.children.get(child) ?? "") : undefined;
     if (!agent) return undefined;
+    // Each turn repeats the child's current model and effort. Keep the previous value when the
+    // producer omits a field, but honor an explicit null as acpmux's deletion signal.
+    for (const key of ["model", "effort"] as const) {
+      if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
+      if (record[key] === null) delete agent[key];
+      else if (typeof record[key] === "string") agent[key] = record[key];
+    }
     // Each turn's end says the whole of it: a turn that said nothing has no reply, not the last one's.
     const said = text(record.result?.reply) ?? text(record.result?.error);
-    if (said) agent.result = said;
-    else delete agent.result;
+    if (said) {
+      agent.result = said;
+      agent.lastMessage = said;
+    } else {
+      delete agent.result;
+      delete agent.lastMessage;
+    }
     this.recorded.add(agent.id);
     agent.state = record.state === "done" ? "completed" : record.state === "cancelled" ? "cancelled" : "failed";
     agent.endedAt = event.at;
@@ -381,6 +430,8 @@ export class SubagentFold {
     };
     const agent = this.startRun(call, pending.first, run, pending.command);
     agent.child = child;
+    const startedBy = text(record.startedBy);
+    if (startedBy) agent.startedBySession = startedBy;
     if (!promptTitle(prompt)) agent.name = text(record.title) ?? agent.name;
     this.children.set(child, agent.id);
     if (pending.last) this.updateRun(agent, pending.last.event, pending.last.update);
@@ -400,7 +451,10 @@ export class SubagentFold {
       } else {
         const reply = runReply(output);
         // What acpmux recorded it said is its reply, not what the shell printed of it.
-        if (reply && !this.recorded.has(agent.id)) agent.result = reply;
+        if (reply && !this.recorded.has(agent.id)) {
+          agent.result = reply;
+          agent.lastMessage = reply;
+        }
         this.endRun(agent, status === "failed" ? "failed" : "completed", event.at);
         return;
       }
@@ -442,6 +496,7 @@ export class SubagentFold {
     const reply = runReply(withoutLineNumbers(outputOf(update)));
     if (reply && reply !== agent.result && !this.recorded.has(agent.id)) {
       agent.result = reply;
+      agent.lastMessage = reply;
       this.touch(agent);
     }
     // Read once the run ended, its file says nothing more.
@@ -576,9 +631,15 @@ export class SubagentFold {
     }
     // Claude's progress names its last tool when it has no summary: plumbing is never what it does.
     const action = text(change.action);
-    if (action && !isPlumbingName(action)) agent.action = action;
+    if (action && !isPlumbingName(action)) {
+      agent.action = action;
+      delete agent.actionShell;
+    }
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
+    agent.model = text(change.model) ?? agent.model;
+    agent.effort = text(change.effort) ?? agent.effort;
+    agent.lastMessage = text(change.lastMessage) ?? agent.lastMessage;
     if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);
@@ -597,6 +658,7 @@ export class SubagentFold {
       change.workflowAgentsFull === true,
     );
     if (change.reason === "paused") agent.paused = true;
+    applyRetry(agent, change);
     const state = text(change.state);
     // An end the harness reported holds against a progress report that trails it; a spawn or a
     // state update saying it runs again still does.
@@ -607,6 +669,8 @@ export class SubagentFold {
       agent.endedAt = state === "running" ? undefined : event.at;
       this.settleReason(agent);
     }
+    // A subagent that runs again, or finished, gave nothing up.
+    if (agent.state === "running" || agent.state === "completed") delete agent.retriedOut;
     this.touch(agent);
   }
 

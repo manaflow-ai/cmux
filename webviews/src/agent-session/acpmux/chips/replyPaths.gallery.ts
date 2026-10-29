@@ -56,7 +56,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/chips/LinkChips.tsx#PathChip", "agent-session/acpmux/chips/ReplyImage.tsx#ReplyImage"],
   variants: {
     "fleet-reply": {
-      note: "The fleet reply: two /var/tmp paths in code are chips with a lock; the image is outside the local image roots.",
+      note: "The fleet reply: two /var/tmp paths explain their locality on hover; the image is outside the local image roots.",
       chipHost: FLEET_HOST,
       snapshot: chat([user("Render the build fleet status", 3), assistant(FLEET_REPLY, 2.9), summary(2.9)]),
     },

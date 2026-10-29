@@ -32,8 +32,9 @@
 //!   no computer use server.
 //! - Binaries are found next to this executable (the app's
 //!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`; `cmux-cua`
-//!   also in the nested helper app, its only copy in shipped builds. A missing
-//!   binary leaves its server out. Every agent chat gets `cmux mcp serve`
+//!   also in the nested helper app, its only copy in shipped builds. If both
+//!   are absent, a DEV app can use an installed helper after a signature check.
+//!   A missing binary leaves its server out. Every agent chat gets `cmux mcp serve`
 //!   by default (cx-wx93i, Lawrence 2026-10-14: "give every agent chat the
 //!   cmux MCP tools by default"), so it controls cmux without a shell
 //!   command its sandbox may refuse; the settings file's `"mcp":
@@ -59,6 +60,7 @@ use std::path::{Path, PathBuf};
 use crate::no_panic::JsonExt;
 use serde_json::{Map, Value, json};
 
+mod cua_helper;
 use crate::subsession_mcp::DaemonTools;
 
 /// Directory that overrides where the cmux binaries are looked up.
@@ -113,7 +115,8 @@ pub const OFF_ENV: &str = "ACPMUX_AGENT_TOOLS_OFF";
 pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
     agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,\
-    agents_terminal_list,agents_terminal_send";
+    agents_terminal_list,agents_terminal_send,agents_chat_send,agents_chat_read,\
+    agents_chat_state";
 /// What every agent chat is told about asking the person, in the cmux MCP
 /// server's `instructions` (`cmux mcp serve`, both modes). Chats start in
 /// Full access (`hub/policy_mode.rs`), and an agent there asked Leo a
@@ -476,6 +479,13 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
+    resolve_with_cua_helper(inputs, cua_helper::installed)
+}
+
+fn resolve_with_cua_helper(
+    inputs: &Inputs,
+    installed: impl FnOnce(&Path) -> Option<PathBuf>,
+) -> AgentTools {
     if !inputs.enabled {
         return AgentTools::default();
     }
@@ -499,7 +509,10 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             args: acpmux.args_lossy(&[CUA_BRIDGE_ARG]),
             env: vec![(crate::cua_v2::ENDPOINT_DIR_ENV.into(), dir.to_string_lossy().into_owned())],
         });
-    } else if let Some(cua) = executable("cmux-cua").or_else(|| nested_cua_helper(inputs)) {
+    } else if let Some(cua) = executable("cmux-cua")
+        .or_else(|| nested_cua_helper(inputs))
+        .or_else(|| installed(&inputs.acpmux.as_ref()?.exe))
+    {
         let mut args = vec!["mcp".to_owned()];
         let mut socket_env: Vec<(String, String)> = Vec::new();
         if let Some(socket) = &inputs.cua {
@@ -557,6 +570,14 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             name: crate::forum_mcp::SERVER_NAME.into(),
             command: acpmux.exe.clone(),
             args: acpmux.args_lossy(&["forum-mcp"]),
+            env: vec![],
+        });
+        // send, ls, last and info (`acpmux_mcp.rs`): messages another session as this one,
+        // instead of `acpmux send` in a shell.
+        servers.push(McpServer {
+            name: crate::acpmux_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["acpmux-mcp"]),
             env: vec![],
         });
     }
@@ -689,6 +710,7 @@ impl AgentTools {
             if relayed.is_some()
                 || server.name == crate::subsession_mcp::SERVER_NAME
                 || server.name == crate::forum_mcp::SERVER_NAME
+                || server.name == crate::acpmux_mcp::SERVER_NAME
             {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![

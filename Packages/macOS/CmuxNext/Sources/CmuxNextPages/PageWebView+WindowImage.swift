@@ -14,6 +14,14 @@ extension PageWebView {
         guard !isDiscarded, !showsDiscardSnapshot, let session = chromiumSession else { return nil }
         return await chromiumPicture(of: session, devToolsParams: ["format": "png"])
     }
+
+    /// Where the page window leaves native UI uncovered (``nativeRects``, as the Chromium page
+    /// holds them), in window coordinates: a window image paints the page's image everywhere else,
+    /// as the screen shows it. Empty on a WebKit page.
+    public var chromiumWindowHoles: [CGRect] {
+        guard let page = chromiumSession?.page else { return [] }
+        return page.occlusionRects.map { page.contentView.convert($0, to: nil) }
+    }
 }
 
 extension PageRegistry {

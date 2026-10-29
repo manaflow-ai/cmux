@@ -65,6 +65,8 @@ enum ClassicShortcutImport {
         let first: ShortcutStrokeSpec
         switch binding {
         case .unbound: return true
+        case .alternates(let keys):
+            return keys.allSatisfy { usable($0, for: id, in: registry) }
         case .chord(let stroke, _):
             return stroke.command || stroke.control
         case .stroke(let stroke): first = stroke

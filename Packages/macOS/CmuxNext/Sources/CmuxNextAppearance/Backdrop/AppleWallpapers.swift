@@ -6,7 +6,7 @@ public import Foundation
 /// - Stills (`pictures(assets:)`, CmuxNextDesign, which reads their frames): every picture and `.madesktop` description in
 ///   the Desktop Pictures folder, in the Wallpaper pane's order (``AppleWallpaper``), for the
 ///   picker's Apple Wallpapers group.
-/// - Moving wallpapers (cx-14vdf, ``videos()``):
+/// - Moving wallpapers (cx-14vdf, ``videos(names:)``):
 ///   `/System/Library/Desktop Pictures/.wallpapers/<name>/*.mov`, the shipped moving wallpapers
 ///   (Sonoma) in a light and a dark cut, the window playing the cut for its appearance; and the
 ///   aerials idleassetsd downloaded (`Customer/**/*.mov`, named by `entries.json`).
@@ -45,9 +45,40 @@ public nonisolated struct AppleWallpapers: Sendable {
         self.aerials = aerials
     }
 
-    /// Every moving wallpaper on disk: one per shipped wallpaper (its light cut, or its only one),
-    /// then the downloaded aerials.
-    public func videos() -> [BackdropSelection] {
+    /// Every moving wallpaper: one per shipped wallpaper (its light cut, or its only one), then
+    /// the downloaded aerials, then the aerials macOS lists but has not downloaded yet (backgrounds
+    /// plan phase 3b). A missing aerial is named by the file idleassetsd will write, so it becomes
+    /// a real choice as soon as System Settings downloads it; the picker shows it with a cloud.
+    public func videos(names: [String: String]? = nil) -> [BackdropSelection] {
+        let present = presentVideos()
+        let downloaded = Set(present.compactMap { choice -> String? in
+            guard case .system(let path) = choice else { return nil }
+            return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        })
+        let names = names ?? aerialNames()
+        let folder = aerialFolder()
+        let missing = names.keys.filter { !downloaded.contains($0) }
+            .sorted { (names[$0] ?? $0).localizedStandardCompare(names[$1] ?? $1) == .orderedAscending }
+            .map { BackdropSelection.system(path: folder.appendingPathComponent("\($0).mov").path) }
+        return present + missing
+    }
+
+    /// Where idleassetsd writes aerial movies: the folder holding the ones it has, else its 4K SDR one.
+    func aerialFolder() -> URL {
+        let folders = Self.files(in: aerials).filter { url in
+            Self.files(in: url).contains { Self.isVideo($0.path) }
+        }
+        return folders.sorted { $0.lastPathComponent < $1.lastPathComponent }.first
+            ?? aerials.appendingPathComponent("4KSDR240FPS", isDirectory: true)
+    }
+
+    /// Whether `path` names a movie that is not on disk yet (an aerial macOS has not downloaded).
+    public static func isPending(_ path: String) -> Bool {
+        isVideo(path) && !FileManager.default.fileExists(atPath: path)
+    }
+
+    /// The moving wallpapers on disk.
+    private func presentVideos() -> [BackdropSelection] {
         let shipped = Self.files(in: desktopPictures.appendingPathComponent(".wallpapers"))
             .flatMap { Self.files(in: $0) }
             .filter { Self.isVideo($0.path) && !$0.lastPathComponent.contains("Portrait") }
@@ -60,16 +91,27 @@ public nonisolated struct AppleWallpapers: Sendable {
 
     /// The aerials' names from idleassetsd's `entries.json`, by asset id.
     public func aerialNames() -> [String: String] {
-        struct Entries: Decodable {
-            struct Asset: Decodable {
-                let id: String
-                let accessibilityLabel: String?
-            }
-            let assets: [Asset]
+        Self.parseAerialNames(aerials.appendingPathComponent("entries.json"))
+    }
+
+    /// Each asset on its own, so one without an id or a name drops only itself; an id that is
+    /// not letters, digits and dashes (it names a file) is dropped too.
+    static func parseAerialNames(_ file: URL) -> [String: String] {
+        guard let data = try? Data(blockingContentsOf: file),
+              let root = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
+              let assets = root["assets"] as? [Any] else { return [:] }
+        var names: [String: String] = [:]
+        for case let asset as [String: Any] in assets {
+            guard let id = asset["id"] as? String, isSafeAerialID(id),
+                  let name = asset["accessibilityLabel"] as? String, !name.isEmpty, names[id] == nil else { continue }
+            names[id] = name
         }
-        guard let data = try? Data(contentsOf: aerials.appendingPathComponent("entries.json")),
-              let entries = try? JSONDecoder().blockingDecode(Entries.self, from: data) else { return [:] }
-        return Dictionary(entries.assets.compactMap { asset in asset.accessibilityLabel.map { (asset.id, $0) } }) { first, _ in first }
+        return names
+    }
+
+    /// An aerial id that is safe to name a file with: 1 to 64 letters, digits or dashes.
+    static func isSafeAerialID(_ id: String) -> Bool {
+        (1...64).contains(id.count) && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
     }
 
     /// Whether `path` names a video.

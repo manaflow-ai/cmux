@@ -521,6 +521,12 @@ def parse(argv=None):
 
 
 def main(argv=None):
+    # --workspaces N: workspace hibernation instead (bench_workspace_hibernation.py), so the reviewed
+    # scripts/measure/tab-hibernation.sh runs it on the fleet: --arg=--workspaces=50.
+    argv_list = sys.argv[1:] if argv is None else list(argv)
+    if any(arg == "--workspaces" or arg.startswith("--workspaces=") for arg in argv_list):
+        import bench_workspace_hibernation
+        sys.exit(bench_workspace_hibernation.run(argv_list))
     args = parse(argv)
     report_path, results_dir = results.out_paths(args.out, "bench-hibernation.json")
     if sys.platform != "darwin":

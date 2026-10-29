@@ -84,10 +84,9 @@ extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing 
         guard !isClosed else { return }
         host.present(self, in: view)
         view.layoutContent()
-        if reloadWhenShown {
-            reloadWhenShown = false
-            if state.processExit != nil { reload() }
-        }
+        // A tab whose renderer ended while hidden shows the crash notice with its Reload button
+        // when shown; it never reloads by itself (it used to: a page could come back signed out
+        // or lose what the person typed, with no sign why).
         hostRestoreShown()
         rendererHangVisibilityChanged()
     }

@@ -1,4 +1,4 @@
-@testable import CmuxNextApp
+import CmuxNextInput
 import Foundation
 import Testing
 
@@ -34,5 +34,27 @@ import Testing
         #expect(!changed)
         #expect(requests.value(for: "AXFocused") == nil)
         #expect(!requests.wantsAccessibility)
+    }
+
+    /// The application element's seam (`AssistiveClientAccess`): the follower hears the current
+    /// state at once and then only real flips; another attribute is left to AppKit.
+    @MainActor @Test func theFollowerHearsTheStateAndEachFlipOnce() {
+        let access = AssistiveClientAccess()
+        let heard = HeardFlips()
+        access.follow { heard.values.append($0) }
+        #expect(heard.values == [false])
+        #expect(access.set(NSNumber(value: true), for: "AXEnhancedUserInterface"))
+        #expect(access.set(NSNumber(value: true), for: "AXManualAccessibility"))
+        #expect(heard.values == [false, true], "a second client asking again is no flip")
+        #expect(access.value(for: "AXManualAccessibility") == .some(true))
+        #expect(!access.set(NSNumber(value: true), for: "AXFocused"))
+        #expect(access.value(for: "AXFocused") == nil)
+        #expect(access.set(NSNumber(value: false), for: "AXEnhancedUserInterface"))
+        #expect(access.set(NSNumber(value: false), for: "AXManualAccessibility"))
+        #expect(heard.values == [false, true, false])
+    }
+
+    @MainActor private final class HeardFlips {
+        var values: [Bool] = []
     }
 }

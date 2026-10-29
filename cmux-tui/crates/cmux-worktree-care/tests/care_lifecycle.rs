@@ -265,6 +265,39 @@ fn care_a_squash_merged_branch_is_finished() {
     );
 }
 
+/// Loose objects in the repository's object folder.
+fn loose_objects(main: &Path) -> String {
+    git(main, &["count-objects", "-v"])
+        .lines()
+        .find(|line| line.starts_with("count:"))
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[test]
+fn care_a_scan_writes_no_object_into_the_repository() {
+    let (base, main) = repository("no-objects");
+    let wt = base.join("wt-e");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/e", wt.to_str().unwrap()]);
+    write(&wt.join("src/lib.txt"), "feature\n");
+    git(&wt, &["commit", "-qam", "e1"]);
+    // main moves on elsewhere: merging feat/e into it makes trees neither has.
+    write(&main.join("docs/later.txt"), "later\n");
+    git(&main, &["add", "."]);
+    git(&main, &["commit", "-qm", "later"]);
+    git(&main, &["push", "-q", "origin", "HEAD:main"]);
+    git(&main, &["fetch", "-q", "origin"]);
+    git(&main, &["repack", "-qad"]);
+    let before = loose_objects(&main);
+    for _ in 0..2 {
+        // The second scan answers from what the first found.
+        let repo = scan(&main);
+        let (_, facts) = facts_of(&repo, &wt);
+        assert_eq!(facts.finished, None, "the work is not on main");
+    }
+    assert_eq!(loose_objects(&main), before, "merge-tree's trees went to a scratch folder");
+}
+
 #[test]
 fn care_a_nested_repository_is_never_archived() {
     let (base, main) = repository("nested");

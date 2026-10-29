@@ -7,7 +7,7 @@ import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
 import table from "./generated/strings.json";
-import type { ReleaseNotes } from "./types";
+import type { IndexEntry, ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
 
@@ -17,6 +17,8 @@ const base: UpdateHighlights = {
   fromVersion: "1.0.0-nightly.410",
   fromBuild: "3720357960410",
   date: "2026-10-12",
+  builtAt: "2026-10-12T19:38:52Z",
+  head: "a9d1434de781a18ebae84d93d2b5a803864f5839",
   source: "whatsNew",
   language: "en",
   items: [
@@ -48,6 +50,8 @@ type Props = {
   data: UpdateHighlights;
   /** The notes of every build the update spans, as the card loads them from the host. */
   span?: ReleaseNotes[];
+  /** The channel's published builds (the notes index), newest first. */
+  builds?: IndexEntry[];
   wallpaper?: boolean;
   maxHeight?: number;
 };
@@ -67,6 +71,50 @@ const spanData: UpdateHighlights = {
   moreCount: 0,
   changelog: { from: "1.0.0-nightly.3912500000000", to: span[0]!.shortVersion },
 };
+// Nightly 4037632091801 (2026-10-26) as published: its card read "Fixed: validate release headings
+// within their day", a change to the release-notes checker (#25533).
+const toolingLine = "Validate release headings within their day";
+const releaseTooling: ReleaseNotes[] = [
+  {
+    build: "4037632091801",
+    shortVersion: "1.0.0-nightly.4037632091801",
+    date: "2026-10-26",
+    highlights: [],
+    changes: [],
+    items: [
+      {
+        title: "cmux NEXT daemon update: restart a stale daemon without agent hosts that keeps its chats on disk",
+        pr: 25527,
+      },
+      {
+        title:
+          "acpmux: a restart reattaches live agents first, then reads the other chats' logs in the background (1/2)",
+        pr: 25531,
+      },
+      { title: "fix(changelog): validate release headings within their day", pr: 25533 },
+    ],
+    summary: [{ group: "fixed", title: toolingLine }],
+  },
+];
+const releaseToolingData: UpdateHighlights = {
+  ...base,
+  version: "1.0.0-nightly.4037632091801",
+  build: "4037632091801",
+  fromVersion: "1.0.0-nightly.4037226096601",
+  fromBuild: "4037226096601",
+  date: "2026-10-26",
+  source: "summary",
+  items: [{ id: "summary-0", title: toolingLine, summary: null, category: "fixed" }],
+  moreCount: 0,
+  changelog: { from: "1.0.0-nightly.4037226096601", to: "1.0.0-nightly.4037632091801" },
+};
+// The notes index: two builds published after the base card's.
+const behind: IndexEntry[] = ["3845900000001", "3845500000001", "3845050428001", "3844000000001"].map((build) => ({
+  build,
+  shortVersion: `1.0.0-nightly.${build}`,
+  date: "2026-10-12",
+  highlights: 0,
+}));
 const internalOnly: ReleaseNotes[] = [
   {
     ...span[0]!,
@@ -118,7 +166,14 @@ const longNotes: UpdateHighlights = {
 // A stand-in wallpaper: a busy photo-like gradient, so the card's translucency shows.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
 
-function UpdateSurfacesGallery({ surface, data, span: notes, wallpaper: onWallpaper = false, maxHeight }: Props) {
+function UpdateSurfacesGallery({
+  surface,
+  data,
+  span: notes,
+  builds,
+  wallpaper: onWallpaper = false,
+  maxHeight,
+}: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
   return (
@@ -131,7 +186,13 @@ function UpdateSurfacesGallery({ surface, data, span: notes, wallpaper: onWallpa
       }}
     >
       {surface === "card" ? (
-        <UpdatedCard data={data} span={notes} strings={strings} actions={{ openChangelog: noop, dismiss: noop }} />
+        <UpdatedCard
+          data={data}
+          span={notes}
+          builds={builds}
+          strings={strings}
+          actions={{ openChangelog: noop, dismiss: noop }}
+        />
       ) : (
         <div
           style={{
@@ -168,6 +229,14 @@ export default componentEntry<Props>({
       note: "Card #01 Compact list (u2441): \"Updated to Nightly · Oct 12\", what changed one line per area (updateSummary.ts), the count of the rest beside See What's New, the x on hover only. The composer's surface on a plain page. Without the span's notes the card groups the host's items.",
       props: { surface: "card", data: base },
     },
+    "card-behind": {
+      note: 'Leo 2026-10-26: "it just says updated to nightly, but that doesn\'t mean anything." The build by when it was made (local time) and its commit, and how far it is from the newest once the notes index loads.',
+      props: { surface: "card", data: base, builds: behind },
+    },
+    "card-newest": {
+      note: "The newest build of its channel.",
+      props: { surface: "card", data: base, builds: behind.slice(2) },
+    },
     "card-span": {
       note: "An update across ten skipped nightlies (real nightly-next notes, 2026-10-18): every build counts, one line per area, internal work left out, +N more. It used to show the newest build's one line as the whole card.",
       props: { surface: "card", data: spanData, span },
@@ -175,6 +244,14 @@ export default componentEntry<Props>({
     "card-span-wallpaper": {
       note: "The same on a wallpaper.",
       props: { surface: "card", data: spanData, span, wallpaper: true },
+    },
+    "card-release-tooling": {
+      note: 'Nightly 4037632091801 as published (2026-10-26): its card read "Fixed: validate release headings within their day", a release-notes checker change. Release and changelog tooling is internal work.',
+      props: { surface: "card", data: releaseToolingData, span: releaseTooling },
+    },
+    "card-release-tooling-host": {
+      note: "The same update before its notes load: the host's one summary line.",
+      props: { surface: "card", data: releaseToolingData },
     },
     "card-maintenance": {
       note: "An update whose builds hold only internal work (CI, autofixes): Maintenance and fixes, no count.",

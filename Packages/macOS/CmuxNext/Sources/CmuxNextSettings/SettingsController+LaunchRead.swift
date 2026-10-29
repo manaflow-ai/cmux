@@ -12,6 +12,8 @@ extension SettingsController {
         /// Why first launch could not make the file (`CmuxConfigFile.prepareDefaultURL`), so the read
         /// used the default path; nil when it was made or already existed.
         public let bootstrapFailure: String?
+        /// The build's fill for keys no layer sets (``SettingsBuildDefaults``); the controller keeps it.
+        let buildDefaults: SettingsBuildDefaults
         public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
     }
 
@@ -28,13 +30,15 @@ extension SettingsController {
     ///   - prepareFileURL: Makes the settings file on first launch and returns its URL; runs on the lane.
     ///   - fallbackURL: The file read when `prepareFileURL` throws.
     ///   - managedReader: The managed (MDM) preferences; read on the lane.
+    ///   - buildDefaults: The build's fill for keys no layer sets (the update channel's download default).
     /// - Returns: The read in flight; ``PendingLaunchRead/whenRead(on:_:)`` hands it to the steps that need it.
     public static func startLaunchRead(
         on work: BackgroundWork,
         in sequence: WorkSequence? = nil,
         prepareFileURL: @escaping @Sendable () throws -> URL = { try CmuxConfigFile.prepareDefaultURL() },
         fallbackURL: @escaping @Sendable () -> URL = { CmuxConfigFile.defaultURL() },
-        managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader()
+        managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
+        buildDefaults: SettingsBuildDefaults = .none
     ) -> PendingLaunchRead {
         let valid = validValues
         let read: @Sendable () -> LaunchRead = {
@@ -44,14 +48,14 @@ extension SettingsController {
             if case .failure(let error) = prepared { failure = String(describing: error) }
             let source = Result { try CmuxConfigFile.source(at: fileURL) }
             let loaded = SettingsController.loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: valid,
-                                                   configDirectory: fileURL.deletingLastPathComponent())
-            return LaunchRead(loaded: loaded, fileURL: fileURL, bootstrapFailure: failure)
+                                                   configDirectory: fileURL.deletingLastPathComponent(), buildDefaults: buildDefaults)
+            return LaunchRead(loaded: loaded, fileURL: fileURL, bootstrapFailure: failure, buildDefaults: buildDefaults)
         }
         let pending = sequence.map { CmuxNextWakeups.LaunchRead(in: $0, read) } ?? CmuxNextWakeups.LaunchRead(on: work, read)
         return PendingLaunchRead(work: work, read: pending)
     }
 
-    /// The settings launch read in flight (``startLaunchRead(on:in:prepareFileURL:fallbackURL:managedReader:)``).
+    /// The settings launch read in flight (``startLaunchRead(on:in:prepareFileURL:fallbackURL:managedReader:buildDefaults:)``).
     ///
     /// The launch steps that need it run in a continuation on its completion: never a wait on the main
     /// thread, and never a frame in the defaults first (a value-or-nil take has no correct default).

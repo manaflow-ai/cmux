@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextControl
+import CmuxNextCrashReporting
 import Foundation
 import os
 import CmuxNextCompatAppKit
@@ -40,6 +42,8 @@ final class CrashRecoveryService {
     private let work: BackgroundWork
     /// The app's main-thread scheduler, where those reads reply.
     private let mainWork: MainWorkScheduler
+    /// Keeps this run's `CrashContext` in the run marker; nil without a marker.
+    private(set) var contextRecorder: CrashContextRecorder?
 
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
 
@@ -59,14 +63,15 @@ final class CrashRecoveryService {
         if let runMarker, runMarker.value == nil {
             Logger(subsystem: "com.cmuxterm.app.next", category: "crash").fault("run marker launch read had not ended: this run is not marked")
         }
-        marker = runMarker?.value.map { AppRunMarker(launch: $0) }
-        if marker != nil, let crashKeys { CrashReporter.attachCrashKeys(crashKeys) }
         writer = CrashReportWriter.standard(bundleID: bundleID)
+        // This run's marker keeps the build, so a crash report of this run names the build that crashed.
+        marker = runMarker?.value.map { AppRunMarker(launch: $0, build: (writer.version, Bundle.main.infoDictionary?["CMUXCommit"] as? String)) }
+        if marker != nil, let crashKeys { CrashReporter.attachCrashKeys(crashKeys) }
         self.bundleID = bundleID
         self.work = work
         self.mainWork = mainWork
         if let previous = marker?.recovery.previous {
-            logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.skipsBrowserPages)")
+            logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.isSafeRestart) held_pages=\(self.recovery.crashedPages.count)")
             // The DiagnosticReports listing runs on the files lane (the crash keys came with the marker's launch
             // read); nobody waits on it, so the reply is background work (Chrome's PostTaskAndReply,
             // base/task/task_runner.h).
@@ -156,12 +161,22 @@ final class CrashRecoveryService {
     /// The crash log's process type of the Chromium Host (`CEFRuntime.hostEnded`).
     nonisolated static let hostProcessType = "chromium-host"
 
+    /// Records what this run is doing on every action run (`CrashContextRecorder`), for the next
+    /// launch's crash report. Does nothing without a run marker (tests).
+    func recordContext<Run: Sendable>(on runs: AsyncStream<Run>, snapshot: @escaping CrashContextRecorder.Snapshot) {
+        guard let marker, contextRecorder == nil else { return }
+        let recorder = CrashContextRecorder(snapshot: snapshot) { [weak marker] in marker?.record(context: $0) }
+        recorder.start(runs)
+        recorder.record()
+        contextRecorder = recorder
+    }
+
     /// Shows "cmux restarted after a problem" once per launch, on the first
     /// window presented after a restart.
     func showRestartNotice(on window: NSWindow?) {
         guard recovery.isRestart, !noticeShown, let window else { return }
         noticeShown = true
-        var text = recovery.skipsBrowserPages ? CrashStrings.restartNoticeSafe : CrashStrings.restartNotice
+        var text = CrashStrings.restartNotice
         if let previous = recovery.previous, let cause = CrashIssueReport.cause(of: previous) {
             text += " " + CrashStrings.cause(cause.count > 80 ? String(cause.prefix(79)) + "…" : cause)
         }
@@ -194,16 +209,38 @@ final class CrashRecoveryService {
 
     /// The notice's Report button: the previous crash as a prefilled GitHub
     /// issue in the default browser. The user reads it and sends it, or not.
-    @discardableResult
-    func reportCrash() -> URL? {
-        guard let previous = recovery.previous,
-              let url = CrashIssueReport(previous: previous, version: writer.version, bundleID: writer.bundleID,
-                                         crashKeys: previousCrashKeys).url else { return nil }
+    /// macOS's report is read and symbolicated off the main thread.
+    func reportCrash() {
+        guard let previous = recovery.previous else { return }
+        let writer = writer
+        let found = previousCrashLog, crashKeys = previousCrashKeys
         let logger = logger
-        NSWorkspace.shared.openInBackground(url) { opened in
-            if !opened { logger.error("crash report page did not open") }
+        Task.detached(priority: .userInitiated) {  // task-owner: one-shot report; nothing to cancel
+            let url = CrashRecoveryService.issueReport(previous: previous, writer: writer, systemLog: found, crashKeys: crashKeys).url
+            await MainActor.run {
+                guard let url else { return logger.error("crash report page has no URL") }
+                NSWorkspace.shared.openInBackground(url) { opened in
+                    if !opened { logger.error("crash report page did not open") }
+                }
+            }
         }
-        return url
+    }
+
+    /// The Report button's issue: `previous` with macOS's report of it (`systemLog`, else the
+    /// newest one written after its launch) and this build's commit. Reads files; call off main.
+    nonisolated static func issueReport(previous: PreviousRun, writer: CrashReportWriter, systemLog: URL?, crashKeys: CrashKeys? = nil,
+                                        info: [String: Any] = Bundle.main.infoDictionary ?? [:]) -> CrashIssueReport {
+        let log = systemLog ?? systemCrashLog(after: previous.launched)
+        let system = log.flatMap { try? Data(blockingContentsOf: $0) }.flatMap(SystemCrashReport.init(data:))
+        let symbolicator = StackSymbolicator()
+        // The crashed build, not this one: an update may have installed since. A marker from before
+        // these fields names it through macOS's report; this build's commit only when that is this build.
+        let running = info["CMUXCommit"] as? String
+        let version = previous.version ?? system?.version ?? writer.version
+        let commit = previous.commit ?? (version == writer.version ? running : nil)
+        return CrashIssueReport(previous: previous, version: version, bundleID: writer.bundleID, crashKeys: crashKeys,
+                                commit: commit, system: system, systemReportName: log?.lastPathComponent,
+                                executableFunction: { symbolicator.executableFunction(uuid: $0, imageOffset: $1, returnAddress: $2) })
     }
 
     nonisolated static var systemLogsFolder: URL {
@@ -221,6 +258,7 @@ final class CrashRecoveryService {
 
     /// A normal quit.
     func applicationWillTerminate() {
+        contextRecorder?.stop()
         for observer in [crashObserver, helperExitObserver].compactMap({ $0 }) { crashLog?.removeObserver(observer) }
         marker?.markCleanExit()
     }
@@ -237,7 +275,7 @@ final class CrashRecoveryService {
             "lived_past_quick_window": previous.survived,
             "bundle_id": writer.bundleID,
             "version": writer.version,
-            "browser_pages_restored": !recovery.skipsBrowserPages,
+            "browser_pages_held": recovery.crashedPages.count,
         ]
         if let signal = previous.signal {
             object["signal"] = Int(signal)

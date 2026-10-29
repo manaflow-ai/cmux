@@ -23,6 +23,9 @@ import { orderedSessions } from "../src/agent-session/acpmux/inspector/ChildSess
 import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/inspector/processes";
 import type { SessionSummary, SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { SubagentStatusList } from "../src/agent-session/acpmux/summary/SubagentStatusList";
+import { SummaryCard } from "../src/agent-session/acpmux/summary/SummaryCard";
+import type { SummaryCardControl } from "../src/agent-session/acpmux/summary/cardState";
+import type { WorkflowSummary } from "../src/agent-session/acpmux/summary/workflow";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
 import { WorkflowSummaryRow } from "../src/agent-session/acpmux/summary/WorkflowSummary";
 
@@ -44,6 +47,10 @@ function installDom(): HTMLElement {
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     MutationObserver: dom.window.MutationObserver,
+    ResizeObserver: class {
+      observe() {}
+      disconnect() {}
+    },
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
@@ -305,4 +312,79 @@ test("the running turn's line counts the started chats that run", () => {
     </WorkingCountsContext.Provider>,
   );
   expect(text(html)).toBe("Working for 26s · 3 subagents · 2 commands");
+});
+
+const visibleCard: SummaryCardControl = {
+  shown: true,
+  column: true,
+  reserve: false,
+  collapsed: false,
+  toggle: () => undefined,
+  show: () => undefined,
+  close: () => undefined,
+  fold: () => undefined,
+};
+const noSubagents = { views: undefined, current: undefined, asks: new Set<string>(), onOpen: () => undefined };
+
+test("the default summary reveals its existing child list instead of an empty tab", async () => {
+  const container = installDom();
+  const scrolled: Element[] = [];
+  dom!.window.HTMLElement.prototype.scrollIntoView = function () {
+    scrolled.push(this);
+  };
+  const opened: string[] = [];
+  await render(
+    container,
+    <SummaryCard
+      card={visibleCard}
+      rows={[]}
+      subagents={noSubagents}
+      sessions={{ list: [child("started", "Started child", "running", 0)], onOpen: (id) => opened.push(id) }}
+      subsessions={{
+        rows: [{ sessionId: "sub", name: "Sub-session", state: "working", depth: 0 }],
+        onOpen: (id) => opened.push(id),
+      }}
+    />,
+  );
+  const detail = container.querySelector<HTMLElement>(".acpmux-summary-agents")!;
+  const before = [...detail.querySelectorAll("button")];
+  const compact = container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-agent-summary")!;
+  expect(compact.disabled).toBe(false);
+  expect(compact.querySelectorAll(".acpmux-summary-avatar")).toHaveLength(2);
+  await act(async () => compact.click());
+  expect(scrolled.includes(detail)).toBe(true);
+  expect(container.querySelector(".acpmux-summary-agents") === detail).toBe(true);
+  expect([...detail.querySelectorAll("button")].every((button, i) => button === before[i])).toBe(true);
+  expect(container.querySelector(".acpmux-summary-tabs")).toBeNull();
+  expect(detail.contains(document.activeElement)).toBe(true);
+  expect(opened).toEqual([]);
+  await act(async () => (document.activeElement as HTMLButtonElement).click());
+  expect(opened).toEqual(["sub"]);
+});
+
+test("workflow-only compact summary opens the existing workflow with Inspector off", async () => {
+  const container = installDom();
+  const scrolled: Element[] = [];
+  dom!.window.HTMLElement.prototype.scrollIntoView = function () {
+    scrolled.push(this);
+  };
+  const workflow: WorkflowSummary = {
+    id: "workflow-only",
+    title: "Workflow only",
+    state: "running",
+    phases: [{ id: "phase", name: "Implementation", state: "running", agentIds: ["worker"] }],
+    agents: [{ id: "worker", name: "Worker", state: "running" }],
+  };
+  await render(container, <SummaryCard card={visibleCard} rows={[]} subagents={noSubagents} workflows={[workflow]} />);
+  const compact = container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-agent-summary")!;
+  const detail = container.querySelector<HTMLButtonElement>(".acpmux-workflow__row")!;
+  expect(compact.disabled).toBe(false);
+  expect(compact.querySelectorAll(".acpmux-summary-avatar")).toHaveLength(1);
+  expect(detail.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => compact.click());
+  expect(detail.getAttribute("aria-expanded")).toBe("true");
+  expect(scrolled.includes(detail.closest(".acpmux-workflow")!)).toBe(true);
+  expect(document.activeElement === detail).toBe(true);
+  await act(async () => compact.click());
+  expect(detail.getAttribute("aria-expanded")).toBe("true");
 });

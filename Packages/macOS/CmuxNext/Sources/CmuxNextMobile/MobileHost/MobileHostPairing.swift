@@ -25,15 +25,22 @@ public struct MobileHostPairing: Sendable, Equatable {
         case known
         /// The test seed trusts the phone: the list now trusts it.
         case seeded
+        /// The request carried this Mac's live pairing code (``MobileHostPairTokens``): the list now
+        /// trusts the phone, and its earlier waiting request (from before it scanned) is gone.
+        case redeemed
         /// The request went to the prompts, with this outcome.
         case prompted(MobileHostPairPrompts.Outcome)
     }
 
     /// Phone `request` asks to pair. `seedTrusts` (the DEBUG test seed) is read only for a request the
-    /// list does not decide, and pairs only into the signed-in user's own list.
+    /// list does not decide, and pairs only into the signed-in user's own list. `redeems` is asked next,
+    /// with the list's user: true when the request carries this Mac's live pairing code for that list
+    /// (it burns the code); the phone is then allowed once, in place of the person's Allow. A request
+    /// that waits for the person never keeps its code.
     public mutating func ask(
         _ request: MobileHostPairRequest, allowed: Bool, userID: String?, at now: Date,
-        seedTrusts: (MobileHostPairRequest) -> Bool
+        seedTrusts: (MobileHostPairRequest) -> Bool,
+        redeems: (MobileHostPairRequest, _ listUserID: String) -> Bool = { _, _ in false }
     ) -> Ask {
         guard allowed, var list = paired else { return .ignored }
         guard list.decision(for: request) == .ask else { return .known }
@@ -42,7 +49,17 @@ public struct MobileHostPairing: Sendable, Equatable {
             paired = list
             return .seeded
         }
-        return .prompted(prompts.receive(request, at: now))
+        var waiting = request
+        waiting.pairToken = nil
+        if request.pairToken != nil, redeems(request, list.userID) {
+            list.approve(waiting, at: now)
+            paired = list
+            // An earlier request from this phone is answered: its prompt closes, so a stale Allow
+            // cannot overwrite the keys just approved.
+            prompts.forget(id: request.phoneDeviceID)
+            return .redeemed
+        }
+        return .prompted(prompts.receive(waiting, at: now))
     }
 
     /// The person answered `request` (in its prompt or in Settings). Its prompt goes, Don't Allow quiets

@@ -62,7 +62,9 @@ struct FirstLaunchTests {
         let session = "cn-first-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(
             work: BackgroundWork(label: "test.daemon-launcher"),
-            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
+            // The owner ends with this test process, also when it crashes before the shutdown below.
+            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state"),
+                                 exitWithProcess: ProcessInfo.processInfo.processIdentifier),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))

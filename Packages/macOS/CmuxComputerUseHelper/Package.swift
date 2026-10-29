@@ -49,6 +49,11 @@ let package = Package(
             swiftSettings: swiftSettings
         ),
         .testTarget(
+            name: "CmuxCuaHelperPermissionTests",
+            dependencies: ["CmuxCuaHelperCore"],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
             name: "CmuxCuaHelperProcessTests",
             // Process-level only: the executable is a dependency so `swift
             // test` builds it, and the test drives it over its control pipe

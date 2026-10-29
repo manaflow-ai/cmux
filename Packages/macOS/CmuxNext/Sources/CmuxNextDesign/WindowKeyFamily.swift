@@ -26,6 +26,8 @@ final class WindowKeyFamily {
     private lazy var events = environment.events ?? AppEvents(center: .default)
     /// The keyboard left the window's family after the family held it.
     private(set) var isInactive = false
+    /// The last flip eased the wash (no key window in an active app) and the keys have not settled since.
+    private var easing = false
     /// The window's family has held the keyboard since the tracker started.
     private var familyHeldKey = false
     /// A deferred check is scheduled and has not run: later notices in the same turn need no
@@ -152,10 +154,24 @@ final class WindowKeyFamily {
         let inactive = WindowMaterialView.looksInactive(appActive: active, familyHoldsKey: holds,
                                                         familyHeldKey: familyHeldKey)
         if active, holds { familyHeldKey = true }
-        guard inactive != isInactive else { return }
+        let settled = !active || key != nil
+        guard inactive != isInactive else {
+            // A wash easing from an unsettled check lands now that the keys settled.
+            if easing, settled {
+                easing = false
+                forEachView { $0.updateInactiveTint(fades: false) }
+            }
+            return
+        }
         let activation = pending.map { beginActivation($0) }
         isInactive = inactive
-        forEachView { $0.updateInactiveTint() }
+        easing = !settled
+        // Settled (another app is active, or a window holds the keys): no fade, so the wash
+        // switches with the glass and the window chrome in this pass's transaction
+        // (``WindowMaterialView/updateInactiveTint(fades:)``). An active app with no key
+        // window may be between a resign and a become that a later pass posts: the wash
+        // eases then, so a reversal one pass later does not flash.
+        forEachView { $0.updateInactiveTint(fades: !settled) }
         if let activation {
             let signposter = environment.switchSignposter
             environment.afterCommit { outcome in signposter.end(.switchAppActivation, activation, outcome) }

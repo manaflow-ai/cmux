@@ -608,8 +608,6 @@ pub fn serve_bound(mux: Arc<Mux>, bound: BoundSocket) -> anyhow::Result<PendingS
 
 /// Bind the socket and serve connections on background threads.
 pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
-    // Key-press flow marks start here, before the first request (`CMUX_TRACE_FLOWS`).
-    cmux_flow_trace::init();
     serve_paused(mux, path)?.mark_ready()
 }
 

@@ -16,27 +16,47 @@ public final class MacScreenShareHost {
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
     @ObservationIgnored private var activation: EventSubscription?
-    /// Permission checks; tests replace them.
-    @ObservationIgnored public var checkScreenRecording: () -> Bool = { CGPreflightScreenCaptureAccess() }
-    @ObservationIgnored public var checkAccessibility: () -> Bool = { AXIsProcessTrusted() }
+    /// Permission checks; tests replace them. Each is a synchronous TCC query (an IPC to tccd: Screen
+    /// Recording waits on TCC's serial `com.apple.tcc.preflight.kTCCServiceScreenCapture` queue), so they
+    /// run on the system lane, never on the main thread.
+    @ObservationIgnored public var checkScreenRecording: @Sendable () -> Bool = { CGPreflightScreenCaptureAccess() }
+    @ObservationIgnored public var checkAccessibility: @Sendable () -> Bool = { AXIsProcessTrusted() }
+    @ObservationIgnored private let work: BackgroundWork
+    /// The number of reads started; a read applies its answer only when no later read has started.
+    @ObservationIgnored private var reads: UInt64 = 0
 
-    public init() {}
+    /// - Parameter work: the app's blocking-work lanes; the permission checks run on its system lane.
+    public init(work: BackgroundWork) {
+        self.work = work
+    }
 
     /// At launch: reads the permissions and rechecks them whenever the app becomes active, on the
     /// app's one activation observer (`events`; Chromium's app controller observes NSApp once,
     /// chrome/browser/app_controller_mac.mm). No node: a permission granted in System Settings
-    /// counts whether or not a Mac Screen tab shows.
+    /// counts whether or not a Mac Screen tab shows. Each read runs on the system lane (``refreshPermissions()``).
     public func activate(events: AppEvents) {
-        refreshPermissions()
+        // task-owner: one permission read; a later read supersedes its answer
+        Task { await refreshPermissions() }
         guard activation == nil else { return }
         activation = events.subscribe(NSApplication.didBecomeActiveNotification, owner: "MacScreenShareHost.activation") { [weak self] in
-            self?.refreshPermissions()
+            guard let self else { return }
+            // task-owner: one permission read; a later read supersedes its answer
+            Task { await self.refreshPermissions() }
         }
     }
 
-    public func refreshPermissions() {
-        screenRecordingGranted = checkScreenRecording()
-        accessibilityGranted = checkAccessibility()
+    /// Reads both permissions off the main thread and shows them. When reads overlap, the last one
+    /// started decides (an older answer that arrives later is dropped). A failed read (cancelled, or the
+    /// app is quitting) changes nothing.
+    public func refreshPermissions() async {
+        reads &+= 1
+        let read = reads
+        let screenRecording = checkScreenRecording, accessibility = checkAccessibility
+        // Shown on the Mac Screen page and in Settings soon: userVisible.
+        guard let granted = try? await work.run(.userVisible, mayBlock: .system, { (screenRecording(), accessibility()) }),
+              read == reads else { return }
+        screenRecordingGranted = granted.0
+        accessibilityGranted = granted.1
     }
 
     public func requestScreenRecording() {

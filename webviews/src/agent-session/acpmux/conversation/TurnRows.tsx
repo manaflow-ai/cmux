@@ -9,6 +9,7 @@ import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
+import { AcpmuxSendLine } from "./SentMessageLine";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -18,6 +19,7 @@ import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
+import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
@@ -38,6 +40,14 @@ import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
+/// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
+function WorkedLabel({ row }: { row: AcpmuxRow }) {
+  const t = useT();
+  if (row.previous !== undefined || row.durationMs === undefined) return workedLabel(t, row);
+  const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
+  return <TimedLabel text={(time) => t(key, { time })} time={row.durationMs} />;
+}
+
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
 export function WorkedFor({
   row,
@@ -50,7 +60,6 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
-  const t = useT();
   return (
     <button
       type="button"
@@ -59,7 +68,17 @@ export function WorkedFor({
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
     >
-      <span className="cv-worked__label">{workedLabel(t, row)}</span>
+      <span className="cv-worked__label">
+        <WorkedLabel row={row} />
+      </span>
+      {hasTokens(row.tokens) && (
+        <span className="cv-worked__count">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          <TurnTokens split={row.tokens} />
+        </span>
+      )}
       <ChevronRight
         size={14}
         strokeWidth={1.2}
@@ -114,6 +133,8 @@ function groupNode(
       );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
+    case "send":
+      return <AcpmuxSendLine key={group.item.tool!.id || index} tool={group.item.tool!} send={group.send} />;
     case "subsession":
       return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
@@ -198,7 +219,8 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 /// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
 function staysInSight(group: ToolGroup): boolean {
-  if (group.type === "message" || group.type === "subsession" || group.type === "dispatch") return true;
+  if (group.type === "message" || group.type === "send" || group.type === "subsession" || group.type === "dispatch")
+    return true;
   // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
   // stays in sight all the same.
   return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
@@ -254,8 +276,18 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, resume, route, switchModel } =
-    useContext(TurnActionsContext);
+  const {
+    fork,
+    forkSeq,
+    forkAny,
+    retry,
+    retryWith,
+    reauthenticate,
+    transferCloudCredentials,
+    resume,
+    route,
+    switchModel,
+  } = useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
   const seq = row.seq;
@@ -297,7 +329,19 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 : "cv-turn-actions"
         }
       >
-        {label && <span className="cv-turn-summary">{label}</span>}
+        {label && (
+          <span className="cv-turn-summary">
+            {label}
+            {hasTokens(row.tokens) && (
+              <>
+                <span className="cv-worked__sep" aria-hidden="true">
+                  {" · "}
+                </span>
+                <TurnTokens split={row.tokens} />
+              </>
+            )}
+          </span>
+        )}
         {resumable && (
           <button
             type="button"
@@ -340,6 +384,17 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           {authenticationFailed && reauthenticate && (
             <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
               {t("turn.signInAgain")}
+            </button>
+          )}
+          {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
+            <button
+              type="button"
+              className="cv-turn-auth-action"
+              onClick={() => {
+                void transferCloudCredentials(row.retryRowId!, prompt).catch(() => undefined);
+              }}
+            >
+              {t("turn.transferCredentials", { harness: route?.name || route?.harness || t("turn.failure.theAgent") })}
             </button>
           )}
         </span>

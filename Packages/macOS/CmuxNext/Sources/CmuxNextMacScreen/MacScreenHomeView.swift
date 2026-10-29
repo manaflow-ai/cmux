@@ -132,7 +132,7 @@ final class MacScreenHomeView: MacScreenThemedView {
             return
         }
         // The page appears: read the permissions again (granted in System Settings meanwhile).
-        host.refreshPermissions()
+        Task { [host] in await host.refreshPermissions() }
         systemShortcuts?.refreshAccessibility()
         readPermissions(shown?.deviceIDs ?? [])
     }
@@ -145,7 +145,7 @@ final class MacScreenHomeView: MacScreenThemedView {
         let hadSharing = shown?.sharing != nil
         shown = snapshot
         build(snapshot)
-        if snapshot.sharing != nil, !hadSharing, window != nil { host.refreshPermissions() }
+        if snapshot.sharing != nil, !hadSharing, window != nil { Task { [host] in await host.refreshPermissions() } }
         readPermissions(snapshot.deviceIDs)
     }
 

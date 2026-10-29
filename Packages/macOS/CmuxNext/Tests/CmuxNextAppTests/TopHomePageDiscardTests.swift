@@ -110,7 +110,7 @@ import Testing
         let chosen = ConversationID(Self.conversations[7])
 
         let page = TopHomePageView(services: services, windowKey: { "top-home-discard" })
-        let defaultID = try #require(page.defaultConversation(rows: page.rows, home: services.home), "the test lists no default conversation")
+        let defaultID = try #require(TopHomePageView.defaultConversation(rows: page.rows, home: services.home), "the test lists no default conversation")
         try #require(defaultID != chosen, "the restored conversation is the default one")
         #expect(page.host == nil, "the page's build made a transcript before its record was restored")
         window.contentView = page

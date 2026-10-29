@@ -29,6 +29,30 @@ use std::future::Future;
 pub(crate) trait ToolRequests: Sync {
     fn request(&self, m: &'static str, params: Value)
     -> impl Future<Output = Result<Value>> + Send;
+
+    /// Whether the daemon these requests reach lists `feature` (`attach.rs` checks uploads by
+    /// reference). The daemon's own router is this build, which lists every feature it has.
+    fn lists(&self, _feature: &str) -> bool {
+        true
+    }
+
+    /// That daemon's build, for a refusal's text; none when it is this process.
+    fn build(&self) -> Option<String> {
+        None
+    }
+
+    /// Whether the connection to that daemon closed (no retry can pass); never for its own router.
+    fn is_closed(&self) -> bool {
+        false
+    }
+
+    /// Whether this process may read the files a tool call names for the agent. A stdio server
+    /// runs as the agent's own process, inside its sandbox, so it reads only what the agent can.
+    /// The daemon's own router runs outside every agent's sandbox: it must never read a path an
+    /// agent names, or a sandboxed agent could send a file it cannot read itself.
+    fn reads_agent_files(&self) -> bool {
+        false
+    }
 }
 
 impl ToolRequests for Client {
@@ -38,6 +62,22 @@ impl ToolRequests for Client {
         params: Value,
     ) -> impl Future<Output = Result<Value>> + Send {
         Client::request(self, m, params)
+    }
+
+    fn lists(&self, feature: &str) -> bool {
+        self.daemon_lists(feature)
+    }
+
+    fn build(&self) -> Option<String> {
+        self.daemon_build()
+    }
+
+    fn is_closed(&self) -> bool {
+        Client::is_closed(self)
+    }
+
+    fn reads_agent_files(&self) -> bool {
+        true
     }
 }
 
@@ -205,7 +245,7 @@ fn tools() -> Value {
                     "harness": {"type": "string", "description": "The agent to run it, e.g. claude or codex. Default: the same agent as yours."},
                     "model": {"type": "string", "description": "The model. Default: the agent's default."},
                     "cwd": {"type": "string", "description": "The folder it works in, as an absolute path. Default: yours. A folder the user has not trusted makes the call wait on a Trust / Not now card in your chat; Not now refuses it (do not ask again)."},
-                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `acpmux new --host auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. With no room the start is refused and says why; with room the result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\". \"auto-build\" checks the same for a build or a test run, which only a build machine takes. Default: this machine, unchecked."},
+                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `acpmux new --host auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. The result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\"; with no room it starts all the same and the placed line says it is past its room (load and lane limits only warn). \"auto-build\" checks the same for a build or a test run, which only a build machine takes: on a machine that takes no builds the start is refused and says why. Default: this machine, unchecked."},
                     "worktree": {"type": "boolean", "description": "Work in a new git worktree of that folder's repository (~/.cmux/worktrees/<project>/<name>, branch cmux/<name>), so its edits stay apart from yours until the user applies them. It starts in the same subfolder of the worktree as that folder. Its files are checked out as committed, without running the repository's hooks or filters (a Git LFS file stays its pointer)."}
                 },
                 "required": ["prompt"]
@@ -243,14 +283,15 @@ fn tools() -> Value {
         },
         {
             "name": "send_message",
-            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working session it queues behind the running turn by default, and the result says where it waits. deliver: next_step puts it into the running turn instead, read at the agent's next tool step (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which); interrupt stops the turn first. A message to your parent always waits for its turn to end. The receiver's chat shows it came from you.",
+            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working session it goes into the running turn by default, read at the agent's next tool step; it never cancels the tool call the agent runs (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which, and where it waits). deliver: after_turn queues it behind the running turn instead; interrupt stops the turn first (never your parent's). The receiver's chat shows it came from you.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "sessionId": {"type": "string"},
                     "text": {"type": "string"},
-                    "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "after_turn (default): queued behind the running turn. next_step: into the running turn, read at its next tool step (use it when the receiver must change course now). interrupt: stop the running turn, then run this."},
-                    "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."}
+                    "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "next_step (default): into the running turn, read at its next tool step. after_turn: queued behind the running turn, read when it ends. interrupt: stop the running turn, then run this (not to your parent)."},
+                    "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."},
+                    "attachments": {"type": "array", "items": {"type": "string"}, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log, a video), of any size and number: an image reaches the receiver as an image, any other file (and an image too large to show) as a link to its saved copy."}
                 },
                 "required": ["sessionId", "text"]
             }
@@ -265,6 +306,18 @@ fn tools() -> Value {
                     "close": {"type": "boolean"}
                 },
                 "required": ["sessionId"]
+            }
+        },
+        {
+            "name": "retry_session",
+            "description": "Retry a sub-session's failed last turn now, in the same session, taking over a retry that waits after a transient error (a 503, an overload, a dropped connection): its failed prompt is sent again, or a continuation when the turn had already done some work. With subagent, resume that failed subagent of the sub-session instead: a waiting automatic retry fires now, or its agent is told to resume it with SendMessage. Refused while a turn runs or is about to start (retry.busy, never queued for a subagent), when nothing failed or the subagent can no longer be retried (retry.nothing_failed, data.why says why: resumed, replaced, ended, skipped, ...), for a subagent it does not have (retry.unknown_subagent), or when it asks less than you (subsessions.receiver_asks_less). Returns the retry's promptId and kind (turn or subagent); use wait_for_sessions to read the result.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": {"type": "string", "description": "The sub-session's sessionId."},
+                    "subagent": {"type": "string", "description": "One of its failed subagents (an Agent-tool subagent that failed on a transient error), by id or agent id: its agent is told to resume it now with SendMessage, instead of retrying the turn. Refused with retry.nothing_failed when it is not failed or cannot be retried, retry.unknown_subagent when there is no such subagent."}
+                },
+                "required": ["session"]
             }
         },
         {
@@ -354,9 +407,9 @@ fn sent_text(r: &Value) -> String {
         }
         "queued" => {
             let sooner = if r["steering"].as_bool().unwrap_or(false) {
-                "To reach it sooner send with deliver: next_step, or interrupt to stop the turn."
+                "To reach it sooner send without deliver (it goes into the running turn at its next tool step)."
             } else {
-                "Its agent takes no message mid-turn; interrupt stops the turn to reach it sooner."
+                "Its agent takes no message mid-turn, so it waits for the turn to end."
             };
             format!(
                 "Queued behind its running turn (position {}, {queue} queued): it reads it when that turn ends. {sooner}",
@@ -365,6 +418,59 @@ fn sent_text(r: &Value) -> String {
         }
         _ => "Sent: it started a turn with it.".to_owned(),
     }
+}
+
+/// `send_message`'s `attachments` (absolute paths) as the files' blocks (`attach.rs`): this server
+/// reads them, as the agent's own user on its own machine, and uploads to the receiver through
+/// `daemon` the ones that go by reference.
+async fn with_attachments<D: ToolRequests>(daemon: &D, mut args: Value) -> Result<Value> {
+    let Some(paths) = args.get("attachments").filter(|v| !v.is_null()) else { return Ok(args) };
+    let paths: Vec<std::path::PathBuf> = paths
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("attachments must be a list of file paths"))?
+        .iter()
+        .map(|p| p.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()))
+        .collect::<Option<_>>()
+        .ok_or_else(|| anyhow::anyhow!("each attachment is an absolute file path"))?;
+    // No files: a text message, as without the field.
+    if paths.is_empty() {
+        return Ok(args);
+    }
+    anyhow::ensure!(
+        daemon.reads_agent_files(),
+        "attachments need the agent's own sub-session tool server (the daemon does not read files for an agent); \
+         send the text alone, or put the file's contents in it"
+    );
+    let session = args.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+    // The daemon says first whether this agent may send files (not while a remote device drives
+    // it), so no file is read for a send it would refuse. With no text, an older daemon refuses
+    // the check rather than sending anything.
+    let check = json!({"sessionId": session, "text": "", "attachCheck": true});
+    daemon.request(method::MUX_SUBSESSION_SEND, check).await?;
+    let text = args.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let blocks = crate::attach::blocks_for(daemon, &session, &text, &paths, &|line| {
+        tracing::info!(session = %session, "{line}");
+    })
+    .await?;
+    args["attachments"] = Value::Array(blocks);
+    Ok(args)
+}
+
+/// `retry_session`'s `{session, subagent?}` (`sessionId` taken too) as the daemon's params.
+fn retry_params(args: &Value) -> Value {
+    let session = args.get("session").or_else(|| args.get("sessionId"));
+    let mut params = json!({"sessionId": session.cloned().unwrap_or(Value::Null)});
+    if let Some(subagent) = args.get("subagent").filter(|v| !v.is_null()) {
+        params["subagentId"] = subagent.clone();
+    }
+    params
+}
+
+/// `retry_session`'s one line.
+fn retried_text(r: &Value) -> String {
+    let prompt = r["promptId"].as_str().unwrap_or_default();
+    let turn = r["turnId"].as_str().map(|t| format!(" started turn {t}")).unwrap_or_default();
+    format!("Retrying: prompt {prompt}{turn}. Use wait_for_sessions to get its result.")
 }
 
 /// A daemon refusal as the agent reads it: the daemon's message is the advice.
@@ -391,12 +497,19 @@ async fn call<D: ToolRequests>(daemon: &D, params: &Value) -> Value {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
         },
-        "send_message" => match request(method::MUX_SUBSESSION_SEND, args).await {
-            Ok(r) => ok(sent_text(&r), r),
+        "send_message" => match with_attachments(daemon, args).await {
+            Ok(args) => match request(method::MUX_SUBSESSION_SEND, args).await {
+                Ok(r) => ok(sent_text(&r), r),
+                Err(e) => refusal(e),
+            },
             Err(e) => refusal(e),
         },
         "stop_session" => match request(method::MUX_SUBSESSION_STOP, args).await {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
+            Err(e) => refusal(e),
+        },
+        "retry_session" => match request(method::MUX_SUBSESSION_RETRY, retry_params(&args)).await {
+            Ok(r) => ok(retried_text(&r), r),
             Err(e) => refusal(e),
         },
         "answer_question" => match request(method::MUX_SUBSESSION_ANSWER, args).await {
@@ -518,6 +631,58 @@ mod tests {
         for tools in DaemonTools::ALL {
             assert_eq!(DaemonTools::from_server_name(tools.server_name()), Some(tools));
         }
+    }
+
+    /// The daemon's own tools router runs outside every agent's sandbox: `send_message` with
+    /// attachments is refused there before any request or file read, so a sandboxed agent can never
+    /// have the daemon read a file for it. A text-only send goes through.
+    #[tokio::test]
+    async fn the_in_daemon_router_never_reads_an_agents_files() {
+        struct Router(std::sync::Mutex<Vec<&'static str>>);
+        impl ToolRequests for Router {
+            fn request(
+                &self,
+                m: &'static str,
+                _: Value,
+            ) -> impl Future<Output = Result<Value>> + Send {
+                self.0.lock().unwrap().push(m);
+                async { Ok(json!({})) }
+            }
+        }
+        let router = Router(std::sync::Mutex::new(Vec::new()));
+        let refused = with_attachments(
+            &router,
+            json!({"sessionId": "s", "text": "hi", "attachments": ["/etc/hosts"]}),
+        )
+        .await
+        .expect_err("the daemon read an agent's file");
+        assert!(format!("{refused:#}").contains("attachments need"), "{refused:#}");
+        assert!(router.0.lock().unwrap().is_empty(), "a request went out before the refusal");
+        let plain = with_attachments(&router, json!({"sessionId": "s", "text": "hi"}))
+            .await
+            .expect("a text send");
+        assert_eq!(plain["text"], "hi");
+    }
+
+    /// `retry_session` takes the contract's `{session, subagent?}` and sends `_acpmux/subsession/retry`'s
+    /// `{sessionId, subagentId?}`.
+    #[test]
+    fn retry_session_names_the_session_and_maps_its_arguments() {
+        let tools = tools();
+        let retry = tools
+            .as_array()
+            .and_then(|t| t.iter().find(|t| t["name"] == "retry_session"))
+            .expect("retry_session")
+            .clone();
+        assert_eq!(retry["inputSchema"]["required"], json!(["session"]), "{retry}");
+        assert!(retry["inputSchema"]["properties"]["subagent"].is_object(), "{retry}");
+        assert_eq!(
+            retry_params(&json!({"session": "s1", "subagent": "a1"})),
+            json!({"sessionId": "s1", "subagentId": "a1"})
+        );
+        assert_eq!(retry_params(&json!({"sessionId": "s2"})), json!({"sessionId": "s2"}));
+        let text = retried_text(&json!({"promptId": "p~resume-1", "turnId": "t2", "kind": "turn"}));
+        assert!(text.starts_with("Retrying: prompt p~resume-1 started turn t2."), "{text}");
     }
 
     /// `host` documents `auto` and `auto-build`, and a placed start says why

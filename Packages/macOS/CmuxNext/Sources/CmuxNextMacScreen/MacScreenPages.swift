@@ -111,13 +111,14 @@ public final class MacScreenPages {
     ///   - deadlines: The app's one deadline placer; its scheduler is the app's one main-thread
     ///     scheduler (``FrameObservation`` deliveries of the tabs' views and the approval prompt).
     ///   - appEvents: The app's one observer per app notice (quit, activation, key windows).
-    public init(store: MacScreenStore, deadlines: MainDeadlineScheduler, appEvents: AppEvents) {
+    ///   - work: The app's blocking-work lanes (the permission checks run on its system lane).
+    public init(store: MacScreenStore, deadlines: MainDeadlineScheduler, appEvents: AppEvents, work: BackgroundWork) {
         self.store = store
         self.deadlines = deadlines
         self.appEvents = appEvents
         mainWork = deadlines.work
         approval = MacScreenApprovalPrompt(deadlines: deadlines)
-        host = MacScreenShareHost()
+        host = MacScreenShareHost(work: work)
         hubHost = MacScreenHubHost(share: host, mainWork: deadlines.work)
         systemShortcuts = MacScreenSystemShortcuts(host: host, appEvents: appEvents)
         systemShortcuts.panes = { [weak self] in self?.tabs.values.compactMap(\.pane) ?? [] }

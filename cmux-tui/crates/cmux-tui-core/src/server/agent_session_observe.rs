@@ -4,11 +4,14 @@
 //! `agent-session-attach`, but marks the attachment so session mutations are
 //! refused while history and live records remain available.
 
+use std::sync::Arc;
+
 use serde_json::{Map, Value};
 
 use super::{PageParams, Refusal, attach, refuse};
-use crate::server::FrameStage;
+use crate::mux::Mux;
 use crate::server::routes::{Route, RouteLine, RouteName};
+use crate::server::{FrameStage, MessageWriter};
 
 pub const AGENT_SESSION_OBSERVE_CAPABILITY: &str = "agent-session-observe-v1";
 const COMMAND: &str = "agent-session-observe";
@@ -21,23 +24,34 @@ pub(in crate::server) const ROUTES: &[Route] = &[Route {
     entry: handle,
 }];
 
-/// The route's typed handler: the line's `cmd` named the observer command, so
-/// it decodes the line once and answers it. A line whose full decode fails is
-/// left to the `Command` parse (`None`).
+/// The route's typed handler: the observer command goes through the attach
+/// family's front door ([`super::try_handle`]), which checks a teammate's link
+/// (its fixed identity and pinned chat) before it calls [`observe`].
 fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let RouteLine { mux, client, message, writer, .. } = *line;
-    let mut object = crate::line_parses::parse::<Map<String, Value>>(message).ok()?;
-    object.remove("cmd");
+    super::try_handle(mux, client, message, writer)
+}
+
+/// Answers an `agent-session-observe` line, its `cmd` already taken, for the
+/// teammate `author` (and the chat its share `pinned`) or the local owner.
+pub(super) fn observe(
+    mux: &Arc<Mux>,
+    client: u64,
+    mut object: Map<String, Value>,
+    writer: &MessageWriter,
+    author: Option<Value>,
+    pinned: Option<String>,
+) -> bool {
     let id = object.remove("id");
     let Ok(params) = serde_json::from_value::<PageParams>(Value::Object(object)) else {
-        return Some(refuse(writer, id, Refusal::BadRequest));
+        return refuse(writer, id, Refusal::BadRequest);
     };
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
-        return Some(refuse(writer, id, Refusal::NotTrusted));
+        return refuse(writer, id, Refusal::NotTrusted);
     }
     let sessions = &mux.control_clients.agent_sessions;
     let Some(socket) = sessions.socket() else {
-        return Some(refuse(writer, id, Refusal::Unavailable));
+        return refuse(writer, id, Refusal::Unavailable);
     };
-    Some(attach(mux, client, id, socket, params, true, writer))
+    attach(mux, client, id, socket, params, true, author, pinned, writer)
 }

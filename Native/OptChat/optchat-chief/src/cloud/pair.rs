@@ -321,6 +321,9 @@ pub fn pair(
                     file.install.as_deref().unwrap_or("-")
                 );
             }
+            Waited::NetworkPaired { .. } => {
+                return Err("network enrollment requires cmux server pairing".into());
+            }
             Waited::Refused => return Err("the pairing was refused".into()),
             Waited::Expired => {
                 return Err(

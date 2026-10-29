@@ -43,7 +43,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         let colors = themeColors()
         let offered = availability()
         return SettingsSchema.all.filter { $0.isPaletteExposed && offered.isShown($0) }.map { descriptor in
-            let current = pending[descriptor.id].map { $0.value ?? descriptor.defaultValue } ?? descriptor.effectiveValue(in: root)
+            let current = pending[descriptor.id].map { $0.value ?? settings.defaultValue(of: descriptor) } ?? descriptor.effectiveValue(in: root)
             return row(descriptor, current: current, colors: colors, availability: offered)
         }
     }
@@ -136,7 +136,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     private static func customInput(for descriptor: SettingDescriptor) -> PaletteSettingCustomInput? {
         switch descriptor.kind {
         case .toggle, .choice: nil
-        case .hostList, .folderList, .timeRange, .numberList, .stringMap, .stringList, .orderedChoices, .choiceSet: nil
+        case .hostList, .folderList, .timeRange, .numberList, .stringMap, .soundRules, .stringList, .orderedChoices, .choiceSet: nil
         case .color:
             PaletteSettingCustomInput(placeholder: "#RRGGBB") { descriptor.value(typed: $0) != nil }
         case .number(let number), .choiceOrNumber(_, let number):

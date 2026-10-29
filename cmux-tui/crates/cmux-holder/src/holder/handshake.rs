@@ -1,10 +1,10 @@
 //! A daemon's HELLO and the holder's WELCOME: who may link, at which wire
 //! version, with which [`wire::capability`] bits, and what the WELCOME lists.
 
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 
-use super::{Holder, error_code, ring_flag};
+use super::{Holder, Listing, error_code, ring_flag};
 use crate::Listed;
 use crate::wire::{self, In, Kind, Out};
 
@@ -27,15 +27,13 @@ impl Holder {
         Ok((version.min(wire::VERSION), wanted))
     }
 
-    /// WELCOME the new link with every terminal, a master dup of each and,
-    /// for a daemon of [`wire::RING_VERSION`], a dup of its ring segment.
-    /// An older daemon gets no segment: it could hand a layout 2 segment to
-    /// a holder that knows only layout 1. `granted` follows the count (an
-    /// older daemon reads only the count).
-    pub(super) fn welcome(&mut self, version: u16, granted: u32) {
-        let rings = version >= wire::RING_VERSION;
-        let listed: Vec<(u32, Vec<u8>, Vec<OwnedFd>)> = self
-            .terminals
+    /// Every terminal for a new link's WELCOME, with its master and
+    /// (`rings`: a daemon of [`wire::RING_VERSION`]) its ring segment; an
+    /// older daemon gets no segment (it could hand a layout 2 segment to a
+    /// holder that knows only layout 1). No dup (`Terminal::descriptors`),
+    /// so a holder short of descriptors still lists every terminal with both.
+    pub(super) fn listing(&self, rings: bool) -> Listing {
+        self.terminals
             .iter()
             .map(|(chan, terminal)| {
                 let listed = Listed {
@@ -50,10 +48,15 @@ impl Holder {
                 };
                 (*chan, listed.encode(), terminal.descriptors(rings))
             })
-            .collect();
-        let welcome = Out::default().u16(version).u32(listed.len() as u32).u32(granted).0;
+            .collect()
+    }
+
+    /// WELCOME the new link with `listing` ([`Self::listing`]). `granted`
+    /// follows the count (an older daemon reads only the count).
+    pub(super) fn welcome(&mut self, version: u16, granted: u32, listing: Listing) {
+        let welcome = Out::default().u16(version).u32(listing.len() as u32).u32(granted).0;
         self.queue(Kind::Welcome, 0, &welcome, Vec::new());
-        for (chan, payload, fds) in listed {
+        for (chan, payload, fds) in listing {
             self.queue_flagged(Kind::Listed, ring_flag(&fds), chan, &payload, fds);
         }
     }

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextHibernation
+import CmuxNextSettings
 import Testing
 
 /// p07-memory-104 for the newer kinds (page tabs, conversations, overlay pages): an item whose preparation comes back
@@ -59,6 +60,38 @@ import Testing
         scheduler.replan()
         #expect(!scheduler.discardAttempts.contains("a"))
         #expect(scheduler.exemptions["a"] == nil)
+    }
+
+    /// Page tabs follow `browser.hibernation` (trunk #25920: a page never reloads unless the person asks):
+    /// with nothing written (`.fallback`) or with it off, a due hidden page tab is never prepared nor
+    /// discarded, at any pressure (each pressure change and the critical release slice replan), and no
+    /// deadline is armed.
+    /// Writing the setting looks again after its turn and lets the page go.
+    @Test func browserHibernationUnwrittenOrOffKeepsEveryPageTabAtAnyPressure() async {
+        for (setting, kept) in [(BrowserHibernationSetting.fallback, CannotDiscardReason.keepsState),
+                                (BrowserHibernationSetting(mode: .off), .disabled)] {
+            let (scheduler, host) = makeScheduler()
+            scheduler.update(browserHibernation: setting)
+            scheduler.contentDidHide("a")
+            #expect(!scheduler.hasDeadline, "\(kept): a hide armed a discard")
+            for pressure in [MemoryPressureLevel.normal, .warning, .critical] {
+                scheduler.update(pressure: pressure)
+                scheduler.replan()
+                await scheduler.settled()
+                #expect(host.prepared.isEmpty, "\(kept) at \(pressure): a page tab was prepared for its discard")
+                #expect(scheduler.exemptions["a"] == kept, "\(kept) at \(pressure)")
+                #expect(!scheduler.hasDeadline, "\(kept) at \(pressure): a look was armed though only the setting lets it go")
+            }
+            #expect(host.discarded.isEmpty)
+
+            scheduler.update(pressure: .normal)
+            scheduler.update(browserHibernation: BrowserHibernationSetting(mode: .moderate))
+            #expect(host.prepared.isEmpty, "the setting's change prepared a discard in its own turn")
+            #expect(scheduler.nextCheck == 0, "writing browser.hibernation armed no look")
+            scheduler.replan()
+            await scheduler.settled()
+            #expect(host.discarded == ["a"], "\(kept): writing browser.hibernation kept a due page tab")
+        }
     }
 
     @Test func anItemThatIsNotHiddenIsNeverMarked() {

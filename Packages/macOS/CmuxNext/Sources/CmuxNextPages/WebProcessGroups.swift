@@ -1,3 +1,4 @@
+import CmuxNextDesign
 public import WebKit
 
 /// Puts the page host's WebKit pages into shared web content processes, at most ``pagesPerProcess``
@@ -108,7 +109,9 @@ public final class WebProcessGroups {
                       store: ObjectIdentifier(configuration.websiteDataStore))
         // Groups whose first page closed start again at their next page; O(live groups), a handful.
         groups = groups.filter { $0.value.anchor != nil }
+        // A retired anchor whose page closed (WebViewRetirement) serves no new page.
         if let group = groups[key], let anchor = group.anchor, group.members < pagesPerProcess,
+           WebViewRetirement.isPageClosed(anchor) != true,
            anchor.configuration.processPool === configuration.processPool,
            anchor.configuration.websiteDataStore === configuration.websiteDataStore,
            Self.relate(configuration, to: anchor) {

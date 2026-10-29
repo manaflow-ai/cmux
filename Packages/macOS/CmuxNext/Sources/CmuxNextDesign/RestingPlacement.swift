@@ -94,6 +94,17 @@ public protocol PaneMotionTargeting: NSView {
     func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor
 }
 
+/// A view inside a pane that follows a person's resize drag (a split divider, a column or row edge) its own
+/// way. A Chromium page cannot lay out in the frame its pane takes a new size (the page is drawn by another
+/// process some frames later), so it keeps the size it had when the drag began, anchored at its top-left
+/// corner and clipped to the pane, and lays out once at the pane's final size.
+@MainActor
+public protocol PaneResizeGestureFollowing: NSView {
+    /// `true` when the drag begins, `false` once the drag ended and the motion its release started landed:
+    /// the pane's frame is final. Called once each, never per frame.
+    func paneResizeGestureDidChange(active: Bool)
+}
+
 /// The vertical edge a pane's held content rides during a layout spring (``PaneMotionTargeting``).
 public enum PaneMotionAnchor: Sendable {
     /// Pinned at the top (the default).
@@ -132,6 +143,15 @@ public extension NSView {
         var anchor = (self as? PaneMotionTargeting)?.paneMotionWillRest(sizeChange: sizeChange) ?? .top
         for subview in subviews where subview.notifyPaneMotionWillRest(sizeChange: sizeChange) == .bottom { anchor = .bottom }
         return anchor
+    }
+
+    /// Every ``PaneResizeGestureFollowing`` view in this subtree (this view included), to tell a resize drag's
+    /// start and, later, its end.
+    func paneResizeGestureFollowers() -> [any PaneResizeGestureFollowing] {
+        var found: [any PaneResizeGestureFollowing] = []
+        if let follower = self as? PaneResizeGestureFollowing { found.append(follower) }
+        for subview in subviews { found += subview.paneResizeGestureFollowers() }
+        return found
     }
 
     /// Tells every ``PaneMotionSettling`` view in this subtree (this view included) that its

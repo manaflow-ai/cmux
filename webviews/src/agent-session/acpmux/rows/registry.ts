@@ -1,6 +1,7 @@
 // The transcript's row renderers by row kind (App.tsx VirtualTranscript), one module each in
 // rows/; a user's registry.js adds or replaces them (window.cmuxAcpmuxRegistry).
 import { ACTIVITY_LINE, DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "../conversation/turns";
+import { QUEUED_MESSAGE, WAITING_MESSAGES } from "../model";
 import { OFFER_RESULT } from "../offer/offersShown";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { QUESTION_RECORD } from "../question/record";
@@ -24,6 +25,8 @@ import { PermissionRow } from "./PermissionRow";
 import { PlanRow } from "./PlanRow";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { PreviewRow } from "./PreviewRow";
+import { QueuedMessageRow } from "./QueuedMessageRow";
+import { WaitingMessagesRow } from "./WaitingMessagesRow";
 import { QuestionRecordRow } from "./QuestionRecordRow";
 import { RenderRow } from "./RenderRow";
 import { SessionOfferRow } from "./SessionOfferRow";
@@ -64,6 +67,8 @@ export const defaultRegistry: NativeRegistry = {
   sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
+  [QUEUED_MESSAGE]: QueuedMessageRow,
+  [WAITING_MESSAGES]: WaitingMessagesRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
   typing: NoticeRow,
   permission: PermissionRow,

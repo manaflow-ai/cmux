@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
+import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -15,6 +17,8 @@ enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
+            ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         registry.bindEffect("palette.openCmuxSettingsFile", effect: { _ in openCmuxConfig(context) })
         registry.bindEffect("palette.openGhosttySettings", effect: { _ in openGhosttyConfig(context) })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.
@@ -32,6 +36,11 @@ enum SettingsHandlers {
         registry.bind("browser.defaultEngine.webkit", run: { _ in try setDefaultEngine(.webkit, context) })
         registry.bindEffect("sendFeedback", effect: { _ in context.open(StaticURL.feedback.url) })
         registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
+        // The menu bar menu's and the Help menu's community and support links (user 2026-10-27).
+        let links: [(ActionID, StaticURL)] = [("help.troubleshooting", .support), ("help.discord", .discord), ("help.followOnX", .x), ("help.github", .github)]
+        for (id, link) in links { registry.bindEffect(id, effect: { _ in openEffect(link.url, context) }) }
+        registry.bindEffect("help.revealLogs", effect: { _ in revealLogs(context) })
+        registry.bindEffect("help.copyLogs", effect: { _ in copyLogs(context) })
         HangReportsHandlers.bind(into: registry, context: context)
         registry.bindEffect("help.documentation", effect: { invocation in context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         registry.bind("app.shareCmux", run: { [weak services = context.services] _ in services.map(ShareCmuxPresenter.present) })
@@ -40,8 +49,22 @@ enum SettingsHandlers {
         ChangelogPageTab.register(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater, mainWork: context.services.mainWork,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
+                            whatsNewUnavailable: { [weak services = context.services] in
+                                services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
+                            },
                             stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
         OnboardingHandlers.bind(into: registry, context: context)
+        // Keep preview surfaces out of menus and the palette while Labs is off. Compose this
+        // with the browser import gate installed above so unrelated settings remain intact.
+        let previousSettingOffReason = registry.settingOffReason
+        registry.settingOffReason = { [weak services = context.services] id in
+            if services?.settings?.snapshot.previewFeatures != true,
+               id == "appStore.show" || id == "appStore.showInstalled" || id == "updates.whatsNew" {
+                return previewTitle
+            }
+            return previousSettingOffReason(id)
+        }
+        SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
 
@@ -60,6 +83,44 @@ enum SettingsHandlers {
         UpgradeToPro.bind(into: registry, context: context)
     }
 
+    private static func openEffect(_ url: URL, _ context: AppActionContext) -> ActionEffect {
+        do { try context.open(url) } catch { return .refused(RefusalStrings.describe(error)) }
+        return .done
+    }
+
+    /// This build's error journal folder in Finder: every log it harvests (the app's, acpmux's, the Chief's, crashes).
+    private static func revealLogs(_ context: AppActionContext) -> ActionEffect {
+        NSWorkspace.shared.revealInBackground([logsDirectory(context)])
+        return .done
+    }
+
+    /// The build, the system and the journal's problems of the last 3 days, as text on the clipboard (ErrorJournalReport).
+    private static func copyLogs(_ context: AppActionContext) -> ActionEffect {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let header = [
+            "cmux \(info["CFBundleShortVersionString"] as? String ?? "?") (\(info["CFBundleVersion"] as? String ?? "?")) \(Bundle.main.bundleIdentifier ?? "?")",
+            "macOS \(ProcessInfo.processInfo.operatingSystemVersionString)",
+            "Logs: \(logsDirectory(context).path)",
+        ]
+        guard let errors = context.services.errorJournal else {
+            context.copy(ErrorJournalReport(header: header, entries: []).text())
+            return .done
+        }
+        let journal = errors.journal, sources = errors.sources
+        // action-wait-allow: the text exists only after the journal reads the logs and its entries off the main actor
+        return .waiting(.fileSystem) {
+            _ = await journal.harvest(sources)
+            let entries = await journal.entries(ErrorQuery(since: Date().addingTimeInterval(-3 * 86_400), limit: 200))
+            context.copy(ErrorJournalReport(header: header, entries: entries).text())
+            return nil
+        }
+    }
+
+    private static func logsDirectory(_ context: AppActionContext) -> URL {
+        context.services.errorJournal?.journal.directory
+            ?? ErrorJournalService.directory(bundleID: context.services.environment.launch.bundleID ?? Bundle.main.bundleIdentifier ?? "com.cmuxterm.app")
+    }
+
     static func requireSettings(_ context: AppActionContext) throws -> SettingsController {
         guard let settings = context.services.settings else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
         return settings
@@ -75,21 +136,38 @@ enum SettingsHandlers {
     /// reads for every terminal: the file Ghostty.app would open
     /// (`GhosttyRuntime.editableConfigPath`), so a user whose config is
     /// `config.ghostty` or in Application Support gets that file, not a new
-    /// empty `~/.config/ghostty/config` (R92).
+    /// empty `~/.config/ghostty/config` (R92). It opens in cmux's code editor,
+    /// editable: no app may claim a `.ghostty` file, and then the system open
+    /// refused it ("Could not open file").
     private static func openGhosttyConfig(_ context: AppActionContext) -> ActionEffect {
         let environment = ProcessInfo.processInfo.environment
         let base = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config")
         let url = GhosttyRuntime.editableConfigPath().map { URL(fileURLWithPath: $0) }
             ?? base.appending(path: "ghostty/config")
-        return openCreatingIfMissing(url, contents: "", context)
+        let services = context.services, systemOpen = context.openWork(url)
+        return createIfMissing(url, contents: "", context) {
+            // With no window to open it in, the system open is the only way; a refusal by the editor
+            // already showed its reason, so it is not tried again.
+            guard let pane = services.windows.active?.focusedPane else { return await systemOpen() }
+            services.linkOpener.openFile(url, from: pane, asText: true)
+            return nil
+        }
     }
 
-    /// Opens `url` in its app, first writing `contents` there when no file exists. The write runs on the files lane
-    /// and the open after it (``AppActionContext/openWork(_:)``); a failure of either fails the action.
+    /// Opens `url` in its app, first writing `contents` there when no file exists (``createIfMissing(_:contents:_:then:)``,
+    /// then ``AppActionContext/openWork(_:)``); a failure of either fails the action.
     private static func openCreatingIfMissing(_ url: URL, contents: String, _ context: AppActionContext) -> ActionEffect {
-        let work = context.services.work, open = context.openWork(url)
-        // action-wait-allow: the file is created off the main thread first; its app opens it once it exists.
+        createIfMissing(url, contents: contents, context, then: context.openWork(url))
+    }
+
+    /// Writes `contents` at `url` when no file exists there, on the files lane, then runs `then` on the main actor.
+    private static func createIfMissing(
+        _ url: URL, contents: String, _ context: AppActionContext,
+        then: @escaping @MainActor () async -> ActionWorkFailure?
+    ) -> ActionEffect {
+        let work = context.services.work
+        // action-wait-allow: the file is created off the main thread first; it opens once it exists.
         return .waiting(.fileSystem) {
             do {
                 try await work.run(.userBlocking, mayBlock: .files) {
@@ -101,7 +179,7 @@ enum SettingsHandlers {
             } catch {
                 return ActionWorkFailure(error.localizedDescription)
             }
-            return await open()
+            return await then()
         }
     }
 

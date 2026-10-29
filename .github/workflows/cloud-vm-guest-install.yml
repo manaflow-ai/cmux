@@ -51,7 +51,7 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
       - run: bun install --frozen-lockfile
       - name: SDK and guest filesystem regressions
         run: bun test tests/vm-guest-install.test.ts tests/vm-guest-install-runtime.test.ts tests/vm-guest-install-deadline.test.ts tests/vm-guest-create-response.test.ts

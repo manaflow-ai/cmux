@@ -1,6 +1,6 @@
 public import Foundation
 
-/// The file operations of `FileManager.default` as checked blocking calls: in Debug and bench (Nightly to come)
+/// The file operations of `FileManager.default` as checked blocking calls: in Debug, bench and Nightly
 /// builds each one reports a main-thread call (``blockingCall(_:fileID:line:_:)``) at the
 /// code that called it; in Release each is the `FileManager` call alone. Get it from
 /// ``Foundation/FileManager/checked``; the method names and labels are `FileManager`'s, plus the

@@ -196,7 +196,8 @@ extension WindowRootView {
     /// move resizes no pane.
     func layoutMainPaneAndTitle() {
         let frames = WindowRootLayout(mainPaneLayoutInput)
-        let content = backingAlignedRect(frames.content, options: .alignAllEdgesNearest)
+        // A fullscreen page has the whole window: the card fills it, with no gutter (`presentsPage`).
+        let content = presentsPage ? bounds : backingAlignedRect(frames.content, options: .alignAllEdgesNearest)
         let title = backingAlignedRect(frames.titlebar, options: .alignAllEdgesNearest)
         if titlebar.frame != title { titlebar.frame = title }
         if contentHost.frame != content { contentHost.frame = content }
@@ -206,9 +207,41 @@ extension WindowRootView {
     /// frame. A radius change alone moves no page, so Chromium pages are
     /// told to re-read their clip.
     func updateMainPaneShade() {
-        let radius = mainPaneCornerRadius
+        let radius = presentsPage ? 0 : mainPaneCornerRadius
         if contentHost.setCornerRadius(radius) { window?.updateBrowserPageGeometry() }
         let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
         mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)
+    }
+}
+
+// A fullscreen page with the whole window (`WindowController+FullScreen`):
+// the content host fills the window (`layoutMainPaneAndTitle`), with no
+// gutter or corners, and the chrome around it hides. The sidebar keeps its
+// model state (shown, width), so nothing of it is saved or animated; leaving
+// frames the card beside the sidebar again and shows what it hid.
+extension WindowRootView {
+    func applyPagePresentation() {
+        if presentsPage {
+            hidePagePresentationChrome()
+            applyTokens()
+        } else {
+            applySidebarRail()
+            for view in pagePresentationHidden { view.isHidden = false }
+            pagePresentationHidden = []
+            applyTokens() // the title row as the titlebar style says now
+        }
+        // invalidate: the card's frame and corners change; the window's next layout frames it, reshades it and,
+        // when its corners change, has Chromium pages re-read their clip (`updateMainPaneShade`).
+        applyMainPane()
+    }
+
+    /// Hides the chrome around the content host, remembering the views it hid (one hidden on its own stays so).
+    func hidePagePresentationChrome() {
+        // The title row (`applyTokens`), the right sidebar and the titlebar badge (layout) follow
+        // `presentsPage` themselves; the host pressure warning stays (it shows only under pressure).
+        for view in [sidebar, toolbarBand, trafficLightsGlass, titlebarRevealRegion, mainPaneShade] as [NSView] where !view.isHidden {
+            pagePresentationHidden.append(view)
+            view.isHidden = true
+        }
     }
 }

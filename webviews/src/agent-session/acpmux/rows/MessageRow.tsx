@@ -1,21 +1,26 @@
 // The `user` and `assistant` rows: a prompt as the person typed it, a reply as Markdown.
 import { memo } from "react";
-import { callNative } from "../callNative";
 import { ChiefPromptBubble } from "../conversation/ChiefPromptBubble";
 import { CopyButton } from "../conversation/CopyButton";
 import { IncomingMessageLine, IncomingNotice } from "../conversation/IncomingMessageCard";
 import { PromptActions, ReceivedActions } from "../conversation/MessageActions";
 import { PendingSteer } from "../conversation/PendingSteer";
 import { DeliveryFailure } from "../conversation/PromptDelivery";
+import { SteerWaitingActions } from "../conversation/QueuedMessageCard";
 import { RevealedMarkdown } from "../conversation/RevealedMarkdown";
 import { UserBubble } from "../conversation/UserBubble";
 import { chiefEnvelope } from "../conversation/chiefEnvelope";
 import { ChevronRight } from "../conversation/icons";
-import type { IncomingMessage } from "../conversation/incomingMessage";
 import { useT } from "../i18n";
+import type { AcpmuxRow } from "../model";
+import { AuthorChip } from "../multiplayer/Faces";
 import { ReceivedResult } from "../offer/SuggestedTasks";
-import { editQueued, openOfferChat, openSenderChat } from "./rowActions";
+import { editQueued, openOfferChat, openSenderChat, replyToMessage, sendSteerNow } from "./rowActions";
 import type { RowProps } from "./rowProps";
+
+/// Keeps one footer mounted through waiting, accepted delivery and the authoritative read event.
+const steerControls = (row: AcpmuxRow) =>
+  row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()));
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 export const MessageRow = memo(
@@ -38,7 +43,12 @@ export const MessageRow = memo(
             images={row.images}
             onOpen={openSenderChat}
             onReply={replyToMessage}
-            actions={<ReceivedActions row={row} text={row.incoming.message.text} />}
+            actions={
+              <>
+                <ReceivedActions row={row} text={row.incoming.message.text} />
+                {row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />}
+              </>
+            }
             githubRepository={githubRepository}
           />
         </div>
@@ -76,17 +86,33 @@ export const MessageRow = memo(
               <PromptActions
                 row={row}
                 text={envelope ? envelope.task : (row.text ?? "")}
-                pending={row.steer === "waiting" ? <PendingSteer row={row} send={editQueued} /> : undefined}
+                pending={
+                  steerControls(row)
+                    ? (actions) => (
+                        <PendingSteer row={row} send={editQueued}>
+                          {actions}
+                        </PendingSteer>
+                      )
+                    : undefined
+                }
               />
             </>
           ) : (
-            // A waiting steer's Send now leads the action row under the queued prompt (Leo,
-            // 2026-10-24). A prompt of images alone gets the same row under the images.
+            // An unread steer shows only queue controls; accepted or read prompts show normal hover actions.
             <>
+              {row.author && <AuthorChip author={row.author} />}
               <UserBubble
                 row={row}
                 text={row.text ?? ""}
-                pending={row.steer === "waiting" ? <PendingSteer row={row} send={editQueued} /> : undefined}
+                pending={
+                  steerControls(row)
+                    ? (actions) => (
+                        <PendingSteer row={row} send={editQueued}>
+                          {actions}
+                        </PendingSteer>
+                      )
+                    : undefined
+                }
               />
             </>
           )}
@@ -125,12 +151,3 @@ export const MessageRow = memo(
     previous.row.version === next.row.version &&
     previous.githubRepository === next.githubRepository,
 );
-
-/// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
-const replyToMessage = (message: IncomingMessage, text: string) =>
-  callNative<void>("chat.message.reply", {
-    sessionId: message.sessionId,
-    msgId: message.msgId,
-    threadId: message.threadId,
-    text,
-  });

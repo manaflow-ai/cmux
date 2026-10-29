@@ -54,6 +54,7 @@ impl WriteGit<'_> {
             .command(index, arguments)
             .spawn()
             .map_err(|error| GitFailure::Unavailable(error.to_string()))?;
+        crate::run::lower_if_background(child.id());
         // All three are piped by `command`; a missing one is a spawn
         // failure, not a panic.
         let (Some(mut input), Some(stdout), Some(stderr)) =

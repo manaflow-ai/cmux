@@ -16,6 +16,8 @@ public final class RemoteVNCSession {
     /// The record's address; the Keychain key for its sign-in.
     public let endpoint: VNCEndpoint
     private let store = RemoteVNCCredentialStore()
+    /// A Cloud machine's desktop: a fresh transport over the app's Cloud tunnel per session.
+    private let makeTransport: (@Sendable () -> any RFBTransport)?
     /// The app's lanes: every Keychain call of the sign-in runs on their system lane, never on main.
     private let work: BackgroundWork
     /// The saved sign-in reads: memory first, else the system lane; a newer read, `stop` or `close` drops an older one.
@@ -36,6 +38,7 @@ public final class RemoteVNCSession {
         self.record = record
         self.work = work
         self.mainWork = mainWork
+        makeTransport = nil
         // The reserved names (RemoteViewTabPolicy) are never resolved: `local` and
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
         let host = record.host.lowercased()
@@ -45,6 +48,44 @@ public final class RemoteVNCSession {
                                            keychain: { RemoteVNCCredentialStore().keychainCredentials(for: endpoint) },
                                            fallback: { RemoteVNCCredentialStore().debugFileCredentials() })
         if host == demoHost { demo = VNCDemoServer() }
+    }
+
+    /// A Cloud machine's desktop (`via=cloud`): its VNC server, reached by `makeTransport`. `work`, `mainWork` and
+    /// `signIns` as for a VNC host (a Cloud desktop asks no sign-in: its transport carries the machine's own).
+    public init(cloudRecord record: RemoteViewTabRecord, makeTransport: @escaping @Sendable () -> any RFBTransport,
+                work: BackgroundWork, mainWork: MainWorkScheduler, signIns: RemoteVNCSignIns) {
+        self.record = record
+        self.makeTransport = makeTransport
+        self.work = work
+        self.mainWork = mainWork
+        let endpoint = VNCEndpoint(host: record.host, port: 5901)
+        self.endpoint = endpoint
+        signInReads = RemoteVNCSignInReads(work: work, mainWork: mainWork, memory: signIns, account: endpoint.label,
+                                           keychain: { RemoteVNCCredentialStore().keychainCredentials(for: endpoint) },
+                                           fallback: { RemoteVNCCredentialStore().debugFileCredentials() })
+        // A lost path to a Cloud desktop reconnects by itself (the tunnel or the machine's link
+        // blinked); a Stop, a sign-in refusal or a closed tab does not.
+        source.onEnded { [weak self] end in
+            guard case .connectionLost = end else { return }
+            Task { @MainActor in self?.reconnectAfterLoss() }
+        }
+    }
+
+    /// Tries since the last session that streamed; sets the next wait (1, 2, 4, 8, then 10 s).
+    private var lostTries = 0
+    private var retry: Task<Void, Never>?
+
+    private func reconnectAfterLoss() {
+        guard makeTransport != nil, !closed, retry == nil else { return }
+        let wait = Duration.seconds(min(10, 1 << min(lostTries, 3)))
+        lostTries += 1
+        retry = Task { [weak self] in
+            // wakeup-allow: one cancellable backoff wait before a reconnect; Stop and close cancel it.
+            try? await Task.sleep(for: wait)
+            guard let self, !Task.isCancelled else { return }
+            retry = nil
+            connect()
+        }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -59,6 +100,12 @@ public final class RemoteVNCSession {
     /// Connects with the saved sign-in (or none; the host may not need one).
     public func connect() {
         guard !closed else { return }
+        if let makeTransport {
+            source.connect(to: endpoint, credentials: VNCCredentials(), transport: makeTransport()) { [weak self] in
+                Task { @MainActor in self?.lostTries = 0 }
+            }
+            return
+        }
         guard let demo else {
             // The saved sign-in comes from memory or the Keychain on the system lane; the connect follows it.
             signInReads.read { [weak self] saved in
@@ -94,6 +141,8 @@ public final class RemoteVNCSession {
 
     /// Stop, a hidden tab.
     public func stop() {
+        retry?.cancel()
+        retry = nil
         signInReads.cancel()
         source.stop()
     }
@@ -101,6 +150,8 @@ public final class RemoteVNCSession {
     /// The tab closed: the demo server goes too.
     public func close() {
         closed = true
+        retry?.cancel()
+        retry = nil
         signInReads.cancel()
         source.stop()
         demoStart?.cancel()
@@ -111,7 +162,9 @@ public final class RemoteVNCSession {
     /// Reconnect or Sign In pressed. After a sign-in failure it asks for the
     /// user name and password first, in a sheet on `window`.
     public func reconnect(in window: NSWindow?) {
-        if case .ended(.signInRequired) = source.status.state {
+        // A Cloud desktop only ever goes over the app's Cloud tunnel: no sign-in sheet, whose
+        // connect would be plain TCP to the record's host.
+        if makeTransport == nil, case .ended(.signInRequired) = source.status.state {
             promptForSignIn(in: window)
         } else {
             connect()

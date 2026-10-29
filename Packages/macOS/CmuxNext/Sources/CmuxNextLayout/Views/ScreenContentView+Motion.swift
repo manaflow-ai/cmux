@@ -81,6 +81,8 @@ extension ScreenContentView {
     /// true while anything still moves. A screen at rest (a drag frame that
     /// moved nothing, a still pointer) does no work.
     func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool { // perf-hot: 4ms motion-frame
+        // A released resize drag ends for the pane contents in the frame its layout lands.
+        defer { if resizeGesture == .landing { finishResizeGestureIfLanded() } }
         // The canvas camera, when the main thread steps it (not on the render server: `CanvasRenderMotion`).
         let cameraMoving = stepCanvasCamera(dt, policy: policy)
         guard hasMotion || reportScrollOnSettle else {

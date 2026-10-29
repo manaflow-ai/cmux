@@ -50,8 +50,7 @@ extension PageWebView {
 
     private static func installPageScripts(_ controller: WKUserContentController,
                                            documentAttributes: [String: String]) {
-        controller.addUserScript(WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart,
-                                               forMainFrameOnly: true, in: .page))
+        WebTheme.installUserScripts(on: controller)
         var attributes = documentAttributes
         if attributes["scrollers"] == nil { attributes["scrollers"] = SystemScrollers.pageValue }
         // `data-engine="webkit"`: only this engine serves a framed document its own sandboxed policy

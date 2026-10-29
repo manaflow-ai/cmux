@@ -31,6 +31,13 @@ import CmuxNextDesign
 /// second close while it fades closes it at once. A window the registry closes (its workspace
 /// moved or ended, `WindowManager.closeProgrammatically`) never fades, and Reduce Motion, the
 /// animation speed "off", a window with no screen or a sleeping display closes at once.
+///
+/// The window's child windows leave in the key's frame too. AppKit does not apply a parent's
+/// `alphaValue`, nor its frame view's layer opacity, to its children, and a Chromium page, a remote
+/// browser popup and the overlay and mouse-catcher panels above them are child windows: left alone
+/// they stayed opaque on an empty frame for the whole fade and went only at its end (#25197). Like
+/// the shadow they cannot follow a render-server opacity without a window call per frame, so the
+/// whole child tree goes to alpha 0 as the fade starts and gets its own alpha back on the close.
 @MainActor final class WindowCloseMotion {
     /// Runs the fade of `layer`, shown in `view`, to opacity 0, and calls `landed` once when it
     /// ends (finished, or taken over by a newer spring).
@@ -49,6 +56,8 @@ import CmuxNextDesign
     private let close: () -> Void
     private var finished = false
     private var look: Look?
+    /// Each child window the fade hid, with the alpha it had: it gets that back on the close.
+    private var children: [(window: NSWindow, alpha: CGFloat)] = []
 
     /// The opacity key path the fade springs.
     static let key = RenderSpringKey<CGFloat>.opacity
@@ -110,6 +119,7 @@ import CmuxNextDesign
         layer.allowsGroupOpacity = true
         window.isOpaque = false
         window.hasShadow = false
+        hideChildWindows()
         fade(layer, view) { [weak self] _ in self?.finish() }
     }
 
@@ -132,5 +142,26 @@ import CmuxNextDesign
             self.look = nil
         }
         window.ignoresMouseEvents = false
+        restoreChildWindows()
+    }
+
+    /// Hides every window below the window in its child tree (one call each, in the key's frame).
+    private func hideChildWindows() {
+        var pending = window.childWindows ?? []
+        while let child = pending.popLast() {
+            pending += child.childWindows ?? []
+            children.append((child, child.alphaValue))
+            child.alphaValue = 0
+        }
+    }
+
+    /// Gives each hidden child its alpha back, unless its owner set another during the fade, or it
+    /// left every window and still shows (a page its host let go of on close): that one stays hidden.
+    private func restoreChildWindows() {
+        for child in children where child.window.alphaValue == 0
+            && (child.window.parent != nil || !child.window.isVisible) {
+            child.window.alphaValue = child.alpha
+        }
+        children = []
     }
 }

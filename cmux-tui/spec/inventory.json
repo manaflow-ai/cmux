@@ -607,6 +607,7 @@
       "cloud-conversation-unsubscribe",
       "cloud-conversation-live",
       "cloud-conversation-typing",
+      "cloud-conversation-presence",
       "cloud-mux-subscribe",
       "cloud-mux-unsubscribe",
       "cloud-mux-ack",
@@ -814,6 +815,12 @@
     },
     {
       "name": "cloud-conversation-typing",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-presence",
       "streams": [
         "subscribe"
       ]
@@ -1599,6 +1606,72 @@
       "key": "detach",
       "classification": "presentation-only",
       "route": "close frontend transport"
+    },
+    {
+      "variant": "DockWorkspaceLeft",
+      "key": "dock-workspace-left",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "DockWorkspaceRight",
+      "key": "dock-workspace-right",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "DockWorkspaceTop",
+      "key": "dock-workspace-top",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "DockWorkspaceBottom",
+      "key": "dock-workspace-bottom",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "UndockWorkspace",
+      "key": "undock-workspace",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockLeft",
+      "key": "toggle-dock-left",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockRight",
+      "key": "toggle-dock-right",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockTop",
+      "key": "toggle-dock-top",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockBottom",
+      "key": "toggle-dock-bottom",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockFloating",
+      "key": "toggle-dock-floating",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockOrientation",
+      "key": "toggle-dock-orientation",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
     },
     {
       "variant": "UserCommand",

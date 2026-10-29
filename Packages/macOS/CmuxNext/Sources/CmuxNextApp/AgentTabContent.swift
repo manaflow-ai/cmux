@@ -47,7 +47,7 @@ struct AgentTabContent {
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
             // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
-            if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false) }
+            if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
@@ -71,13 +71,20 @@ struct AgentTabContent {
         let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
         let image = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) ?? newTabFrame() }
         if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image, hold: pane.services.launchImageHold) }
-        guard paneView.launchImageView != nil, let view else { return }
+        guard let imageView = paneView.launchImageView, let view else { return }
         view.showsLoadingState = false
+        // The image's limit takes it only once the page has drawn. A chat read at launch can take
+        // longer than that limit (acpmux's attach, and the page holds its first frame until the
+        // chat is read), and the frame it would hand the pane to is empty.
+        paneView.launchImageMayClear = { [weak view] in view?.model.hasPainted ?? true }
         paneView.onLaunchImageCleared = { [weak view] in
             if let view, view.model.newTab == nil { view.showsLoadingState = true }
         }
         // Once the page has faded in over it (`AgentPaneLoadingView.leave`).
-        view.loadingView.whenRevealed { [weak paneView] in paneView?.clearLaunchImage() }
+        view.loadingView.whenRevealed { [weak paneView, weak imageView] in
+            guard let imageView else { return }
+            paneView?.clearLaunchImage(ifShowing: imageView)
+        }
     }
 
     /// A preloaded page taken into this pane with no slot cover (parked rendering, taken before it parked, at another size,
@@ -94,9 +101,10 @@ struct AgentTabContent {
         BenchSpans.mark(image == nil ? "newTab.cover.none \(size) \(String(describing: appearance))" : own != nil ? "newTab.cover.own" : "newTab.cover")
         // The image's deadline shows the page too, should its frame never be reported.
         if let image { paneView.showLaunchImage(image, hold: pane.services.launchImageHold); paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() } }
-        view.hideMovedPage { [weak paneView] in
+        let imageView = image == nil ? nil : paneView.launchImageView
+        view.hideMovedPage { [weak paneView, weak imageView] in
             BenchSpans.mark("newTab.cover.cleared")
-            if image != nil { paneView?.clearLaunchImage() }
+            if let imageView { paneView?.clearLaunchImage(ifShowing: imageView) }
         }
     }
 

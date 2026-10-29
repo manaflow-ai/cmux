@@ -6,6 +6,7 @@
 // ticks once when it shows (pageClock.ts).
 import type { PageClock } from "../../../ui/pageClock";
 import { useElapsedNow } from "../../../ui/useElapsedNow";
+import { useSubsessionInfo } from "../subagents/subsessions";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { BackgroundHint } from "./BackgroundHint";
@@ -15,11 +16,15 @@ import { workingLabel, workingTime } from "./WorkingFor";
 export function ActivityLine({ row, clock }: { row: AcpmuxRow; clock?: PageClock }) {
   const t = useT();
   const time = useElapsedNow(row.at, { clock });
+  // A message going out reads "Sending message to tests", never its raw command (turns.ts `sendingTo`).
+  const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
   return (
     <div className="cv-activity">
       {row.text ? (
         <>
-          <span className="cv-activity__label">{row.text}</span>
+          <span className="cv-activity__label">
+            {sendName !== undefined ? t("send.sending", { target: sendName }) : row.text}
+          </span>
           <span className="cv-activity__time">{workingTime(row.at, time)}</span>
         </>
       ) : (

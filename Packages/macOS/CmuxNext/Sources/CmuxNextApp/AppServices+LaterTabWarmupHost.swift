@@ -5,7 +5,7 @@ import CmuxNextPages
 // The later-tab warm-ups' engines (LaterTabWarmups); `startChromiumWarmup` is the launch's own
 // (AppServices+Chromium).
 extension AppServices: LaterTabWarmupHost {
-    var skipsBrowserPagesAtLaunch: Bool { crashRecovery.recovery.skipsBrowserPages }
+    var skipsBrowserPagesAtLaunch: Bool { crashRecovery.recovery.isSafeRestart }
     func armNewTabPreload() { newTabSpares.start(holdingWarm: true) }
     func warmAgentPages() -> String? { agentPageWarmup.start(webUI: webUI).launchMark }
     func probeNewTabPreload() { newTabSpares.prewarm() }

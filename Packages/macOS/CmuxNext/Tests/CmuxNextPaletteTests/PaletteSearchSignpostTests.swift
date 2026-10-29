@@ -37,7 +37,12 @@ struct PaletteSearchSignpostTests {
         let palette = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
         palette.model.keySignposter = signposter
         palette.model.reset(to: PalettePageSpec(id: "live", title: "Live", placeholder: "", providers: [], queryResults: { query in
-            query.isEmpty ? [] : [Self.row("b", "zeta build failed"), Self.row("a", "Build ok")]
+            // One answer, then the end: the page's rows for the query (perf's queryResults is a stream).
+            let rows = query.isEmpty ? [] : [Self.row("b", "zeta build failed"), Self.row("a", "Build ok")]
+            return AsyncStream { continuation in
+                continuation.yield(rows)
+                continuation.finish()
+            }
         }, filtersByQuery: false))
         await palette.model.settle()
         return palette

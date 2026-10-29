@@ -40,6 +40,10 @@ public final class ImportSuggestionsCenter {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored let ledgerURL: URL
     @ObservationIgnored private var lastScan: Date?
+    /// The scan in flight, cancelled when `browser.import.enabled` turns off.
+    @ObservationIgnored private var scanning: Task<Void, Never>?
+    /// Bumped when a scan in flight is dropped, so its late answer changes nothing.
+    @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored var running: [String: Task<Void, Never>] = [:]
     /// The app's become-active notice (``ImportCardsHost/appEvents``): a stale scan runs again.
     @ObservationIgnored private var activation: EventSubscription?
@@ -63,8 +67,24 @@ public final class ImportSuggestionsCenter {
             .appending(path: "import-jobs.json")
     }
 
-    /// Debug Settings `browserImport.suggestionCards` (on by default).
-    public var isEnabled: Bool { BrowserImportTunables.suggestionCards.value }
+    /// `browser.import.enabled` (on by default): off, no card shows and nothing scans or resumes.
+    /// Turned on again, the cards scan this Mac.
+    public var importEnabled = true {
+        didSet {
+            if importEnabled, !oldValue, started { scan { [weak self] in self?.resumeInterrupted() } }
+            // Off: a scan in flight stops before it reads another browser, and its findings are dropped;
+            // on again, the next scan starts at once.
+            if !importEnabled, isScanning {
+                scanning?.cancel()
+                scanning = nil
+                scanGeneration += 1
+                isScanning = false
+            }
+        }
+    }
+
+    /// `browser.import.enabled` and Debug Settings `browserImport.suggestionCards` (both on by default).
+    public var isEnabled: Bool { importEnabled && BrowserImportTunables.suggestionCards.value }
 
     /// Starts the cards once: the jobs a quit cut off, the first scan and the rescans.
     public func start(host: ImportCardsHost, registry: ActionRegistry) {
@@ -77,12 +97,14 @@ public final class ImportSuggestionsCenter {
         activation = host.appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "ImportSuggestionsCenter.rescan") { [weak self] in
             self?.rescanIfStale()
         }
-        scan { [weak self] in
-            // A job the quit cut off goes on by itself only when nothing it has left asks the person.
-            guard let self, isEnabled else { return }
-            for job in ledger.jobs where job.phase == .paused && job.pause == .interrupted && job.resumesQuietly {
-                try? perform(job.id, .resume)
-            }
+        scan { [weak self] in self?.resumeInterrupted() }
+    }
+
+    /// A job the quit cut off goes on by itself only when nothing it has left asks the person.
+    private func resumeInterrupted() {
+        guard isEnabled else { return }
+        for job in ledger.jobs where job.phase == .paused && job.pause == .interrupted && job.resumesQuietly {
+            try? perform(job.id, .resume)
         }
     }
 
@@ -106,14 +128,21 @@ public final class ImportSuggestionsCenter {
         guard isEnabled, !isScanning, let host else { then?(); return }
         isScanning = true
         lastScan = now()
-        let scanning = scanThisMac
-        // task-owner: one scan at a time (`isScanning`)
-        // main-hop-allow: only awaits the scan, whose folder and session reads run detached; its one resume stores the findings
-        Task { [weak self] in
-            let found = await scanning(host)
-            guard let self else { return }
-            findings = found
+        let scan = scanThisMac
+        let generation = scanGeneration
+        // task-owner: ImportSuggestionsCenter.scanning (cancelled when browser import turns off)
+        // main-hop-allow: only awaits the scan, whose folder and session reads run on the files lane; its one resume stores the findings
+        scanning = Task { [weak self] in
+            let found = await scan(host)
+            // Dropped while it ran (browser import turned off): what it found is not shown.
+            guard let self, generation == scanGeneration else { return }
             isScanning = false
+            scanning = nil
+            guard isEnabled else {
+                then?()
+                return
+            }
+            findings = found
             icons.load(deck.list().cards.compactMap(\.app), work: host.work, mainWork: host.mainWork)
             then?()
         }
@@ -128,9 +157,17 @@ public final class ImportSuggestionsCenter {
         let work = host.work
         // Classic's session file is up to 32 MB of JSON: read and planned on the files lane.
         let classic = await ClassicWorkspaceCount().count(on: work)
-        let found = try? await work.runFiles(.bestEffort) {
-            ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
-                          importedProfiles: imported, classicWorkspaces: { classic }).scan()
+        // Browser import turned off meanwhile: no other browser's data is read. The scan itself
+        // runs on the files lane, so the cancel reaches it through `stop`, checked before each source.
+        guard !Task.isCancelled else { return [] }
+        let stop = ImportScanStop()
+        let found = await withTaskCancellationHandler {
+            try? await work.runFiles(.bestEffort) {
+                ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
+                              importedProfiles: imported, classicWorkspaces: { classic }, shouldStop: { stop.isSet }).scan()
+            }
+        } onCancel: {
+            stop.set()
         }
         return found ?? []
     }
@@ -176,6 +213,8 @@ public final class ImportSuggestionsCenter {
     /// script cannot answer it), and an agent's cookie request always gets
     /// `browser.importCookies`' consent panel. Whatever the card opens runs as `caller`.
     public func perform(_ id: String, _ action: ImportCardAction, caller: ActionInvocation? = nil) throws {
+        // Off (`browser.import.enabled`, the Debug toggle): a row or dialog still on screen starts nothing.
+        guard isEnabled || action == .dismiss else { throw ImportCardsFailure.noSuchCard(id) }
         if action.startsWork, let caller, caller.origin != .user, let question = try question(id, action) {
             return ask(question, id: id, action: action, caller: caller)
         }

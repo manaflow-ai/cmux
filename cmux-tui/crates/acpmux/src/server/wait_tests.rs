@@ -88,7 +88,7 @@ fn a_peer_session_forgotten_here_wakes_a_wait_for_its_close() {
         let mut pending = std::pin::pin!(wait(&hub, &params));
         assert!(pending.as_mut().poll(&mut cx).is_pending(), "an idle session is not closed");
 
-        hub.forget_remote("m1");
+        hub.forget_remote(("vm", lease.generation), "m1", None);
         assert!(wakes.count() > 0, "forgetting the row did not wake the wait");
         let Poll::Ready(Ok(answer)) = pending.as_mut().poll(&mut cx) else {
             panic!("the wait did not answer after the row left")

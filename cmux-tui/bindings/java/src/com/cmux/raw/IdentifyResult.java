@@ -14,6 +14,7 @@ public final class IdentifyResult implements WireValue {
     private final Field<Long> apiRevision;
     private final Field<String> buildCommit;
     private final Field<String> buildId;
+    private final Field<UInt64> buildTime;
     private final Field<Long> bulkFrameMax;
     private final Field<List<String>> capabilities;
     private final Field<String> cliPath;
@@ -45,6 +46,7 @@ public final class IdentifyResult implements WireValue {
         this.apiRevision = builder.apiRevision;
         this.buildCommit = builder.buildCommit;
         this.buildId = builder.buildId;
+        this.buildTime = builder.buildTime;
         this.bulkFrameMax = builder.bulkFrameMax;
         this.capabilities = builder.capabilities.map(value -> List.copyOf(value));
         this.cliPath = builder.cliPath;
@@ -87,6 +89,7 @@ public final class IdentifyResult implements WireValue {
     public String app() { return "cmux-tui"; }
     public Field<String> buildCommit() { return buildCommit; }
     public Field<String> buildId() { return buildId; }
+    public Field<UInt64> buildTime() { return buildTime; }
     public Field<Long> bulkFrameMax() { return bulkFrameMax; }
     public Field<List<String>> capabilities() { return capabilities; }
     public Field<String> cliPath() { return cliPath; }
@@ -131,6 +134,10 @@ public final class IdentifyResult implements WireValue {
         Object rawBuildId = Wire.optional(object, "build_id");
         if (!Wire.isMissing(rawBuildId)) {
             builder.buildId(rawBuildId == null ? null : Wire.string(rawBuildId, "IdentifyResult.build_id"));
+        }
+        Object rawBuildTime = Wire.optional(object, "build_time");
+        if (!Wire.isMissing(rawBuildTime)) {
+            builder.buildTime(rawBuildTime == null ? null : Wire.uint64(rawBuildTime, "IdentifyResult.build_time"));
         }
         Object rawBulkFrameMax = Wire.optional(object, "bulk_frame_max");
         if (!Wire.isMissing(rawBulkFrameMax)) {
@@ -232,6 +239,7 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "app", "cmux-tui");
         Wire.put(object, "build_commit", buildCommit);
         Wire.put(object, "build_id", buildId);
+        Wire.put(object, "build_time", buildTime);
         Wire.put(object, "bulk_frame_max", bulkFrameMax);
         Wire.put(object, "capabilities", capabilities);
         Wire.put(object, "cli_path", cliPath);
@@ -265,11 +273,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(bulkFrameMax, that.bulkFrameMax) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(framedMethods, that.framedMethods) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(sdkSchemaDigest, that.sdkSchemaDigest) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(startupMarks, that.startupMarks) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(buildTime, that.buildTime) && Objects.equals(bulkFrameMax, that.bulkFrameMax) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(framedMethods, that.framedMethods) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(sdkSchemaDigest, that.sdkSchemaDigest) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(startupMarks, that.startupMarks) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, bulkFrameMax, capabilities, cliPath, crateVersion, framedMethods, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, sdkSchemaDigest, session, sessionId, startupMarks, terminalRevision, updateCommand, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, buildTime, bulkFrameMax, capabilities, cliPath, crateVersion, framedMethods, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, sdkSchemaDigest, session, sessionId, startupMarks, terminalRevision, updateCommand, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -278,6 +286,7 @@ public final class IdentifyResult implements WireValue {
         private Field<Long> apiRevision = Field.omitted();
         private Field<String> buildCommit = Field.omitted();
         private Field<String> buildId = Field.omitted();
+        private Field<UInt64> buildTime = Field.omitted();
         private Field<Long> bulkFrameMax = Field.omitted();
         private Field<List<String>> capabilities = Field.omitted();
         private Field<String> cliPath = Field.omitted();
@@ -323,6 +332,10 @@ public final class IdentifyResult implements WireValue {
         }
         public Builder buildId(String value) {
             this.buildId = Field.ofNullable(value);
+            return this;
+        }
+        public Builder buildTime(UInt64 value) {
+            this.buildTime = Field.ofNullable(value);
             return this;
         }
         public Builder bulkFrameMax(Long value) {

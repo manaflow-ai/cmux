@@ -102,14 +102,14 @@ import Testing
         #expect(!cache.hasPendingPages)
     }
 
-    /// A restored page deferred after two quick crashes makes no engine, so it does not wait for the read.
+    /// A restored page held after a restart loop (`crashedPages`) makes no engine, so it does not wait for the read.
     @Test func aDeferredRestoredPageDoesNotWait() throws {
         let cache = Self.cache()
         cache.chromiumNow.make = { _ in Issue.record("a deferred page made an engine page"); return nil }
         cache.enginesAwait = LaunchReadEvent("BrowserProfiles.loaded")
-        cache.defersRestoredPages = true
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 2_806), kind: .browser, url: "https://example.com/",
                                        browserRenderer: "frontend", browserEngine: "cef"))
+        cache.crashedPages = [tab.id]
         defer { cache.release(tab.id) }
         let entry = try #require(cache.browser(for: tab), "a deferred page waited for the profiles")
         #expect(entry.tab is DeferredBrowserTab)
@@ -152,7 +152,7 @@ import Testing
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 2_807), kind: .browser, url: BrowserNewTabPage.chromiumURL,
                                        browserRenderer: "frontend", browserEngine: "cef", browserProfileID: deleted))
         cache.findTab = { $0 == tab.id ? tab : nil }
-        cache.defersRestoredPages = false
+        cache.crashedPages = []
         cache.browserTabs.cefUnavailable = { nil }
         cache.chromiumNow.runs = { true }
         let made = MadePages()

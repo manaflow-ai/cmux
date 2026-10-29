@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserImport
@@ -153,6 +154,7 @@ final class AppControl {
         let errors = ErrorJournalService.make(environment: services.environment, energy: services.mainWork.energy)
         errors.start()
         errorJournal = errors
+        services.errorJournal = errors
         router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
     }
 
@@ -247,6 +249,13 @@ extension AppControl {
             group("Control.registerFeed", services) { _, services, router in router.register(FeedControl.methods(services: services)) },
             group("Control.registerServerReach", services) { _, services, router in router.register(ServerReachControl.methods(services: services)) },
             group("Control.registerKeybindings", services) { _, services, router in router.register(KeybindingControl.methods(services: services)) },
+            // `agent.acpmux`: the acpmux this app's chat tabs use (`cmux agents chat new`, #23026): main's launch resolve
+            // (QuitAgents.environment), read from memory, so no signature check runs on the main actor.
+            group("Control.registerAgentAcpmux", services) { _, services, router in
+                router.register([.agentAcpmux { [weak services] in
+                    services.flatMap(QuitAgents.environment).map { ($0.socketPath, $0.home.path) }
+                }])
+            },
             group("Control.registerSettings", services) { _, services, router in router.register(SettingsControl.methods(services: services)) },
             group("Control.registerTerminalLinkOpen", services) { _, services, router in
                 router.register(TerminalLinkOpenControl.methods(services: services))
@@ -311,7 +320,7 @@ extension AppControl {
                                        await work.apply(.automation, owner: "browser.agent_mouse") {
                                            settings?.snapshot.browserAgentMouse
                                        } ?? AgentMouseSetting().fallback
-                                   }).install(on: router)
+                                   }, mirrors: services).install(on: router)
                 services.apps.attach(router: router)
             },
         ]

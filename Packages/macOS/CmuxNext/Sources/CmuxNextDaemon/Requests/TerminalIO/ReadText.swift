@@ -11,6 +11,30 @@ public struct ReadScreenRequest: DaemonRequest {
     }
 }
 
+/// `wait-for`: waits on the daemon until the surface's viewport matches `pattern` (a regex) or
+/// `timeoutMs` passes; answers the viewport text. The wait is the daemon's, woken by output.
+public struct WaitForTextRequest: DaemonRequest {
+    public struct Response: Decodable, Sendable {
+        public var matched: Bool?
+        public var text: String
+    }
+    public static let commandName: DaemonCommandName = "wait-for"
+    public var surface: SurfaceID
+    public var pattern: String
+    public var timeoutMs: Int
+
+    public init(surface: SurfaceID, pattern: String, timeoutMs: Int) {
+        self.surface = surface
+        self.pattern = pattern
+        self.timeoutMs = timeoutMs
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case surface, pattern
+        case timeoutMs = "timeout_ms"
+    }
+}
+
 /// `read-scrollback`: one page of retained history rows (styled runs),
 /// flattened to text lines by `text`. `count` 0 asks for `total` only.
 public struct ReadScrollbackRequest: DaemonRequest {

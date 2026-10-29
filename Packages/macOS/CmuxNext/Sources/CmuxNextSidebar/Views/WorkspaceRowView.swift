@@ -39,7 +39,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
     let audioButton = SidebarIconButton(icon: .browserTabAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
     internal(set) var audio: SidebarWorkspaceAudio?
-    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.closeButton)
+    let closeButton = SidebarIconButton.rowClose(label: Strings.closeButton) // a listed tab row's too (SidebarRowCloseButton)
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
     /// under the button. Shows on hover only, over the end of the title
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
@@ -48,7 +48,7 @@ final class WorkspaceRowView: SidebarRowView {
     let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
     /// while the setting is on (never on hover), so rows never shift.
-    let disclosureButton = SidebarIconButton(icon: .disclosureCollapsed, pointSize: { Metrics.smallIconSize - Metrics.space2 },
+    let disclosureButton = SidebarIconButton(icon: .disclosureFolded, pointSize: { Metrics.smallIconSize - Metrics.space2 },
                                              label: Strings.showTabs)
     /// `sidebar.workspaceRow.tabCount`: the workspace's tab count, in a fixed-width slot.
     let tabCount = SidebarRowView.label(font: SidebarStyle.subtitleFont)
@@ -76,6 +76,9 @@ final class WorkspaceRowView: SidebarRowView {
     let statusBlock = WorkspaceStatusView()
     internal(set) var statusHeight: CGFloat = 0
     var hasSubtitle = false, isExpanded = false, timeText: String?
+    /// The workspace's name, while the row draws another (`sidebar.rowTitle` focused tab, an inherited chat): calm
+    /// mode's tooltip says it, since no hover card opens there.
+    var hiddenWorkspaceName: String?
     /// An idle workspace nobody named: its name reads in the secondary ink (`SidebarTunables.quietUnnamedRows`).
     var isQuiet = false
     /// Archived in the sidebar document: the row draws dimmed (`SidebarStyle.archivedAlpha`).
@@ -216,6 +219,7 @@ final class WorkspaceRowView: SidebarRowView {
         var fontSize: CGFloat
         var iconSize: CGFloat
         var agentMark: SidebarAgentMarkVariant, presenceDots: Bool, rowBadge: SidebarRowBadgeStyle, stackLimit: Int
+        var rowTitle: SidebarRowTitleMode, rowTitleSingleChat: Bool
         var disclosure: SidebarTabDisclosure?
         var row: WorkspaceRowContent?
     }
@@ -227,6 +231,7 @@ final class WorkspaceRowView: SidebarRowView {
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
+            rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
             disclosure: row.tabDisclosure, row: row.content
         )
         guard needsConfigure(content) else { return }
@@ -257,18 +262,21 @@ final class WorkspaceRowView: SidebarRowView {
             placeholderBar.layer?.removeAllAnimations()
             placeholderBar.alphaValue = 1
         }
-        title.stringValue = ws.title
-        lastTitle = ws.title
+        // The name the row draws (`sidebar.rowTitle`): the workspace's, else a breadcrumb to its focused tab.
+        let shownTitle = ws.rowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)
+        title.stringValue = shownTitle
+        lastTitle = shownTitle
+        hiddenWorkspaceName = ws.namesWorkspace(shownTitle) ? nil : ws.title
         isQuiet = tunables.quietUnnamedRows && ws.isUnnamed && !ws.unread.isUnread && ws.activity == .idle && !ws.agentWorking
         isArchived = ws.isArchived
         icon.alphaValue = isArchived ? SidebarStyle.archivedAlpha : 1
-        let arrival = priorTitle?.isEmpty == true && !ws.title.isEmpty && !isPlaceholderRow
+        let arrival = priorTitle?.isEmpty == true && !shownTitle.isEmpty && !isPlaceholderRow
             && tunables.workspaceTitleMotion != .instant && Motion.sidebar.animatesMovement
         if arrival {
             titleArrivalPending = true
             titleArrivalVariant = tunables.workspaceTitleMotion
         } else {
-            animateTitleChange(from: priorTitle, to: ws.title, variant: tunables.workspaceTitleMotion,
+            animateTitleChange(from: priorTitle, to: shownTitle, variant: tunables.workspaceTitleMotion,
                                placeholder: isShowingPlaceholder || isPlaceholderRow)
         }
         title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
@@ -284,7 +292,8 @@ final class WorkspaceRowView: SidebarRowView {
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
-            : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
+            : ws.agentIcon.flatMap { agentIconImage($0) }
+                ?? ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(badgesLead ? .none : ws.unread)
@@ -313,7 +322,7 @@ final class WorkspaceRowView: SidebarRowView {
         audioButton.label = audio == .muted ? Strings.unmuteTabs : Strings.muteTabs
         disclosure = row.tabDisclosure
         count = row.tabCount
-        disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureCollapsed
+        disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureFolded // up, as Chrome's
         disclosureButton.label = row.tabDisclosure == .expanded ? Strings.hideTabs : Strings.showTabs
         disclosureButton.setAccessibilityExpanded(row.tabDisclosure == .expanded)
         tabCount.setString(row.tabCount.map(String.init) ?? "")
@@ -334,7 +343,8 @@ final class WorkspaceRowView: SidebarRowView {
         for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] as [(NSButton, String)] {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
-        setAccessibilityLabel(accessibilityText(ws, content: shown))
+        setAccessibilityLabel(accessibilityText(ws, content: shown,
+                                                title: ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
         // invalidate: the content changed (`needsConfigure` above).
         needsLayout = true; needsDisplay = true
     }

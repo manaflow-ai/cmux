@@ -15,6 +15,7 @@ impl Hub {
         static RELOADING: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
         let _one = RELOADING.get_or_init(|| tokio::sync::Mutex::new(())).lock().await;
         let (path, sources) = self.config_sources().await?;
+        let peers_read = self.peer_read_gen().await;
         // The file read back holds every save queued before this reload (`config_writer.rs`).
         let hub = self.clone();
         let _ = crate::daemon::spawn_blocking(move || hub.config_writer.flush()).await;
@@ -69,6 +70,10 @@ impl Hub {
             current.pool = next.pool;
             current.web_roots = next.web_roots;
             current.vm_host = next.vm_host;
+            // The peers stay put, but a saved peer's VM boundary follows the file at once: a
+            // `false` there is the caller taking it back (`vm_boundary.rs`).
+            // So does whether this Mac lends it GitHub (`github_broker.rs`).
+            self.reload_saved_peers(&mut current, &next.peers, peers_read);
             current.web_asking_modes = next.web_asking_modes;
             // The start budget applies from the next start, like a restart would.
             current.agent_start_timeout_ms = next.agent_start_timeout_ms;
@@ -76,13 +81,8 @@ impl Hub {
             current.silent_turn_ms = next.silent_turn_ms;
             current.stalled_turn_ms = next.stalled_turn_ms;
             current.stalled_turn_end_ms = next.stalled_turn_end_ms;
-            let start_changed = current.default_permission_mode != next.default_permission_mode
-                || current.last_permission_mode != next.last_permission_mode
-                || current.last_permission_mode_change != next.last_permission_mode_change;
+            let start_changed = current.default_permission_mode != next.default_permission_mode;
             current.default_permission_mode = next.default_permission_mode;
-            current.last_permission_mode = next.last_permission_mode;
-            current.last_permission_mode_change = next.last_permission_mode_change;
-            current.last_permission_mode_setting = next.last_permission_mode_setting;
             if start_changed {
                 self.start_mode_changed();
             }

@@ -5,8 +5,10 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextEnergy
+import CmuxNextSettings
 import CmuxNextSidebarActions
 import CmuxNextWakeups
+import CmuxNextWorkspaceNaming
 import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
@@ -50,10 +52,13 @@ enum AppActions {
         WorkspaceVerbHandlers.bind(into: registry, context: context)
         WorkspaceStructureHandlers.bind(into: registry, context: context)
         WorkspaceMetadataHandlers.bind(into: registry, context: context)
+        WorkspaceActivityNameActions(host: services).bind(into: registry)
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
         SidebarArchiveActions(host: services).bind(into: registry)
+        AutoArchiveActions(coordinator: services.autoArchive, host: services).bind(into: registry)
+        NotificationSoundActions(host: services, gate: services.notifications.soundGate).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)
@@ -95,6 +100,7 @@ enum AppActions {
         DevToolsHandlers.bind(into: registry, context: context)
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
+        VoiceRoomHandlers.bind(into: registry, context: context)
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)
@@ -125,6 +131,7 @@ enum AppActions {
         ResumeCommandHandlers.bind(into: registry, context: context)
         RemoteGroupHandlers.bind(into: registry, context: context)
         ChiefMoveHandlers.bind(into: registry, context: context)
+        ChiefMemoryImportHandlers.bind(into: registry, context: context)
         RemoteBrowserPages.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         LinkHandlers.bind(into: registry, context: context)
@@ -179,7 +186,8 @@ enum AppActions {
         registry.bind("quitKeepSessions") { services.quit.requestQuit(.explicit(.keep)) }
         registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.endKeepLayout)) }
         registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
-        registry.bind("newWindow") { services.windows.newWindow(holdingKeysFrom: services.windows.active?.window) }
+        // action-wait-allow: a window opens only once the daemon reports its first workspace (as New Window always did); the new space is created there first.
+        registry.bind("newWindow", invoke: { RoomHandlers.newWindow($0, AppActionContext(services: services)) })
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bindEffect("closeWindow", isEnabled: { services.windows.active != nil }) { invocation in
             let controller: WindowController?

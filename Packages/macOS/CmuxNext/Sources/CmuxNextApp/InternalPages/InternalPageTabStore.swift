@@ -73,6 +73,10 @@ final class InternalPageTabStore {
         self.mainWork = mainWork
     }
 
+    static func isPreviewPage(_ page: String?) -> Bool {
+        page == InternalPageID.appStore.rawValue || page == InternalPageID.changelog.rawValue
+    }
+
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
         daemon.supports(DaemonCapability.pageTabRoute.rawValue)
@@ -174,6 +178,9 @@ final class InternalPageTabStore {
     /// The tab's view, whose content waits for the tab's first show: an open or a show that does not
     /// show the tab (automation, a parked workspace) makes no page.
     func tabView(for key: String) -> InternalPageView? {
+        // App Store and What's New are Labs pages: hidden while `labs.previewFeatures` is off.
+        if let page = LocalPageTab.page(of: key), page == .appStore || page == .changelog,
+           windows[key]?.controller?.services.settings?.snapshot.previewFeatures != true { return nil }
         if let view = views[key] { return view }
         guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
@@ -257,12 +264,15 @@ final class InternalPageTabStore {
     /// ``view(forStoreTab:page:in:local:window:pane:)`` whose content waits for the tab's first show.
     func tabView(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
                  window: WindowController?) -> InternalPageView? {
+        guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)) else { return nil }
+        if page == .appStore || page == .changelog,
+           window?.services.settings?.snapshot.previewFeatures != true { return nil }
         if let key = storeKeys[tab.id], let view = views[key] {
             // The tab moved to another window: the same view shows there, and its window follows.
             if let window { windows[key] = WeakWindow(controller: window) }
             return view
         }
-        guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
+        guard let provider = providers[page] else { return nil }
         let key = storeKeys[tab.id] ?? LocalPageTab.makeKey(page)
         // A tab this app did not open (Reopen Closed, relaunch, another app): its route says what it shows.
         if local, storeKeys[tab.id] == nil, let route = tab.pageRoute { provider.restore(route, for: key) }

@@ -10,13 +10,15 @@
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
 import { useContext, useLayoutEffect, useState } from "react";
-import { usePaneLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
+import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
 import type { PageClock } from "../../../ui/pageClock";
 import { useElapsedNow } from "../../../ui/useElapsedNow";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
-import { WorkingCountsContext, workingParts, workingTime, workingTokens } from "./WorkingFor";
+import { TurnTokens } from "./TurnTokens";
+import { WorkingCountsContext, workingParts, workingTime } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
 export const QUIET_MS = 1200;
@@ -54,6 +56,8 @@ export function Thinking({
   doing,
   doingAt,
   doingShell = false,
+  sendTo,
+  sendSession,
   draft = false,
   untimed = false,
   quietKey,
@@ -67,6 +71,10 @@ export function Thinking({
   doing?: string;
   doingAt?: number;
   doingShell?: boolean;
+  /// The call in flight sends a message to `sendTo` (the sub-session `sendSession`, by its name
+  /// once the list has it): "Sending message to tests".
+  sendTo?: string;
+  sendSession?: string;
   draft?: boolean;
   untimed?: boolean;
   quietKey?: string;
@@ -82,21 +90,23 @@ export function Thinking({
   const timed = !status && !waiting && from !== undefined;
   const time = useElapsedNow(from, { clock, enabled: timed });
   const quiet = useQuiet(status || waiting || doing !== undefined ? undefined : quietKey);
+  const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const label =
     status ??
     (doing === undefined
       ? t("thinking")
-      : doingShell
-        ? doing
-          ? t("tools.runningCommand", { command: doing })
-          : draft
-            ? t("tools.writingCommand")
-            : t("tools.runningUnnamed")
-        : doing);
-  // The turn's tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
+      : sendName !== undefined
+        ? t("send.sending", { target: sendName })
+        : doingShell
+          ? doing
+            ? t("tools.runningCommand", { command: doing })
+            : draft
+              ? t("tools.writingCommand")
+              : t("tools.runningUnnamed")
+          : doing);
+  // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
-  const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
   const showTokens = Boolean(tokens) && timed && doing === undefined;
@@ -118,7 +128,7 @@ export function Thinking({
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          <span className="cv-worked__tokens">{workingTokens(t, language, tokens!)}</span>
+          <TurnTokens total={tokens} split={counts?.split} />
         </span>
       )}
       {parts.map((part) => (

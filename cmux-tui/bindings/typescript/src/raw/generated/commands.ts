@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR 0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a. */
 
 
 import type * as T from "./types.js";
@@ -1042,6 +1042,14 @@ export interface CloudConversationOpRequest extends CmuxRequestBase {
   "origin"?: (string) | null;
 }
 export type CloudConversationOpResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudConversationPresenceRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-presence";
+  "conversation": string;
+  "viewing": boolean;
+}
+export type CloudConversationPresenceResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudConversationRunRequest extends CmuxRequestBase {
@@ -3776,6 +3784,7 @@ export type CmuxRequest =
   | CloudConversationHistoryRequest
   | CloudConversationLiveRequest
   | CloudConversationOpRequest
+  | CloudConversationPresenceRequest
   | CloudConversationRunRequest
   | CloudConversationRunsRequest
   | CloudConversationSnapshotRequest
@@ -4801,6 +4810,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-conversation-presence": {
+    request: CloudConversationPresenceRequest;
+    result: CloudConversationPresenceResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversation-presence-v1";
     stream: null;
   };
   "cloud-conversation-run": {

@@ -85,7 +85,7 @@ struct PageDiscardTests {
     private static let surfaceCopy = PageSurfaceCopy(base64: picture.data.base64EncodedString(), pixelSize: picture.pixelSize)
 
     init() {
-        lifecycle = PageLifecycle(deadlines: rig.scheduler)
+        lifecycle = PageLifecycle(conditions: .discarding(), deadlines: rig.scheduler)
     }
 
     /// Fires the armed pass until `key` is discarded; false when it never is.
@@ -536,7 +536,7 @@ struct PageDiscardRestoreTests {
     @Test func aRefusedDiscardLeavesTheLifecycleStateUnchanged() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let rig = LifecycleDeadlineRig()
-        let lifecycle = PageLifecycle(deadlines: rig.scheduler)
+        let lifecycle = PageLifecycle(conditions: .discarding(), deadlines: rig.scheduler)
         let view = try makeView(nil)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: true)
@@ -695,7 +695,7 @@ struct PageDiscardRestoreTests {
     @Test func aKeepReasonBlocksTheDiscard() throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let rig = LifecycleDeadlineRig()
-        let lifecycle = PageLifecycle(deadlines: rig.scheduler)
+        let lifecycle = PageLifecycle(conditions: .discarding(), deadlines: rig.scheduler)
         let view = try makeView(nil)
         defer { view.close() }
         view.loaded = true

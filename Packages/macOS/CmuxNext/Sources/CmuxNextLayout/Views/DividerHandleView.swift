@@ -16,18 +16,23 @@ final class DividerHandleView: NSView {
     }
 
     /// A drag's steps. Times are the events' own timestamps, so the release velocity reads one
-    /// clock at both ends however late the main thread handles them.
+    /// clock at both ends however late the main thread handles them. Every pointer event carries
+    /// the modifier keys held (resize-modifiers.md).
     enum DragEvent {
-        case began(NSPoint)
+        case began(NSPoint, NSEvent.ModifierFlags)
         /// The pointer passed `point` at `time` before a later move of the same delivery: it feeds
         /// the release velocity only.
         case sampled(NSPoint, time: CFTimeInterval)
         /// The pointer was at `point` at `time`: the real sample, which the velocity, snaps and the
         /// release read. The divider is drawn at `shown`, the pointer resampled at the frame's time
         /// (`input.resampleDrags`); nil draws it at `point`.
-        case moved(NSPoint, time: CFTimeInterval, shown: NSPoint? = nil)
+        case moved(NSPoint, NSEvent.ModifierFlags, time: CFTimeInterval, shown: NSPoint? = nil)
         /// The pointer went up at `point` at `time`.
-        case ended(NSPoint, time: CFTimeInterval)
+        case ended(NSPoint, NSEvent.ModifierFlags, time: CFTimeInterval)
+        /// A modifier key went down or up mid-drag, with no pointer move.
+        case modifiersChanged(NSEvent.ModifierFlags)
+        /// Escape mid-drag: the drag goes back to where it began; the release that follows is ignored.
+        case cancelled
         case doubleClick
     }
 
@@ -83,6 +88,11 @@ final class DividerHandleView: NSView {
     private let line = CALayer()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
+    /// Escape and modifier keys while a drag runs: this handle is never first responder, so it
+    /// would hear neither. Installed on the press, removed when the drag ends.
+    private var keyMonitor: Any?
+    /// The modifier keys held as the drag's last event said (a frame-aligned delivery carries none).
+    private var dragModifiers: NSEvent.ModifierFlags = []
 
     init(kind: Kind, axis: SplitAxis) {
         self.kind = kind
@@ -269,6 +279,7 @@ final class DividerHandleView: NSView {
             isDragging = false
             endFrameDrag()
             isHovered = false
+            stopKeyMonitor()
             // Its render-server springs end now; their landings still run (``springToRest(_:spring:landed:)``).
             if let layer {
                 for keyPath in Self.renderSpringKeyPaths {
@@ -361,15 +372,18 @@ final class DividerHandleView: NSView {
             self?.deliver(input, at: frame)
         }
         resampler = frameDrag == nil ? nil : dragResampler()
-        onDrag?(.began(event.locationInWindow))
+        dragModifiers = event.modifierFlags
+        startKeyMonitor()
+        onDrag?(.began(event.locationInWindow, event.modifierFlags))
     }
 
     override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event) // local-monitor-allow: the drag goes to the window's FrameInputCoalescer (frameDrag); only a root with no coalescer (tests) moves per event
         guard isDragging else { return }
+        dragModifiers = event.modifierFlags
         if let frameDrag {
             frameDrag.post(event)
         } else {
-            onDrag?(.moved(event.locationInWindow, time: event.timestamp))
+            onDrag?(.moved(event.locationInWindow, event.modifierFlags, time: event.timestamp))
         }
     }
 
@@ -379,7 +393,43 @@ final class DividerHandleView: NSView {
         frameDrag?.flush()
         endFrameDrag()
         isDragging = false
-        onDrag?(.ended(event.locationInWindow, time: event.timestamp))
+        stopKeyMonitor()
+        onDrag?(.ended(event.locationInWindow, event.modifierFlags, time: event.timestamp))
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        guard isDragging else { return super.flagsChanged(with: event) }
+        dragModifiers = event.modifierFlags
+        onDrag?(.modifiersChanged(event.modifierFlags))
+    }
+
+    /// Escape mid-drag (the key monitor; tests call it directly).
+    override func cancelOperation(_ sender: Any?) {
+        guard isDragging else { return }
+        endFrameDrag()
+        isDragging = false
+        stopKeyMonitor()
+        onDrag?(.cancelled)
+    }
+
+    private func startKeyMonitor() {
+        stopKeyMonitor()
+        // local-monitor-allow: Escape and modifier keys only while this handle drags (installed on the press, removed when the drag ends); the handle is never first responder, so it hears neither otherwise
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+            guard let self, self.isDragging else { return event }
+            if event.type == .flagsChanged {
+                self.flagsChanged(with: event)
+                return event
+            }
+            // Escape cancels the drag and goes no further; other keys go on as usual.
+            if event.keyCode == 53 { self.cancelOperation(nil) }
+            return event.keyCode == 53 ? nil : event
+        }
+    }
+
+    private func stopKeyMonitor() {
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
     }
 
     /// One delivery of the frame-aligned drag: every point but the latest feeds the velocity, then
@@ -395,7 +445,7 @@ final class DividerHandleView: NSView {
         }
         let latest = input.latest
         let shown = resampler?.points(for: input, at: frame).visualPoint
-        onDrag?(.moved(NSPoint(x: latest.location.x, y: latest.location.y), time: latest.timestamp,
+        onDrag?(.moved(NSPoint(x: latest.location.x, y: latest.location.y), dragModifiers, time: latest.timestamp,
                        shown: shown.map { NSPoint(x: $0.x, y: $0.y) }))
     }
 

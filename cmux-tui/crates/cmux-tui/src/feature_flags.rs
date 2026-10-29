@@ -254,9 +254,40 @@ pub(crate) fn install_daemon_features() -> cmux_features::Snapshot {
     features
 }
 
-/// The daemon's features, resolved once at start (p12-perf-process 3.9): the
-/// shared rule (`cmux_features::sources::daemon_snapshot`, acpmux's too) on the
-/// channel of the app this owner belongs to.
+/// The `DisabledFeatures` name of docked workspaces.
+pub(crate) const DOCKED_WORKSPACES: &str = "docked-workspaces";
+/// Turns docked workspaces on without editing cmux-tui.json.
+pub(crate) const DOCKED_WORKSPACES_ENV: &str = "CMUX_TUI_DOCKED_WORKSPACES";
+
+/// Whether docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md) are
+/// on. The prototype is off by default: cmux-tui.json
+/// `viewport.docked_workspaces: true` or `CMUX_TUI_DOCKED_WORKSPACES=1` turns
+/// it on, and the managed policy or this tester's wave can still turn it off.
+pub(crate) fn docked_workspaces_enabled(
+    configured: bool,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> bool {
+    let requested = configured
+        || env(DOCKED_WORKSPACES_ENV)
+            .is_some_and(|value| matches!(value.trim(), "1" | "true" | "on" | "yes"));
+    requested && !disables(DOCKED_WORKSPACES)
+}
+
+/// Whether the managed policy or this tester's wave turns `feature` off.
+pub(crate) fn disables(feature: &str) -> bool {
+    let env = |name: &str| std::env::var(name).ok();
+    let managed = cmux_config::managed::default_reader(env).read();
+    let managed_off = managed
+        .forced
+        .get("DisabledFeatures")
+        .and_then(Value::as_array)
+        .is_some_and(|items| items.iter().any(|item| item.as_str() == Some(feature)));
+    managed_off || report().1.iter().any(|item| item == feature)
+}
+
+/// The daemon's features, resolved once at start: the shared rule
+/// (`cmux_features::sources::daemon_snapshot`, acpmux's too) on the channel of
+/// the app this owner belongs to.
 pub(crate) fn daemon_features() -> cmux_features::Snapshot {
     #[cfg(unix)]
     let kind = {
@@ -355,6 +386,17 @@ mod tests {
         assert_eq!(cohort(&set, Some(&settings)), "linux-wave-1");
         assert_eq!(cohort(&none, Some(&settings)), "mac-wave-2");
         assert_eq!(cohort(&none, None), "default");
+    }
+
+    #[test]
+    fn docked_workspaces_stay_off_unless_requested() {
+        let none = |_: &str| -> Option<String> { None };
+        let on = |name: &str| (name == DOCKED_WORKSPACES_ENV).then(|| "1".to_string());
+        let off = |name: &str| (name == DOCKED_WORKSPACES_ENV).then(|| "0".to_string());
+        assert!(!docked_workspaces_enabled(false, &none));
+        assert!(!docked_workspaces_enabled(false, &off));
+        assert_eq!(docked_workspaces_enabled(false, &on), !disables(DOCKED_WORKSPACES));
+        assert_eq!(docked_workspaces_enabled(true, &none), !disables(DOCKED_WORKSPACES));
     }
 
     #[test]

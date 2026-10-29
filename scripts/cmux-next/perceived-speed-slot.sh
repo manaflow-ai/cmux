@@ -4,7 +4,7 @@
 # Runs perceived-speed.py against one DEV build (a finished `cmux-ci build cmux` job: debug.window_record
 # is DEBUG only) in a capture slot: takes a slot lease, fetches the job's app onto the slot host, launches
 # it, records every surface there, copies the recordings to DIR, quits the app, releases the slot, then
-# analyzes here and prints the ranking table (DIR/table.md). Run from big-red; never on Leo's machines.
+# analyzes here and prints the ranking table (DIR/table.md). Run from a fleet host; never on a personal machine.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 job="" out="" runs=3 surfaces=()

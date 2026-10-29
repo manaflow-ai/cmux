@@ -9,7 +9,7 @@
 // running lines' icons share one shimmer that sweeps down them (ui/wave.ts); the ended ones stay
 // still. The live counts sit in the section's head ("3 running · 40 done", `subagentCounts`). Leo
 // 2026-10-21: the row of identical avatars it replaces opened nothing anyone could tell apart.
-import { useState } from "react";
+import { memo, useState } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
 import { waveIndices } from "../../../ui/wave";
@@ -17,14 +17,58 @@ import { Icon } from "../icons/Icon";
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { nestAgents } from "../subagents/AgentsPill";
-import { elapsed, running, useNow } from "../subagents/SubagentGroup";
+import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
+import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
-import { subagentStatus, subagentStatusLabel, type SubagentStatus } from "../summary/SubagentStatusList";
-import { orderedSessions, sessionStatus, sessionStateLabel } from "./ChildSessionRows";
+import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
+import { SUBSESSION_STATE_LABEL, type SubsessionRow, waitingLine } from "../subagents/subsessions";
+import {
+  SUBSESSION_STATUS,
+  subagentStateText,
+  subagentStatus,
+  type SubagentStatus,
+} from "../summary/SubagentStatusList";
+import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
+import "./SubagentsSection.css";
+import { InspectorFold } from "./InspectorSection";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
 const NO_SESSIONS: readonly StartedSession[] = [];
+const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
+
+export type SubagentTally = { waiting: number; running: number; failed: number; stopped: number; done: number };
+
+/// The Inspector's one source of truth for subagent and started-chat counts. Compact summaries
+/// reuse this tally instead of walking the records a second time.
+export function subagentTally(
+  agents: readonly Subagent[],
+  waiting: ReadonlySet<string>,
+  sessions: readonly StartedSession[] = NO_SESSIONS,
+): SubagentTally {
+  const out: SubagentTally = { waiting: 0, running: 0, failed: 0, stopped: 0, done: 0 };
+  const add = (status: SubagentStatus) => {
+    out[status] += 1;
+  };
+  agents.forEach((agent) => add(subagentStatus(agent, waiting)));
+  sessions.forEach((session) => add(session.waitsForSlot ? "waiting" : sessionStatus(session)));
+  return out;
+}
+
+/// The same tally shape for App.tsx's folded `chatSubsessions` rows. Compact summaries and the
+/// Inspector header share this helper so a sub-session cannot disappear from either count.
+export function subsessionTally(rows: readonly SubsessionRow[] = NO_SUBSESSIONS): SubagentTally {
+  const out: SubagentTally = { waiting: 0, running: 0, failed: 0, stopped: 0, done: 0 };
+  rows.forEach((row) => {
+    const retry = sessionRetry(row);
+    if (row.slot) out.waiting += 1;
+    else if (retry.kind === "retrying" || row.state === "working") out.running += 1;
+    else if (row.state === "input") out.waiting += 1;
+    else if (row.state === "done") out.done += 1;
+    else out.failed += 1;
+  });
+  return out;
+}
 
 /// "1 waiting · 3 running · 40 done" for the section's head, the started chats counted with the
 /// subagents, or nothing for neither.
@@ -33,16 +77,20 @@ export function subagentCounts(
   agents: readonly Subagent[],
   waiting: ReadonlySet<string>,
   sessions: readonly StartedSession[] = NO_SESSIONS,
+  subsessions: readonly SubsessionRow[] = NO_SUBSESSIONS,
 ): string {
-  const count = (status: SubagentStatus) =>
-    agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
-    sessions.filter((child) => sessionStatus(child) === status).length;
+  const counts = subagentTally(agents, waiting, sessions);
+  const sub = subsessionTally(subsessions);
+  counts.waiting += sub.waiting;
+  counts.running += sub.running;
+  counts.failed += sub.failed;
+  counts.done += sub.done;
   return [
-    count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
-    count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
-    count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
-    count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
-    count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
+    counts.waiting > 0 && t("summary.subagents.waiting", { n: counts.waiting }),
+    counts.running > 0 && t("summary.subagents.running", { n: counts.running }),
+    counts.failed > 0 && t("summary.subagents.failed", { n: counts.failed }),
+    counts.stopped > 0 && t("summary.subagents.stopped", { n: counts.stopped }),
+    counts.done > 0 && t("summary.subagents.done", { n: counts.done }),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -64,10 +112,14 @@ function endedCounts(t: Translate, lines: readonly Line[]): string {
 /// One line of the list: a subagent or a started chat, as AgentLine draws it.
 type Line = {
   key: string;
+  identity: string;
+  agent?: Subagent;
   name: string;
   detail?: string;
   status: SubagentStatus;
   state: string;
+  /// acpmux retries it: its line shows the turning ring (retryState.ts).
+  working?: boolean;
   time?: string;
   /// Its whole task, for the hover card.
   task?: string;
@@ -82,11 +134,50 @@ const live = (status: SubagentStatus) => status === "running" || status === "wai
 /// The ended list's order: a failed one first, then a stopped one, then the done ones.
 const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 };
 
+// Streaming rows/views recreate the folded agents. Compare only the bounded preview's visual
+// inputs so those snapshots do not render its Avatars or hash their tones again. Avatar's harness
+// context and AgentMark's theme subscription still update independently through this memo boundary.
+const EndedAvatars = memo(
+  function EndedAvatars({ items }: { items: readonly Line[]; count: number }) {
+    return (
+      <span className="acpmux-chat-inspector-subagents__avatars" aria-hidden="true">
+        {items.map((item) => (
+          <span key={item.key} data-agent-tone={agentTone(item.identity)}>
+            {item.agent ? (
+              <Avatar agent={item.agent} />
+            ) : (
+              <span className="cv-subagent-avatar" data-state={item.status}>
+                <Icon name={item.icon} size={14} />
+              </span>
+            )}
+          </span>
+        ))}
+      </span>
+    );
+  },
+  (before, after) =>
+    before.count === after.count &&
+    before.items.length === after.items.length &&
+    before.items.every((item, index) => {
+      const next = after.items[index]!;
+      return (
+        item.key === next.key &&
+        item.identity === next.identity &&
+        item.status === next.status &&
+        item.working === next.working &&
+        item.icon === next.icon &&
+        item.agent?.state === next.agent?.state &&
+        item.agent?.harness === next.agent?.harness
+      );
+    }),
+);
+
 export function SubagentsSection({
   agents,
   waiting,
   onOpen,
   sessions = NO_SESSIONS,
+  subsessions = NO_SUBSESSIONS,
   onOpenSession,
 }: {
   agents: readonly Subagent[];
@@ -95,6 +186,8 @@ export function SubagentsSection({
   onOpen?: (id: string) => void;
   /// The chats the agent started, and how one opens.
   sessions?: readonly StartedSession[];
+  /// The chats started through acpmux's sub-session API, listed with the same detail.
+  subsessions?: readonly SubsessionRow[];
   onOpenSession?: (sessionId: string) => void;
 }) {
   const t = useT();
@@ -105,10 +198,13 @@ export function SubagentsSection({
     const status = subagentStatus(agent, waiting);
     return {
       key: `agent:${agent.id}`,
+      identity: agent.id,
+      agent,
       name: agent.name,
       detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
       status,
-      state: t(subagentStatusLabel(agent, waiting)),
+      state: subagentStateText(t, agent, waiting),
+      working: Boolean(retrying(agent)),
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
       icon: "agent.session",
@@ -119,14 +215,33 @@ export function SubagentsSection({
   };
   const sessionLine = (child: StartedSession): Line => ({
     key: `session:${child.sessionId}`,
+    identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    state: t(sessionStateLabel(child)),
+    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
     icon: "agent.chat",
     depth: 0,
     at: child.createdAt ?? 0,
     open: onOpenSession && (() => onOpenSession(child.sessionId)),
   });
+  const subsessionLine = (session: SubsessionRow): Line => {
+    const retry = sessionRetry(session);
+    const status = retry.kind === "retrying" ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state];
+    const detail = session.waiting ? waitingLine(t, session.waiting) : session.doing;
+    return {
+      key: `subsession:${session.sessionId}`,
+      identity: session.sessionId,
+      name: session.name,
+      detail,
+      status,
+      state: retry.kind === "retrying" ? retryLabel(t, retry.retry) : t(SUBSESSION_STATE_LABEL[session.state]),
+      working: retry.kind === "retrying",
+      icon: "agent.session",
+      depth: session.depth,
+      at: 0,
+      open: onOpenSession && (() => onOpenSession(session.sessionId)),
+    };
+  };
   // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
   // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
   // parent), then the running chats.
@@ -138,11 +253,31 @@ export function SubagentsSection({
   );
   const children = orderedSessions(sessions);
   const runningLines = [
+    ...subsessions
+      .filter((session) => {
+        const phase = sessionRetry(session);
+        return (
+          phase.kind === "retrying" ||
+          SUBSESSION_STATUS[session.state] === "waiting" ||
+          SUBSESSION_STATUS[session.state] === "running"
+        );
+      })
+      .map(subsessionLine),
     ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
     ...runningAgents,
     ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
   ];
   const endedLines = [
+    ...subsessions
+      .filter((session) => {
+        const phase = sessionRetry(session);
+        return (
+          phase.kind !== "retrying" &&
+          SUBSESSION_STATUS[session.state] !== "waiting" &&
+          SUBSESSION_STATUS[session.state] !== "running"
+        );
+      })
+      .map(subsessionLine),
     ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
@@ -156,6 +291,7 @@ export function SubagentsSection({
         detail={item.detail}
         status={item.status}
         state={item.state}
+        working={item.working}
         time={item.time}
         icon={item.icon}
         depth={item.depth}
@@ -183,16 +319,11 @@ export function SubagentsSection({
         </ul>
       )}
       {runningLines.length > SUBAGENTS_SHOWN && (
-        <button
-          type="button"
-          className="acpmux-chat-inspector-fold acpmux-chat-inspector-subagents__more"
-          aria-expanded={more}
-          onClick={() => setMore(!more)}
-        >
+        <InspectorFold className="acpmux-chat-inspector-subagents__more" open={more} onToggle={() => setMore(!more)}>
           {more
             ? t("chatInspector.subagents.less")
             : t("chatInspector.subagents.more", { n: runningLines.length - SUBAGENTS_SHOWN })}
-        </button>
+        </InspectorFold>
       )}
       {endedLines.length > 0 && (
         <>
@@ -202,9 +333,7 @@ export function SubagentsSection({
             aria-expanded={endedOpen}
             onClick={() => setEndedOpen(!endedOpen)}
           >
-            <span className="acpmux-lineage__icon" data-state={endedLines[0]!.status}>
-              <Icon name={endedLines[0]!.icon} size={14} />
-            </span>
+            <EndedAvatars items={endedLines.slice(0, 4)} count={endedLines.length} />
             <span className="acpmux-summary-text">{endedCounts(t, endedLines)}</span>
             <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
           </button>

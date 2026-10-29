@@ -40,7 +40,7 @@ exported default keymap keeps Ghostty's split keys (schemas/keybindings/ghostty-
 and the push removes no reserved entry. CMUX_NEXT_CHECKS_SKIP_REASON does not skip it; only a
 `Ghostty-defaults-OK: <the user's words>` trailer on a pushed commit does (Lawrence 2026-10-20).
 Also on every push: "Sidebar look owner" (plans/cmux-next/sidebar-owner.md): a commit that changes the
-sidebar's drawing code (CmuxNextSidebar/Views/) carries a `Sidebar-Look: <the user's words, or "no visual
+sidebar package's code (CmuxNextSidebar/, not its strings, resources or mock) carries a `Sidebar-Look: <the user's words, or "no visual
 change">` trailer, and a visual change also edits plans/cmux-next/sidebar-owner.md in the same commit.
 233 sidebar commits in four days with no owner undid each other (Lawrence 2026-10-23: "why were there so
 many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
@@ -48,6 +48,9 @@ that note (its 11-character sha) passes. CI also sweeps every commit since the c
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
+Also on every push: "Leo's bans" (check-leo-bans.py): the UI font stays Inter, bundled, with its
+calculated tracking (schemas/type-scale/leo-bans.json), and no webviews stylesheet names the system
+font. It is not skippable either; only a `Leo-order: <Leo's words>` trailer changes the pin.
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
@@ -172,6 +175,12 @@ RESERVED_CHECK = "Ghostty-default keys (schemas/keybindings/ghostty-reserved-key
 CONFLICT_CHECK = "Merge conflict markers"
 SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
 SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
+# The sidebar package's code, not only Views/: a702 (9a2fceefbbb, 2026-10-25) changed the pinned section from tiles
+# to rows in Sections/ and the gate never asked. Strings and resources (copy, catalogs) and the mock are left out.
+SIDEBAR_CODE = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/"
+SIDEBAR_EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/",
+                  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Mock/",
+                  "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Strings")
 SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
@@ -198,6 +207,10 @@ WINDOW_FILE = Path(os.environ.get("CMUX_WINDOW_FILE") or
                    Path.home() / "fun/cmuxterm-hq/.cmux-scratch/nx-coordinator/WINDOW")
 FREEZE_LINE = re.compile(r"(?m)^FREEZE:[ \t]*(\S+)[ \t]+token=(\S+)")
 FREEZE_TRAILER = re.compile(r"(?mi)^Freeze-Token:[ \t]*(\S+)[ \t]*$")
+
+# The UI font is Inter with its calculated tracking (Leo 2026-10-21, ask-52da478628).
+LEO_BANS_CHECK = "Leo's bans (Inter UI font and tracking, schemas/type-scale/leo-bans.json)"
+LEO_BANS_SCRIPT = SCRIPTS + "/check-leo-bans.py"
 
 # Reviewed escapes the CI scanners honor, per ast-grep rule (same line or the comment block above).
 ESCAPES = {
@@ -779,6 +792,31 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
     return fresh
 
 
+def leo_bans(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """What head adds to Leo's bans (LEO_BANS_CHECK) over base: findings base does not have, and a
+    pin change in base..head with no `Leo-order:` trailer."""
+    trusted = trusted_scripts / Path(LEO_BANS_SCRIPT).name if trusted_scripts else None
+    if trusted and trusted.is_file():
+        script = trusted.read_bytes()
+    else:
+        result = subprocess.run(["git", "-C", str(repo), "show", f"{head}:{LEO_BANS_SCRIPT}"], capture_output=True)
+        if result.returncode != 0:
+            return []  # a commit older than this check
+        script = result.stdout
+    with tempfile.TemporaryDirectory(prefix="cmux-leo-bans-") as tmp:
+        check = Path(tmp) / "check.py"
+        check.write_bytes(script)
+
+        def findings(*args: str) -> list[str]:
+            code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
+            if code == 124:
+                return [f"check-leo-bans.py {' '.join(args)}: {out}"]
+            return [line for line in out.splitlines() if line.strip() and not line.startswith("leo bans:")]
+
+        base_lines = set(findings("--rev", base))
+        return [line for line in findings("--rev", head, "--base", base) if line not in base_lines]
+
+
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     """`file:line` of each conflict marker the push adds, in any file of the repository.
 
@@ -842,7 +880,7 @@ def window_freezes(repo: Path, base: str, head: str, window: Path | None = None)
 def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) -> list[str]:
     """Each pushed commit that changes the sidebar's drawing code without the owner's record.
 
-    A commit touching `SIDEBAR_VIEWS` needs a `Sidebar-Look:` trailer: the user's words that asked for the
+    A commit touching the sidebar package's code (`SIDEBAR_CODE` but `SIDEBAR_EXEMPT`) needs a `Sidebar-Look:` trailer: the user's words that asked for the
     look (a visual change, which must also edit `SIDEBAR_NOTE` in that commit) or `no visual change` (a
     behavior or performance change; the sidebar look contract tests hold the look). Checked per commit, so a
     later commit cannot launder an earlier one.
@@ -861,7 +899,7 @@ def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) 
     for record in out.split("\x1e")[1:]:
         sha, message, names = (record.split("\x1f") + ["", ""])[:3]
         files = [f for f in names.split("\n") if f]
-        views = sorted(f for f in files if f.startswith(SIDEBAR_VIEWS))
+        views = sorted(f for f in files if f.startswith(SIDEBAR_CODE) and not f.startswith(SIDEBAR_EXEMPT))
         if not views or sha[:11] in logged:
             continue
         subject = message.strip().splitlines()[0] if message.strip() else ""
@@ -884,6 +922,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     if only is None or "reserved" in only:
         fresh = reserved_keys(repo, base, head, trusted_scripts)
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
+    if only is None or "leo-bans" in only:
+        fresh = leo_bans(repo, base, head, trusted_scripts)
+        reserved += [(LEO_BANS_CHECK, fresh)] if fresh else []
     if only is None or "conflicts" in only:
         markers = conflict_markers(repo, base, head)
         if markers:
@@ -1458,7 +1499,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--remote", default="origin",
                         help="the pushed remote's name (the hook's first argument; a URL for a push to a URL)")
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,conflicts,"
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,leo-bans,conflicts,"
                                        "sidebar,crash-allow,freeze")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
@@ -1553,6 +1594,9 @@ def main(argv: list[str] | None = None) -> int:
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
+    elif skip and any(name == LEO_BANS_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {LEO_BANS_CHECK}. The UI font and its "
+              "tracking change only by Leo's order, quoted in a `Leo-order: <Leo's words>` commit trailer.")
     elif skip:
         print(f"prepush-gate: SKIPPED by CMUX_NEXT_CHECKS_SKIP_REASON={skip!r}. Say so in your report; "
               "CI still names the commit.")

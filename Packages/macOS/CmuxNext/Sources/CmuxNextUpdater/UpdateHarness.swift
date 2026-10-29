@@ -83,6 +83,8 @@ nonisolated public struct UpdateHarness: Sendable, Equatable {
         let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: false,
                                           isDisabledByPolicy: { policy.disablesUpdates })
         controller.installsUpdatesInBackground = true
+        // As the shipped app (``UpdaterService``): the daemon keeps sessions, so no relaunch gate.
+        controller.holdsUserInstalls = false
         controller.feedOverride = feedURL
         log.append("update harness: Sparkle on the loopback feed \(feedURL)")
         mark("process_start", at: Self.processStart)

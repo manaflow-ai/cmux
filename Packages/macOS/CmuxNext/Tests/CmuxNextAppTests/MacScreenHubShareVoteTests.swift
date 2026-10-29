@@ -18,7 +18,7 @@ struct MacScreenHubShareVoteTests {
     /// A host serving session `s1` whose shared screen is a hidden app node with one window under it.
     private func serving() -> (host: MacScreenHubHost, app: VisibilityNode, window: VisibilityNode, made: MadeHosts) {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen")), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
+        let pages = MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen")), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()), work: BackgroundWork())
         let hub = testHub()
         let host = pages.hubHost
         let app = VisibilityNode(root: "app", own: .hidden)

@@ -152,8 +152,10 @@ public final class AgentChatStore {
     public private(set) var models: [ACPModelInfo] = []
     public private(set) var currentModelID: String?
     public private(set) var modes: [ACPMode] = []
-    /// Every mode the agent offers; ``modes`` is what a phone may pick (``ACPMode/phoneChoices(_:current:)``).
+    /// Every mode the agent offers; ``modes`` is what a phone may pick (``ACPMode/phoneChoices(_:current:fullAccess:)``).
     private var offeredModes: [ACPMode] = []
+    /// This phone's Full-access setting covers it (``AgentSessionEvent/fullAccess(_:)``).
+    private var fullAccess = false
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
     /// The title the agent gave the session (`session_info_update`).
@@ -484,8 +486,11 @@ public final class AgentChatStore {
             currentModelID = current
         case .modesAvailable(let modes, let current):
             offeredModes = modes
-            self.modes = ACPMode.phoneChoices(modes, current: current)
+            self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
             currentModeID = current
+        case .fullAccess(let on):
+            fullAccess = on
+            modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
         case .status(let status):
             summary.status = status
         case .clientError(let message):
@@ -617,7 +622,7 @@ public final class AgentChatStore {
             availableCommands = commands
         case .currentMode(let mode):
             currentModeID = mode
-            modes = ACPMode.phoneChoices(offeredModes, current: mode)
+            modes = ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess)
         case .configOptions(let options):
             configOptions = options
         case .usage(let used, let size):

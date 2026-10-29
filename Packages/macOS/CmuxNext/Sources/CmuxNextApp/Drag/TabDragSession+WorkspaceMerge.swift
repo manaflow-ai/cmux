@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSidebar
 
 // A sidebar workspace dropped on a pane of the shown workspace (Leo
 // 2026-10-06): its tabs come in the way a tab drag would bring one. The
@@ -40,6 +41,11 @@ enum WorkspaceMerge {
                     layout: LayoutTabDropTarget, services: AppServices) -> TabDropProposal? {
         guard let id = ids.first, allowed(ids, group: group, into: window.content(atScreen: point)?.workspace, services: services),
               let proposal = layout.workspaceHitTest(screenPoint: point, workspaceID: id), outcome(proposal.kind) != nil else { return nil }
+        // Multi-view: a screen edge dock band places the workspace beside the shown one, not in a new dock of it.
+        if SidebarTunables.multiView.value, case .newDock = proposal.kind {
+            layout.dropExited()
+            return nil
+        }
         return proposal
     }
 

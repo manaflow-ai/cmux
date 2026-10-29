@@ -107,11 +107,18 @@ public final class IPhoneHostService {
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
     private(set) var knownPhones: [MobileHostKnownPhone] = []
+    /// Which phones may hold an acpmux credential is known: ``knownPhones`` is the signed-in
+    /// account's list, read since it signed in, or iPhone connections are off (none may).
+    @ObservationIgnored private(set) var phonesKnown = false
+    /// The setting has been read once (``allowed`` false before that is not "off").
+    @ObservationIgnored private var allowedRead = false
     /// Why the last list read or removal failed, shown under the list; nil when it worked.
     private(set) var phonesError: String?
     /// The signed-in user's pairing (cmux-next-ios verify/phone-approvals.md): every pairing decision
     /// is its own; this service shows the prompt and saves and pushes the list as each step says.
     internal(set) var pairing = MobileHostPairing()
+    /// The read of ``paired`` in flight, and the phones forgotten while it runs (``loadPaired(signedOut:)``).
+    @ObservationIgnored var pairedLoad = MobileHostPairedLoad()
     /// The owner removed this Mac from the account's devices (from a phone or the API).
     /// hostd stays stopped until the person allows iPhone connections again: Allow Again,
     /// the setting off and on, or signing in again. Then it registers as a new device.
@@ -120,6 +127,11 @@ public final class IPhoneHostService {
     @ObservationIgnored var dependencies: Dependencies?
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored let supervisor = MobileHostSupervisor()
+    /// The pre-approval behind this Mac's pairing code (``pairInvite()``): a phone presenting the
+    /// live one pairs without the prompt, once.
+    @ObservationIgnored var pairTokens = MobileHostPairTokens()
+    /// This Mac's identity public key, as hostd proves it to phones (nil until hostd started).
+    @ObservationIgnored private(set) var macPublicKey: Data?
     /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
     @ObservationIgnored var pairDialog: (id: Int, request: MobileHostPairRequest)?
     /// The banner and Dock bounce that tell the person about a request while cmux is not in front.
@@ -170,8 +182,11 @@ public final class IPhoneHostService {
         listGeneration &+= 1
         guard allowed, account != nil, let dependencies, let mainWork = deadlines?.work else {
             knownPhones = []
+            // Connections turned off: no phone holds a credential and their records end. Before the
+            // setting or the account is read, which phones may is not known yet.
+            phonesKnown = allowedRead && !allowed && account != nil
             phonesError = nil
-            return
+            return pushListedPhones()
         }
         let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL), accessToken = dependencies.accessToken
         let generation = listGeneration
@@ -189,7 +204,9 @@ public final class IPhoneHostService {
         switch read {
         case .success(let phones):
             knownPhones = phones
+            phonesKnown = true
             phonesError = nil
+            pushListedPhones()
         case .failure:
             phonesError = IPhoneHostStrings.listFailed
         }
@@ -199,14 +216,15 @@ public final class IPhoneHostService {
     /// hostd, and re-reads the list. A phone still signed in to the account registers again
     /// when it next connects.
     public func removePhone(id: String) async {
-        guard let dependencies, let phone = knownPhones.first(where: { $0.id == id }) else { return }
+        guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }
         do {
             try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
             await supervisor.drop(phoneDeviceIDs: phone.deviceIDs)
             // Its pairing goes too: its links and Face ID approvals stop at once.
             for deviceID in phone.deviceIDs { revokePhone(id: deviceID) }
-            knownPhones.removeAll { $0.id == id }
+            knownPhones.removeAll { $0.id == phone.id }
             phonesError = nil
+            pushListedPhones()
         } catch {
             logger.error("iPhone removal failed: \(String(describing: error), privacy: .public)")
             phonesError = IPhoneHostStrings.removeFailed
@@ -226,6 +244,7 @@ public final class IPhoneHostService {
             clearRemoval()
         }
         self.account = account
+        phonesKnown = false
         loadPaired(signedOut: signedOut)
         reconcile()
         refreshPhones()
@@ -234,6 +253,7 @@ public final class IPhoneHostService {
     /// hostd reported the removal: remember it (across relaunches) and forget the device id.
     private func recordRemoval() {
         removed = true
+        pairTokens.revoke()
         guard let dependencies, let key = running else { return }
         do {
             try MobileHostRemovalMarker(directory: dependencies.stateDirectory)
@@ -257,9 +277,17 @@ public final class IPhoneHostService {
     }
 
     func setAllowed(_ allowed: Bool) {
-        guard allowed != self.allowed else { return }
+        let first = !allowedRead
+        allowedRead = true
+        guard allowed != self.allowed else {
+            // Read off at launch: the phones' records end too (``refreshPhones()``).
+            if first { refreshPhones() }
+            return
+        }
         // Turning the setting on again is the person allowing connections again.
         if allowed, removed { clearRemoval() }
+        // A pairing code shown before the switch went off pairs nothing afterwards.
+        if !allowed { pairTokens.revoke() }
         self.allowed = allowed
         // Turning connections off withdraws the waiting pairing requests and their prompt.
         if !allowed { resetPrompts() }
@@ -267,7 +295,8 @@ public final class IPhoneHostService {
         refreshPhones()
     }
 
-    /// App quit: hostd ends with the app (closing its stdin ends it too).
+    /// App quit: hostd ends with the app (closing its stdin ends it too). Called only from
+    /// `applicationWillTerminate`.
     public func stop() {
         running = nil
         following?.cancel()
@@ -277,6 +306,9 @@ public final class IPhoneHostService {
         followingFolders?.cancel()
         followingPicks?.cancel()
         approverSync?.stop()
+        // The paired list's queued saves (a removal's new list among them) finish before the app
+        // ends: a bounded wait during termination, the threading model's `terminate` allowance.
+        allowBlocking(.terminate) { MobileHostPairedDevicesFile.flush() }
         quietAttention()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent
@@ -308,6 +340,7 @@ public final class IPhoneHostService {
             // Removed by the owner (this launch or an earlier one): stay stopped.
             if let key, MobileHostRemovalMarker(directory: dependencies.stateDirectory).account() == key {
                 self?.removed = true
+                self?.pairTokens.revoke()
                 await supervisor.stop(phase: .removed)
                 return
             }
@@ -324,6 +357,7 @@ public final class IPhoneHostService {
                 let name = await dependencies.computerName()
                 let chief = await dependencies.chief?()
                 guard !Task.isCancelled, self?.running == key else { return }
+                self?.macPublicKey = identity.publicKey
                 let launch = Self.launch(dependencies, executable: executable, account: want, deviceID: deviceID,
                                          deviceName: name, daemonSocket: socket, chief: chief)
                 await supervisor.start(.init(

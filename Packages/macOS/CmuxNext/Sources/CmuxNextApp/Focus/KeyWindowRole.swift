@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextFocusUI
 import os
 
 /// The window the key window acts for, its close semantics, and whether
@@ -29,7 +30,7 @@ struct KeyWindowRole {
     @MainActor
     static func resolve(_ key: NSWindow, ownedByMain: Bool, isPalette: Bool, pageSurface: PageSurface) -> KeyWindowRole? {
         let root = key.windowKindRoot
-        let isPageWindow = pageSurface == .childWindows && isChromiumPageWindow(key)
+        let isPageWindow = pageSurface == .childWindows && key.isChromiumPageWindow
         // A Chromium page window inside the root (an undocked inspector's
         // page, a popup's page) acts for it.
         let inside = key === root || (key.sheetParent == nil && isPageWindow)
@@ -40,12 +41,6 @@ struct KeyWindowRole {
         KindlessWindowAudit.note(root)
         let closable = root.styleMask.isSuperset(of: [.titled, .closable])
         return KeyWindowRole(root: root, close: .window, overRoot: !inside || !closable)
-    }
-
-    /// `CefNSWindow`: a Chromium page window.
-    private static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
-        guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
-        return window.isKind(of: pageClass)
     }
 }
 

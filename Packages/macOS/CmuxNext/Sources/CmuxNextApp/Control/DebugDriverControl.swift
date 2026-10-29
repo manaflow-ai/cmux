@@ -303,6 +303,11 @@ enum DebugDriverControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.show(call.params, services: services))
             },
+            // Captures of a Cloud machine's menu: a fixture header and `cloudWorkspace`, with no machine, sign-in or network.
+            .mainActor("debug.cloud_machine_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugCloudMachineFixture.show(call.params, services: services))
+            },
             .mainActor("debug.sidebar_group_drag") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarGroupDrag.run(call.params, services: services))

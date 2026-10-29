@@ -509,7 +509,7 @@ struct MacScreenHubViewerTests {
 struct MacScreenHubPushTests {
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen")), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
+        return MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen")), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()), work: BackgroundWork())
     }
 
     @Test func pushesReachTheTabOfTheirSession() throws {
@@ -663,7 +663,7 @@ struct MacScreenDevicesSettingsTests {
     /// The state never carries a secret, even with relays this Mac can open.
     @Test func theStateHoldsNoSecrets() async throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen")), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
+        let pages = MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen")), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()), work: BackgroundWork())
         let settings = MacScreenDevicesSettings(pages: pages)
         pages.hubConfigured = true
         #expect(settings.state.available && settings.state.thisDevice == nil)
@@ -698,7 +698,7 @@ struct MacScreenHubHostOrderTests {
 
     private func serving() -> (MacScreenHubHost, DeviceHub) {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen")), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
+        let pages = MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen")), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()), work: BackgroundWork())
         let hub = testHub()
         let host = pages.hubHost
         host.hub = { hub }

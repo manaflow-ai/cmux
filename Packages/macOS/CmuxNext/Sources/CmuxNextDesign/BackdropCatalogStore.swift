@@ -65,16 +65,34 @@ public final class BackdropCatalogStore {
         let owner = mainWork.board.owner("BackdropCatalogStore.build")
         // task-owner: the store's refresh loop, off main; stop() cancels it
         task = Task { @concurrent [weak self] in
-            let changes = FolderChanges(folders: folders).events()
-            let first = build()
-            mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in self?.land(first) }
-            // wakeup-allow: each pass is one folder change event, never a poll
-            for await _ in changes {
-                guard self != nil, !Task.isCancelled else { return }
-                let fresh = build()
-                mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in self?.land(fresh) }
+            var watched = Set(folders)
+            // wakeup-allow: each pass is one folder change event, never a poll; the watch rearms only when a
+            // build changes the folders it lists
+            watch: while !Task.isCancelled {
+                let changes = FolderChanges(folders: Array(watched)).events()
+                let first = build()
+                mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in self?.land(first) }
+                let next = BackdropCatalogStore.watchFolders(folders, catalog: first)
+                if next != watched { watched = next; continue }
+                for await _ in changes {
+                    guard self != nil, !Task.isCancelled else { return }
+                    let fresh = build()
+                    mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in self?.land(fresh) }
+                    let next = BackdropCatalogStore.watchFolders(folders, catalog: fresh)
+                    if next != watched { watched = next; continue watch }
+                }
+                return
             }
         }
+    }
+
+    /// The folders to watch for `catalog`: a download changes its movie's parent folder, not the aerial root
+    /// (folder watches are not recursive). Read off main, from the build that made `catalog`.
+    private nonisolated static func watchFolders(_ folders: [URL], catalog: BackdropCatalog) -> Set<URL> {
+        Set(folders).union(catalog.choices.compactMap { choice in
+            guard case .system(let path) = choice, choice.isVideo else { return nil }
+            return URL(fileURLWithPath: path).deletingLastPathComponent()
+        })
     }
 
     /// Stops watching the folders.

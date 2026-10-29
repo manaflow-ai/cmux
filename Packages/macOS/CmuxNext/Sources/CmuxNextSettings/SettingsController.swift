@@ -79,6 +79,8 @@ public final class SettingsController {
     @ObservationIgnored private var lastSource: LoadInputs?
     @ObservationIgnored let managedReader: any ManagedPreferenceReader
     @ObservationIgnored let managedWatchFiles: [URL]
+    /// Fill keys no layer sets (``SettingsBuildDefaults``); the launch read's unless given.
+    @ObservationIgnored let buildDefaults: SettingsBuildDefaults
     @ObservationIgnored var managedWatchers: [ConfigFileWatcher] = []
     @ObservationIgnored var statusTarget: ManagedStatusTarget?
     @ObservationIgnored var lastStatusBody: JSONValue?
@@ -111,10 +113,12 @@ public final class SettingsController {
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles(),
         launch: LaunchRead? = nil,
-        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        buildDefaults: SettingsBuildDefaults? = nil
     ) {
         self.file = CmuxConfigFile(url: fileURL)
         self.launchRead = launch
+        self.buildDefaults = buildDefaults ?? launch?.buildDefaults ?? .none
         self.applier = SettingsApplier(design: design, registry: registry)
         self.managedReader = managedReader
         self.managedWatchFiles = managedWatchFiles
@@ -215,6 +219,18 @@ public final class SettingsController {
     public func setShortcut(_ shortcut: Shortcut?, for id: ActionID) async throws {
         let value: JSONValue = shortcut.map { .string(ShortcutBindingFormat.configString(SettingsApplier.stroke(for: $0))) } ?? .null
         try await set(value, at: ["shortcuts", "bindings", id.rawValue])
+    }
+
+    /// Writes `keys` (each one key or a two-key chord) as `id`'s binding:
+    /// one key, a chord, or `{"any": [...]}` for several (a repeated key
+    /// counts once); none unbinds it.
+    public func setShortcuts(_ keys: [[Shortcut]], for id: ActionID) async throws {
+        let bindings = keys.map { key in
+            key.count == 2 ? ShortcutBinding.chord(SettingsApplier.stroke(for: key[0]), SettingsApplier.stroke(for: key[1]))
+                : .stroke(SettingsApplier.stroke(for: key[0]))
+        }.reduce(into: [ShortcutBinding]()) { if !$0.contains($1) { $0.append($1) } }
+        let binding = bindings.count > 1 ? ShortcutBinding.alternates(bindings) : bindings.first ?? .unbound
+        try await set(ShortcutBindingFormat.configValue(binding), at: ["shortcuts", "bindings", id.rawValue])
     }
 
     /// Removes the override for `id`, restoring its default shortcut.
@@ -321,12 +337,13 @@ public final class SettingsController {
         let lastGood: JSONValue
         let densities: Set<String>
         let metrics: Set<String>
+        let buildDefaults: SettingsBuildDefaults
     }
 
     private func readInputs() -> ReadInputs {
         let valid = Self.validValues
         return ReadInputs(file: file, reader: managedReader, team: teamPolicy, lastGood: fileRoot,
-                          densities: valid.densities, metrics: valid.metrics)
+                          densities: valid.densities, metrics: valid.metrics, buildDefaults: buildDefaults)
     }
 
     /// The managed layers and the file's text, parsed and merged: the off-main half of a load. The reads block the
@@ -335,7 +352,8 @@ public final class SettingsController {
     @concurrent nonisolated static func read(_ inputs: ReadInputs) async -> Loaded {
         let read = await inputs.file.sourceAndManaged(inputs.reader)
         return loaded(read.source, managed: read.managed, team: inputs.team, lastGood: inputs.lastGood,
-                      valid: (inputs.densities, inputs.metrics), configDirectory: inputs.file.url.deletingLastPathComponent())
+                      valid: (inputs.densities, inputs.metrics), configDirectory: inputs.file.url.deletingLastPathComponent(),
+                      buildDefaults: inputs.buildDefaults)
     }
 
     private func loadOnce() async {
@@ -352,7 +370,7 @@ public final class SettingsController {
         }
         let source = Result { try CmuxConfigFile.source(at: file.url) }
         adopt(Self.loaded(source, managed: managedReader.read(), team: teamPolicy, lastGood: fileRoot, valid: Self.validValues,
-                          configDirectory: file.url.deletingLastPathComponent()))
+                          configDirectory: file.url.deletingLastPathComponent(), buildDefaults: buildDefaults))
     }
 
     typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
@@ -363,7 +381,7 @@ public final class SettingsController {
     /// Parses the file's text and merges the managed layers.
     nonisolated static func loaded(_ read: Result<String, any Error>, managed: ManagedPreferences, team: TeamPolicyLayer,
                                    lastGood: JSONValue, valid: (densities: Set<String>, metrics: Set<String>),
-                                   configDirectory: URL) -> Loaded {
+                                   configDirectory: URL, buildDefaults: SettingsBuildDefaults) -> Loaded {
         var source = ""
         var problem: String?
         var root = lastGood
@@ -377,7 +395,8 @@ public final class SettingsController {
         // Managed layers always merge, over the last good file when this one
         // is unreadable, so MDM forced values apply even while the user's
         // file is broken (spec/enterprise.md 5.2).
-        let effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+        var effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+        effective.root = buildDefaults.filling(effective.root)
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )

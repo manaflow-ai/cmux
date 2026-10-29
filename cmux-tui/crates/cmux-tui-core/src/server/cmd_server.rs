@@ -8,7 +8,7 @@ use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
 use super::capabilities::identify_capabilities_for;
-use super::daemon_build::{stamped_build_commit, stamped_ghostty_commit};
+use super::daemon_build::{stamped_build_commit, stamped_build_time, stamped_ghostty_commit};
 use crate::platform;
 
 use super::ClientIdentityWire;
@@ -162,6 +162,9 @@ pub(super) fn identify(
             identity.insert("sdk_schema_digest", json!(super::frame_dispatch::sdk_schema_digest()));
             identity.insert("framed_methods", json!(super::frame_dispatch::framed_method_ids()));
         }
+        // The source commit's time, so a client that updates this machine
+        // never moves it back to an older build (`link machine update --if-older`).
+        identity.insert("build_time", json!(stamped_build_time()));
     }
     if machine_metadata {
         identity.insert("machine_id", json!(mux.machine_public_id));

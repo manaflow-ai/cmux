@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
 import CmuxNextWakeups
@@ -15,6 +16,13 @@ struct MacScreenSchedulerSweepTests {
 
     private final class Counter {
         var value = 0
+    }
+
+    /// A count the permission checks (`@Sendable`, run on the system lane) can bump.
+    private nonisolated final class SendableCounter: Sendable {
+        private let count = Mutex(0)
+        func increment() { count.withLock { $0 += 1 } }
+        var value: Int { count.withLock { $0 } }
     }
 
     /// Calls in order (a class: actor-isolated closures cannot capture a mutable local).
@@ -60,7 +68,7 @@ struct MacScreenSchedulerSweepTests {
 
     private static func pages(_ deadlines: MainDeadlineScheduler, events: AppEvents) -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen"), removeLinkPairings: {}), deadlines: deadlines, appEvents: events)
+        return MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen"), removeLinkPairings: {}), deadlines: deadlines, appEvents: events, work: BackgroundWork())
     }
 
     /// R-appear: a theme change while the view is hidden repaints nothing until it shows, then once.
@@ -94,19 +102,26 @@ struct MacScreenSchedulerSweepTests {
     }
 
     /// R-notif, side effect while hidden: the permissions are read again on the app's activation notice, with no
-    /// node (a permission granted in System Settings counts whatever shows).
-    @Test func thePermissionsAreReadAgainOnTheAppsOneActivationObserver() {
+    /// node (a permission granted in System Settings counts whatever shows). Each read runs on the system lane
+    /// (`MacScreenShareHost.refreshPermissions`): every read signals `done`, and the test awaits exactly the reads it
+    /// expects (no wall-clock wait; the time limit only catches a read that never comes).
+    @Test(.timeLimit(.minutes(1))) func thePermissionsAreReadAgainOnTheAppsOneActivationObserver() async {
         let center = NotificationCenter()
         let events = AppEvents(center: center)
-        let host = MacScreenShareHost()
-        let reads = Counter()
-        host.checkScreenRecording = { reads.value += 1; return false }
+        let host = MacScreenShareHost(work: BackgroundWork())
+        let reads = SendableCounter()
+        let done = AsyncStream<Void>.makeStream()
+        host.checkScreenRecording = { reads.increment(); done.continuation.yield(); return false }
         host.checkAccessibility = { false }
+        var landed = done.stream.makeAsyncIterator()
         host.activate(events: events)
         host.activate(events: events)
+        await landed.next()
+        await landed.next()
         #expect(reads.value == 2)
         #expect(events.subscriberCount(NSApplication.didBecomeActiveNotification) == 1, "activate subscribed twice")
         center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        await landed.next()
         #expect(reads.value == 3, "the activation notice did not read the permissions again")
     }
 

@@ -200,6 +200,20 @@ public final class MenuSwatchStrip: NSView {
                 return self != nil
             }
         })
+        showNoColorTip()
+    }
+
+    /// The header frames this view by hand: the No Color swatch's tip follows every new size.
+    public override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        showNoColorTip()
+    }
+
+    /// No Color's name as a themed tip over its swatch (a region, so a pointer already inside the
+    /// strip when it appears still gets it). Only No Color has a tip, as before.
+    private func showNoColorTip() {
+        guard clearChoice != nil, let swatch = swatches.first else { return }
+        setThemedToolTipRegions([(rect: swatch, text: Self.noColorTitle)])
     }
 
     @available(*, unavailable)
@@ -283,7 +297,6 @@ public final class MenuSwatchStrip: NSView {
     private func setHovered(_ index: Int?) {
         guard index != hovered else { return }
         hovered = index
-        toolTip = index == 0 && clearChoice != nil ? Self.noColorTitle : nil
         needsDisplay = true // invalidate: the hovered swatch changed (the guard above).
     }
 

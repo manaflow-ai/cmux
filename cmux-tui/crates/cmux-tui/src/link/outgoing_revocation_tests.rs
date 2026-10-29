@@ -29,8 +29,16 @@ fn pairings() -> Pairings {
     }
 }
 
+/// A hang guard, not a latency budget. Each hand-off to the entry or the link
+/// socket checks the caller's code signature on macOS (`cmux_link::caller`): for
+/// an ad-hoc signed test binary that hashes the whole executable, about 1 s alone
+/// and over 10 s when a full workspace run keeps every core busy (944d5cc59f05:
+/// four of these tests at 12.5 s, each passing alone in 1.1 to 3.3 s). nextest
+/// still ends a real hang at 120 s.
+const HANG_GUARD: Duration = Duration::from_secs(60);
+
 async fn within<T>(work: impl Future<Output = T>) -> T {
-    tokio::time::timeout(Duration::from_secs(10), work).await.expect("within 10 seconds")
+    tokio::time::timeout(HANG_GUARD, work).await.expect("within the hang guard")
 }
 
 struct DialOverlay {

@@ -146,16 +146,111 @@ extension NSWindow {
                                           ordinary: Self.ordinaryWindowTrees(besides: self))
     }
 
+    /// The numbers of the windows `plan` finds above its window, topmost first. Any thread.
+    nonisolated static func floatingWindowNumbers(in plan: FloatingWindowsCapturePlan) -> [Int] {
+        let above = (blockingWindowListCopyWindowInfo([.optionOnScreenAboveWindow], CGWindowID(plan.window)) as? [[String: Any]] ?? [])
+            .compactMap(ListedWindow.init)
+        return ownWindows(above: above, pid: plan.pid, region: plan.region, layer: plan.layer, skipping: plan.skipping,
+                          ordinary: plan.ordinary)
+    }
+
     /// The window server's image of the windows `plan` finds above its window, with their
     /// count; nil without one or when it is blank. Any thread.
     nonisolated static func capture(_ plan: FloatingWindowsCapturePlan) -> (image: CGImage, count: Int)? {
-        let above = (blockingWindowListCopyWindowInfo([.optionOnScreenAboveWindow], CGWindowID(plan.window)) as? [[String: Any]] ?? [])
-            .compactMap(ListedWindow.init)
-        let numbers = ownWindows(above: above, pid: plan.pid, region: plan.region, layer: plan.layer, skipping: plan.skipping,
-                                 ordinary: plan.ordinary)
+        let numbers = floatingWindowNumbers(in: plan)
         guard !numbers.isEmpty, let image = windowServerImage(ofNumbers: numbers, rect: plan.region),
               image.width > 0, image.height > 0, !image.isFullyTransparent else { return nil }
         return (image, numbers.count)
+    }
+
+    /// This window, every visible child window and the app's windows over it (``floatingWindows(on:)``: an
+    /// open menu, a card or popover that is not its child) composited together by the window server and
+    /// cropped to the window's frame, with how many of those other windows it includes; nil without an
+    /// image (not on screen, or all transparent). Composited together, a glass or vibrancy panel blurs the
+    /// window under it, as on screen; composited alone (``childWindowsImage(on:includeChild:)``) it blurs
+    /// nothing and comes out grey. Windows of other apps are never included.
+    ///
+    /// With `cutOverlays`, also the overlays of that composite (``OverlaysCapture/overlays``): the visible
+    /// child windows `cutOverlays` accepts and the app's windows over it, transparent elsewhere
+    /// (``masked(_:by:)``), from the same window list, so a popover that opens meanwhile is never cut from a
+    /// composite it is not in. A page image painted over the composite covers the popovers and menus over
+    /// its page; the overlays, painted over the page image, give them back, with the window's blur under them.
+    ///
+    /// The window server calls run on `lanes`' system lane; main reads only the window numbers, the frame
+    /// and the floating windows' plan.
+    public func compositedImageWithOverlays(on lanes: any MayBlockRunner,
+                                            cutOverlays: ((NSWindow) -> Bool)? = nil) async -> OverlaysCapture? {
+        guard let plan = overlaysCapturePlan(cutOverlays: cutOverlays) else { return nil }
+        return try? await lanes.runSystem(.userVisible) { NSWindow.capture(plan) }
+    }
+
+    /// What ``compositedImageWithOverlays(on:cutOverlays:)`` captures, read from AppKit on the main actor.
+    func overlaysCapturePlan(cutOverlays: ((NSWindow) -> Bool)?) -> OverlaysCapturePlan? {
+        guard windowNumber > 0 else { return nil }
+        let children = visibleChildWindows
+        let windowFrame = frame
+        let region = NSScreen.screens.first.map { Self.globalRect(of: windowFrame, primaryHeight: $0.frame.maxY) }
+        return OverlaysCapturePlan(window: windowNumber, children: children.map(\.windowNumber),
+                                   overlayChildren: cutOverlays.map { accepts in children.filter(accepts).map(\.windowNumber) },
+                                   floating: floatingWindowsCapturePlan(), frame: region)
+    }
+
+    /// The window server's composite for `plan` and, when it asks, the overlays cut from it. Any thread.
+    nonisolated static func capture(_ plan: OverlaysCapturePlan) -> OverlaysCapture? {
+        let floating = plan.floating.map(floatingWindowNumbers(in:)) ?? []
+        let image: CGImage?
+        if plan.children.isEmpty && floating.isEmpty {
+            image = windowServerImage(of: plan.window)
+        } else {
+            guard let frame = plan.frame else { return nil }
+            image = windowServerImage(ofNumbers: frontToBack([plan.window] + plan.children + floating), rect: frame)
+        }
+        guard let image, image.width > 0, image.height > 0, !image.isFullyTransparent else { return nil }
+        var overlays: CGImage?
+        if let overlayChildren = plan.overlayChildren, let frame = plan.frame {
+            let numbers = overlayChildren + floating
+            if !numbers.isEmpty, let coverage = windowServerImage(ofNumbers: frontToBack(numbers), rect: frame),
+               coverage.width > 0, coverage.height > 0, !coverage.isFullyTransparent {
+                overlays = masked(image, by: coverage)
+            }
+        }
+        return OverlaysCapture(image: image, floating: floating.count, overlays: overlays)
+    }
+
+    /// At `image`'s size: `image` (the window's composite) where `coverage` (the overlays alone) is
+    /// opaque, so glass there keeps the blur of the window under it; `coverage` itself where it is
+    /// translucent (a shadow, a fade, an antialiased edge), since the composite there already
+    /// blends the overlay with the window, and painted over a page it would fade the overlay twice;
+    /// transparent elsewhere. Off the main actor (the capture's lane).
+    nonisolated static func masked(_ image: CGImage, by coverage: CGImage) -> CGImage? {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let info = CGImageAlphaInfo.premultipliedLast.rawValue
+        func pixels(_ source: CGImage) -> [UInt8]? {
+            var bytes = [UInt8](repeating: 0, count: width * height * 4)
+            let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+                guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                              bytesPerRow: width * 4, space: space, bitmapInfo: info) else { return false }
+                context.interpolationQuality = .high
+                context.draw(source, in: CGRect(x: 0, y: 0, width: width, height: height))
+                return true
+            }
+            return drawn ? bytes : nil
+        }
+        guard var result = pixels(coverage), let composite = pixels(image) else { return nil }
+        result.withUnsafeMutableBufferPointer { out in
+            composite.withUnsafeBufferPointer { under in
+                for index in stride(from: 0, to: out.count, by: 4) where out[index + 3] == 255 {
+                    out[index] = under[index]
+                    out[index + 1] = under[index + 1]
+                    out[index + 2] = under[index + 2]
+                }
+            }
+        }
+        guard let provider = CGDataProvider(data: Data(result) as CFData) else { return nil }
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4, space: space,
+                       bitmapInfo: CGBitmapInfo(rawValue: info), provider: provider, decode: nil, shouldInterpolate: false,
+                       intent: .defaultIntent)
     }
 
     /// From `above` (the windows the window server shows above a window, topmost first), the
@@ -240,12 +335,18 @@ extension NSWindow {
     /// Windows it does not list on screen keep AppKit's order behind them
     /// (each child after its parent is above it, so reversed).
     private nonisolated static func frontToBack(_ numbers: [Int]) -> [Int] {
-        let wanted = Set(numbers)
         let onScreen = (blockingWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
             .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.intValue }
-            .filter { wanted.contains($0) }
-        let listed = Set(onScreen)
-        return onScreen + numbers.reversed().filter { !listed.contains($0) }
+        return frontToBack(numbers, onScreen: onScreen)
+    }
+
+    /// `numbers` in the order of `onScreen` (the window server's on-screen list, topmost first),
+    /// then the ones it does not list, last of `numbers` first; each number once.
+    nonisolated static func frontToBack(_ numbers: [Int], onScreen: [Int]) -> [Int] {
+        let wanted = Set(numbers)
+        var seen = Set<Int>()
+        let listed = onScreen.filter { wanted.contains($0) && seen.insert($0).inserted }
+        return listed + numbers.reversed().filter { seen.insert($0).inserted }
     }
 
     /// Captures the window image: composited when the window server gives one
@@ -290,4 +391,31 @@ nonisolated struct ListedWindow: Equatable, Sendable {
         self.init(number: number, pid: pid, layer: (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0, bounds: bounds,
                   alpha: (info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1)
     }
+}
+
+/// What ``NSWindow/compositedImageWithOverlays(on:cutOverlays:)`` captures, read from AppKit on the main actor
+/// (``NSWindow/overlaysCapturePlan(cutOverlays:)``) so the window server calls run on any thread.
+nonisolated struct OverlaysCapturePlan: Sendable, Hashable {
+    /// The window.
+    let window: Int
+    /// Its visible child windows, composited with it.
+    let children: [Int]
+    /// The child windows the overlays cut keeps; nil: no cut.
+    let overlayChildren: [Int]?
+    /// The app's windows floating above it; nil when it is not on the active space.
+    let floating: FloatingWindowsCapturePlan?
+    /// The window's frame in global display coordinates; nil without a screen.
+    let frame: CGRect?
+}
+
+/// A window composited with its child windows and the app's windows over it
+/// (``NSWindow/compositedImageWithOverlays(on:cutOverlays:)``).
+public nonisolated struct OverlaysCapture: Sendable {
+    /// The composite, cropped to the window's frame.
+    public let image: CGImage
+    /// How many of the app's windows floating above the window it includes.
+    public let floating: Int
+    /// The overlays cut from ``image``: the accepted child windows and the floating windows, transparent
+    /// elsewhere; nil without any, or when no cut was asked for.
+    public let overlays: CGImage?
 }

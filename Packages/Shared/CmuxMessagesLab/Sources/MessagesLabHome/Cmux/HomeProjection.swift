@@ -328,6 +328,8 @@ final class HomeProjection: ChatIntents {
 
     /// A chosen avatar text (the Home Chief's avatar), over the initials.
     var initialsOverride: String? { didSet { applyHeader() } }
+    /// A chosen header name (a Chief's own name, its record's), over the conversation's title.
+    var titleOverride: String? { didSet { if titleOverride != oldValue { applyHeader() } } }
     /// A chosen avatar picture (the Home Chief's), over the initials.
     var pictureOverride: NSImage? { didSet { controller.host.paneHeader.picture = pictureOverride } }
 
@@ -342,7 +344,7 @@ final class HomeProjection: ChatIntents {
     }
 
     private func applyHeader() {
-        controller.host.paneHeader.title = HomeMapping.title(shownSummary, me: me)
+        controller.host.paneHeader.title = titleOverride ?? HomeMapping.title(shownSummary, me: me)
         controller.host.paneHeader.initials = initialsOverride ?? HomeMapping.initials(shownSummary, me: me)
     }
 
@@ -579,6 +581,8 @@ final class HomeProjection: ChatIntents {
     var draftAttachments: [LocalAttachment] {
         (controller.store?.state.ui.draft.attachments ?? []).compactMap { drafts[$0.id] }
     }
+
+    var isRestoringDraftAttachments: Bool { restoringDraftAttachments }
 
     func removeDraft(_ hash: String) {
         drafts[hash] = nil
@@ -898,7 +902,7 @@ struct ProjectionCore {
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me, avatars: avatars),
                                 messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
-                                cmuxGroup: summary?.kind(me: me) == .group)
+                                cmuxGroup: summary?.showsSenderNames(me: me) == true)
         return (conv, HomeMapping.window(items))
     }
 

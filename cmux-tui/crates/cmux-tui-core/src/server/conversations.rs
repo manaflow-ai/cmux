@@ -371,6 +371,7 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
         chief_names: super::chief_registry_resource::chief_names(mux),
         typing: mux.conversation_typing_all(),
         running,
+        deleted_chiefs: super::chief_registry_resource::deleted_chiefs(mux),
     };
     let rows = cmux_conversation::merge_rows(
         cmux_conversation::home_inbox(&conversations, &input),

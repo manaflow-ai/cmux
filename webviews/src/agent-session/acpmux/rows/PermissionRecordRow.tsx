@@ -1,6 +1,7 @@
 // The `permissionRecord` row: a single permission card's receipt.
 import { memo } from "react";
 import { useT } from "../i18n";
+import { AnsweredBy } from "../multiplayer/Faces";
 import { DECISION_TEXT } from "../permissions/record";
 import type { RowProps } from "./rowProps";
 
@@ -15,7 +16,9 @@ export const PermissionRecordRow = memo(
         {t(DECISION_TEXT[decision.kind], {
           action: row.permission?.title?.trim() || t("permission.required"),
           option: decision.kind === "answered" ? decision.option : "",
+          mode: decision.kind === "fullAccess" ? decision.mode : "",
         })}
+        {row.answeredBy && <AnsweredBy person={row.answeredBy} />}
       </div>
     );
   },

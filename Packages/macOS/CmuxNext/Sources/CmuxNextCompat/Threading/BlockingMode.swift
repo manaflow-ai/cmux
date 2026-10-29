@@ -5,9 +5,9 @@ public enum BlockingMode: String, Sendable {
     /// detector's tests. A bench build never traps.
     case trap
     /// Record it once per call site and continue: every checked build by default (Debug until the sweep passes,
-    /// lead decision 2026-10-24, flipped by p02-threads-021; Nightly), and a bench-checks build always. In Debug
-    /// each new site also logs one unified-log fault and shows as a badge in the Debug menu. A contended
-    /// ``Mutex`` wait is always recorded, never a trap.
+    /// lead decision 2026-10-24, flipped by p02-threads-021; Nightly, which logs each site with ``BlockingLogSink``),
+    /// and a bench-checks build always. In Debug each new site also logs one unified-log fault and shows as a badge
+    /// in the Debug menu. A contended ``Mutex`` wait is always recorded, never a trap.
     case record
 }
 

@@ -234,7 +234,7 @@ fn report(
             .and_then(docs_url)
             .or_else(|| shipped(&row.id).and_then(|(_, meta)| docs_url(&meta)));
         install(&name, &row.program, docs)
-    } else if row.auth == Auth::SignedOut {
+    } else if matches!(row.auth, Auth::SignedOut | Auth::Expired) {
         // `cmux harness login` knows only a configured harness; the
         // profile's own login command signs in one that is not yet.
         let command = match (configured, &row.login) {
@@ -263,7 +263,7 @@ fn report(
         "version": row.version,
         "signed_in": match row.auth {
             Auth::SignedIn => Some(true),
-            Auth::SignedOut => Some(false),
+            Auth::SignedOut | Auth::Expired => Some(false),
             Auth::Unknown => None,
         },
         "auth_detail": row.auth_detail,

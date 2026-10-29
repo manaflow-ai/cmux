@@ -80,6 +80,9 @@ impl HealthService {
     /// One cached snapshot plus current filesystem installation evidence.
     /// Execution authority and a durable intent still belong to the caller.
     pub(crate) fn prepare_update(&self, cli: &str) -> Result<Value, RpcError> {
+        if self.fixed() {
+            return Err(refused("harness_update_plan.not_updatable"));
+        }
         let home = self.settings.lock().unwrap_or_else(PoisonError::into_inner).home.clone();
         let rows = self.rows();
         let argv = select_argv(&rows, cli, |row| revalidated_argv(row, cli, &home))?;

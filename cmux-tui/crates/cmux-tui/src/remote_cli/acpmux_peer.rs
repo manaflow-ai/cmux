@@ -25,6 +25,12 @@
 //!    connection this bridge keeps open: the peer lasts as long as that
 //!    connection (acpmux `hub/peer_lease.rs`), so it is never saved and a
 //!    later process on the forward's port never receives the VM's tokens.
+//!    With `vmBoundary: true` only when the app started this link with
+//!    `--vm-kind owner`: the Cloud API's attach-endpoint, asked by the
+//!    signed-in app for this machine, said the caller owns it. This Mac's
+//!    acpmux then starts the VM's remote chains at the VM boundary, Claude
+//!    Code without the sandbox (acpmux `hub/vm_boundary.rs`). The marker in
+//!    step 2 is the VM's own say: it can only refuse, never admit that.
 //!
 //! Every `RENEW_EVERY` it checks the lease. The VM daemon's peer token
 //! changes at each start, so a peer that its VM serves as `remote` (Web)
@@ -85,15 +91,19 @@ pub(super) struct AcpmuxPeerBridge {
 
 impl AcpmuxPeerBridge {
     /// Start the bridge on the current runtime when the gate is on and this
-    /// Mac's acpmux socket is known; None otherwise.
-    pub(super) fn spawn(runtime: &crate::remote_runtime::ClientRuntimeHandle) -> Option<Self> {
+    /// Mac's acpmux socket is known; None otherwise. `vm_boundary`: the Cloud
+    /// API told the app this caller owns the machine (`--vm-kind owner`).
+    pub(super) fn spawn(
+        runtime: &crate::remote_runtime::ClientRuntimeHandle,
+        vm_boundary: bool,
+    ) -> Option<Self> {
         if !enabled() {
             return None;
         }
         let acpmux_socket = crate::acp::daemon_socket_path()?;
         let multiplexer = runtime.multiplexer().clone();
         let machine_socket = runtime.info().local_socket.clone();
-        let task = tokio::spawn(run(multiplexer, machine_socket, acpmux_socket));
+        let task = tokio::spawn(run(multiplexer, machine_socket, acpmux_socket, vm_boundary));
         Some(Self { task })
     }
 }
@@ -124,6 +134,7 @@ async fn run(
     multiplexer: Arc<ServiceMultiplexer>,
     machine_socket: PathBuf,
     acpmux_socket: PathBuf,
+    vm_boundary: bool,
 ) {
     let mut tick = tokio::time::interval(RENEW_EVERY);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -142,7 +153,7 @@ async fn run(
                 }
             }
         }
-        match Live::establish(&multiplexer, &machine_socket, &acpmux_socket).await {
+        match Live::establish(&multiplexer, &machine_socket, &acpmux_socket, vm_boundary).await {
             Ok(established) => {
                 crate::client_log::info(AREA, &format!("leased peer {}", established.name));
                 live = Some(established);
@@ -191,6 +202,8 @@ struct Live {
     route: RouteId,
     forward: LocalPortForward,
     tokens: Tokens,
+    /// The lease asks for the VM boundary ([`lease_params`]).
+    vm_boundary: bool,
 }
 
 impl Live {
@@ -198,6 +211,7 @@ impl Live {
         multiplexer: &Arc<ServiceMultiplexer>,
         machine_socket: &Path,
         acpmux_socket: &Path,
+        vm_boundary: bool,
     ) -> Result<Self, Failure> {
         let socket = machine_socket.to_path_buf();
         let identity =
@@ -266,7 +280,16 @@ impl Live {
                 return Err(refused);
             }
         };
-        let mut live = Self { name, acpmux, workspace_client, acpmux_home, route, forward, tokens };
+        let mut live = Self {
+            name,
+            acpmux,
+            workspace_client,
+            acpmux_home,
+            route,
+            forward,
+            tokens,
+            vm_boundary,
+        };
         if let Err(why) = live.lease().await {
             live.close().await;
             return Err(Failure::Retry(why));
@@ -279,13 +302,7 @@ impl Live {
     }
 
     async fn lease(&mut self) -> Result<(), String> {
-        let params = json!({
-            "name": self.name,
-            "url": self.url(),
-            "token": self.tokens.token,
-            "peerToken": self.tokens.peer_token,
-            "wait": true,
-        });
+        let params = lease_params(&self.name, &self.url(), &self.tokens, self.vm_boundary);
         // The daemon answers within its 30 s settle budget (`wait`).
         tokio::time::timeout(LEASE_BUDGET, self.acpmux.request("_acpmux/peer_lease", params))
             .await
@@ -335,6 +352,22 @@ impl Live {
         // same folder gets the same one back.
         close_route(&self.workspace_client, self.route).await;
     }
+}
+
+/// `_acpmux/peer_lease`'s params. `vmBoundary` is true only when the Cloud API
+/// said this caller owns the machine: this Mac's acpmux then starts each of its
+/// sessions there at the VM boundary, Claude Code without the sandbox (acpmux
+/// `hub/vm_boundary.rs`). Held with the lease only, never saved, and asked
+/// again at the next link.
+fn lease_params(name: &str, url: &str, tokens: &Tokens, vm_boundary: bool) -> Value {
+    json!({
+        "name": name,
+        "url": url,
+        "token": tokens.token,
+        "peerToken": tokens.peer_token,
+        "vmBoundary": vm_boundary,
+        "wait": true,
+    })
 }
 
 async fn connect_acpmux(socket: &Path) -> Result<Arc<acpmux::client::Client>, Failure> {
@@ -523,6 +556,17 @@ async fn probe_status(url: &str, tokens: &Tokens) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lease_asks_for_the_vm_boundary_only_when_told_the_caller_owns_the_vm() {
+        let tokens = Tokens { token: "dash".into(), peer_token: Some("peer".into()), port: 1 };
+        for vm_boundary in [true, false] {
+            let params = lease_params("cloud-a", "ws://127.0.0.1:2", &tokens, vm_boundary);
+            assert_eq!(params["vmBoundary"], vm_boundary, "{params}");
+            assert_eq!(params["name"], "cloud-a");
+            assert_eq!(params["peerToken"], "peer");
+        }
+    }
 
     #[test]
     fn the_listen_address_gives_the_port_only_for_a_loopback_host() {

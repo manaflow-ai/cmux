@@ -59,8 +59,11 @@ extension PaneContentView {
             (outgoing as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         }, ended: { [weak self] in
             // The strip, ring and corners change with the swap, in its transaction.
-            guard let self, holdKeepsStrip else { return }
+            guard let self else { return }
+            let keptStrip = holdKeepsStrip
             holdKeepsStrip = false
+            refreshContentFrame()
+            guard keptStrip else { return }
             needsLayout = true // invalidate: the hold that kept the strip ended (the guard above).
             // sync-layout: the strip moves in the swap's own transaction (`PanePaintHold.end`), not a frame later.
             layoutSubtreeIfNeeded()

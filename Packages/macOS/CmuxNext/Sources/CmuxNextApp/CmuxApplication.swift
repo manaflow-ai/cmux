@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -38,13 +39,15 @@ import os
 ///   work whatever has focus (plans/cmux-next/focus.md section 5).
 /// - `CMUX_NEXT_NO_ACTIVATE=1` (``refusesActivation``): every activation
 ///   request, from AppKit, CEF/Chromium, or app code, is dropped, so an agent
-///   run never takes focus from the user's frontmost app.
-final class CmuxApplication: NSApplication, CEFAppProtocol {
+///   run never takes focus from the user's frontmost app. The startup of an update relaunch nobody
+///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
+final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     private var handlingSendEvent = false
     /// The event in dispatch reached AppKit's `sendEvent` (no cmux stage consumed it): the tap's
     /// dispatch-end outcome. A nested dispatch keeps its own and gives the outer one back.
     private var dispatchDelivered = false
-    /// Set once in `CmuxNextApp.shared.main` before `run()`.
+    /// Set in `CmuxNextApp.shared.main` before `run()`; an update relaunch's startup turns it
+    /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false
     /// Set once by `AppServices`. Gets the key-down and the window it goes
     /// to; returns true when it consumed the key.
@@ -63,6 +66,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Set once by `AppServices`: runs a click's or key's dispatch with the window it came from as
     /// the active window (`WindowManager.dispatching(eventFrom:_:)`).
     var dispatchScope: ((NSEvent, () -> Void) -> Void)?
+    /// Where the left mouse-down in dispatch went down (screen coordinates), taken before AppKit
+    /// dispatched it: a titlebar press's window drag has moved the window by the time it returns.
+    /// The services' after-dispatch mouse-down subscription reads it (`AppServices`).
+    private(set) var mouseDownScreenLocation: NSPoint?
     /// The event in dispatch is the app's own synthetic input
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
@@ -190,6 +197,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func dispatch(_ event: NSEvent) {
+        if event.type == .leftMouseDown {
+            mouseDownScreenLocation = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? event.locationInWindow
+        }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDownToEditingPill(event, in: keyWindow ?? event.window) { return }
         Self.dispatchThroughTap(event, tap: inputTap) { delivered in
@@ -253,23 +263,19 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     // MARK: Assistive clients
 
-    /// Set once by `AppServices`: whether an assistive client asks for the app's accessibility
-    /// tree (Chromium pages build theirs only then, `CEFEngine.setAssistiveClientActive`). It is
-    /// told the current state when set, so a client that asked before launch finished counts.
-    var assistiveClientsChanged: ((Bool) -> Void)? {
-        didSet { assistiveClientsChanged?(assistiveRequests.wantsAccessibility) }
+    /// Called once by `AppServices`: `changed` hears whether an assistive client asks for the app's
+    /// accessibility tree (Chromium pages build theirs only then, `CEFEngine.setAssistiveClientActive`).
+    /// It is told the current state at once, so a client that asked before launch finished counts.
+    func followAssistiveClients(_ changed: @escaping @MainActor @Sendable (Bool) -> Void) {
+        assistiveClients.follow(changed)
     }
-    private var assistiveRequests = AssistiveClientRequests()
+    /// The assistive clients' requests on the application element, reached from AppKit's
+    /// nonisolated accessibility calls (``AssistiveClientAccess``).
+    nonisolated private let assistiveClients = AssistiveClientAccess()
 
     nonisolated override func accessibilitySetValue(_ value: Any?, forAttribute attribute: NSAccessibility.Attribute) {
-        guard AssistiveClientRequests.attributes.contains(attribute.rawValue), Thread.isMainThread else {
+        guard assistiveClients.set(value as? NSNumber, for: attribute.rawValue) else {
             return super.accessibilitySetValue(value, forAttribute: attribute)
-        }
-        let number = value as? NSNumber
-        MainActor.assumeIsolated { // main-proof: checked Thread.isMainThread above
-            let wanted = assistiveRequests.wantsAccessibility
-            _ = assistiveRequests.set(number, for: attribute.rawValue)
-            if assistiveRequests.wantsAccessibility != wanted { assistiveClientsChanged?(assistiveRequests.wantsAccessibility) }
         }
     }
 
@@ -278,10 +284,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     nonisolated override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-        guard AssistiveClientRequests.attributes.contains(attribute.rawValue), Thread.isMainThread else {
-            return super.accessibilityAttributeValue(attribute)
-        }
-        let value = MainActor.assumeIsolated { assistiveRequests.value(for: attribute.rawValue) } // main-proof: checked Thread.isMainThread above
+        guard let value = assistiveClients.value(for: attribute.rawValue) else { return super.accessibilityAttributeValue(attribute) }
         return value.map { NSNumber(value: $0) }
     }
 
@@ -299,7 +302,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func logRefused() {
-        logger.info("activation refused (CMUX_NEXT_NO_ACTIVATE=1)")
+        logger.info("activation refused (CMUX_NEXT_NO_ACTIVATE=1, or an update relaunch's startup)")
     }
 }
 
@@ -340,28 +343,5 @@ extension CmuxApplication {
     static func dropsCrossWindowKey(_ event: NSEvent, keyWindow: NSWindow?, using keyGuard: ((NSEvent, NSWindow?) -> Bool)?) -> Bool {
         guard let keyGuard, let keyWindow, event.windowNumber != keyWindow.windowNumber else { return false }
         return keyGuard(event, keyWindow)
-    }
-}
-
-/// What assistive clients asked of the app: VoiceOver sets `AXEnhancedUserInterface`, automation
-/// drivers (cua) `AXManualAccessibility`, on the application element. The app wants Chromium's page
-/// accessibility while either is on.
-nonisolated struct AssistiveClientRequests: Equatable {
-    static let attributes: Set<String> = ["AXEnhancedUserInterface", "AXManualAccessibility"]
-    private var values: [String: Bool] = [:]
-
-    var wantsAccessibility: Bool { values.values.contains(true) }
-
-    /// Records `value` for `attribute`; false (nothing recorded) for an attribute no assistive
-    /// client sets.
-    mutating func set(_ value: Any?, for attribute: String) -> Bool {
-        guard Self.attributes.contains(attribute) else { return false }
-        values[attribute] = (value as? NSNumber)?.boolValue ?? false
-        return true
-    }
-
-    /// What was set for `attribute`; nil for other attributes. Unset reads as false.
-    func value(for attribute: String) -> Bool? {
-        Self.attributes.contains(attribute) ? values[attribute] ?? false : nil
     }
 }

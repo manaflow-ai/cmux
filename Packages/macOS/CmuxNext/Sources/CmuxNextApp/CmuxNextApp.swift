@@ -22,6 +22,7 @@ import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
 import CmuxNextTrace
+import CmuxNextUpdater
 import CmuxNextWakeups
 import CmuxNextWebUpdates
 
@@ -77,6 +78,11 @@ public struct CmuxNextApp {
         // This process's only environment writes, then the freeze: a write
         // after it stops a debug build (ProcessEnvironmentGuard).
         Self.prepareLaunchEnvironment()
+        // A second copy of this bundle for this user hands off to the running one and exits, before it
+        // reads the relaunch-focus record or a session, before any other thread starts and before CEF (SingleInstanceGuard).
+        if case .handOff(let activates) = SingleInstanceGuard.current.resolve() {
+            SingleInstanceGuard.handOff(activates: activates)
+        }
         DebugTimings.markLaunch("main.environment_frozen")
         // ghostty_init while the process still has one thread: its locale setup may setenv LANG and setlocale
         // (Ghostty's internal_os.ensureLocale, src/os/locale.zig), which must not race another thread's environ read.
@@ -104,6 +110,13 @@ public struct CmuxNextApp {
         watchdog.startupStep("main.environment")
         var environment = AppEnvironment.current(openFiles: openFiles)
         environment.marksRun = true
+        // A relaunch into an update nobody clicked comes back behind the user's app; read (and
+        // cleared) before anything can activate the app. An agent launch never activates anyway.
+        if !environment.noActivate {
+            environment.relaunchBehind = UpdateRelaunchFocus.consume(
+                build: UpdateBuildIdentity.main().build,
+                reopenedBehind: ProcessInfo.processInfo.arguments.contains(UpdateRelaunchFocus.reopenArgument))
+        }
         environment.actionCatalog = actionCatalog
         // The launch caches' crash-streak decision, made on the files lane by the first cache read or
         // the run marker's launch read, which writes this launch's record before any cache is read: after a streak of
@@ -174,7 +187,10 @@ public struct CmuxNextApp {
         environment.cloudDeviceID = CloudDeviceIDSource(paths: cloudPaths) { deviceID.value }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
-        let settingsRead = SettingsController.startLaunchRead(on: work, in: ledgerThenSettings)
+        // The update channel's download default fills `updates.downloadAutomatically` where no layer sets it.
+        let settingsRead = SettingsController.startLaunchRead(
+            on: work, in: ledgerThenSettings,
+            buildDefaults: .channel(downloadsAutomatically: UpdateBuildIdentity.main().track.downloadsAutomaticallyByDefault))
         let launchImages = AgentPaneLaunchImages(state: state, reader: cacheReader), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         let terminalFrames = TerminalLaunchFrames(state: state, reader: cacheReader)
@@ -262,7 +278,8 @@ public struct CmuxNextApp {
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
-        (app as? CmuxApplication)?.refusesActivation = environment.noActivate // CMUX_NEXT_NO_ACTIVATE=1, read once above
+        // CMUX_NEXT_NO_ACTIVATE=1 (read once above), or the startup of an update relaunch nobody clicked.
+        (app as? CmuxApplication)?.refusesActivation = environment.noActivate || environment.relaunchBehind != nil
         // The launch's order owners: the main-thread scheduler and the StartupScheduler on it, passed by init.
         // The one input tap (p04-input.md 3 (A)): the budget's pending input, control and services observe it.
         let inputTap = InputEventTap()

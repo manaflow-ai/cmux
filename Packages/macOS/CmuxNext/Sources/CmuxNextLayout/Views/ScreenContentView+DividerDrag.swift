@@ -1,97 +1,15 @@
 import AppKit
-import CmuxNextDesign
 import CmuxNextInput
-import QuartzCore
 
-/// Divider and column-edge drags, emitted as transactional layout intents.
+/// Divider and column-edge drags, emitted as transactional layout intents (`DividerDrag`).
 extension ScreenContentView {
-    /// `point` in the geometry space of `kind`: strip space for what
-    /// scrolls, view space for a docked column's dividers and edge.
-    func contentPoint(fromWindow point: NSPoint, kind: DividerHandleView.Kind) -> CGPoint {
-        let local = convert(point, from: nil)
-        return scrolls(kind) ? CGPoint(x: local.x - stripShift, y: local.y) : local
-    }
-
     func handleDrag(kind: DividerHandleView.Kind, event: DividerHandleView.DragEvent) {
-        let model = context.model
-        switch event {
-        case .doubleClick:
-            switch kind {
-            case let .split(id):
-                model.equalizeSplit(id)
-            case let .columnEdge(id):
-                guard let column = layout.columns.first(where: { $0.id == id }) else { return }
-                model.setColumnWidth(id, width: ColumnWidthPreset.next(after: column.width).rawValue, transaction: .make(), phase: .ended)
-            case .rowEdge:
-                // Equalize Rows (Z3) is a later surfaces step.
-                return
-            }
-        case let .began(windowPoint):
-            let point = contentPoint(fromWindow: windowPoint, kind: kind)
-            switch kind {
-            case let .split(id):
-                guard let divider = geometry.dividers.first(where: { $0.id == id }) else { return }
-                let pointer = divider.axis == .horizontal ? point.x : point.y
-                let start = divider.axis == .horizontal ? divider.frame.minX : divider.frame.minY
-                activeDrag = DividerDragState(kind: kind, transaction: .make(), grabOffset: pointer - start, container: divider.container,
-                                        axis: divider.axis, minimumA: divider.minimumA, minimumB: divider.minimumB,
-                                        snaps: DividerDragState.snaps(equalShare: layout.tree(containing: id)?.equalizedRatio(for: id)))
-            case let .columnEdge(id):
-                guard let frame = geometry.columns[id] else { return }
-                let size = layout.columns.first { $0.id == id }.map { $0.minimumSize(style: context.style) } ?? .zero
-                let edge = geometry.columnEdges.first { $0.column == id }?.dockEdge
-                let grab: CGFloat = switch edge {
-                case .right?: point.x - frame.minX
-                case .top?: point.y - frame.maxY
-                case .bottom?: point.y - frame.minY
-                case .left?, nil: point.x - frame.maxX
-                }
-                let band = edge?.isBand == true
-                activeDrag = DividerDragState(kind: kind, transaction: .make(), grabOffset: grab, container: frame,
-                                        axis: band ? .vertical : .horizontal, minimumA: band ? size.height : size.width, dockEdge: edge)
-            case let .rowEdge(columnID, upper):
-                guard let column = layout.columns.first(where: { $0.id == columnID }), let stack = baseGeometry.rowStacks[columnID],
-                      let upperFrame = stack.frame(of: upper) else { return }
-                let y = local(windowPoint).y + rowOffset(of: kind)
-                let minimums = Dictionary(column.rows.map {
-                    ($0.id, SplitGeometry.minimumSize(of: $0.root, style: context.style).height)
-                }, uniquingKeysWith: { first, _ in first })
-                activeDrag = DividerDragState(kind: kind, transaction: .make(), grabOffset: y - upperFrame.maxY, container: stack.frame,
-                                        axis: .vertical, rows: RowDragStart(rows: column.rows, stack: stack, minimums: minimums))
-            }
-            model.setGestureActive(true)
-            context.requestFrames()
-        case let .sampled(windowPoint, time):
-            activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: time)
-        case let .moved(windowPoint, time, shown):
-            activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: time)
-            applyDrag(at: windowPoint, shownAt: shown, phase: .changed)
-            context.requestFrames()
-        case let .ended(windowPoint, time):
-            // A press and release with no move between them is a click, not a resize: saving
-            // the ratio the divider is drawn at (clamped by a narrow window) would replace the
-            // stored one.
-            if activeDrag?.pointer == nil { return endDrag() }
-            if case .split = kind, let drag = activeDrag {
-                // The layout this release makes springs on from the pointer's velocity, read at the
-                // release event's time (the samples' clock); the entry ages from when it is handled.
-                releasedDivider = (kind, drag.releaseVelocity(at: time), CACurrentMediaTime())
-            }
-            applyDrag(at: windowPoint, phase: .ended)
-            activeDrag = nil
-            model.setGestureActive(false)
-        }
+        DividerDrag(screen: self).handle(kind: kind, event: event)
     }
 
     /// Ends a drag whose handle left the tree: no release will come. It is
     /// cancelled (`LayoutModel.cancelGesture`) and gesture mode ends.
-    func endDrag() {
-        guard let drag = activeDrag else { return }
-        activeDrag = nil
-        rowDragPreview = nil
-        context.model.cancelGesture(drag.transaction)
-        context.model.setGestureActive(false)
-    }
+    func endDrag() { DividerDrag(screen: self).cancel() }
 
     /// A new handle's drags read this screen's frame-aligned input (``LayoutRootView/dragFrameInput``)
     /// and resampler (``LayoutRootView/dragResampler``), the latest each time a drag begins.
@@ -105,61 +23,4 @@ extension ScreenContentView {
     func newDragResampler() -> DragResampler? {
         context.newDragResampler()
     }
-
-    /// Moves the dragged divider or edge for the pointer at `realWindowPoint`, drawn at
-    /// `shownWindowPoint` (the pointer resampled at the frame's time; nil: the real point). The snap,
-    /// the fling and the release read the real point; only what is drawn reads the shown one.
-    func applyDrag(at realWindowPoint: NSPoint, shownAt shownWindowPoint: NSPoint? = nil, phase: LayoutGesturePhase) {
-        guard let drag = activeDrag else { return }
-        let realPoint = contentPoint(fromWindow: realWindowPoint, kind: drag.kind)
-        let windowPoint = shownWindowPoint ?? realWindowPoint
-        let point = contentPoint(fromWindow: windowPoint, kind: drag.kind)
-        let style = context.style
-        switch drag.kind {
-        case let .split(id):
-            // A fling that would carry the divider onto a snap within the spring's reach lands there.
-            let reach = phase == .ended && context.animatesPaneLayout ? (releasedDivider?.velocity ?? 0) * CGFloat(Motion.panes.dividerReleaseProjection) : 0
-            let projected = drag.axis == .horizontal ? CGPoint(x: realPoint.x + reach, y: realPoint.y) : CGPoint(x: realPoint.x, y: realPoint.y + reach)
-            var probe = drag
-            let flung = reach != 0 ? probe.splitRatio(at: projected, style: style, phase: phase) : nil
-            let shown: CGPoint? = shownWindowPoint == nil ? nil : point
-            guard let ratio = flung.flatMap({ drag.snaps.contains($0) ? $0 : nil })
-                ?? activeDrag?.splitRatio(at: realPoint, shownAt: shown, style: style, phase: phase)
-            else { return }
-            context.model.setSplitRatio(id, ratio: ratio, transaction: drag.transaction, phase: phase)
-        case let .columnEdge(id):
-            // Strip widths are shares of the strip's viewport; a side dock's
-            // width is a share of the whole view's width, a top or bottom
-            // dock's height a share of its height (same formula).
-            let extent: CGFloat
-            switch drag.dockEdge {
-            case .right?: extent = max(drag.container.maxX - (point.x - drag.grabOffset), drag.minimumA)
-            case .top?: extent = max(point.y - drag.grabOffset - drag.container.minY, drag.minimumA)
-            case .bottom?: extent = max(drag.container.maxY - (point.y - drag.grabOffset), drag.minimumA)
-            case .left?, nil: extent = max(point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
-            }
-            let viewport = switch drag.dockEdge {
-            case nil: geometry.stripWidth
-            case .top?, .bottom?: bounds.height
-            case .left?, .right?: bounds.width
-            }
-            let fraction = ColumnStripGeometry.fraction(forPixelWidth: extent, viewportWidth: viewport, gap: style.stripGap)
-            context.model.setColumnWidth(id, width: fraction, transaction: drag.transaction, phase: phase)
-        case let .rowEdge(column, upper):
-            guard let start = drag.rows else { return }
-            let pointer = local(windowPoint).y + rowOffset(of: drag.kind) - drag.grabOffset
-            let heights = RowResize.heights(start.rows, stack: start.stack, upper: upper, pointerY: pointer,
-                                            minimums: start.minimums, fits: !context.style.rowsEnabled)
-            rowDragPreview = (column, heights)
-            reconcile(animated: false)
-            if phase == .ended {
-                // One intent on release; the preview stays until the next
-                // layout carries it.
-                context.model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
-            }
-        }
-    }
-
-    /// `windowPoint` in this view's coordinates.
-    private func local(_ windowPoint: NSPoint) -> NSPoint { convert(windowPoint, from: nil) }
 }

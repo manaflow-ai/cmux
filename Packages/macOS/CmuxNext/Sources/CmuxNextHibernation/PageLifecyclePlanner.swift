@@ -105,6 +105,11 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         case unrestorable
         /// `browser.hibernation` is off, at every memory pressure.
         case hibernationOff = "hibernation_off"
+        /// cmux.json does not set `browser.hibernation`: a discarded page reloads when it shows, so hidden
+        /// pages only freeze, which keeps their state, and are never discarded on their own, at any memory
+        /// pressure (`BrowserHibernationSetting.discardsAutomatically`, as ``HibernationPlanner`` keeps browser
+        /// tabs as `keepsState`). The person's own discard is not the planner's and still applies.
+        case discardsOff = "discards_off"
 
         /// The reason keeps a hidden page from freezing.
         package var blocksFreeze: Bool {
@@ -114,7 +119,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
                  .mostRecentlyUsed, .freezeOff, .pageCall:
                 true
             case .userEdits, .formInteraction, .beforeUnload, .draft, .pinned, .shellCommandRan, .awaitingPerson,
-                 .remoteChat, .preload, .unrestorable, .hibernationOff:
+                 .remoteChat, .preload, .unrestorable, .hibernationOff, .discardsOff:
                 false
             }
         }
@@ -126,13 +131,14 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         package static let freezeOnly: Set<KeepReason> = [.mostRecentlyUsed, .freezeOff, .pageCall]
 
         /// The reasons only the planner sets, from the page's facts and the conditions.
-        package static let derived: Set<KeepReason> = [.visible, .recentlyVisible, .mostRecentlyUsed, .freezeOff, .hibernationOff]
+        package static let derived: Set<KeepReason> = [.visible, .recentlyVisible, .mostRecentlyUsed, .freezeOff, .hibernationOff,
+                                                       .discardsOff]
 
         /// The reasons time alone ends; an event ends every other one.
         package static let timeBound: Set<KeepReason> = [.recentlyVisible]
 
         /// The ``derived`` reasons that come from the person's settings, not from time or the order of hides.
-        package static let fromSettings: Set<KeepReason> = [.freezeOff, .hibernationOff]
+        package static let fromSettings: Set<KeepReason> = [.freezeOff, .hibernationOff, .discardsOff]
 
         /// The reason, appearing on a frozen page, thaws it: a freeze blocker the page, its owner or a setting
         /// set, as Chrome unfreezes a page that starts to play audio. The derived reasons of time and the order
@@ -176,7 +182,8 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
 
     /// The app-wide facts every page's plan depends on.
     package nonisolated struct Conditions: Hashable, Sendable {
-        /// `browser.hibernation` and its companions. Pages take its switch, its pinned rule, a number
+        /// `browser.hibernation` and its companions. Pages take its switch, whether it was written
+        /// (``KeepReason/discardsOff``: unwritten, hidden pages only freeze), its pinned rule, a number
         /// of minutes as the floor of their discard time (``Timing/discardAfter(at:setting:)``) and
         /// `browser.freezeHiddenTabs` "off" (``KeepReason/freezeOff``). The named modes' minutes and
         /// the freeze seconds time browser tabs; pages use ``Timing`` (p13-webui.md section 3.C).
@@ -291,7 +298,12 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         }
         if isMostRecentlyUsed { reasons.insert(.mostRecentlyUsed) }
         if conditions.setting.freezeSeconds == nil { reasons.insert(.freezeOff) }
-        if !conditions.setting.isEnabled { reasons.insert(.hibernationOff) }
+        if !conditions.setting.isEnabled {
+            reasons.insert(.hibernationOff)
+        } else if !conditions.setting.discardsAutomatically {
+            // No `browser.hibernation` written: freezes go on, no discard (trunk #25920).
+            reasons.insert(.discardsOff)
+        }
         if conditions.setting.includesPinnedTabs { reasons.remove(.pinned) }
         return reasons
     }
@@ -350,7 +362,9 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
     /// The hidden pages the critical event's one urgent pass may take (``UrgentDiscardRanker``): live
     /// (not discarded), hidden at least ``Timing/minimumHidden``, and no reason blocks their discard
     /// (the most recently used role blocks a freeze only). Their timeout plays no part: under critical
-    /// pressure the ranker, not the clock, picks which goes. O(pages).
+    /// pressure the ranker, not the clock, picks which goes. With hibernation off or no `browser.hibernation`
+    /// written (``KeepReason/hibernationOff``, ``KeepReason/discardsOff``) there is none, as
+    /// ``HibernationPlanner/urgentCandidates(_:candidates:)`` has no browser tab then. O(pages).
     package func urgentCandidates(_ pages: [Page], conditions: Conditions) -> [UrgentDiscardRanker.Candidate] {
         let mostRecent = Self.mostRecentlyHidden(pages)
         return pages.compactMap { page in

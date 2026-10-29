@@ -349,6 +349,16 @@ impl Drop for Identify {
 }
 
 /// A connection's client and the state its lines are handled with.
+/// Where a connection is in the window a host proxy's bind must come in
+/// (`AgentSessions::first_line_done`).
+#[cfg(unix)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FirstLine {
+    Unread,
+    Read,
+    Done,
+}
+
 struct LineSession {
     mux: Arc<Mux>,
     client: u64,
@@ -365,6 +375,10 @@ struct LineSession {
     peer_token: Option<cmux_link::app_caller::PeerToken>,
     carries_frames: bool,
     ipc: Arc<IpcStats>,
+    /// Where the connection is in the window a host proxy's bind must come in
+    /// (`AgentSessions::first_line_done`).
+    #[cfg(unix)]
+    first_line: FirstLine,
     /// The connection's stream 0, open until the connection ends
     /// (`server-stats` `ipc`).
     _stream: OwnedOpenStream,
@@ -406,6 +420,8 @@ impl LineSession {
             peer_token: peer.token,
             carries_frames,
             ipc,
+            #[cfg(unix)]
+            first_line: FirstLine::Unread,
             _stream: stream,
         })
     }
@@ -421,6 +437,19 @@ impl LineSession {
                 self.frame(frame, arrived)
             }
             Inbound::Line { mut text, arrived } => {
+                // A host proxy binds a teammate only on the connection's first line, a blank one
+                // included (agent_session_proxy.rs). The window closes as the next line arrives,
+                // not as the first returns: a bind runs on the connection's request sequence,
+                // maybe after this one went on, and the proxy sends nothing more until its reply.
+                #[cfg(unix)]
+                {
+                    if self.first_line == FirstLine::Read {
+                        self.mux.control_clients.agent_sessions.first_line_done(self.client);
+                        self.first_line = FirstLine::Done;
+                    } else if self.first_line == FirstLine::Unread {
+                        self.first_line = FirstLine::Read;
+                    }
+                }
                 let keep_open = self.line(&text, arrived);
                 zeroize_string(&mut text);
                 (!keep_open).then_some(ConnectionEnd::Dropped)

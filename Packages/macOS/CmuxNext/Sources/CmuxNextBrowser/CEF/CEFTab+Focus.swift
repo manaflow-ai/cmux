@@ -119,7 +119,10 @@ extension CEFTab {
         guard host.isHostMode, browserID == browser, detachedBrowser != browser else { return }
         detachedBrowser = browser
         embedderActive = nil
-        if pendingFocus, host.visibleTab === self, !isContentHidden { applyFocus(true, browser: browser) }
+        if pendingFocus || focusWanted, host.visibleTab === self, !isContentHidden {
+            pendingFocus = false
+            applyFocus(true, browser: browser)
+        }
     }
 
     /// Posts the page's embedder-active state when it differs from the one last posted for `browser`.

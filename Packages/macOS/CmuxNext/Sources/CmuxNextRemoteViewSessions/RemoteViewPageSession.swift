@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextWakeups
 public import CmuxNextRemoteView
 public import CmuxNextSettings
+public import CmuxVNC
 
 /// The live part of a `remote_view` tab: the pane and its stream source.
 /// Development builds only (`RemoteViewAvailability`). The host `mock` is the
@@ -16,11 +17,39 @@ public final class RemoteViewPageSession {
     /// The host name that opens the test desktop.
     public static let mockHost = "mock"
 
+    /// A byte stream to a Cloud machine's websockify port (6901) over the app's Cloud tunnel.
+    public nonisolated struct CloudDesktopStream: Sendable {
+        /// The next bytes, nil at the end of the stream.
+        public let read: @Sendable () async throws -> Data?
+        public let write: @Sendable (Data) async throws -> Void
+        public let close: @Sendable () -> Void
+
+        public init(read: @escaping @Sendable () async throws -> Data?, write: @escaping @Sendable (Data) async throws -> Void,
+                    close: @escaping @Sendable () -> Void) {
+            self.read = read
+            self.write = write
+            self.close = close
+        }
+    }
+
+    /// How to open Cloud machine `machine`'s desktop stream (once per session), or nil when the
+    /// app cannot reach it over its Cloud tunnel (signed out, no address).
+    public typealias CloudDesktopTransport = @MainActor (_ machine: String) -> (@Sendable () async throws -> CloudDesktopStream)?
+
+    /// The `cmux-rd` transports of Cloud machine `machine`'s desktop (a new one per session: a
+    /// used transport cannot connect again), or nil when the app has no route or token for it.
+    public typealias CloudRdTransport = @MainActor (_ machine: String, _ control: Bool) -> (@MainActor () -> RemoteRdStreamTransport?)?
+
+    /// The machine's VNC server as websockify serves it next to noVNC, over `open`'s stream.
+    nonisolated static func cloudRFBTransport(_ open: @escaping @Sendable () async throws -> CloudDesktopStream) -> any RFBTransport {
+        WebSocketRFBTransport(host: "localhost:6901") { CloudDesktopByteStream(try await open()) }
+    }
+
     #if DEBUG
     let pane: RemoteDesktopPane
     private let source: any RemoteViewStreamSource
     /// The real host's source and how to make a new transport; nil for the mock.
-    private let rd: (source: RemoteRdDebugSource, make: () -> RemoteRdStreamTransport?)?
+    private let rd: (source: RemoteRdDebugSource, make: @MainActor () -> RemoteRdStreamTransport?)?
     /// The VNC compatibility session; nil for the mock and rd hosts.
     private let vnc: RemoteVNCSession?
     /// The current transport already connected once (it cannot connect again).
@@ -28,6 +57,15 @@ public final class RemoteViewPageSession {
     /// The person pressed Stop: only Reconnect starts a new session, never showing the tab again.
     private var rdStopped = false
     private var visible = false
+    /// A Cloud desktop (over the app's Cloud tunnel) keeps its session through a short hide, so
+    /// switching away and back shows the live picture instead of reconnecting.
+    private let keepsSessionWhenHidden: Bool
+    /// The session's end after the hide grace; nil while shown or once it ended.
+    private var hiddenStop: Task<Void, Never>?
+    /// The session is still running from before the last hide.
+    private var liveWhileHidden = false
+    /// How long a hidden Cloud desktop keeps its session.
+    static let cloudHideGrace: Duration = .seconds(120)
 
     private init(record: RemoteViewTabRecord, mainWork: MainWorkScheduler, closeTab: @escaping @MainActor () -> Void) {
         // The test desktop offers upstream media, so the share buttons show.
@@ -35,6 +73,7 @@ public final class RemoteViewPageSession {
         self.source = source
         rd = nil
         vnc = nil
+        keepsSessionWhenHidden = false
         pane = RemoteDesktopPane(hostName: record.host, source: source, inputSink: MockRemoteInputSink(host: source),
                                  mainWork: mainWork, initialMode: record.mode)
         pane.handlers.stop = { [weak source] in source?.end(.stoppedByViewer) }
@@ -50,13 +89,16 @@ public final class RemoteViewPageSession {
     /// hidden tab ends its session (the host stops streaming) and a shown tab
     /// or Reconnect starts a new one.
     private init(record: RemoteViewTabRecord, first: RemoteRdStreamTransport, mainWork: MainWorkScheduler,
-                 make: @escaping () -> RemoteRdStreamTransport?, closeTab: @escaping @MainActor () -> Void) {
+                 make: @escaping @MainActor () -> RemoteRdStreamTransport?, closeTab: @escaping @MainActor () -> Void,
+                 displayName: String? = nil) {
         let rdSource = RemoteRdDebugSource(first)
         source = rdSource
         rd = (rdSource, make)
         vnc = nil
-        pane = RemoteDesktopPane(hostName: record.host, source: rdSource,
-                                 inputSink: RemoteRdDebugInputSink(source: rdSource), mainWork: mainWork, initialMode: record.mode)
+        keepsSessionWhenHidden = record.cloudDesktop
+        pane = RemoteDesktopPane(hostName: displayName ?? record.host, source: rdSource,
+                                 inputSink: RemoteRdDebugInputSink(source: rdSource), mainWork: mainWork, initialMode: record.mode,
+                                 viaCloudTunnel: record.cloudDesktop)
         pane.handlers.stop = { [weak self] in
             self?.rdStopped = true
             rdSource.transport.stop()
@@ -68,14 +110,21 @@ public final class RemoteViewPageSession {
 
     /// An RFB compatibility host: decoded frames, fitted to the pane, on the
     /// layer-contents presenter (the Metal presenter is for YUV video).
-    private init(vncRecord record: RemoteViewTabRecord, port: UInt16, work: BackgroundWork, mainWork: MainWorkScheduler,
-                 signIns: RemoteVNCSignIns, closeTab: @escaping @MainActor () -> Void) {
-        let vnc = RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost, work: work, mainWork: mainWork, signIns: signIns)
+    private convenience init(vncRecord record: RemoteViewTabRecord, port: UInt16, work: BackgroundWork, mainWork: MainWorkScheduler,
+                             signIns: RemoteVNCSignIns, closeTab: @escaping @MainActor () -> Void) {
+        self.init(vnc: RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost, work: work, mainWork: mainWork, signIns: signIns),
+                  mainWork: mainWork, closeTab: closeTab)
+    }
+
+    private init(vnc: RemoteVNCSession, mainWork: MainWorkScheduler, closeTab: @escaping @MainActor () -> Void, displayName: String? = nil) {
+        let record = vnc.record
         self.vnc = vnc
         source = vnc.source
         rd = nil
-        pane = RemoteDesktopPane(hostName: record.host, source: vnc.source, inputSink: RemoteVNCInputSink(source: vnc.source),
-                                 mainWork: mainWork, presenter: .layerContents, initialMode: record.mode, scaling: .fit)
+        keepsSessionWhenHidden = record.cloudDesktop
+        pane = RemoteDesktopPane(hostName: displayName ?? record.host, source: vnc.source, inputSink: RemoteVNCInputSink(source: vnc.source),
+                                 mainWork: mainWork, presenter: .layerContents, initialMode: record.mode, scaling: .fit,
+                                 viaCloudTunnel: record.cloudDesktop)
         pane.handlers.stop = { [weak self] in
             self?.rdStopped = true
             vnc.stop()
@@ -155,10 +204,18 @@ public final class RemoteViewPageSession {
         ])
     }
 
-    /// Starts the stream while the tab is shown. Idempotent.
+    /// Starts the stream while the tab is shown. Idempotent. A Cloud desktop shown again within
+    /// its hide grace only resumes drawing: its session never stopped.
     public func resume() {
         guard !visible else { return }
         visible = true
+        hiddenStop?.cancel()
+        hiddenStop = nil
+        if liveWhileHidden {
+            liveWhileHidden = false
+            pane.start()
+            return
+        }
         if let vnc {
             pane.start()
             if !rdStopped { vnc.connect() }
@@ -174,11 +231,37 @@ public final class RemoteViewPageSession {
         if !rdStopped { startRd() }
     }
 
-    /// Pauses the stream while the tab is hidden or closed. The last frame stays.
+    /// Pauses the stream while the tab is hidden or closed. The last frame stays. A Cloud desktop
+    /// keeps its session for `cloudHideGrace` first (a quick switch away and back costs nothing);
+    /// `close` ends it at once.
     public func pause() {
         guard visible else { return }
         visible = false
         pane.stop()
+        if keepsSessionWhenHidden, !rdStopped {
+            liveWhileHidden = true
+            hiddenStop = Task { [weak self] in
+                // wakeup-allow: one cancellable deadline per hide; showing the tab again cancels it.
+                try? await Task.sleep(for: Self.cloudHideGrace)
+                guard !Task.isCancelled else { return }
+                self?.endHiddenSession()
+            }
+            return
+        }
+        endHiddenSession()
+    }
+
+    /// The tab closed: drawing and the session end now, with no hide grace.
+    public func end() {
+        pause()
+        hiddenStop?.cancel()
+        endHiddenSession()
+    }
+
+    /// Ends the session of a hidden tab: the host stops streaming to it.
+    private func endHiddenSession() {
+        hiddenStop = nil
+        liveWhileHidden = false
         vnc?.stop()
         // A hidden or closed tab ends its rd session: the host stops streaming to it.
         rd?.source.transport.stop()
@@ -199,13 +282,28 @@ public final class RemoteViewPageSession {
     public var isEnded: Bool { false }
     public func resume() {}
     public func pause() {}
+    public func end() {}
     #endif
 
-    /// A session for `record`, or nil when this build cannot show it.
+    /// A session for `record`, or nil when this build cannot show it. `cloudTransport` makes the
+    /// transports of a Cloud machine's desktop (`via=cloud`) over the app's Cloud tunnel; nil, or
+    /// nil for that machine (signed out, no address), shows "not available".
     public static func make(record: RemoteViewTabRecord, work: BackgroundWork, mainWork: MainWorkScheduler, vncSignIns: RemoteVNCSignIns,
-                            closeTab: @escaping @MainActor () -> Void) -> RemoteViewPageSession? {
+                            closeTab: @escaping @MainActor () -> Void,
+                            cloudTransport: CloudDesktopTransport? = nil, cloudRd: CloudRdTransport? = nil,
+                            displayName: String? = nil) -> RemoteViewPageSession? {
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }
+        if record.cloudRd {
+            guard let make = cloudRd?(record.host, record.mode == .control), let first = make() else { return nil }
+            return RemoteViewPageSession(record: record, first: first, mainWork: mainWork, make: make, closeTab: closeTab, displayName: displayName)
+        }
+        if record.cloudDesktop {
+            guard let open = cloudTransport?(record.host) else { return nil }
+            let vnc = RemoteVNCSession(cloudRecord: record, makeTransport: { cloudRFBTransport(open) }, work: work, mainWork: mainWork,
+                                       signIns: vncSignIns)
+            return RemoteViewPageSession(vnc: vnc, mainWork: mainWork, closeTab: closeTab, displayName: displayName)
+        }
         if let port = record.vncPort {
             return RemoteViewPageSession(vncRecord: record, port: port, work: work, mainWork: mainWork, signIns: vncSignIns, closeTab: closeTab)
         }
@@ -217,5 +315,29 @@ public final class RemoteViewPageSession {
         #else
         return nil
         #endif
+    }
+}
+
+/// `RemoteViewPageSession.CloudDesktopStream` as the RFB client's byte stream.
+private nonisolated struct CloudDesktopByteStream: RFBByteStream {
+    let stream: RemoteViewPageSession.CloudDesktopStream
+
+    init(_ stream: RemoteViewPageSession.CloudDesktopStream) {
+        self.stream = stream
+    }
+
+    /// Each read waits for the tunnel's next event; the WebSocket layer above reads again until
+    /// it holds a whole frame.
+    func read() async throws -> [UInt8] {
+        guard let data = try await stream.read() else { throw RFBError.connectionClosed }
+        return [UInt8](data)
+    }
+
+    func write(_ bytes: [UInt8]) async throws {
+        try await stream.write(Data(bytes))
+    }
+
+    func close() {
+        stream.close()
     }
 }

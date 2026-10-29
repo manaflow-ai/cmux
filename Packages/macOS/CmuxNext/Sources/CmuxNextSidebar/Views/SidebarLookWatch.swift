@@ -24,6 +24,12 @@ struct SidebarLook: Equatable {
     var stackCap: SidebarRowBadgeStackCap
     var workspaceTitleMotion: SidebarWorkspaceTitleMotionVariant
     var quietUnnamedRows: Bool
+    var rowTitle: SidebarRowTitleMode
+    var rowTitleSingleChat: Bool
+    /// The listed tab rows' look (`sidebar.tabLines`).
+    var tabLines: SidebarTabLineLook
+    /// The hover close's spot and glyph size (`sidebar.rowCloseSpot`): laid out, not configured.
+    var rowCloseSpot: SidebarRowCloseSpot
 
     /// The looks now.
     init() {
@@ -38,6 +44,10 @@ struct SidebarLook: Equatable {
         stackCap = SidebarRowBadgeStackCap.tunable.value
         workspaceTitleMotion = SidebarTunables.workspaceTitleMotion.value
         quietUnnamedRows = SidebarTunables.quietUnnamedRows.value
+        rowTitle = SidebarTunables.rowTitle.value
+        rowTitleSingleChat = SidebarTunables.rowTitleSingleChat.value
+        tabLines = SidebarTunables.tabLines.value
+        rowCloseSpot = SidebarTunables.rowCloseSpot.value
     }
 }
 

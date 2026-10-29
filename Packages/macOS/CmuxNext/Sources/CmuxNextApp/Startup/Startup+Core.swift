@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextCompatAppKit
 import CmuxNextDaemonService
@@ -76,6 +77,10 @@ extension AppDelegate {
         // The painted terminal colors first (OSC 10/11/12), and the prompts' side-event subscriptions before the connect.
         daemonPrompts = services.startLocalDaemon(after: daemonStart)
         services.lifetimeFollowers.append(FeaturePolicyEnforcer(services: services).start())
+        // The daemon update's one failure toast: Details opens Settings > Updates, which lists the machines.
+        DaemonUpdateBoard.shared.openDetails = { [weak services] in
+            try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/updates")
+        }
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once): its indicators and its first

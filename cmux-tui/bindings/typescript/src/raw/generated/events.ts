@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
+/* cmux-tui mux protocol 12, IR 0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a. */
 
 
 import type * as T from "./types.js";
@@ -151,6 +151,13 @@ export type CloudConversationLiveEvent = { event: "cloud-conversation-live" } & 
   "cause"?: T.EventCause;
   "conversation": string;
   "frame": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationPresenceEvent = { event: "cloud-conversation-presence" } & {
+  "account"?: string;
+  "conversation": string;
+  "participants": Array<T.CloudConversationPresenceParticipant>;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -908,6 +915,7 @@ export type KnownCmuxEvent =
   | ClientDetachedEvent
   | CloudConversationChangedEvent
   | CloudConversationLiveEvent
+  | CloudConversationPresenceEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
   | CloudConversationTypingEvent
@@ -1005,6 +1013,7 @@ export type KnownSubscribeEvent =
   | ClientDetachedEvent
   | CloudConversationChangedEvent
   | CloudConversationLiveEvent
+  | CloudConversationPresenceEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
   | CloudConversationTypingEvent

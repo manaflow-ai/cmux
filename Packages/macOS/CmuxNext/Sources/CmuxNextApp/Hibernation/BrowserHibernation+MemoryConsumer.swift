@@ -14,7 +14,10 @@ extension BrowserHibernation: MemoryLevelConsumer {
         releaseCPUCost: .high, isStateful: false, supportsMemoryLimit: false)
 
     /// The coordinator gives the limit first, so at critical the pass waits for the release slice.
-    func memoryLevelDidChange(_ level: MemoryPressureLevel) { pressureDidChange(level, replans: !memoryLimit.isCritical) }
+    func memoryLevelDidChange(_ level: MemoryPressureLevel) {
+        pressureDidChange(level, replans: !memoryLimit.isCritical)
+        onMemoryLevel?(level)
+    }
     func updateMemoryLimit(_ limit: MemoryLimit) { memoryLimit = limit }
 
     /// At the critical limit, one urgent pass: with `memoryUrgentDiscardRanking` the first page of one

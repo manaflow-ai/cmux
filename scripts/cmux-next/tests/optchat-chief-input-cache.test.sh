@@ -21,6 +21,7 @@ mkdir -p "$src/scripts/cmux-next" "$chief/inspector" "$src/Native/OptChat/optcha
   "$src/cmux-tui/crates/cmux-chief" "$src/cmux-tui/crates/unrelated" "$src/docs" "$TMP/bin"
 cp "$ROOT/scripts/cmux-next/build-optchat-chief.sh" "$ROOT/scripts/cmux-next/optchat-chief-input-key.py" \
   "$ROOT/scripts/cmux-next/lipo-dsym.sh" "$src/scripts/cmux-next/"
+mkdir -p "$src/scripts/lib"; cp "$ROOT/scripts/lib/rust-targets.sh" "$src/scripts/lib/"
 cat > "$chief/Cargo.toml" <<'EOF'
 [package]
 name = "optchat-chief"

@@ -40,23 +40,8 @@ enum SidebarSectionHandlers {
             tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
             openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) }),
             mainWork: services.mainWork)
-        RemoteMachinesSidebar.shared.bind(host: .init(
-            peers: {
-                guard let socket = await AgentLaneStore.shared.socketPath else { return nil }
-                return try? await AcpmuxPeerList(socketPath: socket).peers()
-            },
-            older: { peer, cursor in
-                guard let socket = await AgentLaneStore.shared.socketPath else { return nil }
-                return try? await AcpmuxSessionPage(socketPath: socket).closed(peer: peer, cursor: cursor, limit: RemoteMachinesSidebar.pageSize)
-            },
-            displayName: { [weak machines = services.machines] in machines?.machineName(peer: $0) },
-            // The tab that shows the chat, else the other machine's tree's tab, else a new tab in the focused pane.
-            open: { [weak services] lane in
-                guard let services else { return }
-                if services.agentTabs.tab(showing: lane.id) == nil, let tab = AgentPriorityChats.app.remoteTab(showing: lane.id),
-                   services.revealTab(tab) { return }
-                services.agentActivityPage.jump(to: lane)
-            }), deadlines: services.mainDeadlines)
+        // Agent chats on other machines are not sidebar rows (the top band holds what the person put there,
+        // Lawrence 2026-10-26): `RemoteMachinesSidebar` is not bound, so it reads no peers and follows no lanes.
         SettingsAppFeatures.sidebarItems = storeItems(chief: SettingsAppFeatures.sidebarItems, document: { layout.document }, registry: registry)
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.

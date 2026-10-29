@@ -52,6 +52,9 @@ final class ScreenBarController {
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
+        // The one + with a caret (Lawrence 2026-10-27: "caret should maybe just be in this one"): a press
+        // opens the screen menu. Set before the tooltip, which the menu switch also writes.
+        view.opensNewTabMenuOnPress = true
         view.newTabToolTip = nil // the screen bar's + makes a screen, not a tab
         view.previewProvider = preview
         view.setAccessibilityLabel(ScreenStrings.barAccessibility)
@@ -166,7 +169,7 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute:
+        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute, .toggleZoom:
             break
         }
     }

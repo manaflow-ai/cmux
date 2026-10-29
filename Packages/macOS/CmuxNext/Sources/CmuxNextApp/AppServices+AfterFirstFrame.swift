@@ -1,19 +1,38 @@
+import CmuxNextActions
+import CmuxNextCrashReporting
 import CmuxNextAgentPane
 import CmuxNextKeepAwake
 import CmuxNextLaunch
 import CmuxNextSettings
 import CmuxNextWakeups
+import Foundation
 
 // Launch work no first frame needs, one StartupScheduler post per service (`LaunchServicePosts`).
 extension AppServices {
-    /// The starts `init` does not make (`serviceStartPosts()`), then the free-tier attest, SSH, server reach, the updater (Sparkle) and the empty-workspace
-    /// repair (built here when no window's content built it first).
+    /// The starts `init` does not make (`serviceStartPosts()`), then the free-tier attest, SSH, server reach, the updater (Sparkle),
+    /// the run's crash breadcrumbs and the empty-workspace repair (built here when no window's content built it first).
     func postNonPaintServices(on startup: StartupScheduler) {
         serviceStartPosts().post(on: startup)
         let attest = FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: FeedService.apiBaseURL(auth: cloudAuth), settings: settings, signedIn: { [weak self] in self.map { $0.cloudAuth.isSignedIn || $0.cloudAuth.isRestoring } ?? true })
         LaunchServicePosts.nonPaint(freeTierAttest: { [weak self] in if let self, let follow = attest.start(on: self.mainWork) { self.lifetimeFollowers.append(follow) } }, ssh: { [weak self] in self?.ssh.start() }, serverReach: { [weak self] in self?.serverReach.start() },
-                                    updater: { [weak self] in self?.updater.start(); DebugTimings.markLaunch("launch.non_paint_services") },
+                                    updater: { [weak self] in self?.updater.start(); self?.recordCrashContext(); DebugTimings.markLaunch("launch.non_paint_services") },
                                     emptyWorkspaceRepair: { [weak self] in _ = self?.emptyWorkspaces }).post(on: startup)
+    }
+
+    /// The run's crash breadcrumbs (`CrashRecoveryService.recordContext`): counts and kinds only, never a title, URL,
+    /// path or terminal text. The Chromium fields read the engine only once something built it.
+    func recordCrashContext() {
+        crashRecovery.recordContext(on: actionBudget.samples(everyRun: true)) { [weak self] in
+            guard let self else { return CrashContext(updated: Date(), windows: 0, workspaces: 0, tabKinds: [], focusedPane: nil, browserEngine: nil, browserFailures: 0, footprintMegabytes: 0, actions: []) }
+            let workspaces = daemon.store.workspaces
+            let runs = actionBudget.recent(CrashContext.actionLimit).map { (id: $0.id.rawValue, entrypoint: $0.entrypoint.rawValue, startUptimeNanos: $0.startUptimeNanos) }
+            let chromium = cache.chromium.built
+            return CrashContext(updated: Date(), windows: windows.controllers.count, workspaces: workspaces.count,
+                                tabKinds: workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.kind.rawValue),
+                                focusedPane: windows.active?.focusedPane?.selectedTab?.kind.rawValue, browserEngine: chromium?.startReport.state,
+                                browserFailures: chromium?.crashLog.total ?? 0, footprintMegabytes: CrashContext.footprintMegabytes(),
+                                actions: CrashContext.actions(runs, now: Date(), nowUptimeNanos: ActionBudgetMonitor.now()))
+        }
     }
 
     /// The service starts `init` used to make, one post each (startup-DESIGN.md section 5, S6

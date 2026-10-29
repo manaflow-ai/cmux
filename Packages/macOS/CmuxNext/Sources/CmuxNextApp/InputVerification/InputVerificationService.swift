@@ -29,12 +29,15 @@ final class InputVerificationService {
     private var journalSubscription: InputSubscription?
     /// No-activate mode only: the keyboard guard's subscription to the person's key and mouse presses.
     var keyboardGuardSubscription: InputSubscription?
-    private weak var services: AppServices?
+    /// The end of an update relaunch's startup behind the user's app (`UpdateRelaunchFocus`); nil
+    /// when this launch is not one, or it ended.
+    var relaunchBehindEnd: DemandTimer?
+    private(set) weak var services: AppServices?
 
     /// Configures the journal, subscribes it to the input tap and installs the
     /// monitor's triggers (the `InputVerification.start` launch post).
     /// The no-activate keyboard guard is an NSApp input hook: `AppServices.init`
-    /// installs it (`startNoActivateGuard(tap:appEvents:mainWork:work:)`), before the app activates.
+    /// installs it (`startNoActivateGuard(tap:appEvents:mainWork:work:relaunch:)`), before the app activates.
     func start(services: AppServices) {
         self.services = services
         let journal = InputJournal.shared

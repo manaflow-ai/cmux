@@ -368,6 +368,49 @@ public final class MacScreenPaneView: NSView {
         gate == .open && card == nil && !viewOnly
     }
 
+    /// Tells the session how fast this window's display refreshes (nil: no
+    /// screen, the last rate stays), so the Mac can stream at up to 120 fps
+    /// on a ProMotion display.
+    func reportDisplayRefresh(_ fps: Int?) {
+        #if DEBUG
+        let fps = debugDisplayFrameRate ?? fps
+        #endif
+        guard let fps, fps > 0, let session = model.session, session.displayMaximumFrameRate != fps else { return }
+        session.displayMaximumFrameRate = fps
+    }
+
+    #if DEBUG
+    /// DEV builds (`debug.mac_screen` `display_fps`): the refresh rate this
+    /// pane reports instead of its display's, to check the 120 fps path from
+    /// a viewer whose display is 60 Hz. Nil reports the display's own again.
+    var debugDisplayFrameRate: Int? {
+        didSet { reportDisplayRefresh(window?.screen?.maximumFramesPerSecond) }
+    }
+    #endif
+
+    /// Follows the window's display: moving to another display, or a
+    /// display's mode changing (ProMotion on or off), reports its rate again.
+    /// Out of a window, nothing is watched.
+    private var displayWatch: [Task<Void, Never>] = []
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        for task in displayWatch { task.cancel() }
+        displayWatch = []
+        guard let window else { return }
+        reportDisplayRefresh(window.screen?.maximumFramesPerSecond)
+        // Any window's screen change: reporting this window's rate again is a no-op when it did not change.
+        // The tasks hold neither the view nor the window; a closed pane's task ends at the next notification.
+        displayWatch = [NSWindow.didChangeScreenNotification, NSApplication.didChangeScreenParametersNotification].map { name in
+            Task { @MainActor [weak self] in
+                for await _ in NotificationCenter.default.notifications(named: name) {
+                    guard let self else { return }
+                    reportDisplayRefresh(self.window?.screen?.maximumFramesPerSecond)
+                }
+            }
+        }
+    }
+
     /// The input gate was synced (the pane tells the system shortcut tap).
     var onInputGateChange: (() -> Void)?
 

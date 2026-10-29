@@ -43,6 +43,15 @@
          return CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
      }
  
+@@ -174,7 +177,7 @@
+         guard case let .part(p) = spec.kind, p.outgoing else { return false }
+         switch p.part {
+         case .text: return true
+-        case let .attachment(a): return !["image", "video"].contains(a.kind)
++        case let .attachment(a): return !["image", "video"].contains(a.kind) && !HomeFileCard.isCard(a) // cmux: file cards are neutral (#26395)
+         case let .custom(c): return CustomRows.needsFill(c, outgoing: true)
+         default: return false
+         }
 @@ -196,9 +199,9 @@
              }
          case let .notice(s):
@@ -146,16 +155,19 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -456,7 +470,7 @@
+@@ -455,8 +469,10 @@
+             TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
                            baseline: body.midY + 4, in: ctx)
          default:
++            // cmux: a file is a neutral card with its type's icon and kind (HomeFileCard, #26395).
++            if HomeFileCard.isCard(a) { HomeFileCard.draw(ctx, a, shape: shape, body: body); return }
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
 -            let fg: UIColor = p.outgoing ? .white : Fixture.incomingText
 +            let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
              let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
              if a.kind == "contact" {
                  UIColor(white: 0.55, alpha: 1).setFill()
-@@ -563,103 +577,72 @@
+@@ -563,103 +579,82 @@
          }
      }
  
@@ -235,7 +247,7 @@
          let box = CGRect(x: rightEdge - pv.box.width, y: top, width: pv.box.width, height: pv.box.height)
 +        drawQuoteBubble(ctx, pv, box: box)
 +        if pv.count >= 2 {
-+            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
++            let f = HomeFonts.system(ofSize: 10, weight: .bold) // HomeFonts (cx-qpqs)
 +            let s = Strings.replies(pv.count)
 +            let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
 +            TextDraw.line(s, font: f, color: Fixture.repliesTint, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx, // cmux: themed link tint
@@ -250,15 +262,25 @@
 +    /// `ThreadPreview.quoteOpacity` so the text does not show the fill through it. Replaces the 1 pt outline with
 +    /// blue or gray text and a full-size tail on a 24 pt body, which did not match the quoted message.
 +    static func drawQuoteBubble(_ ctx: CGContext, _ pv: ThreadPreview, box: CGRect) {
-+        let out = pv.outgoing
++        var out = pv.outgoing
++        // cmux: a quoted file card keeps the card's neutral fill on either side (HomeFileCard, #26395).
++        if case let .attachment(a) = pv.part, HomeFileCard.isCard(a) { out = false }
 +        let fill = out ? Fixture.outgoing : Fixture.incoming
-+        let ink = out ? Fixture.outgoingText : Fixture.incomingText
-+        let shape = BubblePath.balloon(frame: box, row: pv.shapeRow)
++        // cmux (2026-10-27, Lawrence's 5:54 PM reference): my root is an outlined blue bubble with blue text,
++        // not a faded fill; the Chief's root keeps its gray fill.
++        let ink = out ? Fixture.outgoing : Fixture.incomingText
++        let shape = BubblePath.balloon(frame: out ? box.insetBy(dx: 0.5, dy: 0.5) : box, row: pv.shapeRow)
 +        ctx.saveGState()
-+        ctx.setAlpha(ThreadPreview.quoteOpacity)
++        ctx.setAlpha(out ? 1 : ThreadPreview.quoteOpacity)
 +        ctx.beginTransparencyLayer(in: box.insetBy(dx: -2, dy: -2), auxiliaryInfo: nil)
-+        fill.setFill()
-+        shape.fill()
++        if out {
++            fill.setStroke()
++            shape.lineWidth = 1
++            shape.stroke()
++        } else {
++            fill.setFill()
++            shape.fill()
++        }
          if pv.isThumbnail, case let .attachment(a) = pv.part {
              ctx.saveGState()
 -            BubblePath.make(body: box, outgoing: true, tail: true).addClip()
@@ -299,7 +321,7 @@
              ctx.fill(thumb)
              if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
                  let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
-@@ -668,16 +651,11 @@
+@@ -668,16 +663,11 @@
              }
              ctx.restoreGState()
              let (title, sub) = pv.lines
@@ -320,7 +342,7 @@
      }
  
      private static func fillBubble(_ ctx: CGContext, _ shape: UIBezierPath, outgoing: Bool, windowY: CGFloat) {
-@@ -842,9 +820,9 @@
+@@ -842,9 +832,9 @@
          let centroid = CGPoint(x: c.x, y: c.y - 0.27)
          let box = CGRect(x: centroid.x + 0.48 - s.width / 2, y: centroid.y + 0.84 - s.height / 2, width: s.width, height: s.height)
          let rgb = { (r: CGFloat, g: CGFloat, b: CGFloat) in UIColor(red: r / 255, green: g / 255, blue: b / 255, alpha: 1).cgColor }
@@ -333,7 +355,7 @@
          ctx.saveGState()
          ctx.beginTransparencyLayer(auxiliaryInfo: nil)
          img.draw(in: box)
-@@ -885,7 +863,9 @@
+@@ -885,7 +875,9 @@
  /// keyed by its row and the scale it is drawn at (`Key`), so two views at two backing scales (cmux Home: windows on a
  /// 2x and a 1x display) share the cache and never show each other's bitmaps. Every call takes the caller's scale
  /// (default `Fixture.renderScale`: inside a view's `Fixture.withRenderScale`, the view's).
@@ -344,7 +366,7 @@
      static let shared = RowBitmaps()
      /// `space`: the colour space the bitmap is drawn in (WideBitmap.drawSpace; AppKit: the window's display space,
      /// process-wide). Bitmaps of another display stay cached for a move back (cx-3cb scale-redraw).
-@@ -900,8 +880,11 @@
+@@ -900,8 +892,11 @@
          return q
      }()
      static let capacity = 500
@@ -358,7 +380,7 @@
      private(set) var bytes = 0
  
      /// The cache key of a row's bitmap: without the width for a width-invariant row
-@@ -965,50 +948,36 @@
+@@ -965,50 +960,36 @@
          queue.addOperation(op)
      }
  
@@ -428,7 +450,7 @@
  
      private func apply(_ batch: [(Key, CGImage, Int)]) {
          for (w, img, gen) in batch {
-@@ -1033,11 +1002,11 @@
+@@ -1033,11 +1014,11 @@
          bytes += img.bytesPerRow * img.height
          // Trim in chunks (removing from the front of the order array on every
          // insert copied it each time). Bounded by rows and by bytes (media rows are large).
@@ -443,13 +465,14 @@
                      freed += cache.value(for: spec).map { $0.bytesPerRow * $0.height } ?? 0
                      n += 1
                  }
-@@ -1046,15 +1015,52 @@
+@@ -1046,15 +1027,52 @@
              let imgs = drop.compactMap { cache.removeValue(forKey: $0) }
              bytes -= imgs.reduce(0) { $0 + $1.bytesPerRow * $1.height }
              // Freed off the main thread (vm_deallocate blocked main for up to 291 ms).
 -            Reclaimer.release(imgs)
+-            order.removeFirst(drop.count)
 +            Reclaimer.release(bitmaps: imgs)
-             order.removeFirst(drop.count)
++            order.removeSubrange(..<drop.endIndex)
          }
      }
      var count: Int { cache.count }
@@ -472,7 +495,7 @@
 +        let imgs = drop.compactMap { cache.removeValue(forKey: $0) }
 +        bytes -= imgs.reduce(0) { $0 + $1.bytesPerRow * $1.height }
 +        Reclaimer.release(bitmaps: imgs)
-+        order.removeFirst(drop.count)
++        order.removeSubrange(..<drop.endIndex)
 +    }
 +
 +    /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the bitmaps of `specs` at `scale`
@@ -498,7 +521,7 @@
          bytes = 0
          cache.removeAll()
          order.removeAll()
-@@ -1069,13 +1075,10 @@
+@@ -1069,13 +1087,10 @@
          items.forEach { store($0.0, $0.1, scale: scale, space: WideBitmap.drawSpace) }
      }
  
@@ -514,7 +537,7 @@
              switch spec.kind { case .receipt, .typing: return nil; default: return render(spec, scale: scale).map { (spec, $0) } } // unallocated rows are skipped
          }
      }
-@@ -1134,11 +1137,29 @@
+@@ -1134,11 +1149,29 @@
  /// thread for up to 291 ms in a profile. The hop through the main queue lets
  /// Core Animation drop its references in the current turn first, so the
  /// background block holds the last one.
@@ -547,7 +570,7 @@
      }
  }
  
-@@ -1146,7 +1167,11 @@
+@@ -1146,7 +1179,11 @@
  enum BubbleView {
      static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
                             cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
@@ -560,7 +583,7 @@
          if outgoing {
              if windowY.isNaN { return }     // filled by the row's gradient layer
              ctx.saveGState()
-@@ -1161,18 +1186,9 @@
+@@ -1161,18 +1198,9 @@
      }
  }
  

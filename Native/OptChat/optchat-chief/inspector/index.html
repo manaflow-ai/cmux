@@ -24,7 +24,7 @@
   --view: color-mix(in oklab, var(--vsys), var(--warn));
   --msg: color-mix(in oklab, var(--ok) 65%, var(--sys));
   --shade: color-mix(in srgb, var(--vsys) 14%, transparent);
-  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font: 13px/1.45 var(--font-ui, "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif);
 }
 * { box-sizing: border-box; }
 /* In the app the page paints the window's surface (clear over a see-through window, pageBase.css);
@@ -72,7 +72,7 @@ details > summary { cursor: pointer; }
 .line { display: grid; grid-template-columns: max-content 1fr max-content; gap: 8px; padding: 2px 4px; border-bottom: 1px dotted var(--line); position: relative; }
 .line.unchanged { background: var(--shade); }
 .line .size { color: var(--muted); }
-.line .cut { grid-column: 1 / -1; color: var(--accent); font-family: -apple-system, sans-serif; font-size: 11px; display: flex; gap: 10px; border-top: 2px solid var(--accent); padding-top: 1px; }
+.line .cut { grid-column: 1 / -1; color: var(--accent); font-family: var(--font-ui, "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif); font-size: 11px; display: flex; gap: 10px; border-top: 2px solid var(--accent); padding-top: 1px; }
 .gridcut { position: absolute; left: 0; right: 0; bottom: -1px; border-bottom: 1px dashed var(--muted); opacity: 0.5; }
 .name { font: 11px ui-monospace, Menlo, monospace; padding: 0 5px; }
 .name.lv0 { border-color: var(--msg); } .name.lv1, .name.lv2 { border-color: var(--view); } .name.lv3, .name.lv4, .name.lv5 { border-color: var(--vsys); }

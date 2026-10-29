@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 import CmuxNextWakeups
 import os
 
@@ -63,8 +64,13 @@ public actor MobileHostSupervisor {
     /// ``MobileHostEvent/unpaired(phoneDeviceID:)``), in order.
     public nonisolated let pairing: AsyncStream<MobileHostEvent>
     private let pairingContinuation: AsyncStream<MobileHostEvent>.Continuation
-    /// The last `devices` line: sent to each new hostd and on every change.
-    private var devicesLine: Data?
+    /// The newest `devices` line the app set (``setNewestDevices(_:)``): set at once on the caller's
+    /// thread, so every hostd start and restart hands over the newest list, never one that an
+    /// update still on its way to this actor would replace.
+    private nonisolated let newestDevicesLine = Mutex<Data?>(nil)
+    /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
+    /// every change.
+    private var phoneCredentialsLine: Data?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cmux-mobile-host")
@@ -147,11 +153,27 @@ public actor MobileHostSupervisor {
         for id in phoneDeviceIDs { process?.send(MobileHostLaunch.dropPhoneLine(id)) }
     }
 
-    /// The phones this Mac approved: kept for each new hostd and sent to the
-    /// running one now (a pairing link waiting on the user passes at once).
-    public func setDevices(_ devices: MobileHostPairedDevices) {
+    /// The phones this Mac approved: kept at once for each new hostd, and sent to the running one
+    /// (a pairing link waiting on the user passes at once).
+    public nonisolated func setNewestDevices(_ devices: MobileHostPairedDevices) {
         let line = MobileHostLaunch.devicesLine(devices)
-        devicesLine = line
+        newestDevicesLine.withLock { $0 = line }
+        // task-owner: one hop to the running hostd; it sends the newest line, so hops that land out of order still end on it
+        Task { await self.sendNewestDevices() }
+    }
+
+    /// The `devices` line a hostd started now gets.
+    nonisolated func devicesForNextHostd() -> Data? { newestDevicesLine.withLock { $0 } }
+
+    private func sendNewestDevices() {
+        if let line = devicesForNextHostd() { process?.send(line) }
+    }
+
+    /// Each paired phone's own acpmux credential: kept for each new hostd and sent to the
+    /// running one now (the phone's next acpmux channel presents it).
+    public func setPhoneCredentials(_ credentials: [String: String]) {
+        let line = MobileHostLaunch.phoneCredentialsLine(credentials)
+        phoneCredentialsLine = line
         process?.send(line)
     }
 
@@ -279,7 +301,8 @@ public actor MobileHostSupervisor {
     private func handOver(_ child: MobileHostProcess, inputs: Inputs) async {
         lastToken = nil
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
-        if let devicesLine { child.send(devicesLine) }
+        if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
+        if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
         await sendToken(child, inputs: inputs)
         await sendAcpmux(child, inputs: inputs)
     }

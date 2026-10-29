@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import os
 import struct CmuxSafeConcurrency.Mutex
 import UIKit
 
@@ -90,7 +91,7 @@ final class MessageLayoutCache {
     }
 
     private var cache: [String: (Key, MessageCellLayout)] = [:]
-    private var attributed: [String: (String, [ConversationMention], [ConversationTextRun], [ConversationTextLink], NSAttributedString)] = [:]
+    private var attributed: [String: (ConversationBubbleInputs, NSAttributedString)] = [:]
 
     func layout(for model: MessageRowModel, width: CGFloat, margin: CGFloat) -> MessageCellLayout {
         let key = Key(model: model, width: width, margin: margin)
@@ -104,35 +105,24 @@ final class MessageLayoutCache {
 
     func attributedText(for model: MessageRowModel) -> NSAttributedString {
         let cacheKey = model.rowID + (model.isOutgoing ? "o" : "i")
-        let (body, mentions, runs, links) = Self.attributedInputs(model)
-        if let (text, cachedMentions, cachedRuns, cachedLinks, value) = attributed[cacheKey], text == body,
-           cachedMentions == mentions, cachedRuns == runs, cachedLinks == links {
+        let inputs = Self.attributedInputs(model)
+        if let (cachedInputs, value) = attributed[cacheKey], cachedInputs == inputs {
             return value
         }
-        let value = MessageCellLayout.attributedBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs, links: links)
-        attributed[cacheKey] = (body, mentions, runs, links, value)
+        let value = MessageCellLayout.attributedBody(inputs)
+        attributed[cacheKey] = (inputs, value)
         return value
     }
 
     /// What a bubble's attributed text is built from. Audio bubbles show the
     /// transcript; a link card takes its URL out of the text bubble, so
-    /// mentions and formatting (ranges over the whole `text`) are re-based
-    /// onto what the bubble shows.
-    nonisolated static func attributedInputs(_ model: MessageRowModel) -> (String, [ConversationMention], [ConversationTextRun], [ConversationTextLink]) {
-        let isAudio = model.message.audioAttachment != nil
-        let body = isAudio ? model.message.bodyText : model.bodyText
-        let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
-        let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
-        let links: [ConversationTextLink] = isAudio ? [] : {
-            let offset = model.linkSplit?.bodyOffset ?? 0
-            let count = body.utf16.count
-            return model.message.links.compactMap { link in
-                let location = link.location - offset
-                guard location >= 0, location + link.length <= count else { return nil }
-                return ConversationTextLink(location: location, length: link.length, url: link.url)
-            }
-        }()
-        return (body, mentions, runs, links)
+    /// mentions, formatting and links (ranges over the whole `text`) are
+    /// re-based onto what the bubble shows.
+    nonisolated static func attributedInputs(_ model: MessageRowModel) -> ConversationBubbleInputs {
+        if model.message.audioAttachment != nil {
+            return ConversationBubbleInputs(text: model.message.bodyText, outgoing: model.isOutgoing, meID: model.meID)
+        }
+        return ConversationBubbleInputs(message: model.message, outgoing: model.isOutgoing, meID: model.meID, linkSplit: model.linkSplit)
     }
 
     // MARK: Measuring ahead
@@ -168,8 +158,9 @@ final class MessageLayoutCache {
     /// for any thread. Run it inside the transcript's traits
     /// (`performAsCurrent`) so text styles resolve to the same fonts.
     nonisolated static func measure(_ model: MessageRowModel, width: CGFloat, margin: CGFloat) -> Measured {
-        let (body, mentions, runs, links) = attributedInputs(model)
-        let text = MessageCellLayout.frozenBody(body, outgoing: model.isOutgoing, mentions: mentions, meID: model.meID, runs: runs, links: links)
+        let inputs = attributedInputs(model)
+        let text = MessageCellLayout.frozenBody(inputs.text, outgoing: inputs.outgoing, mentions: inputs.mentions, meID: inputs.meID,
+                                                runs: inputs.runs, links: inputs.links)
         let layout = MessageCellLayout.compute(model: model, width: width, margin: margin, text: text.value)
         return Measured(model: model, layout: layout, text: text, displayScale: ConversationTheme.displayScale)
     }
@@ -202,8 +193,7 @@ final class MessageLayoutCache {
             let key = Key(model: model, width: width, margin: margin)
             if let (cachedKey, _) = cache[model.rowID], cachedKey == key { continue }
             cache[model.rowID] = (key, item.layout)
-            let (body, mentions, runs, links) = Self.attributedInputs(model)
-            attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (body, mentions, runs, links, item.text.value)
+            attributed[model.rowID + (model.isOutgoing ? "o" : "i")] = (Self.attributedInputs(model), item.text.value)
         }
     }
 
@@ -313,6 +303,11 @@ extension NSAttributedString.Key {
 }
 
 extension MessageCellLayout {
+    /// A bubble's text from its inputs (cached in `BubbleTextCache`).
+    static func attributedBody(_ inputs: ConversationBubbleInputs) -> NSAttributedString {
+        attributedBody(inputs.text, outgoing: inputs.outgoing, mentions: inputs.mentions, meID: inputs.meID, runs: inputs.runs, links: inputs.links)
+    }
+
     static func attributedBody(
         _ text: String,
         outgoing: Bool,
@@ -336,10 +331,20 @@ extension MessageCellLayout {
     ) -> FrozenAttributedText {
         let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links, font: ConversationTheme.bubbleFont)
         if let cached = BubbleTextCache.shared.text(for: key) { return cached }
+        // A build on the main thread is a bubble the off-main pre-build or
+        // measure-ahead missed (`main=1` in Instruments' os_signpost track).
+        let signpost = bubbleTextSignposter.beginInterval(
+            "BubbleTextBuild", id: bubbleTextSignposter.makeSignpostID(),
+            "main=\(Thread.isMainThread ? 1 : 0) length=\(text.utf16.count) links=\(links.count)"
+        )
         let result = FrozenAttributedText(buildAttributedBody(text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, links: links))
+        bubbleTextSignposter.endInterval("BubbleTextBuild", signpost)
         BubbleTextCache.shared.store(result, for: key)
         return result
     }
+
+    /// Bubble text builds (cache misses), for Instruments and `log stream --signpost`.
+    private static let bubbleTextSignposter = OSSignposter(subsystem: "com.cmux.conversation", category: "BubbleText")
 
     /// A detected item's underline: the text color, lightened as
     /// DataDetectorsUI does (see `ConversationDataDetection.underlineAlpha`).

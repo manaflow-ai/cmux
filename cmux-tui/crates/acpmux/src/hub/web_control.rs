@@ -10,7 +10,9 @@
 //! same lock every mode write takes (`write_mode_state`, the one setter).
 //! The sticky `web_control_ended` flag adds one rule: after a mode left
 //! the table, the harness's own return does not restore Web control; the
-//! unix socket or the local app setting an asking mode does.
+//! unix socket or the local app setting an asking mode does. A permission
+//! answer that only narrows, or that carries the person's own proof, is held
+//! to less (`Hub::web_answer_check`).
 //!
 //! `Control::Peer` (a proven peer daemon of the same user,
 //! `server/peer_auth.rs`) has no mode rule, unless it forwards a request
@@ -111,6 +113,17 @@ impl Hub {
         session: &Session,
         writes: impl IntoIterator<Item = ModeWrite>,
     ) {
+        self.write_mode_state_settling(session, writes, false);
+    }
+
+    /// `write_mode_state`; `settles`: the write applies a full-access report the tap counted, and
+    /// takes its count back under the same lock (`permissions::settle_full_access_report`).
+    pub(crate) fn write_mode_state_settling(
+        &self,
+        session: &Session,
+        writes: impl IntoIterator<Item = ModeWrite>,
+        settles: bool,
+    ) {
         let table = self.web_modes();
         let left = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -133,15 +146,35 @@ impl Hub {
                     ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
                 }
             }
+            if settles {
+                super::permissions::settle_full_access_report(session);
+            }
+            // A mode cmux set stays cmux's only while the chat runs it: a write that moves the mode
+            // anywhere else (the harness's own update, through either form) takes the mark, under
+            // this same lock, so a later write cannot bring the mode back with it
+            // (`trust_wait.rs` `full_access_by_cmux`, `permissions.rs` `full_access_mode`).
+            let unmarked = m.mode_set_by_cmux.is_some()
+                && crate::web_modes::mode_of(&m) != m.mode_set_by_cmux
+                && m.mode_set_by_cmux.take().is_some();
             let asks = self.session_asks_now(session, &m);
             let left = (asked && !asks && !session.web_control_ended.swap(true, Ordering::SeqCst))
                 .then(|| crate::web_modes::mode_of(&m));
-            (left, asks)
+            (left, asks, unmarked)
         };
-        let (left, asks) = left;
+        let (left, asks, unmarked) = left;
+        // Saved now, so a restart does not load the mark back.
+        if unmarked {
+            self.save_meta(session);
+        }
         if let Some(mode) = left {
             tracing::warn!(session = %session.id, ?mode, "the session left the asking-mode table: Web control ends");
             self.append(session, "mux", "remote_control_ended", json!({"mode": mode}));
+        }
+        // MDM forces full access off (#23322): a write that moves the chat into full access (the
+        // harness's own update, in any form) ends its agent. The hub's background task does it
+        // under the session's spawn lock (`idle.rs`, `end_every_managed_full_access`).
+        if self.managed_off_runs_full_access(&self.off_latch(), session) {
+            self.idle_wake.notify_one();
         }
         // The remote floor: a Web turn does not go on in a mode that does
         // not ask, whatever the mode was before (`remote_floor.rs`).
@@ -312,12 +345,8 @@ impl Hub {
         }
         // A remote chain's agent adopted with no record that it runs in the
         // sandbox (it started before the sandbox existed).
-        if session.floor.unsandboxed.load(Ordering::SeqCst) {
-            return Err(RpcError::new(
-                -32000,
-                "This chat's agent started before the remote sandbox. Restart this chat to control it remotely.",
-            )
-            .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness})));
+        if let Some(e) = unsandboxed_refusal(session, meta) {
+            return Err(e);
         }
         // A grant this harness process holds ("allow always", given by a
         // local client) runs its tool without a request in any later turn.
@@ -351,6 +380,38 @@ impl Hub {
 }
 
 impl Hub {
+    /// `web_control_check` for an answer to a pending prompt. An answer that
+    /// only narrows (`narrows`: a reject or a cancel) makes the session do
+    /// nothing it would not do anyway, and any client may give one
+    /// (`person.rs`): no Web rule holds it. An allow that carries the
+    /// person's decision proof or an enrolled approver's signature for this
+    /// very prompt (`proved`) is the person's own click on their own app or
+    /// phone, for this one request: the mode, policy and lasting-grant rules,
+    /// which keep a paired device from steering a session that acts without
+    /// asking, add nothing to it. It still allows once only
+    /// (`lasting_grant_refused`), and a Claude session the Mac started (D13)
+    /// or an unsandboxed agent stays refused. Any other Web answer is held
+    /// to the whole check.
+    pub(crate) fn web_answer_check(
+        &self,
+        session: &Session,
+        control: Control,
+        narrows: bool,
+        proved: bool,
+    ) -> Result<(), RpcError> {
+        if control != Control::Web || narrows {
+            return Ok(());
+        }
+        if !proved {
+            return self.web_control_check(session, control);
+        }
+        let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(e) = self.local_claude_refusal(&meta) {
+            return Err(e);
+        }
+        unsandboxed_refusal(session, &meta).map_or(Ok(()), Err)
+    }
+
     /// D13: a Claude Code session the Mac started (not a remote chain) runs
     /// with the user's own Claude permission rules, whose allow rules run
     /// tools with no acpmux request, so the remote floor cannot hold there:
@@ -385,6 +446,30 @@ impl Hub {
             .with_data(json!({"reason": "remote.local_claude_session", "harness": meta.harness}))
         })
     }
+}
+
+/// A remote chain's agent adopted with no record that it runs in the
+/// sandbox: no Web control until the chat restarts. A session at its owner's
+/// VM boundary (`vm_boundary.rs`) gets none ever, spawned yet or not: only
+/// the owner's own clients control it, and a request held to the Web's rules
+/// (a paired machine's included, `Hub::refuse_at_vm_boundary`) does not.
+fn unsandboxed_refusal(session: &Session, meta: &crate::store::SessionMeta) -> Option<RpcError> {
+    if meta.vm_boundary {
+        return Some(
+            RpcError::new(
+                -32000,
+                "This chat runs without the sandbox on its owner's own VM: only the owner's own devices control it.",
+            )
+            .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness})),
+        );
+    }
+    session.floor.unsandboxed.load(Ordering::SeqCst).then(|| {
+        RpcError::new(
+            -32000,
+            "This chat's agent started before the remote sandbox. Restart this chat to control it remotely.",
+        )
+        .with_data(json!({"reason": "remote.unsandboxed_agent", "harness": meta.harness}))
+    })
 }
 
 /// A Web permission answer that would grant more than this one request

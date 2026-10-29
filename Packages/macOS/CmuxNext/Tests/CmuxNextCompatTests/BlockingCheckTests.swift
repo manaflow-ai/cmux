@@ -401,7 +401,8 @@ struct BlockingCheckTests {
         Thread {
             shared.mutex.withLock { _ in
                 held.signal()
-                release.wait()
+                // Bounded: a regression that never arms the release fails the test instead of deadlocking it.
+                _ = release.wait(timeout: .now() + .seconds(5))
             }
         }.start()
         waitUntilSignaled(held)  // the holder has the lock

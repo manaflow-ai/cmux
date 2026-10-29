@@ -29,6 +29,7 @@ mod catalog;
 mod cli;
 mod interfaces;
 mod issue;
+pub mod module_store;
 mod package;
 mod presentation;
 mod rules;

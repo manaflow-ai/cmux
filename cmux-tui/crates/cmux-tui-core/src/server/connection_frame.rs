@@ -230,7 +230,14 @@ pub(super) enum Dispatched {
 /// with its head, and [`answer_line`] answers it there.
 pub(super) fn dispatch_line(line: &LineFrame<'_>, head: RequestHead<'_>) -> Dispatched {
     let LineFrame { mux, client, message, writer, scheduler, arrival, .. } = *line;
-    if head.is_resource() || !head.is_command() {
+    // A host proxy's link for a teammate reaches the shared chat's verbs and nothing else the
+    // daemon serves (agent_session_proxy.rs): none of its lines runs as a `Command`; each is
+    // sequenced, and [`answer_line`] hands it to that gate.
+    #[cfg(unix)]
+    let proxied = agent_session_attach::proxy_bound(mux, client);
+    #[cfg(not(unix))]
+    let proxied = false;
+    if proxied || head.is_resource() || !head.is_command() {
         return Dispatched::Sequenced(sequence_line(line, LineWork::Line(head.into_owned())));
     }
     line.stage(FrameStage::Route);
@@ -467,6 +474,11 @@ fn run_line(
 fn answer_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> bool {
     debug_assert_off_reader();
     let LineFrame { mux, client, message, writer, scheduler, arrival, watched } = *line;
+    // A host proxy's link for a teammate: the shared chat's verbs only (agent_session_proxy.rs).
+    #[cfg(unix)]
+    if agent_session_attach::proxy_bound(mux, client) {
+        return agent_session_attach::handle_bound(mux, client, message, writer);
+    }
     if head.is_resource()
         && let Some(keep_open) = resource_line(line, head)
     {

@@ -19,12 +19,15 @@
 # legacy-app rule in skills/cmux-architecture/references/swift-6-0-compatibility.md)
 # does not apply to this package.
 #
-# Usage: scripts/cmux-next/check-release-compile.sh [--archs arm64|x86_64] [--bench-hooks] [derived-data-path]
+# Usage: scripts/cmux-next/check-release-compile.sh [--archs arm64|x86_64] [--bench-hooks | --nightly] [derived-data-path]
+#   --nightly: compile what a cmux NEXT Nightly compiles: Release with lib/nightly-swift-defines.sh
+#   (-DCMUX_BLOCKING_CHECKS), the defines .github/workflows/nightly.yml adds for track nightly-next.
 #   --archs: the architecture to compile (default arm64). nightly-next ships an
 #   x86_64 app too, so `--archs x86_64` checks the Intel compile the same way.
 #   --bench-hooks: compile the bench configuration (`reload.sh --config bench`): Release with
-#   -DCMUX_BENCH_HOOKS and no DEBUG, so code under `#if DEBUG || CMUX_BENCH_HOOKS` that reaches a
-#   DEBUG-only symbol fails here instead of in a perf sweep's build.
+#   -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS and no DEBUG (lib/bench-swift-defines.sh, shared with
+#   reload.sh), so code under `#if DEBUG || CMUX_BENCH_HOOKS` or `#if DEBUG || CMUX_BLOCKING_CHECKS`
+#   that reaches a DEBUG-only symbol fails here instead of in a perf sweep's build (or a Nightly's).
 #   default derived data: a new directory in $TMPDIR (per fleet step), removed
 #   when the script ends. Never a host-shared fixed path: explicit precompiled
 #   modules (SwiftExplicitPrecompiledModules/*.pcm) are keyed by the compile
@@ -65,9 +68,17 @@ fi
 swift_other_flags='$(inherited)'
 bench_label=''
 if [[ "${1:-}" == --bench-hooks ]]; then
-  # The same flag reload.sh --config bench passes (SWIFT_OTHER_FLAGS).
-  swift_other_flags+=' -DCMUX_BENCH_HOOKS'
-  bench_label=', bench hooks'
+  # The same flags reload.sh --config bench passes (SWIFT_OTHER_FLAGS), from one shared file.
+  # shellcheck source=lib/bench-swift-defines.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/lib/bench-swift-defines.sh"
+  swift_other_flags+=" $CMUX_BENCH_SWIFT_DEFINES"
+  bench_label=", bench hooks ($CMUX_BENCH_SWIFT_DEFINES)"
+  shift
+elif [[ "${1:-}" == --nightly ]]; then
+  # shellcheck source=lib/nightly-swift-defines.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/lib/nightly-swift-defines.sh"
+  swift_other_flags+=" $CMUX_NIGHTLY_NEXT_SWIFT_DEFINES"
+  bench_label=", nightly ($CMUX_NIGHTLY_NEXT_SWIFT_DEFINES)"
   shift
 fi
 if [[ "${CMUX_SWIFT_TYPECHECK_DIAGNOSTICS:-0}" == "1" ]]; then
@@ -79,7 +90,7 @@ if [[ "${CMUX_SWIFT_TYPECHECK_DIAGNOSTICS:-0}" == "1" ]]; then
 fi
 # --archs and --bench-hooks come first; anything else after the path would be ignored silently.
 if (( $# > 1 )); then
-  echo "check-release-compile: usage: check-release-compile.sh [--archs arm64|x86_64] [--bench-hooks] [derived-data-path]" >&2
+  echo "check-release-compile: usage: check-release-compile.sh [--archs arm64|x86_64] [--bench-hooks | --nightly] [derived-data-path]" >&2
   exit 2
 fi
 kept_path=0

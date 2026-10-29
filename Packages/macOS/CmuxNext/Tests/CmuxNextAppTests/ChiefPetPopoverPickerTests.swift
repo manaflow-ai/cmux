@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextChiefPetWiring
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFloating
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
 import CmuxNextWakeups
@@ -11,8 +12,9 @@ import Testing
 
 /// Leo 2026-10-21: "the nine avatars, we need to be able to just swap them out, just how ChatGPT
 /// does." The Chief Settings popover (the "Chief ›" pill on Home, and the pet's Chief Pet
-/// Settings…) shows all nine characters at once, the current one checked; one click swaps the
-/// pet's character (`home.chiefPetMascot`) and leaves Show Chief Pet (`home.chiefPetEnabled`) alone.
+/// Settings…) shows every character at once (the nine, and Mochi since #25213), the current one
+/// checked; one click swaps the pet's character (`home.chiefPetMascot`) and leaves Show Chief Pet
+/// (`home.chiefPetEnabled`) alone.
 @MainActor @Suite(.serialized) struct ChiefPetPopoverPickerTests {
     struct Harness {
         let popover: HomeChiefSettingsView
@@ -52,6 +54,12 @@ import Testing
         return choices.map(\.title)
     }
 
+    /// The characters' ids as the Settings page offers them, in its order.
+    static func ids() -> [String] {
+        guard case .choice(let choices)? = SettingsSchema.descriptor(for: HomeChiefPetSetting.mascotPath)?.kind else { return [] }
+        return choices.map(\.value)
+    }
+
     static func name(of id: String) -> String? {
         guard case .choice(let choices)? = SettingsSchema.descriptor(for: HomeChiefPetSetting.mascotPath)?.kind else { return nil }
         return choices.first { $0.value == id }?.title
@@ -79,12 +87,14 @@ import Testing
         return Harness(popover: popover, rows: rows, settings: settings, url: url)
     }
 
-    @Test func thePopoverOffersAllNineWithTheCurrentOneChecked() async throws {
+    @Test func thePopoverOffersEveryCharacterWithTheCurrentOneChecked() async throws {
         let h = try await make(#"{"home":{"chiefPetMascot":"moon"}}"#)
         defer { h.tearDown() }
         let moon = try #require(Self.name(of: "moon"))
         await h.until { h.checked() == [moon] }
-        #expect(Self.names().count == 9)
+        // Every character the pet can wear, in the Settings page's order; no hard-coded count.
+        #expect(Self.ids() == ChiefPetMascot.allCases.map(\.rawValue))
+        #expect(Self.ids() == HomeChiefPetSetting.mascots)
         #expect(h.characters().compactMap { $0.accessibilityLabel() } == Self.names())
         #expect(h.characters().allSatisfy { $0.image != nil }, "each character shows its picture")
         #expect(h.checked() == [moon])

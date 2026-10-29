@@ -52,7 +52,11 @@ struct PaneCloseMotionTests {
 
         /// The daemon's tree, as the store's mirror shows it.
         func show(_ tree: SplitNode) {
-            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))])
+            show(layout: .splits(tree))
+        }
+
+        func show(layout: ScreenLayout) {
+            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: layout)])
             root.syncWithModel()
         }
 
@@ -74,6 +78,13 @@ struct PaneCloseMotionTests {
         func settle() -> Int {
             for frame in 1...240 where !step() { return frame }
             return 240
+        }
+
+        var widthIntents: [(ColumnID, Double)] {
+            intents.compactMap { intent in
+                guard case let .setColumnWidth(column, _, width, _, .ended) = intent else { return nil }
+                return (column, width)
+            }
         }
 
         var ratioIntents: [(SplitID, Double)] {
@@ -159,14 +170,127 @@ struct PaneCloseMotionTests {
         #expect(screen.model.focusedPane == "p3")
     }
 
-    /// The screen's last pane and a column's only pane leave with the daemon's tree.
-    @Test func aPaneWithNoSiblingLeavesWithTheDaemonsTree() {
+    /// The screen's last pane leaves with the daemon's tree.
+    @Test func theScreensLastPaneLeavesWithTheDaemonsTree() {
         let lone = Screen(.splits(.leaf("p1")))
         #expect(lone.close("p1") == nil)
         let strip = Screen(.columns([LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
                                      LayoutColumn(id: "c2", width: 0.5, root: .split("v", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))]))
-        #expect(strip.close("p1") == nil)
         #expect(strip.close("p2")?.successor == "p3", "a pane with a sibling in its column did not close in the key's turn")
+    }
+
+    // MARK: A column's only pane
+
+    /// The chat docked left, then the strip's two columns sharing the viewport.
+    static let strip: [LayoutColumn] = [
+        LayoutColumn(id: "c0", width: 0.3, root: .leaf("chat"), dock: DockColumn(edge: .left, role: .agentChat)),
+        LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
+        LayoutColumn(id: "c2", width: 0.5, root: .leaf("p2")),
+    ]
+
+    /// Leo 2026-10-25: "we should never block shit on the tab animation". The right column's only
+    /// pane stayed, empty, until the daemon's tree without it came back, while its strip played the
+    /// tab's close; it leaves with its column in the key's turn now: the focus goes left, the column
+    /// left takes its final width in that turn, and it moves from the key's first frame.
+    @Test func aColumnsOnlyPaneLeavesWithItsColumnInTheKeysTurn() throws {
+        let screen = Screen(.columns(Self.strip), focused: "p2")
+        screen.model.newColumnWidthModeOverride = .fitScreen
+        let start = try #require(screen.rect("p1"))
+        let close = try #require(screen.close("p2"), "the right column's only pane waited for the daemon's tree")
+        #expect(close.successor == "p1")
+        #expect(screen.model.focusedPane == "p1", "the focus stayed on the closed pane")
+        let shown = try #require(screen.model.screens.first?.layout)
+        #expect(!shown.contains("p2"), "the closed pane is still shown")
+        #expect(shown.columns.first { $0.id == "c1" }?.width == 1, "the column left did not take the viewport in the key's turn")
+        #expect(screen.rect("p2") == nil, "the closed pane's host stayed on screen")
+        let target = try #require(screen.target("p1"))
+        #expect(target.width > start.width + 1, "p1's target in the key's turn is not wider")
+        screen.step()
+        #expect(try #require(screen.rect("p1")).width > start.width + 1, "p1 did not grow in the key's first frame")
+        #expect(screen.target("p1") == target)
+        screen.settle()
+        #expect(screen.rect("p1") == target, "the key's turn did not set p1's final frame")
+        #expect(screen.intents.isEmpty, "an intent went before the daemon closed the pane")
+    }
+
+    /// The daemon's echoes (the emptied column, then the tree without it) change nothing on screen,
+    /// and the width the close leaves goes to the daemon once, after its tree lost the column.
+    @Test func theDaemonsEchoesOfAColumnCloseChangeNothingOnScreen() throws {
+        let screen = Screen(.columns(Self.strip), focused: "p2")
+        screen.model.newColumnWidthModeOverride = .fitScreen
+        _ = try #require(screen.close("p2"))
+        for _ in 1...6 { screen.step() }
+        let targets = try ["chat", "p1"].map { try #require(screen.target($0)) }
+        screen.show(layout: .columns(Self.strip))
+        #expect(screen.rect("p2") == nil, "the tab close's echo showed the closed pane again")
+        #expect(try ["chat", "p1"].map { try #require(screen.target($0)) } == targets)
+        screen.show(layout: .columns(Array(Self.strip.prefix(2))))
+        #expect(try ["chat", "p1"].map { try #require(screen.target($0)) } == targets, "the column close's echo retargeted the panes")
+        let sent = screen.widthIntents
+        #expect(sent.count == 1 && sent.first?.0 == "c1" && sent.first?.1 == 1, "sent \(sent)")
+        #expect(!screen.model.isClosing("p2"))
+    }
+
+    @Test func aRefusedColumnCloseBringsTheColumnAndItsWidthsBack() throws {
+        let screen = Screen(.columns(Self.strip), focused: "p2")
+        screen.model.newColumnWidthModeOverride = .fitScreen
+        let before = screen.model.screens.first?.layout
+        let close = try #require(screen.close("p2"))
+        for _ in 1...4 { screen.step() }
+        screen.model.cancelPaneClose(close)
+        screen.root.syncWithModel()
+        #expect(screen.model.screens.first?.layout == before)
+        screen.settle()
+        #expect(screen.rect("p2") != nil, "the refused column did not come back")
+        #expect(screen.intents.isEmpty)
+    }
+
+    /// Home's pinned dock with a column beside it (Cmd-D in Home): the dock stays alone, docked, at
+    /// its width, as cmux-tui keeps it (`pinned-dock-alone-v1`).
+    @Test func homesColumnBesideThePinnedDockLeavesInTheKeysTurn() throws {
+        let dock = LayoutColumn(id: "c0", width: 0.35, root: .leaf("home"), dock: DockColumn(edge: .left, isPinned: true))
+        let screen = Screen(.columns([dock, LayoutColumn(id: "c1", width: 0.65, root: .leaf("p1"))]), focused: "p1")
+        let close = try #require(screen.close("p1"))
+        #expect(close.successor == "home")
+        #expect(screen.model.focusedPane == "home")
+        #expect(screen.model.screens.first?.layout == .columns([dock]))
+        #expect(screen.rect("p1") == nil)
+    }
+
+    /// The last scrolling column left is the screen's tree again, as the daemon shows it; a dock
+    /// with no scrolling column beside it scrolls again.
+    @Test func theColumnsLeftTakeTheDaemonsShapeInTheKeysTurn() throws {
+        let tree: SplitNode = .split("v", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p3"))
+        let pair = Screen(.columns([LayoutColumn(id: "c1", width: 0.5, root: tree), LayoutColumn(id: "c2", width: 0.5, root: .leaf("p2"))]),
+                          focused: "p2")
+        #expect(pair.close("p2")?.successor == "p1")
+        #expect(pair.model.screens.first?.layout == .splits(tree))
+        let docked = Screen(.columns(Array(Self.strip.dropLast()) + [LayoutColumn(id: "c3", width: 0.3, root: .leaf("p3"), dock: DockColumn(edge: .right))]))
+        _ = try #require(docked.close("p1"))
+        let columns = docked.model.screens.first?.layout.columns ?? []
+        #expect(columns.map(\.id) == ["c0", "c3"] && columns.allSatisfy { $0.dock == nil }, "\(columns)")
+    }
+
+    /// Click to final layout, in frames of the same harness, with the daemon's tree 100 ms after the
+    /// key: the right column's close sets its final layout in the key's turn (frame 0), not at the echo.
+    @Test func aColumnCloseSetsItsFinalLayoutInTheKeysTurn() throws {
+        let screen = Screen(.columns(Self.strip), focused: "p2")
+        screen.model.newColumnWidthModeOverride = .fitScreen
+        _ = screen.close("p2")
+        let echo = Int((0.1 / Self.dt).rounded())
+        var targets: [CGRect?] = [screen.target("p1")], focus: [PaneID?] = [screen.model.focusedPane], rest = 0
+        for frame in 1...240 {
+            if frame == echo { screen.show(layout: .columns(Array(Self.strip.prefix(2)))) }
+            let moving = screen.step()
+            targets.append(screen.target("p1"))
+            focus.append(screen.model.focusedPane)
+            if !moving, frame > echo { rest = frame; break }
+        }
+        let final = targets.last ?? nil
+        let finalAt = targets.firstIndex { $0 == final } ?? -1, focusAt = focus.firstIndex { $0 == "p1" } ?? -1
+        print("column close: final target at frame \(finalAt), focus at frame \(focusAt), at rest at frame \(rest) (120 Hz, echo at \(echo))")
+        #expect(finalAt == 0, "the final layout waited \(finalAt) frames")
+        #expect(focusAt == 0, "the focus waited \(focusAt) frames")
     }
 
     // MARK: The spring
@@ -415,6 +539,79 @@ struct PaneCloseMotionTests {
         #expect(closes == 1, "a second close closed the window twice")
         #expect(WindowCloseMotion.fadingLayer(of: window)?.opacity ?? 1 == 1 && window.alphaValue == 1)
         #expect(window.isOpaque && !window.ignoresMouseEvents)
+    }
+
+    /// A borderless child window for the window close tests, not released on close.
+    static func childWindow(_ alpha: CGFloat = 1) -> NSWindow {
+        let child = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                             backing: .buffered, defer: true)
+        child.isReleasedWhenClosed = false
+        child.alphaValue = alpha
+        return child
+    }
+
+    /// A close the test lands itself (`FadeProbe`) of `window`.
+    static func probedClose(_ window: NSWindow, _ probe: FadeProbe) -> WindowCloseMotion {
+        WindowCloseMotion(window: window, fade: { layer, _, landed in
+            probe.layers.append(layer)
+            layer.opacity = 0
+            probe.landing = landed
+        }, close: { probe.closes += 1 })
+    }
+
+    /// The window's child windows (Chromium pages, the overlay panel above them, a popup's own
+    /// child) leave with it (#25197): AppKit does not pass a parent's alpha or its frame view's layer
+    /// opacity to its children, so a page stayed opaque on the fading window and went only when it
+    /// closed. The fade runs on the render server, so the whole child tree goes in the key's frame
+    /// (one call each, none per frame), and each child gets its own alpha back when the window closes.
+    @Test func aClosedWindowFadesItsChildWindowsWithIt() throws {
+        let window = Self.shownWindow()
+        defer { window.orderOut(nil) }
+        let page = Self.childWindow()
+        let panel = Self.childWindow(0.5)
+        let nested = Self.childWindow()
+        window.addChildWindow(page, ordered: .above)
+        window.addChildWindow(panel, ordered: .above)
+        page.addChildWindow(nested, ordered: .above)
+        defer { [nested, panel, page].forEach { $0.parent?.removeChildWindow($0); $0.orderOut(nil) } }
+        try #require(window.childWindows?.count == 2 && page.childWindows?.count == 1, "the child windows were not added")
+        let probe = FadeProbe()
+        let motion = Self.probedClose(window, probe)
+        motion.start(handingKeysTo: nil)
+        try #require(probe.layers.count == 1, "the window did not start its fade")
+        #expect(page.alphaValue == 0, "a page window stayed at \(page.alphaValue) while its window faded")
+        #expect(nested.alphaValue == 0, "a child of a child window did not leave with the window")
+        #expect(panel.alphaValue == 0, "a translucent child window stayed while its window faded")
+        probe.landing?(true)
+        #expect(probe.closes == 1)
+        #expect(page.alphaValue == 1 && nested.alphaValue == 1 && panel.alphaValue == 0.5,
+                "a child window does not get its alpha back when the window closes")
+    }
+
+    /// A child whose owner sets its alpha during the fade (a panel's own fade) keeps the owner's
+    /// alpha, and a child that moves under another window (a palette follows the key window) is
+    /// whole again when the fade ends: the close restores only what it hid and still finds hidden.
+    @Test func aWindowFadeLeavesAChildItsOwnerOrAnotherWindowTook() throws {
+        let window = Self.shownWindow()
+        defer { window.orderOut(nil) }
+        let other = Self.childWindow()
+        let panel = Self.childWindow()
+        let palette = Self.childWindow()
+        window.addChildWindow(panel, ordered: .above)
+        window.addChildWindow(palette, ordered: .above)
+        defer { [panel, palette].forEach { $0.parent?.removeChildWindow($0); $0.orderOut(nil) } }
+        let probe = FadeProbe()
+        let motion = Self.probedClose(window, probe)
+        motion.start(handingKeysTo: nil)
+        try #require(probe.layers.count == 1, "the window did not start its fade")
+        #expect(panel.alphaValue < 1 && palette.alphaValue < 1, "the children did not leave with the window")
+        panel.alphaValue = 0.3
+        window.removeChildWindow(palette)
+        other.addChildWindow(palette, ordered: .above)
+        probe.landing?(true)
+        #expect(probe.closes == 1)
+        #expect(panel.alphaValue == 0.3, "the close overwrote the alpha a child's owner set")
+        #expect(palette.alphaValue == 1, "a child that moved to another window stayed hidden")
     }
 
     @Test func aWindowCloseUnderReduceMotionDoesNotFade() {

@@ -40,10 +40,12 @@ public final class RemoteViewPageTab: BrowserTab {
 
     /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`; `work`, `mainWork` and `vncSignIns` are
     /// the app's (a VNC sign-in comes from memory, or a Keychain read on the system lane that answers on main
-    /// through the scheduler).
+    /// through the scheduler); `cloudTransport` reaches a Cloud machine's desktop over the app's Cloud tunnel.
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
          work: BackgroundWork, mainWork: MainWorkScheduler, vncSignIns: RemoteVNCSignIns, closeTab: @escaping @MainActor () -> Void,
-         connect: @escaping @MainActor (URL) -> Void) {
+         connect: @escaping @MainActor (URL) -> Void,
+         cloudTransport: RemoteViewPageSession.CloudDesktopTransport? = nil,
+         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -53,12 +55,14 @@ public final class RemoteViewPageTab: BrowserTab {
         }
         record = parsed
         address = url
-        var state = BrowserTabState(url: url, title: RemoteViewTabRecord.tabTitle(parsed))
+        // A Cloud machine's tab and pane read its name, not its id.
+        var state = BrowserTabState(url: url, title: displayName ?? RemoteViewTabRecord.tabTitle(parsed))
         state.phase = .finished
         self.state = state
         switch decision {
         case let .connect(record):
-            let session = RemoteViewPageSession.make(record: record, work: work, mainWork: mainWork, vncSignIns: vncSignIns, closeTab: closeTab)
+            let session = RemoteViewPageSession.make(record: record, work: work, mainWork: mainWork, vncSignIns: vncSignIns, closeTab: closeTab,
+                                                     cloudTransport: cloudTransport, cloudRd: cloudRd, displayName: displayName)
             self.session = session
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):
@@ -136,7 +140,7 @@ public final class RemoteViewPageTab: BrowserTab {
     public func showDevTools() {}
     public func close() {
         wakeCover.remove()
-        session?.pause()
+        session?.end()
     }
 }
 

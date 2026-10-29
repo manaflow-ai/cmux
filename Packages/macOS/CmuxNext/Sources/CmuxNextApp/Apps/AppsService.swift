@@ -112,7 +112,7 @@ final class AppsService {
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
     func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
-        guard let services else { return }
+        guard let services, services.settings?.snapshot.previewFeatures == true else { return }
         let route = Self.storeRoute(appID: appID, tab: tab)
         let key: String?
         if focus {

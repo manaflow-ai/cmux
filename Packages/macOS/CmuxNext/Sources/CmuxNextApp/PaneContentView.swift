@@ -81,7 +81,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var bandRect: CGRect?
     /// Whether the strip sits in a browser's header band.
     var isBandActive: Bool { bandRect != nil }
-    private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
+    private var reportedChrome: (header: CGFloat, footer: CGFloat, framed: Bool) = (-1, -1, true)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
     let paintHold: PanePaintHold
     /// The strip the hold's outgoing view showed under, kept until the swap.
@@ -92,6 +92,11 @@ final class PaneContentView: NSView, PaneContentChrome {
     var launchImageShare: LaunchImageHold.Share?
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
+    /// Asked when the launch image's limit is up, before it goes: `false` keeps the frame, because
+    /// the page it stands in for is still coming and dropping it now would leave the pane empty
+    /// (`PaneContentView+LaunchImage`). Nil means the limit clears it, as it does for a frame held
+    /// over a page that has already painted.
+    var launchImageMayClear: (() -> Bool)?
     let launchImageDeadline: MainDeadline
     /// Browsers this pane showed before, kept in place and hidden, oldest
     /// first (`PaneContentView+Parking`).
@@ -211,15 +216,21 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     // MARK: PaneContentChrome
 
+    private var visibleContent: NSView? {
+        paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil } ?? (hostsContent ? content : nil)
+    }
+
+    var paneFramesContent: Bool { !(visibleContent is AgentPaneView) }
+
     /// The hosted content's own header, if it reports one (a browser's
     /// toolbar does not: it is inside the content area).
-    private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
+    private var innerChrome: PaneContentChrome? { visibleContent as? PaneContentChrome }
 
     /// A chat with its native tab strip hidden still owns the top strip in its
     /// webview. Keep the pane ring below that strip so focus does not draw an
     /// extra hairline above the chat header (Austin, 2026-10-23).
     private var hiddenAgentHeaderHeight: CGFloat {
-        guard hidesStrip, content is AgentPaneView else { return 0 }
+        guard hidesStrip, visibleContent is AgentPaneView else { return 0 }
         return PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
     }
 
@@ -254,10 +265,11 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The content host is the pane's one rounded container, for every kind
     /// of content: a browser's toolbar sits inside it, as a terminal does.
     private func applyCornerRadius() {
-        guard let layer = contentHost.layer, layer.cornerRadius != contentCornerRadius else { return }
+        let radius = paneFramesContent ? contentCornerRadius : 0
+        guard let layer = contentHost.layer, layer.cornerRadius != radius else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.cornerRadius = contentCornerRadius
+        layer.cornerRadius = radius
         CATransaction.commit()
     }
 
@@ -268,10 +280,16 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
 
     private func reportHeaderIfChanged() {
-        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight)
+        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight, framed: paneFramesContent)
         guard chrome != reportedChrome else { return }
         reportedChrome = chrome
         onPaneHeaderHeightChange?()
+    }
+
+    /// A first-paint hold ended: framing follows the view that became visible in this transaction.
+    func refreshContentFrame() {
+        applyCornerRadius()
+        reportHeaderIfChanged()
     }
 
     /// Swaps the hosted content view. Returns the previous one. Focus is
@@ -336,6 +354,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     func detachContent(parks: Bool = false) {
         // The strip's band pins end before the browser leaves (R109).
         releaseBand()
+        // A displaced or closed page cannot reveal this pane's saved frame anymore.
+        clearLaunchImage(.noVisiblePane)
         endPaintHold()
         endLaunchImageShare(.noVisiblePane) // a pane torn down with its launch image up no longer holds startup
         let shown = hostsContent ? content : nil

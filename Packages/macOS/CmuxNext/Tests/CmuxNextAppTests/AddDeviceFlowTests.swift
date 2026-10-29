@@ -1,7 +1,9 @@
 import AppKit
+import CmuxNextMobile
 @testable import CmuxNextServer
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Add Device (plans/cmux-next/add-device-DESIGN.md): the card opens on the network way when the
 /// network lists computers that are not added, else on "Set up a new device"; a pick hands off to
@@ -18,6 +20,7 @@ import Testing
         var added: [(String, String)] = []
         var byName = 0
         var codes = 0
+        var clouds = 0
         var copied: [String] = []
 
         func services() -> AddDeviceServices {
@@ -32,6 +35,7 @@ import Testing
                 addComputer: { [self] address, name in added.append((address, name)) },
                 addByName: { [self] in byName += 1 },
                 enterCode: { [self] in codes += 1 },
+                newCloudMachine: { [self] in clouds += 1 },
                 copy: { [self] in copied.append($0) })
         }
     }
@@ -49,7 +53,37 @@ import Testing
         await model.begin()
         #expect(model.way == .network)
         #expect(model.available.map(\.name) == ["studio"])
-        #expect(model.buttons.map(\.action) == [.cancel, .otherComputer])
+        #expect(model.buttons.map(\.action) == [.cancel, .newCloudMachine, .otherComputer])
+    }
+
+    /// The network way's New Cloud VM… runs the app's create flow and closes the card.
+    @Test func newCloudVMRunsTheCreateFlowAndCloses() async {
+        let fake = Fake()
+        let model = AddDeviceModel(services: fake.services())
+        await model.begin()
+        #expect(model.perform(.newCloudMachine))
+        #expect(fake.clouds == 1)
+        #expect(AddDeviceStrings.button(.newCloudMachine, copied: false) == "New Cloud VM…")
+    }
+
+    /// Without Tailscale the card still lists the computers of ~/.ssh/config, under the reason.
+    @Test func sshConfigComputersListWithoutTheNetwork() async throws {
+        let fake = Fake()
+        fake.listing = Self.listing(available: [DeviceListing.Available(name: "devbox", address: "devbox", os: "", mine: true, fromSSHConfig: true)],
+                                    up: false)
+        let model = AddDeviceModel(services: fake.services())
+        await model.begin()
+        #expect(model.way == .network, "an ssh config host is something to add")
+        #expect(model.networkProblem != nil)
+        let devbox = try #require(model.available.first)
+        #expect(model.perform(.pick(devbox)))
+        #expect(fake.added.map(\.0) == ["devbox"])
+        let view = AddDeviceView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        #expect(Self.texts(in: view).contains(AddDeviceStrings.sshConfig))
+    }
+
+    static func texts(in view: NSView) -> [String] {
+        ((view as? NSTextField).map { [$0.stringValue] } ?? []) + view.subviews.flatMap { texts(in: $0) }
     }
 
     @Test func opensOnSetUpANewDeviceWhenNothingIsLeftToAdd() async {
@@ -58,8 +92,10 @@ import Testing
         let model = AddDeviceModel(services: fake.services())
         await model.begin()
         #expect(model.way == .newDevice)
-        #expect(model.buttons.map(\.action) == [.cancel, .copyLine])
+        #expect(model.buttons.map(\.action) == [.cancel, .newCloudMachine, .copyLine])
         #expect(model.buttons.last?.key == .return)
+        #expect(model.perform(.newCloudMachine), "New Cloud VM… is still offered, and closes the card")
+        #expect(fake.clouds == 1)
     }
 
     @Test func noCLIShowsTheNetworkAsUnavailableAndStillOffersAName() async {
@@ -133,13 +169,15 @@ import Testing
          "devices":[{"id":"peer:mini-7","name":"mini-7","kind":"computer","roles":["runs-agents"],"state":"connected",
                      "os":"macOS","reach":{"network":"tailscale","address":"mini-7.ts.net","ips":[],"online":true},
                      "via":[{"store":"peer","name":"mini-7"}],"added_at":"2026-10-22T07:12:00Z"}],
-         "available":[{"name":"studio","address":"studio.ts.net","os":"macOS","mine":true}],
+         "available":[{"name":"studio","address":"studio.ts.net","os":"macOS","mine":true},
+                      {"name":"devbox","address":"devbox","os":"","mine":true,"found":"ssh-config"}],
          "invites":[{"id":"tk_1","role":"client","label":null,"expires_at":"2026-10-22T08:00:00Z"}],
          "notes":[]}
         """
         let listing = try DeviceListing.parse(Data(json.utf8))
         #expect(listing.devices.first?.addedAt == "2026-10-22T07:12:00Z")
         #expect(listing.available.first?.mine == true)
+        #expect(listing.available.map(\.fromSSHConfig) == [false, true])
         #expect(listing.invites.map(\.id) == ["tk_1"])
     }
 
@@ -236,5 +274,40 @@ import Testing
         #expect(await directory.setFullAccess(id: "paired:dv_leo", on: true) == AddDeviceStrings.fullAccessOnFailed)
         #expect(await directory.setFullAccess(id: "paired:dv_leo", on: false) == AddDeviceStrings.fullAccessOffFailed)
         #expect(directory.lastError == AddDeviceStrings.fullAccessOffFailed)
+    }
+
+    /// Leo: "#2 seems reasonable i think... it's a gate that you can enable for your phone, which
+    /// is an attack vector you opt in to". A phone paired with this Mac has its own acpmux record
+    /// (role `phone`, named for the phone), and its row carries that record's switch, off by
+    /// default. The record is never a row of its own, and a phone without one has no switch.
+    @Test func aPairedPhoneHasTheFullAccessSwitchOfItsOwnRecord() async throws {
+        let phone = "6A7B8C9D-0000-4000-8000-000000000002"
+        let record = DeviceDirectory.phoneRecordName(phone)
+        #expect(record == MobileHostPairedDevices.acpmuxRecordName(phone), "the app issues it under the same name")
+        #expect(record == "phone-6a7b8c9d-0000-4000-8000-000000000002")
+        let cli = FakeCLI()
+        cli.listing = """
+        {"network":{"kind":"tailscale","up":true},"devices":[
+          {"id":"paired:dv_imposter","name":"\(record)","kind":"computer","roles":["uses-this"],"state":"offline","full_access":true},
+          {"id":"paired:dv_phone","name":"\(record)","kind":"phone","roles":["uses-this"],"state":"connected","full_access":false},
+          {"id":"paired:dv_gone","name":"phone-gone","kind":"phone","roles":["uses-this"],"state":"offline","full_access":true}],
+         "available":[],"invites":[]}
+        """
+        let directory = DeviceDirectory(run: { cli.run($0) }, removePhone: { cli.removedPhones.append($0) },
+                                        setFullAccess: { cli.pairSet($0, $1) })
+        await directory.refresh()
+        let rows = directory.rows(phones: [(id: phone, name: "Leo's iPhone", connected: true),
+                                           (id: "not-issued", name: "Old iPhone", connected: false)])
+        #expect(rows.map(\.id) == ["paired:dv_imposter", "phone:\(phone)", "phone:not-issued"],
+                "a phone's record is not a row of its own")
+        #expect(rows[1].fullAccess == false, "off by default")
+        #expect(rows[1].fullAccessHelp == AddDeviceStrings.fullAccessHelp)
+        #expect(rows[2].fullAccess == nil && rows[2].fullAccessHelp == nil, "no record yet: no switch")
+
+        #expect(await directory.setFullAccess(id: "phone:\(phone)", on: true) == nil)
+        #expect(cli.fullAccessSets == ["dv_phone true"], "the phone's own record, never a machine of the same name")
+        #expect(await directory.setFullAccess(id: "phone:\(phone)", on: false) == nil)
+        #expect(await directory.setFullAccess(id: "phone:not-issued", on: true) == nil)
+        #expect(cli.fullAccessSets == ["dv_phone true", "dv_phone false"], "a phone without a record never reaches acpmux")
     }
 }

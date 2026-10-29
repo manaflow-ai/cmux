@@ -51,7 +51,7 @@ struct PageLifecycleEditsTests {
     private let lifecycle: PageLifecycle
 
     init() {
-        lifecycle = PageLifecycle(deadlines: rig.scheduler)
+        lifecycle = PageLifecycle(conditions: .discarding(), deadlines: rig.scheduler)
     }
 
     private func page(_ name: String) -> EditsPage { EditsPage(name, log: log) }

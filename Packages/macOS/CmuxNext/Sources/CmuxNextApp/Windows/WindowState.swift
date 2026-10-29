@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLayout
 import Foundation
 import Observation
 
@@ -28,6 +29,11 @@ final class WindowState {
     /// The workspaces shown side by side, `workspaceID` focused among them (Debug Settings `sidebar.multiView`,
     /// `WindowController.arrangeOnScreen`); nil shows `workspaceID` alone. Persisted in the record.
     var viewSet: WorkspaceViewSet?
+    /// The window frame's docked workspaces (Debug Settings `window.dockedWorkspaces`,
+    /// plans/cmux-next/docked-workspace-DESIGN.md). Persisted in the record; empty while the prototype is off.
+    var docks = WindowDocks()
+    /// The workspace the frame's stage shows (W5): `workspaceID` unless that one is docked. Persisted.
+    var stageWorkspaceID: String?
     /// The top page this window shows in place of its workspace
     /// (TOP-SECTION-ITEMS-ARE-PAGES); nil shows the workspace. Selecting a
     /// workspace clears it (`showWorkspace(_:)`). Persisted in the record.
@@ -100,6 +106,13 @@ final class WindowState {
 }
 
 extension WindowState {
+    /// Workspace `id` is drawn beside the focused one: in the `sidebar.multiView` set, a shown docked workspace, or
+    /// the stage's workspace while a dock has the focus (`window.dockedWorkspaces`).
+    func isOnScreenBeside(_ id: String) -> Bool {
+        viewSet?.contains(id) == true
+            || (LayoutTunables.dockedWorkspaces.value && (docks.visible.contains { $0.workspace == id } || stageWorkspaceID == id))
+    }
+
     /// The state saved for one window.
     convenience init(record: WindowRecord) {
         self.init(id: record.id)
@@ -113,6 +126,8 @@ extension WindowState {
         workspaceID = record.workspaceKey?.rawValue
         page = record.page.flatMap(TopPageRoute.init(rawValue:))
         viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:)).flatMap { Set($0.ids).count == $0.ids.count ? $0 : nil }
+        docks = WindowDocks(record: record)
+        stageWorkspaceID = record.stageKey?.rawValue
         machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth

@@ -54,8 +54,9 @@ enum WatchdogReporting {
         let blockingSink = BlockingReportSink(collector: collector, nonFatal: .init(
             consented: { reporter.isStarted },
             send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) }))
-        // Replays the sites the detector recorded before this point (BlockingDetector.install).
-        services.blocking.install(sink: blockingSink)
+        // Replays the sites the detector recorded before this point (BlockingDetector.install). The unified-log
+        // line AppServices installed first (BlockingLogSink) keeps getting every site beside the reports.
+        services.blocking.install(sink: BlockingSinkFanOut([BlockingLogSink(), blockingSink]))
         // Replays the daemon sites read before this point; each goes off the reader thread (the sink may save).
         services.daemon.diagnosticSites.install { [work = services.work] sighting in
             work.post(.bestEffort, mayBlock: .files) { blockingSink.record(daemonSite: sighting) }

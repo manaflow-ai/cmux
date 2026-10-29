@@ -305,10 +305,10 @@ extension PaneController {
         NewTabPage.open(in: self, seed: seed, reusingShown: reusingShown, then: then)
     }
 
-    /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field;
-    /// anywhere else a new New Tab page, whose field takes the keyboard (cx-e2aa; Lawrence
-    /// 2026-10-10: the New Tab page is React only, no native omnibar row). ⌃L stays the
-    /// terminal's (clear screen).
+    /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field; in
+    /// an agent chat its composer; anywhere else a new New Tab page, whose field takes the keyboard
+    /// (cx-e2aa; Lawrence 2026-10-10: the New Tab page is React only, no native omnibar row). ⌃L
+    /// stays the terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
         if case .browser = currentContent {
             _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
@@ -317,6 +317,11 @@ extension PaneController {
         // A Markdown tab has the browser's omnibar row above its page (markdown-omnibar-DESIGN.md).
         if case .page(let view) = currentContent, let bar = view.topBar as? MarkdownOmnibarBar {
             bar.focusLocation()
+            return
+        }
+        // An agent chat: its composer takes the keyboard, not a new New Tab page beside it.
+        if case .agent(let view) = currentContent, view.model.newTab == nil {
+            view.focusComposer()
             return
         }
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane

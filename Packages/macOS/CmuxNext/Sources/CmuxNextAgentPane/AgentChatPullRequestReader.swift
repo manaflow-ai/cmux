@@ -129,7 +129,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             ... on StatusContext { context state targetUrl } } }
             """
         let fields = """
-            url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions \
+            url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions totalCommentsCount \
             changedFiles baseRefName headRefName author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
             { nodes { name } } files(first: 100) { nodes { path additions deletions } } \
             commits(last: 1) { nodes { commit { statusCheckRollup { \(contexts) } } } } \
@@ -244,6 +244,8 @@ public final class AgentReplyPullRequests {
         var pullRequest: AgentPanePullRequest?
         /// When it gave that answer.
         var at: Date?
+        /// When the read that gave that answer began.
+        var readFrom: Date?
         /// The last read of this link, good or not; nil until one finishes.
         var tried: ContinuousClock.Instant?
         /// The newest of `at` and `tried`, for dropping the stalest link.
@@ -284,12 +286,15 @@ public final class AgentReplyPullRequests {
         self.retry = retry
     }
 
-    /// What the cache has for `url`, and a background read when that is stale. Never waits.
-    public func answer(_ url: URL) -> AgentPanePullRequestAnswer {
-        _ = startRead(url)
+    /// What the cache has for `url`, and a background read when that is stale unless `read` is
+    /// false (a page asking for many links it registered, whose reads the registration batches).
+    /// Never waits.
+    public func answer(_ url: URL, read: Bool = true) -> AgentPanePullRequestAnswer {
+        if read { _ = startRead(url) }
         let entry = entries[url]
         return AgentPanePullRequestAnswer(pullRequest: entry?.pullRequest,
                                           fetchedAt: entry?.at?.timeIntervalSince1970,
+                                          readFrom: entry?.readFrom?.timeIntervalSince1970,
                                           reading: inflight[url] != nil)
     }
 
@@ -343,8 +348,9 @@ public final class AgentReplyPullRequests {
     /// on another host (GitHub Enterprise) still falls back to `gh pr view` inside that read.
     private func fetch(_ urls: [URL], as workClass: BudgetedWorkClass) -> Task<Void, Never> {
         let reader = reader, mainWork = mainWork, owner = owner, addresses = urls.map(\.absoluteString)
+        let began = Date()
         let absorb: @MainActor @Sendable ([String: AgentPanePullRequest?]) -> Void = { [weak self] answers in
-            self?.absorb(answers, for: urls)
+            self?.absorb(answers, for: urls, began: began)
         }
         // task-owner: one read for every link asked at once, off main; everyone waiting on it shares this task.
         return Task { @concurrent in
@@ -362,20 +368,21 @@ public final class AgentReplyPullRequests {
     /// What a batched read answered. A URL GitHub did not answer for (offline, timed out, rate
     /// limited) keeps its last answer, and every URL of the batch counts as tried, so a failed
     /// batch is not asked again at once.
-    private func absorb(_ answers: [String: AgentPanePullRequest?], for urls: [URL]) {
-        for url in urls { record(answers[url.absoluteString] ?? nil, for: url) }
+    private func absorb(_ answers: [String: AgentPanePullRequest?], for urls: [URL], began: Date) {
+        for url in urls { record(answers[url.absoluteString] ?? nil, for: url, began: began) }
         trim()
     }
 
     /// Writes one read's outcome. A read that failed leaves the last good answer and its age
     /// alone: a rate-limited GitHub must not replace the pull request the card is showing.
-    private func record(_ pullRequest: AgentPanePullRequest?, for url: URL) {
+    private func record(_ pullRequest: AgentPanePullRequest?, for url: URL, began: Date) {
         var entry = entries[url] ?? Entry(touched: .now)
         entry.tried = .now
         entry.touched = .now
         if let pullRequest {
             entry.pullRequest = pullRequest
             entry.at = Date()
+            entry.readFrom = began
         }
         entries[url] = entry
         inflight[url] = nil

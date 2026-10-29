@@ -24,6 +24,7 @@ struct AgentReplySites {
             return AgentReplySites(services: services).sites(for: urls)
         }
         links.pullRequest = { [replies = services.pullRequests.replies] url in replies.answer(url) }
+        links.cachedPullRequest = { [replies = services.pullRequests.replies] url in replies.answer(url, read: false) }
         links.registerPullRequests = { [replies = services.pullRequests.replies] urls in replies.register(urls) }
         links.useResolver(SystemRemoteResolver(runner: services.work))
         links.workspaceQueries = services.workspaceQueries

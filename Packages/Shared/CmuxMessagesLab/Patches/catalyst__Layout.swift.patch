@@ -238,7 +238,17 @@
      /// The message format of this row (Message.format).
      var format: MessageFormat? { markdownFormat ? .markdown : nil }
      /// The drawn body: lines after a hard newline are 15.5 pt apart, so the
-@@ -527,7 +617,7 @@
+@@ -491,7 +581,8 @@
+             case "voiceMemo": return (CGSize(width: 196, height: 36), nil)
+             case "contact": return (CGSize(width: 250, height: 56), nil)
+             // File and audio rows (measured): 275 x 89.5, icon centred.
+-            default: return (CGSize(width: 275, height: 89.5), nil)
++            // cmux: a file card is as wide as its text needs (HomeFileCard, #26395).
++            default: return (HomeFileCard.size(a, maxWidth: m.maxTextWidth + 2 * Fixture.bubblePadX), nil)
+             }
+         case let .location(lat, lon, _, _):
+             // A map snapshot (macOS 26): 500 pt wide, caption inside; its
+@@ -527,7 +618,7 @@
          let w = min(maxWidth, px / 2)
          return (w, w * py / px)
      }
@@ -247,7 +257,7 @@
      static func linkTitleLines(_ title: String, width: CGFloat) -> [String] {
          let tl = TextLayout.make(title, runs: [], maxWidth: width - 20, font: linkTitleFont)
          let ns = title as NSString
-@@ -608,7 +698,7 @@
+@@ -608,7 +699,7 @@
              rest = rest.suffix(from: r.upperBound)
              if tag.hasPrefix("<rect") {
                  let v = ["x", "y", "width", "height"].map { attr(tag, $0).flatMap(Double.init) ?? 0 }
@@ -256,7 +266,7 @@
              } else if tag.hasPrefix("<path"), let d = attr(tag, "d") {
                  shapes.append((path(d), color(attr(tag, "fill"))))
              }
-@@ -661,8 +751,16 @@
+@@ -661,8 +752,16 @@
  
  /// Row measurements keyed by (message id, part, content version, width).
  /// Filled off the main thread when pages load; the main thread only reads.
@@ -274,7 +284,7 @@
      /// `markdown`: the message's format (Message.format). A plain/markdown change under the same
      /// id and text (a host marking a message later, a local echo) is a new measurement.
      /// `scale`: the asking view's render scale (text balloon widths end on its device pixels; two views at two
-@@ -670,14 +768,79 @@
+@@ -670,14 +769,79 @@
      struct Key: Hashable { var id: ID; var part: Int; var version: Int; var width: CGFloat; var markdown: Bool; var scale: CGFloat }
      struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool; var scale: CGFloat }
      struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false; var markdown: MarkdownLayout? = nil }
@@ -362,7 +372,15 @@
  
      /// A part whose content changes in place is a new measurement: text a host
      /// replaces under the same message id (an optimistic send, then the stored
-@@ -728,40 +891,50 @@
+@@ -693,6 +857,7 @@
+         case let .text(t, runs): h.combine(t); h.combine(runs.count); for r in runs { h.combine(r.start); h.combine(r.length); h.combine(r.style) }
+         case let .link(url, title, site, image, theme): h.combine(url); h.combine(title); h.combine(site); h.combine(image); h.combine(theme)
+         case let .attachment(a): h.combine(a.kind); h.combine(a.asset); h.combine(a.poster); h.combine(a.width); h.combine(a.height)
++            h.combine(a.fileName); h.combine(a.byteSize); h.combine(a.mimeType) // cmux: a file card's width follows its text (#26395)
+         default: return 0
+         }
+         return h.finalize()
+@@ -728,40 +893,50 @@
          let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown, scale: scale)
          let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale)
          let streaming = StreamBubble.isStream(m.id)
@@ -443,7 +461,7 @@
      }
  
      /// Text keeps its total line length: lines = ceil(sum of line widths / new column).
-@@ -776,8 +949,8 @@
+@@ -776,8 +951,8 @@
      /// each line is the same again; the bubble width follows the new column (Sizing.size: a wrapped line's
      /// trailing space can reach past it). A line within 0.01 pt of the column is measured again (Core Text's
      /// own fit test may sum the widths differently from the cut line's).
@@ -454,7 +472,7 @@
          let col = Metrics(width: width).maxTextWidth
          if v.width > 0, col <= Metrics(width: v.width).maxTextWidth, tl.lines.allSatisfy({ $0.fit <= col - 0.01 }) {
              return Value(size: CGSize(width: Sizing.textBalloonWidth(tl.width, column: col, scale: scale), height: v.size.height), text: tl, width: width)
-@@ -791,8 +964,8 @@
+@@ -791,8 +966,8 @@
          return Value(size: v.size, text: tl, width: width)
      }
  
@@ -465,7 +483,7 @@
              // Markdown keeps its height until measured at the new width.
              let col = Metrics(width: width).maxTextWidth + 2 * Fixture.bubblePadX
              return Value(size: CGSize(width: min(v.size.width, col), height: v.size.height), text: nil, width: width, estimated: true)
-@@ -828,16 +1001,42 @@
+@@ -828,16 +1003,42 @@
          }
      }
  
@@ -514,7 +532,7 @@
      }
  }
  
-@@ -858,6 +1057,8 @@
+@@ -858,6 +1059,8 @@
                       previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
                       scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
          let me = s.me
@@ -523,7 +541,7 @@
          var rows: [RowSpec] = []
          var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
          // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
-@@ -989,6 +1190,19 @@
+@@ -989,6 +1192,19 @@
                  let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                      || next.retractedAt != nil || next.replyTo != m.replyTo
                      || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
@@ -543,7 +561,7 @@
                  for (pi, part) in m.parts.enumerated() {
                      // A streaming bubble (past the loaded messages) is always measured: it draws now.
                      let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
-@@ -1015,7 +1229,9 @@
+@@ -1015,7 +1231,9 @@
                                        tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
                                        myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                        size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
@@ -554,7 +572,7 @@
                      rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                          width: width, estimated: measured.estimated))
                  }
-@@ -1024,7 +1240,8 @@
+@@ -1024,7 +1242,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -564,7 +582,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -1043,17 +1260,24 @@
+@@ -1043,17 +1262,24 @@
              }
              prev = m; prevIndex = idx
          }
@@ -594,7 +612,7 @@
          rows = rows.map { var r = $0; r.width = width; return r } // no index writes
          return rows
      }
-@@ -1118,6 +1342,8 @@
+@@ -1118,6 +1344,8 @@
      }
  
      private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
@@ -603,7 +621,7 @@
  
      /// "Read <time>" under my latest read message; "Delivered" under my
      /// latest delivered message when it is newer.
-@@ -1145,26 +1371,25 @@
+@@ -1145,26 +1373,25 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -637,7 +655,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1174,23 +1399,30 @@
+@@ -1174,23 +1401,30 @@
      private static let monthDayYear = formatter("MMM d, yyyy")
      /// `day` per date for the day `now` is in: a width change derives every separator row
      /// again (Calendar work was about 1 % of main in a divider drag). Thread safe.
@@ -679,7 +697,7 @@
          return s
      }
      private static func dayUncached(_ d: Date, now: Date) -> String {
-@@ -1213,11 +1445,12 @@
+@@ -1213,11 +1447,12 @@
  /// `String(localized:)` without a bundle reads Bundle.main, so the code never uses it.
  enum MessagesLabLocalization {
      private final class Token {}
@@ -696,7 +714,7 @@
      }
      /// The string for `key` in the user's preferred language (of `bundle`); `english` when the
      /// catalog has no entry. `table`: nil is `Localizable`.
-@@ -1255,7 +1488,8 @@
+@@ -1255,7 +1490,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

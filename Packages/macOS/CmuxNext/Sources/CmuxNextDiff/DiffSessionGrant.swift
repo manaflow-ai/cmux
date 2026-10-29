@@ -53,6 +53,8 @@ nonisolated final class DiffSessionGrant: Sendable {
                 "files": [["request_path": placeholderPath, "file_path": placeholder.path, "mime_type": "text/html",
                            "remote_url": NSNull()],
                           ["request_path": DiffTurnPatch.requestPath, "file_path": grant.turnPatchURL.path,
+                           "mime_type": DiffPatchResolver.mimeType, "remote_url": NSNull()],
+                          ["request_path": Self.remotePatchRequestPath, "file_path": grant.remotePatchURL.path,
                            "mime_type": DiffPatchResolver.mimeType, "remote_url": NSNull()]],
             ]
             try write(JSONSerialization.data(withJSONObject: manifest), to: grant.manifestURL)
@@ -68,13 +70,25 @@ nonisolated final class DiffSessionGrant: Sendable {
     var manifestURL: URL { root.appending(path: ".manifest-\(token).json") }
     /// The tab's turn patch (``DiffTurnPatch``); the manifest lists it from the start.
     var turnPatchURL: URL { root.appending(path: ".turn-\(token).patch") }
+    /// The remote repository patch; replaced for each remote session under this tab's grant.
+    var remotePatchURL: URL { root.appending(path: ".remote-\(token).patch") }
+    static let remotePatchRequestPath = "/remote.patch"
 
     /// Replaces the turn patch with `text` (a temporary file of its own, then a rename, so two
     /// writes never share one). Blocking file IO.
     func writeTurnPatch(_ text: String) throws {
-        let temporary = root.appending(path: "\(Self.turnTemporaryPrefix(token))\(Self.randomHex(bytes: 8))")
+        try writePatch(text, to: turnPatchURL, temporaryPrefix: Self.turnTemporaryPrefix(token))
+    }
+
+    /// Replaces the remote git patch with `text`, atomically and off the main actor.
+    func writeRemotePatch(_ text: String) throws {
+        try writePatch(text, to: remotePatchURL, temporaryPrefix: ".remote-\(token).patch.tmp-")
+    }
+
+    private func writePatch(_ text: String, to destination: URL, temporaryPrefix: String) throws {
+        let temporary = root.appending(path: "\(temporaryPrefix)\(Self.randomHex(bytes: 8))")
         try Self.write(Data(text.utf8), to: temporary)
-        guard blockingRename(temporary.path, turnPatchURL.path) == 0 else {
+        guard blockingRename(temporary.path, destination.path) == 0 else {
             try? FileManager.default.removeItem(at: temporary)
             throw CocoaError(.fileWriteUnknown)
         }

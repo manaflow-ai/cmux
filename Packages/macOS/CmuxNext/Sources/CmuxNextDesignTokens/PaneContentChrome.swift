@@ -9,6 +9,10 @@ public import Foundation
 /// the layout's clip cannot reach) finds the rounded ancestor it masks to.
 @MainActor
 public protocol PaneContentChrome: AnyObject {
+    /// Whether the content has a decorative rounded pane edge and focus frame. Chats share the
+    /// window's glass: framing them also puts a native outline above their page-drawn menus.
+    /// Notification attention marks and inactive dim remain separate from this decoration.
+    var paneFramesContent: Bool { get }
     /// Points from the view's top edge to its content area.
     var paneHeaderHeight: CGFloat { get }
     /// Points from the content area to the view's bottom edge (a tab bar at
@@ -29,6 +33,7 @@ public protocol PaneContentChrome: AnyObject {
 }
 
 extension PaneContentChrome {
+    public var paneFramesContent: Bool { true }
     public var paneFooterHeight: CGFloat { 0 }
     public func paneFrameInWindowDidChange() {}
     public func setChromeEmphasis(_ emphasis: ChromeEmphasis, animated: Bool) {}

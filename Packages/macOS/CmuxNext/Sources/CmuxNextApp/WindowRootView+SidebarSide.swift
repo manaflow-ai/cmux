@@ -52,8 +52,8 @@ extension WindowRootView {
     func layoutRightPanel(rowHeight: CGFloat) {
         guard let rightPanel else { return }
         let width = rightPanelWidth
-        rightPanel.isHidden = width <= 0
-        guard width > 0 else { return }
+        rightPanel.isHidden = width <= 0 || presentsPage
+        guard width > 0, !presentsPage else { return }
         let x = sidebarSide == .left ? bounds.width - width : 0
         rightPanel.topInset = rowHeight
         rightPanel.innerEdge = sidebarSide == .left ? .minX : .maxX

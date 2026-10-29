@@ -6,9 +6,10 @@ import type { AcpmuxPermission } from "../model";
 import { QuestionCard } from "../question/QuestionCard";
 import type { QuestionReply } from "../question/model";
 
-/// Answers `permission` with the option a button or key picked.
+/// Answers `permission` with the option a button or key picked; rejects when acpmux refused it, which
+/// the card shows.
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
-  void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+  callNative("chat.permission", { permissionId: permission.permissionId, optionId });
 
 /// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
 /// shows a refusal (the promise rejects) and takes input again for a retry.
@@ -17,6 +18,7 @@ const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) 
     permissionId: permission.permissionId,
     ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
     ...(sent.answers === undefined ? {} : { answers: sent.answers }),
+    ...(sent.annotations === undefined ? {} : { annotations: sent.annotations }),
   });
 
 /// A permission ask: a question card when the request asks a question, else its option buttons.

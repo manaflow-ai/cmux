@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
+inline constexpr std::string_view kProtocolIrSha256 = "0b7d0f796acc612418f9edcde246fd7aa5052fbe511198e2e711d6979bad296a";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -97,6 +97,7 @@ struct ClientSize;
 enum class ClientTransport;
 enum class CloseReason;
 struct CloseTerminalResult;
+struct CloudConversationPresenceParticipant;
 struct ColorHex;
 enum class ColumnMoveDirection;
 struct ColumnPin;
@@ -453,6 +454,7 @@ struct CloudAttachmentUploadResult;
 struct CloudConversationHistoryRequest;
 struct CloudConversationLiveRequest;
 struct CloudConversationOpRequest;
+struct CloudConversationPresenceRequest;
 struct CloudConversationRunRequest;
 struct CloudConversationRunsRequest;
 struct CloudConversationSnapshotRequest;
@@ -790,6 +792,7 @@ struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
 struct CloudConversationChangedEvent;
 struct CloudConversationLiveEvent;
+struct CloudConversationPresenceEvent;
 struct CloudConversationResyncedEvent;
 struct CloudConversationRunChangedEvent;
 struct CloudConversationTypingEvent;
@@ -2871,6 +2874,25 @@ struct CloudConversationOpRequest {
     friend bool operator==(const CloudConversationOpRequest&, const CloudConversationOpRequest&) = default;
 };
 
+struct CloudConversationPresenceParticipant {
+    std::string participant{};
+    bool viewing{};
+    friend bool operator==(const CloudConversationPresenceParticipant&, const CloudConversationPresenceParticipant&) = default;
+};
+
+struct CloudConversationPresenceEvent {
+    std::optional<std::string> account{};
+    std::string conversation{};
+    std::vector<CloudConversationPresenceParticipant> participants{};
+    friend bool operator==(const CloudConversationPresenceEvent&, const CloudConversationPresenceEvent&) = default;
+};
+
+struct CloudConversationPresenceRequest {
+    std::string conversation{};
+    bool viewing{};
+    friend bool operator==(const CloudConversationPresenceRequest&, const CloudConversationPresenceRequest&) = default;
+};
+
 struct CloudConversationResyncedEvent {
     std::optional<std::string> account{};
     std::optional<EventCause> cause{};
@@ -4593,6 +4615,7 @@ struct IdentifyResult {
     Field<std::uint32_t> api_revision{};
     Field<std::string> build_commit{};
     Field<std::string> build_id{};
+    Field<std::uint64_t> build_time{};
     Field<std::uint32_t> bulk_frame_max{};
     std::optional<std::vector<std::string>> capabilities{};
     Field<std::string> cli_path{};
@@ -8395,6 +8418,12 @@ struct Codec<CloseTerminalResult> {
 };
 
 template <>
+struct Codec<CloudConversationPresenceParticipant> {
+    static Result<Json> encode(const CloudConversationPresenceParticipant& value);
+    static Result<CloudConversationPresenceParticipant> decode(const Json& value);
+};
+
+template <>
 struct Codec<ColorHex> {
     static Result<Json> encode(const ColorHex& value);
     static Result<ColorHex> decode(const Json& value);
@@ -10531,6 +10560,12 @@ struct Codec<CloudConversationOpRequest> {
 };
 
 template <>
+struct Codec<CloudConversationPresenceRequest> {
+    static Result<Json> encode(const CloudConversationPresenceRequest& value);
+    static Result<CloudConversationPresenceRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudConversationRunRequest> {
     static Result<Json> encode(const CloudConversationRunRequest& value);
     static Result<CloudConversationRunRequest> decode(const Json& value);
@@ -12550,6 +12585,12 @@ template <>
 struct Codec<CloudConversationLiveEvent> {
     static Result<Json> encode(const CloudConversationLiveEvent& value);
     static Result<CloudConversationLiveEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationPresenceEvent> {
+    static Result<Json> encode(const CloudConversationPresenceEvent& value);
+    static Result<CloudConversationPresenceEvent> decode(const Json& value);
 };
 
 template <>

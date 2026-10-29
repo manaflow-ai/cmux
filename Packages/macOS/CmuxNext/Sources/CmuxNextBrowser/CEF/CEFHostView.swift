@@ -28,6 +28,16 @@ final class CEFHostView: NSView, PaneRenderMoveObserving {
     func showOcclusion(in page: ChromiumHostPageView) {
         page.cursorHoles = occlusionRects.map { convert($0, to: page) }
     }
+    /// Rounded native UI over the page (the prompt and find bars), in this
+    /// view's coordinates. They leave the clip path (`cmuxClipPath`) with their
+    /// corners, so the page shows around a rounded bar's corners instead of a
+    /// square hole of pane ground, and the mouse inside them goes to the bar.
+    var roundedOcclusions: [CEFClipShape.RoundedRect] = [] {
+        didSet {
+            guard roundedOcclusions != oldValue else { return }
+            postGeometryChange()
+        }
+    }
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane
     /// ground: the page window's gap shows this view until Chromium's frame
@@ -225,7 +235,7 @@ final class CEFHostView: NSView, PaneRenderMoveObserving {
 /// A CEF tab's `contentView`. All tabs of a pane share one Chromium window,
 /// so the container only borrows the pane's `CEFHostView` while it is in a
 /// window, and shows a snapshot while the tab is occluded.
-final class CEFTabContentView: NSView, PaneMotionSettling {
+final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFollowing {
     weak var tab: CEFTab?
     /// The size its pane's spring rests at, held at the top-left until it lands (`CEFTabContentView+SpringResize`).
     var springHold: SpringPageHold?
@@ -234,6 +244,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
     /// otherwise, so a layout without the feature walks no ancestors.
     weak var springPlacement: (any RestingPlacement)?
     private let snapshotView = NSImageView()
+    /// The page's size through a person's resize drag (`paneResizeGestureDidChange`); nil otherwise.
+    private(set) var heldPageSize: CGSize?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -266,6 +278,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil { dropHold() }
         placeInPane()
         guard let tab else { return }
         tab.pageThemeDidChange()
@@ -282,6 +295,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
     /// shared host view go, as when it leaves the window, at no window move.
     override func viewDidHide() {
         super.viewDidHide()
+        dropHold()
         tab?.contentDidDisappear()
     }
 
@@ -307,6 +321,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
     /// the page frame; a docked DevTools and its divider take the rest.
     func layoutContent() {
         joinSpringResize()
+        // DevTools docked, a side panel or a device fit came up mid-drag: they lay out as before.
+        if heldPageSize != nil, !pageCanHold { dropHold() }
         let area = springHold?.rect(in: bounds, flipped: isFlipped) ?? bounds
         let frames = tab?.devToolsController.frames(in: area)
             ?? CEFDevToolsLayout.Frames(page: area, devTools: .zero, line: .zero, grab: .zero)
@@ -336,6 +352,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
                 frame = frames.devTools
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab
+            } else if fitPage == nil, let held = heldPageSize, subview === tab?.host.hostView {
+                // A resize drag: the page keeps its size at the page frame's top-left corner, and the
+                // pane clips it (`CEFClipShape` and the fork's visible rect read the held host).
+                frame = CGRect(x: frames.page.minX, y: frames.page.maxY - held.height, width: held.width, height: held.height)
             } else {
                 frame = fitPage ?? frames.page
             }
@@ -354,6 +374,48 @@ final class CEFTabContentView: NSView, PaneMotionSettling {
         endSpringResize()
         guard let tab, tab.host.hostView.superview === self else { return }
         tab.host.paneMotionSettled(tab)
+    }
+
+    /// A person's divider or edge drag began or landed (`ScreenContentView+ResizeGesture`). Chromium
+    /// draws the page in another process, some frames after its window takes a size, so a page laid
+    /// out at every drag frame trails the divider and catches up in steps. Through the drag the page
+    /// keeps the size it had when the drag began: its window moves with the pane in the pane's own
+    /// frame, the pane clips it (top-left anchored, never stretched), and a pane grown past it shows
+    /// the page's own background beside it. It lays out once when the drag lands. Only a plain page
+    /// holds: a docked DevTools, a side panel or a device fit lay out as before.
+    func paneResizeGestureDidChange(active: Bool) {
+        guard active else {
+            guard heldPageSize != nil else { return }
+            dropHold()
+            layoutContent()
+            return
+        }
+        guard BrowserResizeTunables.dragResize.value == .hold, heldPageSize == nil, window != nil, pageCanHold,
+              let tab else { return }
+        let size = tab.host.hostView.frame.size
+        guard size.width > 0, size.height > 0 else { return }
+        heldPageSize = size
+        // The held page is cut at this view's edges: its layer here, and the page window by the
+        // fork's visible rect, which follows every ancestor whose layer masks to its bounds.
+        layer?.masksToBounds = true
+        // A see-through page (a cmux page) shows the pane under it, so its gap does too.
+        layer?.backgroundColor = tab.host.hostView.pageSeeThrough ? nil : tab.pageBackdropColor
+    }
+
+    /// A plain page shown here: no docked DevTools, side panel or device fit, which place the page themselves.
+    private var pageCanHold: Bool {
+        guard let tab else { return false }
+        return tab.host.hostView.superview === self && tab.devToolsController.views == nil
+            && tab.sidePanel.state == nil && tab.deviceEmulation == nil
+    }
+
+    /// Lets go of a held page size; the next layout gives the page its frame.
+    private func dropHold() {
+        guard heldPageSize != nil else { return }
+        heldPageSize = nil
+        layer?.masksToBounds = false
+        layer?.backgroundColor = nil
+        needsLayout = true
     }
 
     /// Adds the fit frame under the page for a fit and removes it otherwise.

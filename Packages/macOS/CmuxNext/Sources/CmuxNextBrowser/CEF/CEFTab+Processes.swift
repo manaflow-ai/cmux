@@ -62,7 +62,8 @@ extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
     }
 
     /// The renderer ended (crash, kill, out of memory, launch failure). The
-    /// pane shows the sad tab; a hidden tab reloads when it is shown. Chromium
+    /// pane shows the sad tab, now or when the tab is next shown; only its
+    /// Reload button (or the person's own reload) loads the page again. Chromium
     /// reported it, so the crash log records a renderer.
     func rendererTerminated(_ exit: BrowserProcessExit) {
         contentFullscreenEnded()
@@ -115,13 +116,13 @@ extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
     /// exit and has no browser, so what waited for it failed because the host ended.
     public var browserEndedWithHost: Bool { browserID == nil && !isClosed && state.processExit != nil }
 
-    /// The page's process ended: the sad tab shows, and a hidden tab reloads when it is shown. False
-    /// for a closed tab, which shows nothing.
+    /// The page's process ended: the sad tab shows, now or when the tab is next shown, until the person
+    /// reloads. False for a closed tab, which shows nothing.
     @discardableResult
     private func showProcessExit(_ exit: BrowserProcessExit) -> Bool {
         guard !isClosed else { return false }
         // A new renderer need not keep the old one's media emulation, so forget what the dead one was told:
-        // whichever way the page comes back (Reload here, or a hidden tab reloading when shown), the restarted
+        // whichever way the page comes back (Reload from the sad tab), the restarted
         // renderer's `.loadStart` sends the color scheme again rather than trusting a memo no live page heard.
         sentColorScheme = nil
         machine.apply(.processExited(exit))
@@ -133,7 +134,6 @@ extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
         // repaints the base white, which would show for a frame in a dark theme before the sad tab.
         documentDidSettle()
         firstContentFrame.contentShown() // the sad tab is what a new tab shows
-        reloadWhenShown = host.visibleTab !== self
         findRequests.cancel()
         return true
     }

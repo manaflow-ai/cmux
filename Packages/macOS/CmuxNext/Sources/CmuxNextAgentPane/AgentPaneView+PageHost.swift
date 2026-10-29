@@ -22,6 +22,9 @@ extension AgentPaneView {
             case .cancel: return .cancel
             }
         }
+        // A reload builds the chat again without what its page held (an open menu, the caret, an
+        // IME composition, unsent chips): a crash shows the notice, and Reload is the person's.
+        page.reloadsAfterCrash = false
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
         page.onLoaded = { [weak self] in self?.pageLoaded() }
         pageEvents.replay = { [weak self] in

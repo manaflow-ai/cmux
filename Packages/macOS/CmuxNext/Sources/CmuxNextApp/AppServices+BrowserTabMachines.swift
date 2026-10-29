@@ -93,8 +93,13 @@ extension AppServices {
             if RemoteLocalhostService.routesToThisMac(daemon) { return .thisMac }
             return self?.remoteLocalhost.route(daemon: daemon, workspace: daemon.store.workspace(containing: pane.handle)?.id, engine: engine)
         }
-        // A forgotten machine's forwarding connection closes, so its browser runtimes stop.
-        machines.onDaemonRemoved = { [weak self] daemon in self?.madeRemoteLocalhost?.closeClient(of: daemon) }
+        // A forgotten machine's forwarding connection closes, so its browser runtimes stop. A forgotten Cloud
+        // machine's Dedicated agent machine state goes too (read again if it comes back); with no Cloud built
+        // there is none (the store reads through Cloud's API), and nothing builds Cloud here.
+        machines.onDaemonRemoved = { [weak self] daemon in
+            self?.madeRemoteLocalhost?.closeClient(of: daemon)
+            if self?.cloudIfBuilt != nil { self?.cloudVmHost.forget(daemon.machineID) }
+        }
         browserTabs.isIncognitoPane = { [weak self] pane in
             guard let self, let workspace = machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.id else { return false }
             return windows.isIncognito(workspace: workspace)
