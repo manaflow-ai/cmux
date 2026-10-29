@@ -145,7 +145,7 @@ public final class InvariantRegistry {
         costReported = []
     }
 
-    /// Puts one violation in the ledger, logs it, hands it to ``onReport`` and, in trap mode, stops.
+    /// Puts one violation in the ledger, logs it and hands it to ``onReport``.
     func report(id: InvariantID, subject: InvariantSubject, detail: String, state: Data?, trigger: InvariantTrigger) {
         let kept = state.flatMap { $0.count <= InvariantViolation.stateLimit ? $0 : nil }
         let host = host
@@ -154,10 +154,6 @@ public final class InvariantRegistry {
         }
         logger.fault("invariant \(id.rawValue, privacy: .public) \(subject.description, privacy: .public): \(detail, privacy: .public)")
         onReport?(violation, state)
-        if mode == .trap {
-            // crash-allow: trap mode is opt-in (CMUX_NEXT_INVARIANTS=trap, Debug and bench builds only) and asks to stop at the first violation
-            fatalError("invariant \(id.rawValue) \(subject): \(detail) (CMUX_NEXT_INVARIANTS=trap)")
-        }
     }
 }
 #endif

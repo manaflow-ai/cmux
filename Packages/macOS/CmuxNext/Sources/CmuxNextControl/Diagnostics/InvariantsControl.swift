@@ -2,6 +2,9 @@
 public import CmuxNextInvariants
 public import CmuxNextSettings
 import Foundation
+#else
+internal import CmuxNextSettings
+#endif
 
 /// `debug.invariants` (plans/cmux-next/invariants-DESIGN.md section 5.1): the invariant ledger, which journeys, the
 /// focus fuzz and the R4 differential read after every step and fail on. Params (all optional): `since` (only the
@@ -16,10 +19,12 @@ import Foundation
 ///                  "trigger": {"kind": "action", "actions": [{"id": "pane.split", "origin": "user", "index": 77}],
 ///                              "turn": 9921, "frame_seq": null}, "state": {}, "report": "..."}]}
 /// ```
+///
 /// Before the registry starts (the `InputVerification.start` launch post) it answers `{"armed": false, "mode":
 /// "starting"}`. A Release build answers `{"armed": false, "mode": "release"}`: it has no checker. A harness reads
 /// `armed: false` as "not run", never as a clean ledger.
 public struct InvariantsControl: Sendable {
+    #if DEBUG || CMUX_BENCH_HOOKS
     private let registry: @MainActor @Sendable () -> InvariantRegistry?
 
     /// The method over the app's registry, read at each request (nil until it starts).
@@ -54,7 +59,7 @@ public struct InvariantsControl: Sendable {
     @MainActor
     static func reply(_ params: [String: JSONValue], registry: InvariantRegistry,
                       current: [(id: InvariantID, finding: InvariantFinding)]?) -> JSONValue {
-        let since = params["since"]?.doubleValue.map { UInt64(max(0, $0)) } ?? 0
+        let since = params["since"]?.intValue.map { UInt64(clamping: $0) } ?? 0
         let read = registry.ledger.since(since)
         var fields: [String: JSONValue] = [
             "armed": .bool(registry.isArmed),
@@ -135,18 +140,12 @@ public struct InvariantsControl: Sendable {
         guard let data = try? JSONEncoder().encode(subject) else { return .null }
         return (try? JSONValue.parse(data)) ?? .null
     }
-}
-#else
-internal import CmuxNextSettings
-
-/// `debug.invariants` in a Release build: there is no checker, so it says so (a harness reads this as "not run",
-/// never as a clean ledger).
-public struct InvariantsControl: Sendable {
+    #else
     public init() {}
 
-    /// The `debug.invariants` control method; Release serves it, with no state in the reply.
+    /// The `debug.invariants` control method; Release serves it with no state in the reply: it has no checker.
     public var method: ControlMethod {
         .snapshot("debug.invariants") { _ in .object(["armed": .bool(false), "mode": .string("release")]) }.servingRelease()
     }
+    #endif
 }
-#endif

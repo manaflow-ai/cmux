@@ -585,8 +585,12 @@ This branch implements steps 1, 2 (without the shadow sweep) and 3, the M1 part 
 - **`frame_seq` is null**: no `DisplayClock.displayDidFire` adapter yet.
 - **`debug.invariants` before the registry starts** (the `InputVerification.start` launch post may come after the
   control methods are registered) answers `{"armed": false, "mode": "starting"}`.
-- **Trap mode** logs the violation as a fault and stops; the report file is not flushed first (writing it on the
-  main thread would block it, and the posted write does not run before the process stops).
+- **No trap mode yet.** `fatalError` is a banned crash class (scripts/cmux-next/crash-allowlist.json): the trap
+  needs an allowlist entry signed off by the crash lead or a review subagent, as BlockingViolationTable's has.
+  Until then only `CMUX_NEXT_INVARIANTS=1` arms a bench build (`=trap` does not), and `mode` is `on` or `off`.
+  In-process tests read the ledger instead.
+- **The report store is in the package** (`CmuxNextInvariants/InvariantReportStore.swift`), not the App, for the
+  `app-type` rule; the App's sorted-key encoder moved from `DesyncReport` to `AppControl.encoder`.
 - **Harness rules** are declared with `InvariantRule.harness(...)`, whose `read` is async; none exists yet.
 - **Journeys** ship `invariants.py` with the driver; `run.py --skip-invariants` (driver `--skip-invariants`) plays a
   build from before `debug.invariants` unchecked. `run.py` does not set `CMUX_NEXT_INVARIANTS`: capture-host's

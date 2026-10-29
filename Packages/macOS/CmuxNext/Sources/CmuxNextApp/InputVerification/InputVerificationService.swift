@@ -290,9 +290,9 @@ extension InputVerificationService {
                 fields["tag"] = tag.map(CmuxNextSettings.JSONValue.string) ?? .null
                 fields["created_at"] = .string(Date().formatted(.iso8601))
                 fields["state"] = state.flatMap { try? CmuxNextSettings.JSONValue.parse($0) } ?? .null
-                fields["observation"] = InvariantReportStore.json(observation)
-                fields["journal"] = InvariantReportStore.json(entries)
-                fields["journal_stats"] = InvariantReportStore.json(stats)
+                fields["observation"] = AppControl.encode(observation)
+                fields["journal"] = AppControl.encode(entries)
+                fields["journal_stats"] = AppControl.encode(stats)
                 return Data(CmuxNextSettings.JSONValue.object(fields).prettyText().utf8)
             }
         }

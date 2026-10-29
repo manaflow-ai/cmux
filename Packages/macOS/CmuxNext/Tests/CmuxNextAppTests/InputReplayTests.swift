@@ -8,7 +8,7 @@ import Testing
 /// `InputReplay` and `AttachOracle` in CmuxNextInputModel
 /// (plans/cmux-next/input-spec.md section 5): the replay is a value over the
 /// entries it is given, and `debug.replay` encodes its `Result` with
-/// `InvariantReportStore.encoder`, so the JSON below is the method's output.
+/// `AppControl.encoder`, so the JSON below is the method's output.
 struct InputReplayTests {
     typealias Entry = InputJournalEntry
     typealias Machine = TerminalAttachMachine<Int>
@@ -37,7 +37,7 @@ struct InputReplayTests {
     }
 
     static func json(_ value: some Encodable) throws -> String {
-        String(decoding: try InvariantReportStore.encoder.encode(value), as: UTF8.self)
+        String(decoding: try AppControl.encoder.encode(value), as: UTF8.self)
     }
 
     @Test func attachReplayFollowsTheMachine() throws {
@@ -152,7 +152,7 @@ struct InputReplayTests {
     @Test func sameEntriesGiveIdenticalOutput() throws {
         let entries = try Self.focusJournal() + Self.attachJournal()
         let first = try Self.json(InputInvariants.replay(entries).run())
-        let decoded = try InvariantReportStore.decoder.decode([Entry].self, from: InvariantReportStore.encoder.encode(entries))
+        let decoded = try AppControl.decoder.decode([Entry].self, from: AppControl.encoder.encode(entries))
         #expect(try Self.json(InputInvariants.replay(decoded).run()) == first)
         #expect(try Self.json(InputInvariants.replay(entries).run()) == first)
     }

@@ -104,7 +104,24 @@ extension AppControl {
         ])
     }
 
-    static func encode(_ value: some Encodable) -> JSONValue {
-        InvariantReportStore.json(value)
+    /// The encoder of `debug.journal`, `debug.replay` and the invariant reports: sorted keys, so the same value gives
+    /// the same bytes.
+    nonisolated static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }()
+
+    nonisolated static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
+
+    /// `value` as JSON, sorted keys (null when it does not encode). Off the main actor too (a report's write).
+    nonisolated static func encode(_ value: some Encodable) -> JSONValue {
+        guard let data = try? encoder.encode(value) else { return .null }
+        return (try? JSONValue.parse(data)) ?? .null
     }
 }
