@@ -22,5 +22,11 @@ if [[ "$allowed" != 1 ]]; then
 fi
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python=/usr/bin/python3
-[[ -x "$python" ]] || python="$(command -v python3)"
+if [[ ! -x "$python" ]]; then
+  python="$(command -v python3 || true)"
+  if [[ -z "$python" ]]; then
+    echo "check-objc-selectors.sh: no python3 (neither /usr/bin/python3 nor one on PATH)" >&2
+    exit 127
+  fi
+fi
 exec "$python" -I "$here/check-objc-selectors.py" --root "$(cd "$here/../.." && pwd)" "$@"

@@ -7,12 +7,15 @@ tree (--root, --source). With no arguments it runs the table check on this check
 """
 from __future__ import annotations
 
+import re
 import subprocess
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts/cmux-next/check-objc-selectors.sh"
+CHECK = ROOT / "scripts/cmux-next/check-objc-selectors.py"
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
@@ -29,9 +32,15 @@ class CheckObjcSelectorsStepTests(unittest.TestCase):
                 self.assertIn("arguments must be none, --probe, or --probe --write", done.stderr)
 
     def test_no_arguments_checks_this_checkout_from_any_directory(self) -> None:
+        # From `/`, the wrapper still checks this checkout: the same summary and exit code as the check run
+        # here directly, with super calls found (an empty or wrong --root reports 0 and exits 0).
         done = run()
-        self.assertIn("check-objc-selectors: ", done.stdout, done.stderr)
-        self.assertIn(done.returncode, (0, 1), done.stderr)
+        direct = subprocess.run([sys.executable, "-I", str(CHECK)], capture_output=True, text=True, cwd=ROOT)
+        summary = re.search(r"check-objc-selectors: (\d+) super calls", done.stdout)
+        self.assertIsNotNone(summary, done.stdout + done.stderr)
+        self.assertGreater(int(summary.group(1)), 0, done.stdout)
+        self.assertEqual(done.stdout, direct.stdout)
+        self.assertEqual(done.returncode, direct.returncode, done.stderr)
 
 
 if __name__ == "__main__":
