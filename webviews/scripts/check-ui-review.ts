@@ -96,12 +96,6 @@ function parseSource(file: string, text: string): ts.SourceFile {
   return ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, sourceKind(file));
 }
 
-function stringValue(node: ts.Node): string | undefined {
-  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-  if (ts.isJsxText(node)) return node.getText();
-  return undefined;
-}
-
 function propertyName(node: ts.PropertyName | undefined): string | undefined {
   if (!node) return undefined;
   if (ts.isIdentifier(node) || ts.isStringLiteral(node)) return node.text;
@@ -130,14 +124,6 @@ function attributeText(element: ts.JsxElement | ts.JsxSelfClosingElement, name: 
   if (ts.isJsxExpression(attr.initializer) && attr.initializer.expression) {
     const expression = attr.initializer.expression;
     if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text;
-  }
-  return undefined;
-}
-
-function parentJsxElement(node: ts.Node): ts.JsxElement | ts.JsxSelfClosingElement | undefined {
-  for (let parent = node.parent; parent; parent = parent.parent) {
-    if (ts.isJsxElement(parent) || ts.isJsxSelfClosingElement(parent)) return parent;
-    if (ts.isSourceFile(parent)) return undefined;
   }
   return undefined;
 }
