@@ -121,8 +121,9 @@ public final class CmuxDialogButtonView: NSButton {
         CATransaction.commit()
     }
 
-    /// How far outside the fill the focus ring sits.
-    static let focusRingOutset: CGFloat = 3
+    /// How far outside the fill the focus ring's outer edge sits: its 2 pt line, then a 2 pt gap, so
+    /// the ring reads apart from a solid fill of the same color (the accent default button).
+    static let focusRingOutset: CGFloat = 4
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

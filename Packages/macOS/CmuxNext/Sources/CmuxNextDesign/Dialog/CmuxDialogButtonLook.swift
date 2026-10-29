@@ -10,8 +10,8 @@ public import CmuxNextDesignTokens
 ///   danger fill with ink fit to 4.5:1 on it, as the web pages' `.danger` button; tinted, the danger
 ///   ink on a faint danger wash, lifted to 4.5:1 over the card. The theme's `danger` is fit only to
 ///   3:1 (a mark's floor): over the glass it measured 2.1:1 (debug.dialog_strip, 2026-10-28).
-/// - cancel and normal: the selection gray, a step above the hover gray they had, so each reads as
-///   a button on the glass.
+/// - cancel and normal: the selection fill (gray, or the accent's tint in an accent theme), a step
+///   above the hover fill they had, so each reads as a button on the glass.
 ///
 /// A solid fill carries its own contrast whatever shows through the glass; a translucent one is
 /// fit over ``cardSurfaces(_:)``.
@@ -49,10 +49,8 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
             fill = tokens.danger.withAlpha((tokens.isDark ? 0.18 : 0.12) + step * 0.4)
             ink = tokens.danger.withAlpha(1)
         case .cancel, .normal:
-            fill = switch state {
-            case .rest: tokens.selectionFill
-            case .hover, .pressed: tokens.pressedFill.withAlpha(tokens.pressedFill.alpha * (1 + step * 2))
-            }
+            // Denser on hover and press, in the same hue (an accent theme's selection is tinted).
+            fill = tokens.selectionFill.withAlpha(min(1, tokens.selectionFill.alpha * (1 + step * 3)))
             ink = tokens.textPrimary.withAlpha(1)
         }
         let surfaces = card.map { fill.composited(over: $0) }
@@ -73,8 +71,15 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         return [glass.composited(over: scrimmed), tokens.opaqueOverlayFill(lift: lift)]
     }
 
-    /// `ink` moved toward its pole until it reads at ``minimumContrast`` on every surface.
+    /// `ink` moved toward its pole until it reads at ``minimumContrast`` on every surface. A move for
+    /// one surface can lower the contrast on another, so the passes repeat until all read (a few at
+    /// most: the card's surfaces are near one another).
     static func readable(_ ink: ThemeRGB, over surfaces: [ThemeRGB]) -> ThemeRGB {
-        surfaces.reduce(ink) { ThemeTokens.readable($0, over: $1, minimum: minimumContrast + 0.05) }
+        let target = minimumContrast + 0.05
+        var color = ink
+        for _ in 0..<4 where !surfaces.allSatisfy({ color.contrast(with: $0) >= target }) {
+            color = surfaces.reduce(color) { ThemeTokens.readable($0, over: $1, minimum: target) }
+        }
+        return color
     }
 }

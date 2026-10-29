@@ -116,6 +116,8 @@ extension CmuxDialogCenter {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             timer.schedule(after: .milliseconds(Int(milliseconds))) { @MainActor in done.resume() }
         }
+        // Held to here: freed before it fired, the timer would cancel itself and the await never end.
+        withExtendedLifetime(timer) {}
     }
 }
 #endif
