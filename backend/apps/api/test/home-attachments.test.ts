@@ -19,7 +19,7 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     expect((await intent({ ...eve, token: "" }, id, body)).status).toBe(401)
   })
 
-  it("refuses types off the owner's list (any name attaches) and sizes over the cap", async () => {
+  it("refuses types off the owner's list (any name attaches) and accepts large originals", async () => {
     const alice = await signIn("att-type-alice")
     const { id } = await group(alice)
     const body = bytesOf("<svg/>")
@@ -28,14 +28,13 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     expect((await intent(alice, id, body, { mime_type: "text/plain", name: "index.html" })).status).toBe(200)
     expect((await intent(alice, id, bytesOf("\u0000bin"), { mime_type: "application/octet-stream", name: "setup.exe" })).status).toBe(200)
     const big = await intent(alice, id, body, { byte_count: 100_000_001 })
-    expect(big.status).toBe(413)
-    expect(big.json.error.code).toBe("attachment.too_large")
+    expect(big.status).toBe(200)
   })
 
   it("takes the daily intent quota per user; every slot is charged, also a repeated intent for the same hash", async () => {
     const alice = await signIn("att-quota-alice")
     const { id } = await group(alice)
-    const video = (i: number) => ({ sha256: sha(bytesOf(`v${i}`)), byte_count: 100_000_000, mime_type: "video/mp4", name: `v${i}.mp4`, duration_ms: 1000 })
+    const video = (i: number) => ({ sha256: sha(bytesOf(`v${i}`)), byte_count: 1_000_000, mime_type: "video/mp4", name: `v${i}.mp4`, duration_ms: 1000 })
     for (let i = 0; i < 299; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
     // The 300-slot daily ceiling is reached after 299 successful intents.
     expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(0) })).status).toBe(429)
