@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
-import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
