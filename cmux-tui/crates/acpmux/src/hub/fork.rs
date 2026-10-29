@@ -58,7 +58,18 @@ impl Hub {
         workspace_id: Option<String>,
         through: Option<u64>,
     ) -> Result<Arc<Session>, RpcError> {
-        self.fork_with_boundary(session, name, cwd, session_env, workspace_id, through, None).await
+        // The shared create future is large. Keep the public wrapper pointer-sized for
+        // callers such as side sessions, which already nest several async operations.
+        Box::pin(self.fork_with_boundary(
+            session,
+            name,
+            cwd,
+            session_env,
+            workspace_id,
+            through,
+            None,
+        ))
+        .await
     }
 
     pub(super) async fn fork_with_boundary(

@@ -1328,7 +1328,7 @@ async fn dispatch_request(
                     .pointer("/_meta/acpmux/requestId")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                hub.fork_before(&s, prompt, request, ask(conn, &params, &who)).await?
+                Box::pin(hub.fork_before(&s, prompt, request, ask(conn, &params, &who))).await?
             } else {
                 let admitted = hub.admit_new(ask(conn, &params, &who)).await?;
                 let new = admitted.run(hub.fork(&s, name, cwd, env, workspace_id, through)).await?;
