@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextPages
 import CmuxNextScreenshots
+@testable import CmuxNextTabs
 import Testing
 import WebKit
 
@@ -184,6 +185,45 @@ import WebKit
         let person = try await ScreenshotHandlers.shown(fixture.window, crop: nil, for: ActionInvocation(), services: services)
         #expect(person.masked == nil)
         #expect(Self.isRed(Pixels(person.image).at(CGPoint(x: page.midX, y: page.midY), size: fixture.window.frame.size)))
+    }
+
+    /// A pane's tab strip is a sibling of BrowserChromeView, so masking only the chrome leaves
+    /// page-derived tab titles and badges visible. Both the full window and the pane crop must
+    /// cover that strip for socket captures.
+    @Test(.enabled("this host puts windows on screen") { await MaskedScreenshotTests.hostShowsWindows() })
+    func aBrowserTabStripIsMaskedInWindowAndPaneCaptures() async throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 180, y: 180, width: 520, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.close() }
+        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "secret-title")]),
+                                   reveal: LaunchReveal(deadline: .zero))
+        pane.frame = window.contentLayoutRect
+        window.contentView = pane
+        window.orderFrontRegardless()
+        pane.layoutSubtreeIfNeeded()
+        let titlePixels = NSView(frame: pane.stripView.bounds.insetBy(dx: 8, dy: 4))
+        titlePixels.wantsLayer = true
+        titlePixels.layer?.backgroundColor = Self.red
+        pane.stripView.addSubview(titlePixels)
+        pane.layoutSubtreeIfNeeded()
+        CATransaction.flush()
+
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        var invocation = ActionInvocation(origin: .user)
+        invocation.viaControlSocket = true
+        let full = try await ScreenshotHandlers.shown(window, crop: nil, for: invocation, services: services)
+        let stripRect = pane.stripView.convert(pane.stripView.bounds, to: nil)
+        let fullPixels = Pixels(full.image)
+        #expect(full.masked ?? 0 >= 1)
+        #expect(fullPixels.all(in: stripRect, size: window.frame.size).allSatisfy(Self.isMask),
+                "tab titles and badges in the window strip are masked")
+
+        let crop = try await ScreenshotHandlers.shown(window, crop: pane, for: invocation, services: services)
+        #expect(crop.masked ?? 0 >= 1)
+        #expect(Pixels(crop.image).all(in: pane.stripView.convert(pane.stripView.bounds, to: pane), size: pane.bounds.size)
+            .allSatisfy(Self.isMask), "tab titles and badges in the pane crop are masked")
     }
 
     /// App pages are masked unless checked to show nothing secret: a new page is masked by default.

@@ -100,6 +100,10 @@ extension ScreenshotMask.Rules {
             // the mask is every reading's, and the screen lags the view tree by less than
             // ``ScreenshotMask/settle``, the wait between the first reading and the capture.
             if let chrome = view as? BrowserChromeView { return chrome }
+            // PaneContentView keeps the tab strip beside the browser chrome. Tab titles, badges,
+            // and page-derived labels in that sibling can carry the same secrets as the page.
+            // Cover the strip as a separate area so window and pane crops cannot expose it.
+            if let pane = view as? PaneContentView { return pane.stripView }
             // A chat's last frame, drawn under the pane's content until its page paints. Hidden
             // it has already been replaced by the content above it, which `visit` reaches itself.
             guard let launch = (view as? PaneContentView)?.launchImageView, !launch.isHidden else { return nil }
