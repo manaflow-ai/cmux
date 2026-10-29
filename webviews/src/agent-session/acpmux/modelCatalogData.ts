@@ -278,7 +278,9 @@ export function buildPickerCatalog({
 }: PickerInputs): PickerCatalog {
   // A chat folder's own profiles stay out of the join: the picker lists them on their own, and a
   // folder profile must never stand in for a catalog harness of its family.
-  acpmux = acpmux.filter((entry) => !entry.folder);
+  // A router can report the same family as a real launcher. Exclude it before choosing that
+  // family's representative, so it cannot replace or hide the actual harness.
+  acpmux = acpmux.filter((entry) => !entry.folder && !isModelRouterKind(entry.kind));
   const layered = applyUserLayer(catalog, user);
   const join: Join = {
     catalog: layered,

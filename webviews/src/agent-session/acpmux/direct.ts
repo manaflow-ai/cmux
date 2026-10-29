@@ -7119,6 +7119,7 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
           : String(harness.name),
     ),
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
+    ...(typeof harness.kind === "string" ? { kind: harness.kind } : {}),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
     ...(iconSpec ? { iconSpec } : {}),
