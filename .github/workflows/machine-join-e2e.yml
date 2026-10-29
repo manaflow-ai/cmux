@@ -126,11 +126,17 @@ jobs:
           echo "uid=$uid" >> "$GITHUB_OUTPUT"
           sudo install -d -o root -g root -m 0755 "$base/bin"
           sudo install -o root -g root -m 0755 cmux-tui/target/debug/acpmux "$base/bin/acpmux"
-          # Every ancestor of the home and of the binary: owned by root or the user, and no group or
-          # other write unless sticky (as /tmp is), the rule acpmux applies to its state ancestors.
+          # Every ancestor of the home and of the binary: owned by root or the user, no group or other
+          # write unless sticky (as /tmp is), and no extended ACL (ls marks one with a trailing +): the
+          # rule acpmux applies to its state ancestors, and what keeps the binary out of the user's reach.
           for start in "$base/home" "$base/bin/acpmux"; do
             path="$start"
             while :; do
+              perms="$(sudo ls -ld -- "$path" | cut -d' ' -f1)"
+              if [ "${perms:10:1}" = + ]; then
+                echo "::error::$path ($perms) has an extended ACL"
+                exit 1
+              fi
               read -r owner mode < <(sudo stat -c '%u %a' -- "$path")
               if [ "$owner" != 0 ] && [ "$owner" != "$uid" ]; then
                 echo "::error::$path is owned by uid $owner, not root or the disposable user"
@@ -219,13 +225,14 @@ jobs:
             cat "$file"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          machine="$(jq -r '.machineId // empty' "$file")"
+          # Printed values are plain characters only, so no line of the evidence can start a workflow command.
+          machine="$(jq -r '.machineId // empty' "$file" | tr -cd 'A-Za-z0-9._:-' | cut -c1-128)"
           if [ -n "$machine" ] && [ "$(jq -r '.revoke.revokedListed' "$file")" != true ]; then
             echo "::error::machine $machine is not shown revoked; revoke it in the platform's machine list"
             exit 1
           fi
           if [ "$(jq -r '.result' "$file")" != pass ]; then
-            echo "::error::$(jq -r '.reason' "$file")"
+            echo "::error::$(jq -r '.reason' "$file" | tr -cd 'A-Za-z0-9 ._:;,()/-' | cut -c1-500)"
             exit 1
           fi
 

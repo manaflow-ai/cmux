@@ -37,6 +37,10 @@ export const REVOKE_RESERVE_MS = 2_500
 export const CHILD_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/
 const USER = /^[a-z_][a-z0-9_-]{0,31}$/
+/** An id from the platform or acpmux (machine, join token, team, label): plain, short, and never token-shaped,
+ * since it goes into URLs, log lines and the evidence before or without a mask. Anything else is null. */
+export const safeId = (v: unknown): string | null =>
+  typeof v === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(v) && !/cm[jm]_|^eyJ|bearer/i.test(v) ? v : null
 
 export interface Options {
   origin: string
@@ -91,7 +95,7 @@ export interface Evidence {
   }
   consent: { screen: string | null; control: string | null }
   credentialFileMode: string | null
-  list: { machineId: string; label: string | null; revoked: boolean; lastHeartbeatPresent: boolean } | null
+  list: { machineId: string | null; label: string | null; revoked: boolean; lastHeartbeatPresent: boolean } | null
   secretScan: {
     home: { cmj: number | null; cmm: number | null; credentialFileCmm: number | null }
     log: { cmj: number; cmm: number }
@@ -192,12 +196,21 @@ export async function runE2E(
   }
 
   const childEnv = { PATH: CHILD_PATH }
-  const asUser = (args: string[]) => [
+  // Everything runs as the disposable user, reads included: a path that user controls (a symlink, say)
+  // reaches nothing beyond what that user could read anyway. Nothing here runs as root.
+  const asUserTool = (args: string[]) => [
     "sudo", "-n", "-u", opts.user, "--", "/usr/bin/env", "-i", "-C", opts.home,
     `HOME=${opts.home}`, `USER=${opts.user}`, `LOGNAME=${opts.user}`, `PATH=${CHILD_PATH}`, "LANG=C.UTF-8",
-    opts.acpmux, ...args
+    ...args
   ]
-  const asRoot = (args: string[]) => ["sudo", "-n", "--", ...args]
+  const asUser = (args: string[]) => asUserTool([opts.acpmux, ...args])
+  const credentialFile = `${opts.home}/.acpmux/machine-credential.json`
+  // lstat (stat without -L): the credential file itself, never what a link names.
+  const credentialStat = async () => {
+    const r = await deps.run(asUserTool(["stat", "-c", "%F|%U|%a", "--", credentialFile]), { env: childEnv, timeoutMs: 10_000 })
+    const [kind, owner, mode] = r.stdout.trim().split("|")
+    return { own: r.code === 0 && kind === "regular file" && owner === opts.user, mode: /^[0-7]{3,4}$/.test(mode ?? "") ? mode! : null }
+  }
   const acpmux = async (args: string[], stdin?: string) => {
     // No new process of the disposable user once cleanup has begun (it has stopped them all).
     live()
@@ -311,8 +324,9 @@ export async function runE2E(
       for (const m of r.json.machines as any[]) {
         const made = Date.parse(String(m?.createdAt ?? ""))
         if (m?.revoked !== false || m?.mintedBy !== user || !/^ci-join-\d+(?:-\d+)?$/.test(String(m?.label ?? ""))) continue
-        if (!Number.isFinite(made) || deps.now() - made < 30 * 60_000 || typeof m.machineId !== "string") continue
-        const done = await platform("POST", `/v1/machines/credentials/${encodeURIComponent(m.machineId)}/revoke`)
+        const stale = safeId(m.machineId)
+        if (!Number.isFinite(made) || deps.now() - made < 30 * 60_000 || !stale) continue
+        const done = await platform("POST", `/v1/machines/credentials/${encodeURIComponent(stale)}/revoke`)
         if (done.status >= 200 && done.status < 300) swept += 1
       }
       if (swept > 0) say(`revoked ${swept} machine(s) an earlier interrupted run left joined`)
@@ -335,8 +349,8 @@ export async function runE2E(
         // The 2 s pause between reads ends early on a cancel; after one, pauses are 0.5 s at most.
         if (attempt > 0) await (cancelled ? deps.sleep(Math.min(500, Math.max(0, left() - 500))) : Promise.race([deps.sleep(2_000), woken]))
         try {
-          const found = (await listEntry())?.machineId
-          if (typeof found === "string" && found) machineId = found
+          const found = safeId((await listEntry())?.machineId)
+          if (found) machineId = found
         } catch (e) {
           // After a cancel a read cut short by its budget is not the end: read again while time remains.
           if (!cancelled) throw e
@@ -462,9 +476,8 @@ export async function runE2E(
     if (typeof mint.json?.token === "string") hold(mint.json.token)
     if (mint.status !== 200 || typeof mint.json?.token !== "string" || !/^cmj_[A-Za-z0-9_-]{16,4096}$/.test(mint.json.token)) throw refusedBy("mint", mint)
     token = mint.json.token as string
-    const id = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9._:-]{1,256}$/.test(v) ? v : null)
-    evidence.joinTokenId = id(mint.json.joinTokenId)
-    evidence.teamId = id(mint.json.teamId)
+    evidence.joinTokenId = safeId(mint.json.joinTokenId)
+    evidence.teamId = safeId(mint.json.teamId)
     // Without its id, a joined machine could not be found to revoke: never join then.
     if (!evidence.joinTokenId || !evidence.teamId) throw new Failed("mint: no joinTokenId or teamId")
     say(`minted join token ${evidence.joinTokenId} for team ${evidence.teamId}`)
@@ -481,16 +494,20 @@ export async function runE2E(
       const meaning: Record<number, string> = { 2: "malformed", 3: "expired or used", 4: "hub unreachable", 5: "store failed" }
       throw new Failed(`join: exit ${joined.code}${joined.code !== null && meaning[joined.code] ? ` (${meaning[joined.code]})` : ""}`)
     }
-    evidence.machineId = typeof j.machineId === "string" && j.machineId ? j.machineId : null
-    if (!evidence.machineId) throw new Failed("join: no machineId")
+    evidence.machineId = safeId(j.machineId)
+    if (!evidence.machineId) throw new Failed("join: no valid machineId")
     expect(j.teamId === evidence.teamId, "join team differs from the mint's team")
     say(`joined as machine ${evidence.machineId}`)
 
     // The stored credential is masked before anything else could print it.
     const pre = await status()
-    credentialPath = String(pre.credentialPath ?? "")
-    if (!credentialPath.startsWith(`${opts.home}/`)) throw new Failed("status: credential path is outside the disposable home")
-    const file = await deps.run(asRoot(["cat", "--", credentialPath]), { env: childEnv, timeoutMs: 10_000 })
+    if (pre.credentialPath !== credentialFile) throw new Failed("status: credential path is not the disposable home's credential file")
+    credentialPath = credentialFile
+    // The user's own regular file (not a link), read as that user.
+    const before = await credentialStat()
+    if (!before.own) throw new Failed("credential file is not the disposable user's own regular file")
+    evidence.credentialFileMode = before.mode
+    const file = await deps.run(asUserTool(["cat", "--", credentialPath]), { env: childEnv, timeoutMs: 10_000 })
     let record: any
     try {
       record = JSON.parse(file.stdout)
@@ -531,14 +548,14 @@ export async function runE2E(
 
     // 5. The platform's list, by join token id.
     const row = await listEntry()
-    if (row) evidence.list = { machineId: String(row.machineId), label: row.label ?? null, revoked: row.revoked === true, lastHeartbeatPresent: typeof row.lastHeartbeat === "string" && row.lastHeartbeat !== "" }
+    if (row) evidence.list = { machineId: safeId(row.machineId), label: safeId(row.label), revoked: row.revoked === true, lastHeartbeatPresent: typeof row.lastHeartbeat === "string" && row.lastHeartbeat !== "" }
     expect(evidence.list?.machineId === evidence.machineId, "list: no entry for this join token")
     expect(evidence.list?.revoked === false, "list: revoked before the revoke")
     expect(evidence.list?.lastHeartbeatPresent === true, "list: no heartbeat")
 
-    // 6. Credential file mode.
-    const mode = await deps.run(asRoot(["stat", "-c", "%a", "--", credentialPath]), { env: childEnv, timeoutMs: 10_000 })
-    evidence.credentialFileMode = mode.stdout.trim() || null
+    // 6. Credential file mode, after the daemon's heartbeat writes: still the user's own regular file.
+    const now = await credentialStat()
+    evidence.credentialFileMode = now.own ? now.mode : null
     expect(evidence.credentialFileMode === "600", "credential file mode is not 600")
 
     // 7. Revoke, then status and list say revoked.
@@ -559,12 +576,12 @@ export async function runE2E(
   // everything this step printed and every acpmux process's output.
   try {
     // Incomplete is a failure: the listing and every read must succeed.
-    const listing = await deps.run(asRoot(["find", opts.home, "-xdev", "-type", "f", "-print0"]), { env: childEnv, timeoutMs: 30_000 })
+    const listing = await deps.run(asUserTool(["find", opts.home, "-xdev", "-type", "f", "-print0"]), { env: childEnv, timeoutMs: 30_000 })
     if (listing.code !== 0) throw new Error("find failed")
     let cmj = 0
     let cmm = 0
     for (const path of listing.stdout.split("\0").filter(Boolean)) {
-      const read = await deps.run(asRoot(["cat", "--", path]), { env: childEnv, timeoutMs: 10_000 })
+      const read = await deps.run(asUserTool(["cat", "--", path]), { env: childEnv, timeoutMs: 10_000 })
       if (read.code !== 0) throw new Error("read failed")
       const text = read.stdout
       cmj += count(text, "cmj_")

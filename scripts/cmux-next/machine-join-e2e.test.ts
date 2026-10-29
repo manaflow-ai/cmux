@@ -11,7 +11,8 @@ import {
   evidenceLeaks,
   redact,
   refusal,
-  runE2E
+  runE2E,
+  safeId
 } from "./machine-join-e2e.ts"
 
 // Fake values shaped like the real ones; none is a real credential.
@@ -73,6 +74,12 @@ interface Knobs {
   /** A sleep of exactly this long never ends; `onHang` runs when it starts. */
   hangSleepMs?: number
   onHang?: () => void
+  /** What the join prints as its machineId. */
+  joinMachineId?: string
+  /** What status reports as the credential path. */
+  statusCredentialPath?: string
+  /** What `stat -c %F|%U|%a` says of the credential file. */
+  credentialStat?: string
 }
 
 /** One fake world: the stack, cmux-api, the platform, sudo and acpmux. Records every call. */
@@ -176,7 +183,7 @@ function world(k: Knobs = {}) {
         lastHeartbeat: lastHeartbeat === null ? null : String(lastHeartbeat),
         revoked,
         consent: { screen: "none", control: "none" },
-        credentialPath: CRED_PATH,
+        credentialPath: k.statusCredentialPath ?? CRED_PATH,
         joinIncomplete: false
       }
       // acpmux pretty-prints (cli/output.rs print_json).
@@ -200,7 +207,7 @@ function world(k: Knobs = {}) {
       if (k.joinExit) return { code: k.joinExit, stdout: "", stderr: k.joinStderr ?? "this line was used or expired\n" }
       joined = true
       files[CRED_PATH] = k.credentialFile ?? JSON.stringify({ credential: CREDENTIAL, machine_id: "m_1" })
-      return { code: 0, stdout: `${JSON.stringify({ joined: true, alreadyJoined: false, machineId: "m_1", teamId: "team_1", name: "ci-join-1", hubOrigin: DEV_PLATFORM }, null, 2)}\n`, stderr: k.joinStderr ?? "" }
+      return { code: 0, stdout: `${JSON.stringify({ joined: true, alreadyJoined: false, machineId: k.joinMachineId ?? "m_1", teamId: "team_1", name: "ci-join-1", hubOrigin: DEV_PLATFORM }, null, 2)}\n`, stderr: k.joinStderr ?? "" }
     }
     return { code: 64, stdout: "", stderr: "unknown\n" }
   }
@@ -214,14 +221,15 @@ function world(k: Knobs = {}) {
         releaseJoin?.()
         return { code: 0, stdout: "", stderr: "" }
       }
-      const at = argv.indexOf(opts.acpmux)
-      if (argv[0] === "sudo" && argv[2] === "-u" && at > 0) return acpmux(argv.slice(at + 1), o.stdin)
-      const cmd = argv.slice(3)
+      // Every child runs as the disposable user: sudo -n -u USER -- /usr/bin/env -i -C HOME (5 assignments) PROGRAM ...
+      if (argv[0] !== "sudo" || argv[2] !== "-u" || argv[5] !== "/usr/bin/env") return { code: 1, stdout: "", stderr: "not as the user" }
+      const cmd = argv.slice(14)
+      if (cmd[0] === opts.acpmux) return acpmux(cmd.slice(1), o.stdin)
       if (cmd[0] === "cat") {
         if (k.catFails && cmd[2] !== CRED_PATH) return { code: 1, stdout: "", stderr: "Permission denied" }
         return { code: 0, stdout: files[cmd[2]!] ?? "", stderr: "" }
       }
-      if (cmd[0] === "stat") return { code: 0, stdout: "600\n", stderr: "" }
+      if (cmd[0] === "stat") return { code: 0, stdout: `${k.credentialStat ?? `regular file|${opts.user}|600`}\n`, stderr: "" }
       if (cmd[0] === "find") return { code: 0, stdout: Object.keys(files).map((f) => `${f}\0`).join(""), stderr: "" }
       return { code: 1, stdout: "", stderr: "" }
     },
@@ -285,6 +293,8 @@ function assertNoSecretEscaped(w: ReturnType<typeof world>) {
   for (const r of w.runs) {
     // Children get exactly a fixed PATH; argv never carries a secret.
     expect(r.env).toEqual({ PATH: CHILD_PATH })
+    // Nothing runs as root: every child is the disposable user's.
+    expect(r.argv.slice(0, 5)).toEqual(["sudo", "-n", "-u", opts.user, "--"])
     for (const s of SECRETS) expect(r.argv.join("\0")).not.toContain(s)
   }
   // Only the add-mask commands (swallowed by the runner) carry a value; they come before any other mention.
@@ -454,6 +464,38 @@ describe("failure paths", () => {
     expect(e.result).toBe("fail")
     expect(e.secretScan.home.cmm).toBe(1)
     expect(e.reason).toContain("the home holds a credential outside the credential file")
+    assertNoSecretEscaped(w)
+  })
+
+  test("a token-shaped machineId from the join is never printed, put in a URL or the evidence", async () => {
+    const shaped = `cmm_${"A".repeat(43)}`
+    const w = world({ joinMachineId: shaped })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("join: no valid machineId")
+    for (const line of w.lines) expect(line).not.toContain(shaped)
+    for (const c of w.calls) expect(c.url).not.toContain(shaped)
+    expect(w.evidenceText()).not.toContain(shaped)
+    assertNoSecretEscaped(w)
+  })
+
+  test("a credential path other than the home's credential file is never read", async () => {
+    const w = world({ statusCredentialPath: `${HOME}/.acpmux/../../../etc/shadow` })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("credential path is not the disposable home's credential file")
+    expect(w.runs.filter((r) => r.argv.some((a) => a.includes("shadow")))).toEqual([])
+    assertNoSecretEscaped(w)
+  })
+
+  test("a credential file that is a link is never read", async () => {
+    const w = world({ credentialStat: `symbolic link|${opts.user}|777` })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("credential file is not the disposable user's own regular file")
+    // The only reads of the credential path are the scan's, after cleanup; none before the check failed.
+    const reads = w.runs.filter((r) => r.argv.at(-1) === CRED_PATH && r.argv.at(-3) === "cat")
+    expect(reads.length).toBeLessThanOrEqual(1)
     assertNoSecretEscaped(w)
   })
 })
@@ -641,6 +683,12 @@ describe("cancellation, the sweep, masking and the scan", () => {
 })
 
 describe("redaction helpers", () => {
+  test("safeId keeps plain ids and refuses token shapes, paths and control characters", () => {
+    for (const ok of ["m_1", "jt_1", "team_1", "ci-join-123", "01J9ZK:abc.def"]) expect(safeId(ok)).toBe(ok)
+    for (const bad of [`cmm_${"A".repeat(20)}`, "x-cmj_abc", "eyJhbGciOi", "Bearer", "a/b", "../x", "a\nb", "a b", "", "x".repeat(129), 7, null, undefined, {}])
+      expect(safeId(bad)).toBeNull()
+  })
+
   test("evidenceLeaks finds every pattern", () => {
     expect(evidenceLeaks(`{"x":"${TOKEN}"}`, [])).toContain("join token prefix")
     expect(evidenceLeaks(`{"x":"${CREDENTIAL}"}`, [])).toContain("credential prefix")

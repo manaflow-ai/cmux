@@ -109,6 +109,9 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertIn("cmj_|cmm_|eyJ", check["run"])
         self.assertIn("bearer|authorization", check["run"])
         self.assertIn("revokedListed", check["run"])
+        # Values from the evidence reach ::error lines only as plain characters.
+        self.assertIn("tr -cd 'A-Za-z0-9._:-'", check["run"])
+        self.assertIn("tr -cd 'A-Za-z0-9 ._:;,()/-'", check["run"])
         upload = step("Upload the evidence")
         self.assertEqual(upload["if"], "always() && steps.evidence.outputs.clean == 'true'")
         remove = step("Remove the disposable user")
@@ -130,6 +133,9 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertIn("8#022", run)
         self.assertIn("8#1000", run)
         self.assertIn('[ "$owner" != 0 ] && [ "$owner" != "$uid" ]', run)
+        # An extended ACL could grant the user write where the mode bits do not.
+        self.assertIn('sudo ls -ld -- "$path"', run)
+        self.assertIn('"${perms:10:1}" = +', run)
 
     def test_real_binary_smoke_runs_as_the_user_before_the_secrets(self) -> None:
         names = [s.get("name") for s in steps()]
