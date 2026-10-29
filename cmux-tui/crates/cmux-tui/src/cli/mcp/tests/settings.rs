@@ -174,3 +174,28 @@ fn settings_reads_omit_ignored_members_of_valid_values() {
         json!({"start": "22:00", "end": "08:00"})
     );
 }
+
+#[test]
+fn settings_reads_redact_credentials_in_schema_urls_and_maps() {
+    let mut server = Server::new(
+        Fake {
+            resource_result: Some(json!([
+                {"key": "browser.newTabPage", "value": "https://alice:credential@example.com"},
+                {"key": "deviceHub.url", "value": "https://example.com/?key=credential"},
+                {"key": "appearance.machineColors", "value": {"password": "credential"}},
+                {"key": "terminal.fontSize", "value": 14, "managed": {"source": "mdm", "reason": "credential"}}
+            ])),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(&mut server, "settings_list", json!({}));
+    assert_eq!(result["isError"], false, "{result}");
+    assert!(!result.to_string().contains("credential"));
+    let items = result["structuredContent"]["items"].as_array().unwrap();
+    for item in &items[..3] {
+        assert_eq!(item["value"], Value::Null);
+        assert_eq!(item["value_redacted"], true);
+    }
+    assert_eq!(items[3]["managed"]["source"], "mdm");
+}

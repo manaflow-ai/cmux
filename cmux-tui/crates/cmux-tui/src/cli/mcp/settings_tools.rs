@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 use cmux_config::{
     Domains, Refusal, Schema,
+    managed::ManagedSource,
     schema::{DomainKind, Kind, Row, Validation},
 };
 use cmux_tui_core::resource::ResourceOperation;
@@ -234,13 +235,61 @@ fn project(row: &Row, value: &Value) -> Value {
         object.remove("refuses");
     }
     let current = &value["value"];
+    let projected_value = project_value(row, current);
     let redacted = !current.is_null()
-        && cmux_config::schema::accepts(row, current, &Domains::default()).is_err();
-    projected["value"] = if redacted { Value::Null } else { project_value(row, current) };
+        && (cmux_config::schema::accepts(row, current, &Domains::default()).is_err()
+            || sensitive_value(&projected_value, matches!(row.kind, Kind::Url)));
+    projected["value"] = if redacted { Value::Null } else { projected_value };
     projected["value_redacted"] = json!(redacted);
     projected["customized"] = json!(value["customized"].as_bool().unwrap_or(false));
-    projected["managed"] = json!(value["managed"].is_object());
+    let managed = &value["managed"];
+    projected["managed"] = match managed["source"].as_str() {
+        Some("mdm") => ManagedSource::Device.to_json(&row.key),
+        Some("team") => {
+            ManagedSource::Team(managed["team"].as_str().unwrap_or_default().to_owned())
+                .to_json(&row.key)
+        }
+        _ => Value::Null,
+    };
     projected
+}
+
+/// Schema URLs can still carry credentials. Query strings and fragments may
+/// carry bearer tokens with arbitrary names, so expose no value for those
+/// URLs. Likewise, map-shaped preferences must not disclose credential fields.
+fn sensitive_value(value: &Value, url_setting: bool) -> bool {
+    match value {
+        Value::String(text) => {
+            let parsed = url::Url::parse(text.trim()).or_else(|error| {
+                if url_setting {
+                    url::Url::parse(&format!("https://{}", text.trim()))
+                } else {
+                    Err(error)
+                }
+            });
+            parsed.is_ok_and(|url| {
+                matches!(url.scheme(), "http" | "https")
+                    && (!url.username().is_empty()
+                        || url.password().is_some()
+                        || url.query().is_some()
+                        || url.fragment().is_some())
+            })
+        }
+        Value::Array(values) => values.iter().any(|value| sensitive_value(value, false)),
+        Value::Object(members) => members.iter().any(|(key, value)| {
+            matches!(
+                key.to_ascii_lowercase().as_str(),
+                "password"
+                    | "token"
+                    | "access_token"
+                    | "refresh_token"
+                    | "api_key"
+                    | "authorization"
+                    | "secret"
+            ) || sensitive_value(value, false)
+        }),
+        _ => false,
+    }
 }
 
 /// These validators deliberately tolerate ignored object members for file
