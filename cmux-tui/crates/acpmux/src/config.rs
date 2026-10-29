@@ -1433,8 +1433,10 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_coderouter_route,
-    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
+    CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE, CODEROUTER_CLAUDE_PROFILE,
+    CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_cmux_router, add_cmux_router_with,
+    add_coderouter_route, cmux_router_model_setting, coderouter_claude_route, discover_harnesses,
+    discover_harnesses_from,
 };
 mod peer;
 pub use peer::PeerConfig;

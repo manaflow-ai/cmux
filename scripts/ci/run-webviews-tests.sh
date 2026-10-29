@@ -19,9 +19,16 @@
 # CMUX_WEB_TEST_RETRIES: files that fail run once more, one at a time, after every
 # file has run (default 60 files; 0 turns it off). A file that passes alone is reported as a retry
 # pass (a contention flake, listed so it stays visible); one that fails again fails the lane.
-# Timed-out files keep their named failure without another full timeout. Serial retries stop
-# after CMUX_WEB_TEST_RETRY_BUDGET seconds (default 120), including an in-flight retry;
-# unretried failures stay red.
+# Serial retries of failed files stop after CMUX_WEB_TEST_RETRY_BUDGET seconds (default 120),
+# including an in-flight retry; unretried failures stay red.
+# A timed-out file gets its own single retry, alone, at its full limit, outside that budget and
+# outside the CMUX_WEB_TEST_RETRIES count: one slow file must not eat the failed files' retries, nor
+# they its (#27130's shard 4: two files timed out at 120 s beside 15 others, never retried, and
+# both passed alone in 61 s and 22 s on the base replay). Timeout retries have their own budget,
+# CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET seconds (default 240); one starts only when its whole limit
+# fits in what is left, so the shard's worst case stays bounded. A retry that times out again
+# stays a TIMEOUT (never a pass, and never a named failure a base could share); one that passes
+# is listed as passing alone. CMUX_WEB_TEST_RETRIES=0 turns these retries off too.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
@@ -341,14 +348,45 @@ retried=0
 retry_budget="${CMUX_WEB_TEST_RETRY_BUDGET:-120}"
 [[ "$retry_budget" =~ ^[0-9]+$ ]] || retry_budget=120
 retry_started=$SECONDS
+timeout_retry_budget="${CMUX_WEB_TEST_TIMEOUT_RETRY_BUDGET:-240}"
+[[ "$timeout_retry_budget" =~ ^[0-9]+$ ]] || timeout_retry_budget=240
+timeout_retried=0
+timeout_retry_spent=0
 : > "$results/retry-passed"
 while read -r result file log; do
-  if [ "$result" = PASS ] || [ "$result" = TIMEOUT ] || [ "$retried" -ge "$retries" ]; then
+  if [ "$result" = PASS ] || [ "$retries" -eq 0 ] || { [ "$result" != TIMEOUT ] && [ "$retried" -ge "$retries" ]; }; then
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
+  iteration_started=$SECONDS
   normal_limit="$(file_limit "$file" "$timeout_seconds")"
-  remaining=$((retry_budget - (SECONDS - retry_started)))
+  if [ "$result" = TIMEOUT ]; then
+    # The timed-out file's own retry: its own budget, its full limit, never cut short.
+    timeout_remaining=$((timeout_retry_budget - timeout_retry_spent - (SECONDS - iteration_started)))
+    if [ "$timeout_remaining" -lt "$normal_limit" ]; then
+      echo "timeout retry budget (${timeout_remaining}s left) cannot fit $file's ${normal_limit}s limit: keeping TIMEOUT"
+      printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
+    else
+      echo "RETRY $file after its timeout (its own retry; timeout retry budget ${timeout_remaining}s, hard limit ${normal_limit}s)"
+      timeout_retried=$((timeout_retried + 1))
+      mv "$log" "$log.first"
+      cache=""
+      if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/timeout-retry-$timeout_retried"; fi
+      bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
+      if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
+      if grep -qxF "PASS $file $log" "$results/summary"; then
+        echo "$file (first run: TIMEOUT)" >> "$results/retry-passed"
+      else
+        # TIMEOUT again stays TIMEOUT; a FAIL alone keeps the retry's named failures, as for a failed file.
+        { echo "--- first run: TIMEOUT ---"; cat "$log.first"; echo "--- retry, alone ---"; cat "$log"; } > "$log.both"
+        mv "$log.both" "$log"
+      fi
+    fi
+    timeout_retry_spent=$((timeout_retry_spent + SECONDS - iteration_started))
+    continue
+  fi
+  # The failed files' shared budget is wall time since the retries began, less the timeout retries'.
+  remaining=$((retry_budget - (SECONDS - retry_started - timeout_retry_spent)))
   if [ "$remaining" -le 0 ]; then
     echo "retry budget exhausted: keeping $result $file"
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
@@ -416,7 +454,7 @@ if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
   python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
 fi
 
-echo "### webviews tests: $count files, $failed failed or timed out ($retried retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"
+echo "### webviews tests: $count files, $failed failed or timed out ($((retried + timeout_retried)) retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"
 if [ -s "$results/retry-passed" ]; then
   echo "passed only when run alone (failed or timed out beside other files):"
   sed 's/^/  /' "$results/retry-passed"
