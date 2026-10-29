@@ -26,7 +26,7 @@ import WebKit
         pageInfo.perform(.manageSiteData)
         let auxiliary = pageInfo.windows.ownedWindows
         #expect(auxiliary.count == 3)
-        #expect(auxiliary.allSatisfy(\.isVisible))
+        #expect(auxiliary.allSatisfy { $0.isVisible })
 
         // Queue a certificate response, retire synchronously before its task runs, then join it.
         // No sleeps: the late response must never create another window for the retired page.
