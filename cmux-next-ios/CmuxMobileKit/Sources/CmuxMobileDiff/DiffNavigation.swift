@@ -49,9 +49,30 @@ public enum DiffNavigation {
     }
 
     /// Line `index` of `old` as an index into `new`, where one list is the other with
-    /// some lines left out (Hide Whitespace turned on or off).
+    /// some lines left out (Hide Whitespace turned on or off). A line that `new` leaves out
+    /// maps to the last line before it that `new` keeps (nil when there is none), so Next
+    /// and Previous Hunk go on from the same place in the file.
     public static func remap(_ index: Int?, from old: [DiffLine], to new: [DiffLine]) -> Int? {
-        index
+        guard let index, old.indices.contains(index) else { return nil }
+        if new.count >= old.count {
+            // `old` is a subsequence of `new`: find each of its lines in order.
+            var position = 0
+            for offset in 0...index {
+                while position < new.count, new[position] != old[offset] { position += 1 }
+                guard position < new.count else { return nil }
+                if offset == index { return position }
+                position += 1
+            }
+            return nil
+        }
+        // `new` is a subsequence of `old`: count the kept lines up to `index`.
+        var kept = 0
+        var last: Int?
+        for offset in 0...index where kept < new.count && old[offset] == new[kept] {
+            last = kept
+            kept += 1
+        }
+        return last
     }
 
     /// The range to show around line `index` when it is inside collapsed context.
