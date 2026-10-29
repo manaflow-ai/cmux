@@ -71,6 +71,8 @@ struct Viewer {
     /// `--snapshot PATH`: the newest decoded frame as a binary PPM, written when the run ends.
     snapshot: Option<(usize, usize, Vec<u8>)>,
     want_snapshot: bool,
+    /// `--record PATH`: every received access unit (Annex-B), the stream the viewer decoded.
+    record: Option<std::fs::File>,
 }
 
 fn pct(xs: &mut [f64]) -> serde_json::Value {
@@ -103,6 +105,9 @@ impl Viewer {
                 for frame in self.reassembler.push(&h, payload, now / 1000) {
                     self.released_since_feedback = true;
                     self.frames += 1;
+                    if let Some(file) = self.record.as_mut() {
+                        let _ = io::Write::write_all(file, &frame.body.access_unit);
+                    }
                     let t0 = now_ns();
                     let decoded = self.decoder.decode(&frame.body.access_unit);
                     let t1 = now_ns();
@@ -436,6 +441,15 @@ pub fn run(opts: &Opts) -> Res<()> {
         upstream_closed_by_host: false,
         snapshot: None,
         want_snapshot: opts.get("snapshot").is_some(),
+        record: opts.get("record").map(std::fs::File::create).transpose()?,
+    };
+    // `--at X,Y`: where click and scroll input lands, in stream pixels.
+    let (at_x, at_y) = match opts.get("at") {
+        Some(at) => {
+            let (x, y) = at.split_once(',').ok_or("--at takes X,Y")?;
+            (x.trim().parse::<i32>()?, y.trim().parse::<i32>()?)
+        }
+        None => (960, 600),
     };
     let upstream = opts.get("upstream").map(str::to_owned);
     let udp_port = udp.as_ref().map(|(s, _)| s.local_addr().map(|a| a.port())).transpose()?;
@@ -516,12 +530,12 @@ pub fn run(opts: &Opts) -> Res<()> {
         match input.as_str() {
             // The cloud browser's marker page counts mousedown and wheel as well as keydown.
             "click" => {
-                v.sender.push(InputEvent::Pointer { x: 960, y: 600 });
+                v.sender.push(InputEvent::Pointer { x: at_x, y: at_y });
                 v.sender.push(InputEvent::Button { button: 0, down: true });
                 v.sender.push(InputEvent::Button { button: 0, down: false });
             }
             "scroll" => {
-                v.sender.push(InputEvent::Pointer { x: 960, y: 600 });
+                v.sender.push(InputEvent::Pointer { x: at_x, y: at_y });
                 let dy = if g2g.len() % 2 == 0 { -300 } else { 300 };
                 v.sender.push(InputEvent::Scroll { dx: 0, dy, precise: false });
             }

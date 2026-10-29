@@ -1,7 +1,10 @@
 // The glass-to-glass marker for a macOS host (the Linux test app's counterpart; layout in
-// src/marker.rs): 20 cells of 32x32 pixels in one row at the display's top-left pixel. Cells
+// src/marker.rs): 20 cells of 32x32 stream pixels in one row at the display's top-left. Cells
 // 0..15 carry bit i of the counter, least significant first; cells 16..19 are the guard 1,0,1,0.
 // Every key down, mouse down and scroll event increments the counter and redraws at once.
+// Cells are sized in the pixels the host streams (the display fitted to 3840x2160, as
+// src/mac/capture.rs does), so the bench reads them on any display. The window takes the first
+// click even when another app is in front, so click input never reaches another app.
 //
 //   swiftc -O -o cmux-rd-marker main.swift
 //   ./cmux-rd-marker [--motion]     --motion: animate the rest of the display every refresh
@@ -15,10 +18,11 @@ let guardBits = [true, false, true, false]
 
 final class MarkerView: NSView {
     var counter: UInt16 = 0
-    /// Pixels per point, so a cell is 32 pixels on any display.
-    var cell: CGFloat { 32 / (window?.backingScaleFactor ?? 1) }
+    /// One cell in points: 32 stream pixels.
+    var cell: CGFloat = 16
 
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -84,12 +88,23 @@ if CommandLine.arguments.contains("--motion") {
     motion = view
 }
 
+/// The width the host streams this display at: its native pixels fitted to 3840x2160, even.
+func streamWidth(of screen: NSScreen) -> CGFloat {
+    let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID ?? CGMainDisplayID()
+    let mode = CGDisplayCopyDisplayMode(id)
+    let (w, h) = (CGFloat(mode?.pixelWidth ?? Int(screen.frame.width)),
+                  CGFloat(mode?.pixelHeight ?? Int(screen.frame.height)))
+    let scale = min(3840 / w, 2160 / h, 1)
+    return CGFloat(Int((w * scale).rounded()) & ~1)
+}
+
 let marker = MarkerView(frame: .zero)
+marker.cell = 32 * frame.width / streamWidth(of: screen)
 let window = KeyWindow(
-    contentRect: NSRect(x: frame.minX, y: frame.maxY - 32 / screen.backingScaleFactor,
-                        width: 32 * CGFloat(cells) / screen.backingScaleFactor,
-                        height: 32 / screen.backingScaleFactor),
+    contentRect: NSRect(x: frame.minX, y: frame.maxY - marker.cell,
+                        width: marker.cell * CGFloat(cells), height: marker.cell),
     styleMask: [.borderless], backing: .buffered, defer: false)
+print("marker: stream width \(streamWidth(of: screen)) px, cell \(marker.cell) pt, display \(frame.size)")
 marker.frame = NSRect(origin: .zero, size: window.frame.size)
 window.contentView = marker
 // Above the menu bar, so pixel (0,0) is the marker.
