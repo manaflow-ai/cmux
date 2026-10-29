@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "./Menu";
 import { cx } from "./cx";
+import type { NativePopupDescription } from "./nativePopup";
+import type { NativePopupEvent } from "./generated/popupProtocol";
 
 /** One option in a shared macOS-style select. */
 export interface SelectOption {
@@ -24,6 +26,8 @@ export interface SelectProps {
   popupClassName?: string;
   /** Close the menu when an option is picked (the shared Menu keeps a radio menu open by default). */
   closeOnPick?: boolean;
+  /** Declarative native rows. Supplying this routes the open select to WebPopupHost. */
+  native?: { model: NativePopupDescription; onDismiss?(): void };
 }
 
 /** A single-choice menu with native keyboard, VoiceOver and press-drag-release behavior. */
@@ -39,11 +43,25 @@ export function Select({
   buttonClassName,
   popupClassName,
   closeOnPick,
+  native,
 }: SelectProps) {
   const selected = options.find((option) => option.value === value);
   return (
     <span className={cx("ui-select", className)}>
-      <Menu>
+      <Menu
+        native={
+          native
+            ? {
+                model: native.model,
+                onEvent: (event: NativePopupEvent) => {
+                  if ((event.type === "pick" || event.type === "change") && event.value !== undefined) onChange(event.value);
+                  else if (event.type === "pick" && event.id !== undefined) onChange(event.id);
+                },
+                onDismiss: native.onDismiss,
+              }
+            : undefined
+        }
+      >
         <MenuButton
           className={cx("ui-select-button", buttonClassName)}
           label={label}

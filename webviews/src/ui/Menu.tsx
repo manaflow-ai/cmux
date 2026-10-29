@@ -17,6 +17,7 @@ import {
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
+import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { isMousePress, trackPressRelease } from "./pressRelease";
@@ -25,6 +26,8 @@ import { focusWithRing } from "./focusWithRing";
 
 export interface MenuProps {
   open?: boolean;
+  /** Optional declarative rows for WebPopupHost. When supplied, no popup rows mount in the page. */
+  native?: { model: NativePopupDescription; onEvent?(event: NativePopupEvent): void; onDismiss?(): void };
   onOpenChange?(open: boolean): void;
   onOpenChangeComplete?(open: boolean): void;
   children: ReactNode;
@@ -34,6 +37,7 @@ const POINTER_SLOP = 4;
 type PointerSession = { pointerId: number; x: number; y: number; moved: boolean; handled: boolean };
 interface MenuContextValue {
   isOpen: boolean;
+  nativeAvailable: boolean;
   /** The menu button, where Escape hands the keyboard back. */
   trigger: RefObject<HTMLButtonElement | null>;
   /** What had focus when the menu opened, where a pointer close puts it back. */
@@ -51,7 +55,7 @@ interface MenuContextValue {
 const MenuContext = createContext<MenuContextValue | null>(null);
 
 /** A menu: a `MenuButton` and a `MenuPopup`. Non-modal, so the page keeps scrolling. */
-export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: MenuProps) {
+export function Menu({ open, onOpenChange, onOpenChangeComplete, native, children }: MenuProps) {
   const [internalOpen, setInternalOpen] = useState(open ?? false);
   const session = useRef<PointerSession | null>(null);
   const pointerCleanup = useRef<(() => void) | null>(null);
@@ -63,6 +67,13 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   // takes it (MenuButton).
   const pressed = useRef(false);
   const isOpen = open ?? internalOpen;
+  const nativePopup = useNativePopup({
+    open: isOpen && native !== undefined,
+    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    anchor: () => trigger.current,
+    onEvent: (event) => native?.onEvent?.(event),
+    onDismiss: () => native?.onDismiss?.(),
+  });
   const setMenuOpen = (next: boolean) => {
     if (next && !isOpen) {
       opener.current = trigger.current?.ownerDocument.activeElement ?? null;
@@ -74,6 +85,7 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   };
   const context: MenuContextValue = {
     isOpen,
+    nativeAvailable: native !== undefined && nativePopup.available,
     trigger,
     opener,
     keyed,
@@ -329,6 +341,7 @@ export function MenuPopup({
       gap: UI_ANCHOR_GAP,
     },
   );
+  if (menu?.nativeAvailable) return null;
   return (
     <BaseMenu.Portal container={container}>
       <BaseMenu.Positioner

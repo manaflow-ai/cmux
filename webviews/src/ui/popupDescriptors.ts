@@ -17,3 +17,22 @@ export interface ComboboxDescriptorInput { suggestions: readonly string[]; pinne
 export function comboboxDescription(input: ComboboxDescriptorInput): PopupDescription { const pinned = new Set(input.pinnedSuggestions ?? []); const ordered = [...input.suggestions.filter((value) => !pinned.has(value)), ...input.suggestions.filter((value) => pinned.has(value))]; return { side: "bottom", align: "start", width: input.width ?? 280, ...(input.label ? { title: input.label } : {}), search: { id: "query", value: input.query ?? "", placeholder: input.placeholder ?? input.label ?? "Search" }, rows: ordered.map((value) => choiceRow({ id: value, value, label: value, checked: input.current?.(value) ?? false, disabled: input.disabled?.(value) ?? false })) }; }
 export interface ContextDescriptorInput { id: string; label: string; icon?: string; shortcut?: string; disabled?: boolean; disabledReason?: string; checked?: boolean; separatorBefore?: boolean; }
 export function contextDescription(items: readonly ContextDescriptorInput[], options: { width?: number; title?: string } = {}): PopupDescription { const rows: PopupRow[] = []; for (const item of items) { if (item.separatorBefore) rows.push(separatorRow(separatorId(item.id))); const { separatorBefore: _separatorBefore, ...row } = item; rows.push(item.checked === undefined ? actionRow(row) : toggleRow({ ...row, checked: item.checked })); } return { side: "bottom", align: "start", width: options.width ?? 220, ...(options.title ? { title: options.title } : {}), rows }; }
+
+export interface PopoverDescriptorInput {
+  rows: PopupRow[];
+  title?: string;
+  side?: "top" | "bottom";
+  align?: "start" | "end";
+  width?: number;
+}
+
+/** Builds a generic popover descriptor for arbitrary declarative content. */
+export function popoverDescription(input: PopoverDescriptorInput): PopupDescription {
+  return {
+    side: input.side ?? "bottom",
+    align: input.align ?? "start",
+    width: input.width ?? 320,
+    rows: input.rows,
+    ...(input.title ? { title: input.title } : {}),
+  };
+}

@@ -4,6 +4,8 @@ import { cx } from "./cx";
 import { nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
 import { useEscapingPopup } from "./popupHost";
 import { usePopupHost } from "./UiProvider";
+import { useNativePopup, type NativePopupDescription } from "./nativePopup";
+import type { NativePopupEvent } from "./generated/popupProtocol";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
@@ -41,6 +43,8 @@ export interface ContextMenuProps {
    * popup a child opened (a picker's search field), though the popup draws elsewhere on the page.
    */
   targets?: "own";
+  /** Declarative rows for WebPopupHost; rows are never mounted or scraped when supplied. */
+  native?: { model: NativePopupDescription; onEvent?(event: NativePopupEvent, item?: ContextMenuItem): void; onDismiss?(): void };
 }
 
 /** The control a closed menu gives focus back to. */
@@ -102,12 +106,31 @@ export function ContextMenu({
   onOpen,
   ignore,
   targets,
+  native,
 }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
+  const [nativeTarget, setNativeTarget] = useState<HTMLElement | null>(null);
+  const [nativeOpen, setNativeOpen] = useState(false);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
+  useNativePopup({
+    open: nativeOpen && native !== undefined,
+    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    anchor: () => nativeTarget,
+    onEvent: (event) => {
+      const item = event.id ? items.find((candidate) => candidate.id === event.id) : undefined;
+      native?.onEvent?.(event, item);
+      if (event.type === "pick" && item && !item.disabled) {
+        item.onSelect();
+      }
+    },
+    onDismiss: () => {
+      setNativeOpen(false);
+      native?.onDismiss?.();
+    },
+  });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
@@ -222,6 +245,11 @@ export function ContextMenu({
         const target = event.target instanceof Element ? event.target : null;
         returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
         const at = { x: event.clientX, y: event.clientY };
+        if (native) {
+          setNativeTarget(target instanceof HTMLElement ? target : null);
+          setNativeOpen(target instanceof HTMLElement);
+          return;
+        }
         const native = nativeMenu();
         const rows = native && nativeRows(items);
         if (!native || !rows) {

@@ -8,6 +8,8 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
 import { ScrollArea } from "./ScrollArea";
+import { useNativePopup, type NativePopupDescription } from "./nativePopup";
+import type { NativePopupEvent } from "./generated/popupProtocol";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
 
@@ -59,6 +61,8 @@ export interface ComboboxProps {
    * ("keyboard") or the pointer ("pointer") moved it, so a caller can treat a passing pointer as
    * less deliberate than a key press. */
   onHighlight?(value: string | undefined, by: "keyboard" | "pointer" | "none"): void;
+  /** Declarative native rows. When the host is available the web list is not mounted. */
+  native?: { model: NativePopupDescription; anchor?: () => HTMLElement | null; onEvent?(event: NativePopupEvent): void; onDismiss?(): void };
 }
 
 export function Combobox({
@@ -86,6 +90,7 @@ export function Combobox({
   isItemCurrent,
   completionText,
   onHighlight,
+  native,
 }: ComboboxProps) {
   const container = usePortalContainer();
   // A popup list with no room above or below its field: past the window's edge (popupHost.ts).
@@ -93,6 +98,21 @@ export function Combobox({
   const host = usePopupHost();
   const [field, setField] = useState<HTMLInputElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  const nativePopup = useNativePopup({
+    open: native !== undefined,
+    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    anchor: native?.anchor ?? (() => field),
+    onEvent: (event) => {
+      native?.onEvent?.(event);
+      if ((event.type === "search" || event.type === "change") && event.value !== undefined) onQuery(event.value);
+      else if (event.type === "pick" && event.value !== undefined) onSubmit(event.value);
+      else if (event.type === "highlight") onHighlight?.(event.id, "pointer");
+    },
+    onDismiss: () => {
+      native?.onDismiss?.();
+      onCancel();
+    },
+  });
   const attachField = useCallback(
     (node: HTMLInputElement | null) => {
       if (typeof inputRef === "function") inputRef(node);
@@ -296,6 +316,7 @@ export function Combobox({
       ))}
     </Autocomplete.List>
   );
+  if (nativePopup.available && native !== undefined) return null;
   const root = (
     <Autocomplete.Root
       items={enabledSuggestions as string[]}
