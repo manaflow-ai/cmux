@@ -177,7 +177,10 @@ fn a_local_host_starts_acpmux_once_a_stopping_daemon_lets_its_lock_go() {
     );
     let lock = std::fs::File::create(home.join("daemon.lock")).unwrap();
     // SAFETY: flock on a descriptor this test owns.
-    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    assert_eq!(
+        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
     let socket = dir.path().join("acpmux.sock");
     let (path, first_seen, second_seen) = (socket.clone(), first.clone(), second.clone());
     let old_daemon = std::thread::spawn(move || {
@@ -235,7 +238,10 @@ fn a_local_host_adopts_a_daemon_that_answers_while_holding_its_lock() {
     );
     let lock = std::fs::File::create(dir.path().join("daemon.lock")).unwrap();
     // SAFETY: flock on a descriptor this test owns.
-    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    assert_eq!(
+        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
     let socket = dir.path().join("acpmux.sock");
     let path = socket.clone();
     let (waiting_tx, waiting_rx) = mpsc::channel();
@@ -254,7 +260,9 @@ fn a_local_host_adopts_a_daemon_that_answers_while_holding_its_lock() {
                 }
             },
         );
-        result_tx.send((result, seen.load(Ordering::SeqCst))).unwrap();
+        result_tx
+            .send((result, seen.load(Ordering::SeqCst)))
+            .unwrap();
     });
     waiting_rx.recv_timeout(Duration::from_secs(10)).unwrap();
     let listener = UnixListener::bind(&socket).unwrap();
@@ -264,6 +272,13 @@ fn a_local_host_adopts_a_daemon_that_answers_while_holding_its_lock() {
     drop(lock);
     host.join().unwrap();
     drop(listener);
-    assert_eq!(result.unwrap(), (Ok(None), true), "adopted without owning a daemon");
-    assert_eq!(std::fs::read_to_string(attempts).unwrap().lines().count(), 1);
+    assert_eq!(
+        result.unwrap(),
+        (Ok(None), true),
+        "adopted without owning a daemon"
+    );
+    assert_eq!(
+        std::fs::read_to_string(attempts).unwrap().lines().count(),
+        1
+    );
 }

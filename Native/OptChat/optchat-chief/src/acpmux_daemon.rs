@@ -521,7 +521,11 @@ const SPAWN_LIMIT: Duration = Duration::from_secs(60);
 /// takes the lock for an instant, as the app's `AcpmuxQuitProof.lockState`.
 fn lock_held(path: &Path) -> bool {
     use std::os::unix::io::AsRawFd;
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(path) else {
+    let Ok(file) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    else {
         return false;
     };
     // SAFETY: flock on a descriptor this function owns.
