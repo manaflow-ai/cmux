@@ -494,7 +494,7 @@
    pane's right edge, its own width (data-enter, ui/presence.ts). */
 .acpmux-artifact {
   --ui-enter-distance: 100%;
-  flex: 0 0 clamp(320px, 46%, 760px);
+  flex: 0 0 var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -503,11 +503,19 @@
   color: var(--agent-text);
   font-family: var(--cv-font);
 }
+.acpmux-shell {
+  --acpmux-artifact-push: 0px;
+}
 /* A shell sibling must leave the offered native tab row clear, including when the narrow
    preview covers the chat. Its background belongs below the row, never in its tools hole. */
 .acpmux-shell[data-tab-row] > .acpmux-artifact {
   margin-top: var(--acpmux-tab-row-height);
   max-height: calc(100% - var(--acpmux-tab-row-height));
+}
+/* The header lives in the chat column while Preview is a shell sibling. Keep its tools at the
+   pane edge, across the Preview column, just as the inline Summary does. */
+.acpmux-shell[data-tab-row]:has(> .acpmux-artifact) {
+  --acpmux-artifact-push: var(--acpmux-artifact-width, clamp(320px, 46vw, 760px));
 }
 @media (max-width: 720px) {
   .acpmux-artifact {
@@ -515,6 +523,9 @@
     inset: 0;
     z-index: var(--layer-overlay);
     box-shadow: none;
+  }
+  .acpmux-shell[data-tab-row]:has(> .acpmux-artifact) {
+    --acpmux-artifact-push: 0px;
   }
 }
 .acpmux-artifact-bar {
@@ -1261,9 +1272,11 @@ pre.cv-math-source {
 .acpmux-thread {
   transition: none;
 }
+/* --cv-inset-end: the column's end, moved in while the computer use live preview shows beside it
+   (computerUse/computerUsePreview.css). */
 .acpmux-row {
   left: var(--cv-inset);
-  right: var(--cv-inset);
+  right: var(--cv-inset-end, var(--cv-inset));
 }
 .acpmux-row__gap {
   position: absolute;
@@ -1306,7 +1319,7 @@ pre.cv-math-source {
 }
 .acpmux-permission {
   padding-left: var(--cv-inset);
-  padding-right: var(--cv-inset);
+  padding-right: var(--cv-inset-end, var(--cv-inset));
 }
 
 /* A tool permission ask (permissions/Panel.tsx, Leo 2026-10-14): the transcript's tool row (its

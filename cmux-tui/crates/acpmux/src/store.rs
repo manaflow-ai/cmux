@@ -257,6 +257,9 @@ pub struct SessionMeta {
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// Classified harness attempts, projected from turn results; old stores default empty.
+    #[serde(default)]
+    pub harness_failures: crate::session_liveness::HarnessFailures,
     /// Created over a remote-origin connection (the WebSocket listener):
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -865,6 +868,42 @@ impl Store for MemoryStore {
         Ok(g.get(id)
             .map(|(_, ev)| ev.iter().filter(|e| e.seq > after).take(limit).cloned().collect())
             .unwrap_or_default())
+    }
+    /// Newest first, a bounded window at a time: a visitor that stops early clones only the
+    /// windows it read, and it runs off the lock.
+    fn scan_back(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        const WINDOW: usize = 256;
+        let mut before = before;
+        loop {
+            let (window, lowest) = {
+                let g = self.inner.lock_or_recover();
+                let Some((_, events)) = g.get(id) else { return Ok(()) };
+                let end = events.partition_point(|e| e.seq < before);
+                let mut window = Vec::new();
+                let mut lowest = None;
+                for e in events[..end].iter().rev().take_while(|e| e.seq > after).take(WINDOW) {
+                    lowest = Some(e.seq);
+                    if !skip(e.dir.as_bytes(), e.kind.as_bytes()) {
+                        window.push(e.clone());
+                    }
+                }
+                (window, lowest)
+            };
+            let Some(lowest) = lowest else { return Ok(()) };
+            for record in window {
+                if !visit(record) {
+                    return Ok(());
+                }
+            }
+            before = lowest;
+        }
     }
     fn delete(&self, id: &str) -> Result<()> {
         self.inner.lock_or_recover().remove(id);
