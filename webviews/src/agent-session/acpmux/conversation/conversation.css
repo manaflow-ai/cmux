@@ -1064,7 +1064,13 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-table-tools {
-    transition: opacity 120ms ease-out;
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-table-block:hover .cv-table-tools {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-table-tools:focus-within {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
   }
 }
 .cv-table-block:hover .cv-table-tools,
@@ -1700,10 +1706,18 @@ pre.cv-math-source {
 :is(.cv-worked, .cv-activity) .cv-command__bg {
   animation: none;
   opacity: 0;
-  transition: opacity var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out);
 }
 :is(.cv-worked, .cv-activity):hover .cv-command__bg {
   opacity: 1;
+}
+/* It fades as a message's hover row does (#23769): in after a beat, out quickly. */
+@media (prefers-reduced-motion: no-preference) {
+  :is(.cv-worked, .cv-activity) .cv-command__bg {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  :is(.cv-worked, .cv-activity):hover .cv-command__bg {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
 }
 /* Its row drops the transcript row's 34px floor and bottom padding (.acpmux-row), so it is the
    last footer's 32px and its estimate's (model.ts fallbackRowHeight). */
@@ -2383,7 +2397,13 @@ pre.cv-math-source {
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-sent-actions {
-    transition: opacity 120ms ease-out;
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-message:hover .cv-sent-actions {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-sent-actions:focus-within {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
   }
 }
 .cv-message:hover .cv-sent-actions,
@@ -2624,6 +2644,19 @@ a.cv-sha:focus-visible {
 .cv-tool-output__box:hover .cv-tool-output__actions,
 .cv-tool-output__actions:focus-within {
   opacity: 1;
+}
+/* They fade as a message's hover row does (#23769): in after a beat under the pointer, at once from
+   the keyboard, out quickly. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-tool-output__actions {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-tool-output__box:hover .cv-tool-output__actions {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-tool-output__actions:focus-within {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
 }
 /* A tool-call block's body (BlockParts.tsx): past eight lines its first ones fade out at the bottom
    (Show all N lines opens it), and an unwrapped line running past the right edge fades out there
@@ -4167,6 +4200,22 @@ article.acpmux-row:empty {
 .cv-received:focus-within .cv-received__reply {
   opacity: 1;
 }
+/* Reply and the queue tag (below) fade with the line's hover row (.cv-received-actions, #23769): in
+   after a beat under the pointer, at once from the keyboard, out quickly. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-received__reply,
+  .cv-received .cv-received__queued {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-received:hover .cv-received__reply,
+  .cv-received:hover .cv-received__queued {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-received:focus-within .cv-received__reply,
+  .cv-received:focus-within .cv-received__queued {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
+}
 .cv-received__reply:hover,
 .cv-received__reply:focus-visible {
   color: var(--cv-text);
@@ -4183,7 +4232,7 @@ article.acpmux-row:empty {
 }
 /* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): a steer's quiet tag
    at the line's end ("Read after this step"), revealed on hover, focus or its action menu opening.
-   No spinner, no dot, no motion. */
+   No spinner, no dot, no movement: it fades in and out with the line's hover row (above). */
 .cv-received__queued {
   flex: none;
   padding: 0 calc(var(--ds-space-1) + 2px);
