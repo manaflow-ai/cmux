@@ -1,7 +1,7 @@
 import { translate, type Translate } from "./i18n";
 import type { SlashCommand } from "./slashCommands";
 
-export const COMPOSER_PLUS_SECTIONS = ["add", "tools", "sessions", "tabs", "files"] as const;
+export const COMPOSER_PLUS_SECTIONS = ["add", "tools", "apps", "sessions", "tabs", "files"] as const;
 export type ComposerPlusSection = (typeof COMPOSER_PLUS_SECTIONS)[number];
 
 export type ComposerPlusAction =
@@ -219,4 +219,54 @@ export function runComposerPlusAction(
   if (!handlers.extension) return false;
   handlers.extension(action.id);
   return true;
+}
+
+export type NativeComposerAction = {
+  id: string;
+  section: "tools" | "apps" | "sessions" | "tabs";
+  name: string;
+  description: string;
+  icon: string;
+};
+
+/** Only the app's narrow, bound catalog rows become + extensions. No page-invented action IDs. */
+export function nativeComposerExtensions(value: unknown): ComposerPlusExtension[] {
+  if (!Array.isArray(value)) return [];
+  const sections = new Set(["tools", "apps", "sessions", "tabs"]);
+  const icons: Record<string, string> = {
+    openBrowser: "browser",
+    computerUseFocus: "computeruse.observe",
+    "palette.openCloudPane": "cloud",
+    newSurface: "terminal",
+    "app.command.run": "apps.stack",
+    openSettings: "app.permissions",
+    "search.chats": "agent.chat.list",
+    "tab.search": "tunable.panes",
+  };
+  return value.flatMap((row): ComposerPlusExtension[] => {
+    if (!row || typeof row !== "object") return [];
+    const item = row as Record<string, unknown>;
+    if (
+      typeof item.id !== "string" ||
+      typeof item.section !== "string" ||
+      !sections.has(item.section) ||
+      typeof item.name !== "string" ||
+      typeof item.description !== "string" ||
+      !item.id ||
+      !item.name.trim() ||
+      !item.description.trim()
+    )
+      return [];
+    return [
+      {
+        id: item.id,
+        section: item.section as NativeComposerAction["section"],
+        name: item.name,
+        description: item.description,
+        icon: icons[item.id] ?? "terminal",
+        keywords: [item.name, item.description],
+        action: { kind: "command", id: item.id },
+      },
+    ];
+  });
 }

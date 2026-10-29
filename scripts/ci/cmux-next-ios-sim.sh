@@ -177,6 +177,11 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   fi
 fi
 [[ -d "$DEVELOPER_DIR" ]] || { echo "error: no Xcode at $DEVELOPER_DIR" >&2; exit 3; }
+# The simulator runtime and iPhone, chosen before anything is built: the runtime the fleet declares
+# (CMUX_CI_IOS_SIM_RUNTIME, set by the build fleet's controller), else the newest (ios_sim_runtime.py).
+# A host without the declared runtime fails here, with the runtimes it has.
+sim_choice="$(xcrun simctl list -j runtimes devicetypes | python3 -I scripts/ci/ios_sim_runtime.py)" || exit 3
+read -r runtime device_type <<< "$sim_choice"
 
 note "# cmux-next-ios simulator step ($mode)"
 note ""
@@ -212,19 +217,6 @@ note "- build: $((SECONDS - t0)) s (FFI + xcodegen + Demo simulator app), bundle
 sims="$work/sims"
 mkdir -p "$sims"
 simctl() { xcrun simctl --set "$sims" "$@"; }
-read -r runtime device_type < <(xcrun simctl list -j runtimes devicetypes | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-rts = [r for r in d["runtimes"] if r.get("isAvailable") and r.get("platform") == "iOS"]
-rts.sort(key=lambda r: [int(x) for x in r["version"].split(".")])
-rt = rts[-1]
-names = {t["name"]: t["identifier"] for t in rt.get("supportedDeviceTypes", [])}
-for want in ("iPhone 17 Pro", "iPhone 17", "iPhone 16 Pro"):
-    if want in names:
-        print(rt["identifier"], names[want]); break
-else:
-    print(rt["identifier"], [v for k, v in names.items() if k.startswith("iPhone")][-1])
-')
 udid="$(simctl create cmux-next-ios-sim "$device_type" "$runtime")"
 simctl boot "$udid"
 simctl bootstatus "$udid" -b >/dev/null
@@ -245,6 +237,10 @@ keep_test_logs() {
   cp "$log" "$out/$name-test.log" 2>/dev/null || true
   xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2>/dev/null || true
   xcrun xcresulttool get test-results tests --path "$bundle" --compact > "$out/$name-tests.json" 2>/dev/null || true
+  # XCTAttachments (UI tests' keepAlways screenshots) as files, with the
+  # manifest.json that maps each one to its test.
+  mkdir -p "$out/$name-attachments"
+  xcrun xcresulttool export attachments --path "$bundle" --output-path "$out/$name-attachments" >/dev/null 2>&1 || true
   xcrun xcresulttool get test-results summary --path "$bundle" --compact 2>/dev/null | python3 -c '
 import json, sys
 d = json.load(sys.stdin)

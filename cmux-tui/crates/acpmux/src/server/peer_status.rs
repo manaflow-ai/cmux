@@ -80,6 +80,12 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     if !origin.web_class() {
         v["host"] = json!(crate::hub::host_label());
     }
+    // The public node identity is safe to show in status and is what the
+    // platform join/registry APIs use to address this machine. The private
+    // key stays in the transport-owned helper and is never serialized.
+    if let Ok(key) = crate::cli::mesh_node_key::load_or_create() {
+        v["node"] = json!({"wgPublicKey": key.public_key_b64()});
+    }
     v
 }
 
