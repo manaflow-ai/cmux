@@ -284,9 +284,9 @@ async fn a_late_cancelled_boundary_is_suppressed_before_a_fresh_compaction_bound
     t.outbound(&prompt(2, "continue")).await;
     t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
     let stale = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":10}})).await;
-    assert!(!stale.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.pointer("/update/sessionUpdate") == Some(&json!("compaction")))), "{stale:?}");
+    assert!(!stale.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "{stale:?}");
     let fresh = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":9}})).await;
-    assert!(fresh.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.pointer("/update/sessionUpdate") == Some(&json!("compaction")))), "{fresh:?}");
+    assert!(fresh.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "{fresh:?}");
 }
 
 /// A `/compact` that fails: the compacting status, then a status clearing it
