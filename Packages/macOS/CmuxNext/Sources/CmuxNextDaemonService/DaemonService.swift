@@ -228,7 +228,7 @@ public final class DaemonService {
             if let (exiting, identity) = connected, let handOff, await handOff(exiting, identity) {
                 // The new connection's endpoint waits for the old daemon to
                 // exit and starts the bundled build, which adopts the terminals.
-                await exiting.close()
+                await exiting.closeAndWait()
                 // The first connect was in time; the deadline now covers
                 // the successor's start.
                 self?.armStartupDeadline()
@@ -240,7 +240,7 @@ public final class DaemonService {
             }
             guard let (connection, identity) = connected else { return }
             guard let self, !Task.isCancelled else {
-                await connection.close()
+                await connection.closeAndWait()
                 return
             }
             self.didConnect(connection, identity: identity)
@@ -302,7 +302,7 @@ public final class DaemonService {
                     await weakSelf?.noteStartupFailure(error)
                 }
                 if Task.isCancelled {
-                    await connected?.0.close()
+                    await connected?.0.closeAndWait()
                     return
                 }
                 guard let (connection, identity) = connected else {
@@ -311,7 +311,7 @@ public final class DaemonService {
                     continue
                 }
                 guard let self, !Task.isCancelled else {
-                    await connection.close()
+                    await connection.closeAndWait()
                     return
                 }
                 do {
@@ -323,13 +323,13 @@ public final class DaemonService {
                     let show = !Task.isCancelled
                     self.shutdownConnection()
                     if show { store.markFailed(String(describing: error)) }
-                    await connection.close()
+                    await connection.closeAndWait()
                     return
                 }
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)
-                await connection.close()
+                await connection.closeAndWait()
                 if Task.isCancelled { return }
                 guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
             }
