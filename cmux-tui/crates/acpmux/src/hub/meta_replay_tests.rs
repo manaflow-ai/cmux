@@ -83,3 +83,15 @@ fn meta_replay_a_generated_title_keeps_a_harness_title_and_a_name() {
     apply(&mut m, &rec(1, "titled", json!({"title": "generated"})));
     assert_eq!(m.title.as_deref(), Some("generated"));
 }
+
+#[test]
+fn meta_replay_the_read_mark_follows_its_status_records() {
+    let mut m = meta();
+    apply(&mut m, &rec(1, "status", json!({"status": "idle", "read": false})));
+    assert!(m.unread);
+    // A turn's status record (no `read`) leaves the mark.
+    apply(&mut m, &rec(2, "status", json!({"status": "running"})));
+    assert!(m.unread);
+    apply(&mut m, &rec(3, "status", json!({"status": "idle", "read": true})));
+    assert!(!m.unread);
+}

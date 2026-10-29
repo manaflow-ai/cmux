@@ -9,7 +9,8 @@
 //! same value again).
 //!
 //! The settings: the name (`renamed`), the generated title (`titled`), the tags (`tags`, with
-//! their expiry since this change), the permission policy (`policy`) and rules (`rules`). Each
+//! their expiry since this change), the permission policy (`policy`) and rules (`rules`), and the
+//! person's read or unread mark (a `status` record with `read`, `seen.rs`). Each
 //! is changed and logged in one step after the session is caught up (`Hub::change_logged`), so
 //! the replay comes before a change made while a deferred start still reads the logs, never
 //! over it, and the records are in the order of the changes.
@@ -45,7 +46,7 @@ impl Hub {
 }
 
 /// The log record kinds [`apply`] reads.
-pub(super) const KINDS: &[&str] = &["renamed", "titled", "tags", "policy", "rules"];
+pub(super) const KINDS: &[&str] = &["renamed", "titled", "tags", "policy", "rules", "status"];
 
 /// Applies `rec`, a record after the saved record's `lastSeq`, to `meta`.
 pub(super) fn apply(meta: &mut SessionMeta, rec: &EventRecord) {
@@ -90,6 +91,13 @@ pub(super) fn apply(meta: &mut SessionMeta, rec: &EventRecord) {
             meta.permission_policy = msg.get("policy").and_then(Value::as_str).map(str::to_owned);
         }
         "rules" => meta.permission_rules = msg.get("rules").cloned().filter(|r| !r.is_null()),
+        // The person's read or unread mark (`seen.rs`); a status record without `read` (a turn's
+        // status) changes nothing here.
+        "status" => {
+            if let Some(read) = msg.get("read").and_then(Value::as_bool) {
+                meta.unread = !read;
+            }
+        }
         _ => {}
     }
 }
