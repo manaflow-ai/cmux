@@ -95,6 +95,7 @@ extension SettingsSchema {
         "appearance.theme",
         "appearance.appTheme",
         "appearance.accent",
+        "appearance.highlightColor", // the app's one selected-text color (looks only)
         "appearance.themeEdits",
         "appearance.machineColors", // the color of each machine's marks (looks only)
         "appearance.backdropArt",
