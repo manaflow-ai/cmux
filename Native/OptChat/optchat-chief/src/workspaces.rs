@@ -935,6 +935,17 @@ pub fn new_group_index(home: &Path) -> Option<usize> {
 /// workspace group <g> add` sends, so it sits in a group exactly as a workspace the user
 /// grouped does (a423).
 pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
+    place_in_personal_group_from(daemon, key, name, &home_dir())
+}
+
+/// [`place_in_personal_group`] with `workspaces.newPlacement` read from home folder `home`: under
+/// `top` (the default) the workspace goes first in its group, else last.
+pub fn place_in_personal_group_from(
+    daemon: &Path,
+    key: &str,
+    name: &str,
+    home: &Path,
+) -> Result<(), String> {
     let here = || json!({"machine": "current", "session": "current"});
     let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
     let group = match pick_group(name, &groups_of(&listed)) {
@@ -945,7 +956,7 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
             // A group made for a new workspace follows `workspaces.newPlacement` like every
             // other new workspace (Cmd-N, the sidebar's +): first under `top` (the default),
             // else last. The workspace is placed in it below, so a last group put it last.
-            if let Some(index) = new_group_index(&home_dir()) {
+            if let Some(index) = new_group_index(home) {
                 params["index"] = json!(index);
             }
             let made = resource_call(
@@ -968,6 +979,11 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
     let mut params = here();
     params["workspace"] = json!(workspace);
     params["group"] = json!(group);
+    // Lawrence 2026-10-28: a new workspace made in a group goes to the top of that group under
+    // `top` (the default), as Cmd-N in a group does; without an index the daemon put it last.
+    if let Some(index) = new_group_index(home) {
+        params["index"] = json!(index);
+    }
     resource_call(
         daemon,
         "workspace.place",

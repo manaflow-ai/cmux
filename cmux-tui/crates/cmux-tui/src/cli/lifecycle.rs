@@ -5,6 +5,7 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+use cmux_json::JsonSet as _;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
@@ -791,7 +792,7 @@ fn run_ensure(
                 "message":message,
             });
             if let Some(pid) = replaced {
-                result["replaced_pid"] = json!(pid);
+                result.set("replaced_pid", json!(pid));
             }
             print_success(result, output)
         }
