@@ -282,7 +282,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "sidebar.controlsOnHover.on", title: t("action.sidebar.controlsOnHover.on", "Show Sidebar Controls Only on Hover"),
                 keywords: ["sidebar", "minimal", "hover", "hide", "controls", "buttons", "search", "profile", "spaces", "footer", "clean"],
-                category: .sidebar, symbol: "rectangle.dashed",
+                category: .sidebar, symbol: "cursorarrow.rays",
                 surfaces: [.palette, .contextMenu], cliName: "sidebar hide-controls-until-hover",
                 surfacePlan: plan(menus: [p(.sidebarBackground, .view, 137, folder: .options)])
             ),

@@ -946,8 +946,10 @@ impl Mux {
             } else if let Some(width) = viewport_width {
                 let column = LayoutColumn::single(split_id.expect("column id"), width, pane_id);
                 let base = base_column_id.expect("viewport column reserved a base id");
+                // `direction: "left"` (`column-left-v1`) opens the column before the target's.
+                let before = split_direction.is_some_and(|(_, before_target)| before_target);
                 anyhow::ensure!(
-                    screen.insert_layout_column_after(target, base, column),
+                    screen.insert_layout_column_beside(target, base, column, before),
                     "target pane disappeared from its layout"
                 );
             } else if let Some((dir, before_target)) = split_direction {
