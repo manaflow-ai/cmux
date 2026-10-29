@@ -73,6 +73,36 @@ struct AgentPaneUnsentPromptTests {
         _ = await pane.inbox.frame(containing: #""id":\#(id)"#)
     }
 
+    /// A journal write failure must keep the prompt on the page's Retry path. It must not reach
+    /// acpmux without the durable crash/relaunch record that protects it.
+    @Test func aFailedJournalWriteDoesNotSendAndRemainsRetryable() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("unsent-prompt-write-failure-(UUID().uuidString)")
+        let blocked = root.appendingPathComponent("blocked")
+        let url = blocked.appendingPathComponent(AgentPanePromptJournal.fileName)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("not a directory".utf8).write(to: blocked)
+
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let pane = try await Self.pane(daemon, journal: AgentPanePromptJournal(url: url))
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "write-fails")]) != nil,
+                "a prompt whose journal write failed must be reported as not sent")
+        #expect(Self.prompts(daemon, peer: 0).isEmpty,
+                "a prompt must not reach acpmux until its journal record is durable")
+
+        try FileManager.default.removeItem(at: blocked)
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "write-fails")]) == nil)
+        try #require(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 1 })
+        await pane.transport.promptJournal?.settle()
+        #expect(pane.transport.promptJournal?.entries().count == 1,
+                "Retry should be able to journal and send the previously unsent prompt")
+    }
+
     /// The first run sends a prompt; the daemon takes it but the app ends before acpmux's
     /// acknowledgement. The relaunch sends it once, as a resend of the same prompt id, and no
     /// later connection or launch sends it again.
