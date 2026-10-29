@@ -72,9 +72,12 @@ UNKNOWN = "unknown"
 PROMOTION_RACE_MINUTES = 2.0
 
 
-def youngest_start(now: dt.datetime, starts: list[dict], promotions: list[dict]) -> float | None:
-    """Minutes since the newest build start: a nightly-next push run's creation, or a promotion
-    created within PROMOTION_RACE_MINUTES (its run may not be listed yet). None when there is none."""
+def youngest_start(now: dt.datetime, starts: list[dict], promotions: list[dict],
+                   promotion_minutes: float = PROMOTION_MINUTES) -> float | None:
+    """Minutes since the newest build start: a nightly-next push run's creation, or a promotion that
+    may still start one (its run may not be listed yet): one still running and younger than
+    `promotion_minutes`, or a finished one younger than PROMOTION_RACE_MINUTES. None when there is
+    none."""
     ages = []
     for run in starts:
         try:
@@ -88,7 +91,7 @@ def youngest_start(now: dt.datetime, starts: list[dict], promotions: list[dict])
             age = (now - watch.parse_time(run["created_at"])).total_seconds() / 60
         except (KeyError, TypeError, ValueError):
             continue
-        if age < PROMOTION_RACE_MINUTES:
+        if age < PROMOTION_RACE_MINUTES or (run.get("status") != "completed" and age < promotion_minutes):
             ages.append(age)
     ages = [age for age in ages if age >= 0]
     return min(ages) if ages else None
@@ -112,7 +115,7 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
     if not head:
         return True, "nightly-next is unreadable; asking as before"
     building = ""
-    since_start = youngest_start(now, starts or [], promotions)
+    since_start = youngest_start(now, starts or [], promotions, promotion_minutes)
     if since_start is not None and since_start < PROMOTION_RACE_MINUTES:
         building = f"a build started {since_start * 60:.0f} s ago"
     for run in promotions if not building else []:
@@ -206,6 +209,13 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
         # One listing of nightly-next's recent push runs: its head's runs, and the newest start.
         recent = api(base + urllib.parse.urlencode(
             {"branch": "nightly-next", "event": "push", "per_page": 20}))["workflow_runs"]
+    except Exception as error:  # noqa: BLE001
+        print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); promoting")
+        return True, f"could not read the running builds ({error!r}); promoting"
+    # A start inside the window holds the next one whatever else can be read: a failed read
+    # after this point never adds a build beside a start this young.
+    since_start = youngest_start(now, recent, [])
+    try:
         head_runs = [run for run in recent if (run.get("head_sha") or "").lower() == head.lower()]
         promotions = api(base + urllib.parse.urlencode(
             {"branch": "main", "event": "workflow_dispatch", "per_page": 10}))["workflow_runs"]
@@ -217,6 +227,11 @@ def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
                       oldest_waiting=oldest_after(api, repo, head, tip), window_minutes=window_minutes,
                       starts=recent)
     except Exception as error:  # noqa: BLE001
+        if since_start is not None and since_start < window_minutes:
+            print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); "
+                  f"a build started {since_start:.0f} min ago, so waiting")
+            return False, (f"could not read the running builds ({error!r}); the newest build started "
+                           f"{since_start:.0f} of {window_minutes:g} min ago, so waiting")
         print(f"::warning title=nightly-next rolling rule::could not read the running builds ({error!r}); promoting")
         return True, f"could not read the running builds ({error!r}); promoting"
 

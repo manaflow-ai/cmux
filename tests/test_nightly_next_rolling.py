@@ -190,6 +190,32 @@ class OneStartPerWindowTests(unittest.TestCase):
         self.assertFalse(go, reason)
         self.assertRegex(reason, r"a build started [0-9]+ s ago")
 
+    def test_a_running_promotion_past_the_race_window_is_still_a_start(self):
+        """Review of 225721ef: a 3-minute-old promotion still running, its push run not listed, let
+        an old landing promote a second build."""
+        promo = run(38, 3, status="in_progress", display_title="Promote nightly-next to tick:" + WAITING)
+        go, reason = rolling.decide(NOW, head=HEAD, head_runs=[], jobs_of=lambda r: [], promotions=[promo],
+                                    oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[])
+        self.assertFalse(go, reason)
+        self.assertIn("started 3 of 10 min ago", reason)
+        stale = run(39, 16, status="in_progress", display_title="Promote nightly-next to tick:" + WAITING)
+        self.assertTrue(rolling.decide(NOW, head=HEAD, head_runs=[], jobs_of=lambda r: [], promotions=[stale],
+                                       oldest_waiting=(WAITING, NOW - dt.timedelta(minutes=24)), starts=[])[0],
+                        "a promotion stuck past PROMOTION_MINUTES is not a start")
+
+    def test_a_failed_read_after_a_young_start_waits(self):
+        """Review of 225721ef: a jobs or promotion read that fails must not bypass a start it already saw."""
+        for broken in ("event=workflow_dispatch", "/jobs?"):
+            with self.subTest(broken=broken):
+                api = api_for(compare("ahead", [(WAITING, 30)]), runs=[run(40, 4, head_sha=HEAD)])
+                api.routes[broken] = OSError("502")
+                go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
+                self.assertFalse(go, reason)
+                self.assertIn("so waiting", reason)
+        old = api_for(compare("ahead", [(WAITING, 30)]), runs=[run(41, 30, head_sha=HEAD)])
+        old.routes["/jobs?"] = OSError("502")
+        self.assertTrue(rolling.evaluate(NOW, "o/r", TIP, api=old)[0], "an old start and a failed read still promote")
+
     def test_with_nothing_building_and_no_recent_start_it_promotes_at_once(self):
         promo = run(35, 3, status="completed", display_title="Promote nightly-next to tick:" + WAITING)
         done = run(36, 40, status="completed", head_sha=HEAD)
