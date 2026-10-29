@@ -947,15 +947,18 @@ const SCROLLBAR_HEIGHT = 15;
 const FALLBACK_CHAR_WIDTH = 8;
 /// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): 720px,
 /// 62.5% of a wider pane up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
-/// centered, at least the page edge from each side.
+/// centered, at least the page edge from each side. `endReserve` is room a card keeps at the
+/// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
+/// leave it, its start stays.
 const PAGE_EDGE = 18;
-export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) {
+export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn(), endReserve = 0) {
   const column = Math.min(max, Math.max(min, paneWidth * share));
   const inset = Math.max(PAGE_EDGE, (paneWidth - column) / 2);
-  return { inset, width: paneWidth - 2 * inset };
+  const insetEnd = Math.max(inset, endReserve);
+  return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
-export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn) =>
-  Math.max(120, transcriptColumn(paneWidth, column).width);
+export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endReserve = 0) =>
+  Math.max(120, transcriptColumn(paneWidth, column, endReserve).width);
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
 export function markdownBlocks(source: string): Token[] {

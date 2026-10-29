@@ -141,7 +141,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
     public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
-    /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
+    /// `layout.defaultColumnWidth`; two thirds when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()
@@ -240,6 +240,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var chromeTheme: String?
     /// `appearance.themeEdits`: per-token color edits to themes; none when unset.
     public var themeEdits = ThemeEdits.none
+    /// `appearance.highlightColor`: the app's one highlight color (`#rrggbb`) over the terminal
+    /// theme's `selection-background`; nil (the theme's) when unset or invalid.
+    public var highlightColor: String?
     /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
     public var accent: ThemeAccent = AccentSetting().fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
@@ -451,6 +454,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        let (highlight, highlightDiagnostic) = HighlightColorSetting().parse(root)
+        snapshot.highlightColor = highlight
+        if let highlightDiagnostic { snapshot.diagnostics.append(highlightDiagnostic) }
         let (accent, accentDiagnostic) = AccentSetting().parse(root)
         snapshot.accent = accent
         if let accentDiagnostic { snapshot.diagnostics.append(accentDiagnostic) }
