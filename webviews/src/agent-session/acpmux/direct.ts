@@ -6071,11 +6071,12 @@ export class AcpmuxDirectClient {
     );
     // Startup picks handed to this new-chat page are one-shot defaults: consume them only after
     // session/new succeeds, so a failed start can retry with the same picks. The inherited cwd
-    // keeps its existing first-chat behavior; later chats start where acpmux defaults.
+    // keeps its existing first-chat behavior for local starts. A peer's explicit folder is
+    // remote, so it must leave with the startup peer before a later local chat can inherit it.
     if (result?.sessionId) {
       this.host = {
         ...this.host,
-        ...(cwd ? {} : { cwd: undefined }),
+        ...(cwd && !peer && !this.host.peer ? {} : { cwd: undefined }),
         harness: undefined,
         model: undefined,
         peer: undefined,
