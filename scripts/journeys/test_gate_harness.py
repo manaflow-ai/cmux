@@ -38,8 +38,8 @@ class CoveredApp:
     """One window whose single pane is occluded until debug.window.focus brings the window to the front
     (`stays_covered`: another app keeps it covered)."""
 
-    def __init__(self, stays_covered=False):
-        self.covered, self.stays_covered, self.calls = True, stays_covered, []
+    def __init__(self, stays_covered=False, family=False):
+        self.covered, self.stays_covered, self.calls, self.family = True, stays_covered, [], family
         self.snapshot_window = None
 
     def rpc(self, method, params=None, timeout=None):
@@ -47,6 +47,8 @@ class CoveredApp:
         if method == "debug.window.focus":
             self.covered = self.stays_covered
             return {"front": params["window"]}
+        if method == "debug.windows":
+            return {"windows": [{"id": "w-1", "family_occluded": self.family}]}
         if method == "debug.surfaces":
             pane = {"pane": "pane_1", "visible": True, "grid": {"window": "w-1"}, "window_occluded": self.covered,
                     "surface": {"paused": "window_occluded" if self.covered else None, "drawing": not self.covered}}
@@ -107,6 +109,31 @@ class FramesReadASeenWindow(unittest.TestCase):
         self.assertIn("daemon_line", str(failed.exception))
         with self.assertRaises(D.NotRun):
             j.step_expect({"timeout": 0.2, "all": [{"frame_text": "x"}]})
+
+
+class FrameEvidence(unittest.TestCase):
+    """v2.2.6-opt gate: an empty pane paused window_occluded with AppKit's occluded false could not be explained, because
+    the app's own cover judgment and its window state were not saved."""
+
+    def test_seen_carries_the_apps_own_cover_judgment(self):
+        app = CoveredApp(family=True)
+        app.covered = False
+        seen = bare_journey(app).ensure_seen()
+        self.assertIs(seen["family_occluded"], True)
+
+    def test_a_failed_frame_check_saves_the_apps_surfaces_and_windows(self):
+        import tempfile, json as _json
+        app = CoveredApp()
+        app.covered = False
+        j = bare_journey(app)
+        j.out = Path(tempfile.mkdtemp())
+        j.marks, j.evidence = {}, []
+        j.evaluate = lambda name, want, cache: (False, {})
+        with self.assertRaises(D.StepError):
+            j.step_expect({"timeout": 0.1, "all": [{"frame_text": "x"}]})
+        dump = _json.loads((j.out / "diag-framefail.json").read_text())
+        self.assertIn("surfaces", dump)
+        self.assertEqual(dump["windows"]["windows"][0]["id"], "w-1")
 
 
 class ProvisionalTerminalID(unittest.TestCase):

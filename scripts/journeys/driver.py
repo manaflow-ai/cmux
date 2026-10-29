@@ -1330,6 +1330,10 @@ class Journey:
                 if ok:
                     s["ok"], s["at"] = True, now()
                 elif now() >= frame_until and tries >= 2:
+                    try:
+                        self.save_frame_failure()
+                    except OSError:
+                        pass
                     break
         failed = []
         for s in state:
@@ -1406,7 +1410,33 @@ class Journey:
         record["panes"] = [{"pane": p.get("pane"), "occluded": p.get("window_occluded"),
                             "paused": (p.get("surface") or {}).get("paused"),
                             "drawing": (p.get("surface") or {}).get("drawing")} for p in rows]
+        # The app's own cover judgment (WindowOcclusionFamily: one of its opaque windows in front with a frame that
+        # contains this one), which AppKit's occlusion does not report: a pane paused `window_occluded` with
+        # `occluded` false is covered by the app's own window when this is true, else its pause is stale.
+        record["family_occluded"] = self.family_occluded(wid)
         return record
+
+    def family_occluded(self, wid):
+        """debug.windows' family_occluded of window WID (None when unknown)."""
+        if not wid:
+            return None
+        try:
+            report = self.app.rpc("debug.windows", {}) or {}
+        except (StepError, OSError, ValueError):
+            return None
+        return next((w.get("family_occluded") for w in report.get("windows", []) if w.get("id") == wid), None)
+
+    def save_frame_failure(self):
+        """A failed frame check keeps the app's full debug.surfaces (every pane's surface, its pause and, in builds
+        that have it, pause_record) and debug.windows as diag-framefail.json: the state behind an empty pane is read,
+        not guessed (v2.2.6-opt gate: ctrl-c failed paused window_occluded with no saved window state)."""
+        dump = {}
+        for name, method in (("surfaces", "debug.surfaces"), ("windows", "debug.windows")):
+            try:
+                dump[name] = self.app.rpc(method, {"text": True} if name == "surfaces" else {}, timeout=30)
+            except (StepError, OSError, ValueError) as error:
+                dump[name] = {"error": str(error)[-300:]}
+        (self.out / "diag-framefail.json").write_text(json.dumps(dump, indent=1, default=str) + "\n")
 
     def covers_of(self, number):
         """The on-screen windows in front of window NUMBER (the window server's id, debug.surfaces' `window`)
