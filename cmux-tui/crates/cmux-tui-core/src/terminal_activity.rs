@@ -234,6 +234,17 @@ impl ShellActivity {
                 self.input_after_prompt = self.owed_prompts > 0 || self.unsubmitted;
                 true
             }
+            // A continuation prompt (PS2: an open quote, a heredoc, a `for`
+            // loop over lines) answers the Return before it, so that line is
+            // paid, but the command it continues is not finished: the shell
+            // holds its text, so it stays not idle until a primary `A`.
+            ShellMark::SecondaryPromptStart => {
+                if self.prompted {
+                    self.owed_prompts = self.owed_prompts.saturating_sub(1);
+                }
+                self.input_after_prompt = true;
+                false
+            }
             ShellMark::InputStart => false,
         }
     }
@@ -891,6 +902,24 @@ mod tests {
         let epoch = activity.foreground_check_due().expect("a new check is due");
         activity.record_foreground(epoch, true);
         assert_eq!(activity.idle_since(), Some(1_000));
+    }
+
+    /// A continuation prompt (`133;A;k=s`) pays its line but never makes the
+    /// shell idle: the command it continues is unfinished.
+    #[test]
+    fn shell_idle_a_secondary_prompt_is_never_idle_and_the_primary_after_it_is() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"cat <<EOF\r");
+        activity.observe(ShellMark::SecondaryPromptStart, 1_100);
+        assert_eq!(activity.foreground_check_due(), None, "the heredoc is unfinished");
+        activity.observe(ShellMark::InputStart, 1_101);
+        assert_eq!(activity.foreground_check_due(), None);
+        activity.note_input(b"a line\r");
+        activity.observe(ShellMark::SecondaryPromptStart, 1_200);
+        assert_eq!(activity.idle_since(), None);
+        activity.note_input(b"EOF\r");
+        activity.observe(ShellMark::PromptStart, 1_300);
+        assert!(activity.foreground_check_due().is_some(), "the primary prompt after it");
     }
 
     #[test]
