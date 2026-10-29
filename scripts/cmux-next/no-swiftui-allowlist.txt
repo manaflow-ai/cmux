@@ -157,3 +157,4 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedNoticeControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedPlainFieldsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedSwiftUIControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/ThinSwiftUIScrollersTests.swift
+Packages/macOS/CmuxNext/Tests/CmuxNextInputTests/ScrollViewAuditTests.swift  # tests that the scroll view audit marks a scroll view in an NSHostingView as SwiftUI-hosted; no NSHostingView is reachable from CmuxNextInputTests' dependencies (DECISION NEEDED, Lawrence)
