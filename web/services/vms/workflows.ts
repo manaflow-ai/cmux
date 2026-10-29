@@ -3843,7 +3843,12 @@ function waitForRunningOutcome(
   });
 }
 
-function setRuntimeBudget(providers: VmProviderGatewayShape, vm: CloudVmRow, vmId: string, seconds: number | null) {
+function setRuntimeBudget(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  vmId: string,
+  seconds: number | null,
+): Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError> {
   if (!providers.setRuntimeBudget) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "runtime limits" }));
   return providers.setRuntimeBudget(vm.provider, vmId, seconds);
 }

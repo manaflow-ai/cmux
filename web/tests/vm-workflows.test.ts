@@ -42,7 +42,6 @@ import {
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
-  VmUsageLimitExceededError,
   isVmCreateDisabledError,
   vmWorkflowErrorCause,
 } from "../services/vms/errors";
@@ -3636,7 +3635,7 @@ describe("VM Effect workflows", () => {
     expect(usageEventAttempts).toBe(2);
   });
 
-  dbTest("preflights Go runtime before replacing a destroyed idempotent row", async () => {
+  dbTest("replaces a destroyed Starter idempotent row without a billing-period or hour gate", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
@@ -3656,7 +3655,7 @@ describe("VM Effect workflows", () => {
       ...unusedProviderGateway(),
       create: () => Effect.sync(() => {
         createCalls += 1;
-        return testVmHandle({ providerVmId: "provider-vm-should-not-start" });
+        return testVmHandle({ providerVmId: "provider-vm-starter-replacement" });
       }),
     };
 
@@ -3669,18 +3668,16 @@ describe("VM Effect workflows", () => {
         maxActiveVms: 1,
         provider: "freestyle",
         image: "snapshot-go",
-        // Default Go creates carry the fixed Go shape (the route sends the
-        // image selection's size). Without it the shape check rejects the
-        // request before the runtime allowance is read, and this test would
-        // not reach it.
+        // Match the fixed Starter image sent by the create route so this
+        // exercises replacement admission without any subscription period.
         imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
         idempotencyKey: "go-destroyed-retry",
       }).pipe(Effect.provide(providerLayer(provider))),
     ));
 
-    expect(result._tag).toBe("Left");
-    if (result._tag === "Left") expect(result.left).toBeInstanceOf(VmUsageLimitExceededError);
-    expect(createCalls).toBe(0);
+    expect(result._tag).toBe("Right");
+    if (result._tag === "Right") expect(result.right.providerVmId).toBe("provider-vm-starter-replacement");
+    expect(createCalls).toBe(1);
 
     const rows = await sql<{ status: string }[]>`
       select status
@@ -3688,7 +3685,7 @@ describe("VM Effect workflows", () => {
       where billing_team_id = 'team-workflow-go-destroyed-retry'
     `;
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.status).toBe("destroyed");
+    expect(rows[0]?.status).toBe("running");
   });
 
   test("create configures the first guest prompt with the stored display name", async () => {
