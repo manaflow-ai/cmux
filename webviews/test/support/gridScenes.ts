@@ -1,8 +1,6 @@
 import type { GridLine, GridMetric, GridPoint, GridScene } from "./gridLines";
 
-// Roles are resolved by the parent-owned measurement API; selectors remain the fallback.
-// The intersection keeps this helper compatible until that API commit is integrated.
-type RolePoint = GridPoint & { role?: string; scope?: "surface" | "document" };
+// Roles identify ink targets; selectors remain available while surfaces migrate.
 const selectorRoles: Record<string, string> = {
   ":scope": "box",
   ".acpmux-composer-box": "box",
@@ -35,7 +33,7 @@ const selectorRoles: Record<string, string> = {
   ".acpmux-running-tray__finished svg": "chevron",
   ".acpmux-running-tray__status": "chevron",
 };
-const point = (selector: string, metric: GridMetric, role?: string): RolePoint => ({
+const point = (selector: string, metric: GridMetric, role?: string): GridPoint => ({
   selector,
   metric,
   role: selectorRoles[selector] ?? role ?? (metric === "text" || metric === "optical" ? "text" : undefined),
@@ -61,13 +59,7 @@ const centered = (glyph: string, control: string): GridLine[] => [
   value("mid: glyph", glyph, "cy", point(control, "cy")),
   value("control: glyph x", glyph, "cx", point(control, "cx")),
 ];
-const scene = (
-  surface: string,
-  entry: string,
-  variant: string,
-  root: string,
-  lines: GridLine[],
-): GridScene & { rootRole?: string } => ({
+const scene = (surface: string, entry: string, variant: string, root: string, lines: GridLine[]): GridScene => ({
   surface,
   level: "warn",
   entry,
