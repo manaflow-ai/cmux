@@ -38,12 +38,11 @@ pub(super) fn handles(cmd: &Command) -> bool {
 }
 
 pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
-    let deadline = match &cmd {
+    let deadline = caller_deadline(match &cmd {
         Command::New(args) => args.timeout,
         Command::Send { timeout, .. } => *timeout,
         _ => None,
-    }
-    .map(|seconds| tokio::time::Instant::now() + std::time::Duration::from_secs(seconds));
+    })?;
     match cmd {
         Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
         Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,

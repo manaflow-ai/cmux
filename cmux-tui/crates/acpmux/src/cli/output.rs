@@ -11,6 +11,17 @@ use std::time::Duration;
 
 const UPDATE_RECONNECT_BUDGET: Duration = Duration::from_secs(20);
 
+/// Reject timeouts the monotonic clock cannot represent, rather than panicking.
+pub(crate) fn caller_deadline(timeout: Option<u64>) -> Result<Option<tokio::time::Instant>> {
+    timeout
+        .map(|seconds| {
+            tokio::time::Instant::now().checked_add(Duration::from_secs(seconds)).ok_or_else(|| {
+                crate::cli::errors::AppError::usage("--timeout is too large for this clock").into()
+            })
+        })
+        .transpose()
+}
+
 pub(crate) async fn before_deadline<T>(
     deadline: Option<tokio::time::Instant>,
     id: &str,
@@ -387,8 +398,10 @@ pub(crate) async fn stream_prompt(
     suppress_reads: bool,
     prompt: &PromptId,
 ) -> Result<()> {
-    let started = tokio::time::Instant::now();
-    let deadline = opts.deadline.or_else(|| opts.timeout.map(|s| started + Duration::from_secs(s)));
+    let deadline = match opts.deadline {
+        Some(deadline) => Some(deadline),
+        None => caller_deadline(opts.timeout)?,
+    };
     let mut progress = StreamProgress::default();
     match stream_prompt_once(
         client,
@@ -519,7 +532,13 @@ async fn stream_prompt_once(
                     asked += 1;
                     if opts.on_permission != OnPermission::Wait {
                         denied += 1;
-                        if before_deadline(deadline, id, async { Ok(auto_answer(&client, id, &p, opts.on_permission).await) }).await? {
+                        // This future only errors when the deadline expires. Use the same
+                        // ownership-aware cancellation as the ordinary timeout branch.
+                        let failed = match before_deadline(deadline, id, async { Ok(auto_answer(&client, id, &p, opts.on_permission).await) }).await {
+                            Ok(failed) => failed,
+                            Err(_) => return Err(timed_out(&client, id, opts, &steered, &mut turn).await),
+                        };
+                        if failed {
                             fail_permission = true;
                             let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
                         }
@@ -777,8 +796,10 @@ pub(crate) async fn collect_reply(
     opts: CollectOpts,
     prompt: &PromptId,
 ) -> Result<CollectResult> {
-    let started = tokio::time::Instant::now();
-    let deadline = opts.deadline.or_else(|| opts.timeout.map(|s| started + Duration::from_secs(s)));
+    let deadline = match opts.deadline {
+        Some(deadline) => Some(deadline),
+        None => caller_deadline(opts.timeout)?,
+    };
     let mut attempt = 0u32;
     let mut client = client;
     let mut update_retry = false;
@@ -923,7 +944,11 @@ async fn collect_once(
                             }
                             mode => {
                                 denied += 1;
-                                if before_deadline(deadline, id, async { Ok(auto_answer(&client, id, &p, mode).await) }).await? {
+                                let failed = match before_deadline(deadline, id, async { Ok(auto_answer(&client, id, &p, mode).await) }).await {
+                                    Ok(failed) => failed,
+                                    Err(_) => return Err(timed_out(&client, id, opts, &steered, &mut turn).await),
+                                };
+                                if failed {
                                     fail_permission = true;
                                     let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
                                 }

@@ -19,38 +19,72 @@ pub(super) async fn queue(
     json_out: bool,
     deadline: Option<tokio::time::Instant>,
 ) -> Result<()> {
-    match before_deadline(
-        deadline,
-        session,
-        queue_once(client, session, text, steer, prompt_id, superseding, json_out),
-    )
-    .await
-    {
-        Ok(()) => Ok(()),
-        Err(error) if super::super::output::daemon_closed_error(&error) => {
-            let replacement = before_deadline(deadline, session, async {
-                super::super::output::reconnect_after_update().await.map_err(|e| {
-                    prompt_id.closed(
-                        client,
-                        session,
-                        &format!("reconnecting after daemon update: {e}"),
-                    )
-                })
-            })
-            .await?;
-            let mut retry = prompt_id.clone();
-            retry.resend = true;
-            before_deadline(
-                deadline,
+    let mut delivery_id = None;
+    let outcome = async {
+        match before_deadline(
+            deadline,
+            session,
+            queue_once(
+                client,
                 session,
-                queue_once(&replacement, session, text, steer, &retry, superseding, json_out),
-            )
-            .await
+                text,
+                steer,
+                prompt_id,
+                superseding,
+                json_out,
+                &mut delivery_id,
+            ),
+        )
+        .await
+        {
+            Ok(()) => Ok(()),
+            Err(error) if super::super::output::daemon_closed_error(&error) => {
+                let replacement = before_deadline(deadline, session, async {
+                    super::super::output::reconnect_after_update().await.map_err(|e| {
+                        prompt_id.closed(
+                            client,
+                            session,
+                            &format!("reconnecting after daemon update: {e}"),
+                        )
+                    })
+                })
+                .await?;
+                let mut retry = prompt_id.clone();
+                retry.resend = true;
+                before_deadline(
+                    deadline,
+                    session,
+                    queue_once(
+                        &replacement,
+                        session,
+                        text,
+                        steer,
+                        &retry,
+                        superseding,
+                        json_out,
+                        &mut delivery_id,
+                    ),
+                )
+                .await
+            }
+            Err(error) => Err(error),
         }
-        Err(error) => Err(error),
     }
+    .await;
+    outcome.map_err(|error| {
+        let Some(app) = error.downcast_ref::<errors::AppError>() else { return error };
+        if app.code != errors::Code::Timeout { return error; }
+        let recovery = match &delivery_id {
+            Some(delivery) => format!("Delivery {delivery} is recorded; check it with acpmux send --status {delivery}, or resend with --prompt-id {} to reuse the same delivery.", prompt_id.id),
+            None => format!("The prompt may have been accepted; resend with --prompt-id {} to recover its outcome without running it twice.", prompt_id.id),
+        };
+        let mut data = json!({"resend": true, "recovery": recovery});
+        if let Some(delivery) = delivery_id { data["deliveryId"] = json!(delivery); }
+        app.clone().with_session(session).with_prompt(&prompt_id.id).retryable().with_data(data).into()
+    })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn queue_once(
     client: &std::sync::Arc<crate::client::Client>,
     session: &str,
@@ -59,6 +93,7 @@ async fn queue_once(
     prompt_id: &PromptId,
     superseding: bool,
     json_out: bool,
+    delivery_id: &mut Option<String>,
 ) -> Result<()> {
     let key = orchestrate::expand_session_key(session)?;
     let request = prompt_id.params(&key, text, steer, None);
@@ -76,6 +111,7 @@ async fn queue_once(
         Err(e) => return Err(e),
     };
     let id = queued.get("deliveryId").and_then(Value::as_str).unwrap_or_default().to_owned();
+    *delivery_id = (!id.is_empty()).then(|| id.clone());
     let status = client
         .request(method::MUX_SEND_STATUS, json!({"deliveryId": id, "waitMs": QUICK_WAIT_MS}))
         .await

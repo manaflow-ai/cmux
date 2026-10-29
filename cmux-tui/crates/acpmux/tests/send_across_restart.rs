@@ -563,6 +563,16 @@ async fn no_wait_reconnect_status_shares_the_caller_deadline() {
 }
 
 #[tokio::test]
+async fn no_wait_legacy_queue_timeout_preserves_recovery_identity() {
+    assert_full_call_deadline("legacy", "no-wait").await;
+}
+
+#[tokio::test]
+async fn no_wait_replay_keeps_given_prompt_id_and_resend() {
+    assert_full_call_deadline("queue", "no-wait-given").await;
+}
+
+#[tokio::test]
 async fn streaming_permission_response_shares_the_caller_deadline() {
     assert_full_call_deadline("permission", "stream").await;
 }
@@ -572,14 +582,41 @@ async fn collected_permission_response_shares_the_caller_deadline() {
     assert_full_call_deadline("permission", "quiet").await;
 }
 
+#[tokio::test]
+async fn streaming_steered_permission_timeout_leaves_the_other_turn_running() {
+    assert_full_call_deadline("permission", "stream-steer").await;
+}
+
+#[tokio::test]
+async fn collected_steered_permission_timeout_leaves_the_other_turn_running() {
+    assert_full_call_deadline("permission", "quiet-steer").await;
+}
+
+#[test]
+fn unrepresentable_send_timeout_is_usage_without_connecting() {
+    let dir = scratch("overflow-timeout");
+    let out = cli(&dir, &["send", "--timeout", "18446744073709551615", "lane", "hello"]);
+    fs::remove_dir_all(dir).unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", text(&out));
+    assert!(!String::from_utf8_lossy(&out.stderr).contains("panicked"), "{}", text(&out));
+}
+
 /// The fixture accepts every connection and stalls one known RPC for three
 /// seconds. It eventually answers even on the old CLI, so the regression red
 /// finishes without a test-runner timeout. A lost outbox acceptance exercises
 /// the replacement connection before it stalls its queue/status operation.
 async fn assert_full_call_deadline(phase: &'static str, mode: &'static str) {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let dir = scratch(&format!("deadline-{phase}-{mode}"));
     let listener = tokio::net::UnixListener::bind(dir.join("acpmux.sock")).unwrap();
+    let cancels = Arc::new(AtomicUsize::new(0));
+    let observed_cancels = cancels.clone();
+    let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed_requests = requests.clone();
     let server = tokio::spawn(async move {
         let mut connections = tokio::task::JoinSet::new();
         let mut generation = 0;
@@ -587,21 +624,43 @@ async fn assert_full_call_deadline(phase: &'static str, mode: &'static str) {
             let (stream, _) = listener.accept().await.unwrap();
             generation += 1;
             let generation = generation;
+            let cancels = cancels.clone();
+            let requests = requests.clone();
             connections.spawn(async move {
                 let (read, mut write) = stream.into_split();
                 let mut lines = tokio::io::BufReader::new(read).lines();
                 let mut prompt_id = None;
-                while let Ok(Some(line)) = lines.next_line().await {
+                while let Ok(Ok(Some(line))) = tokio::time::timeout(Duration::from_secs(3), lines.next_line()).await {
                     let msg: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    if msg["method"] == "session/cancel" {
+                        cancels.fetch_add(1, Ordering::SeqCst);
+                        if let Some(id) = prompt_id.take() {
+                            let answer = json!({"jsonrpc":"2.0", "id":id, "result":{"stopReason":"cancelled"}});
+                            let _ = write.write_all(format!("{answer}\n").as_bytes()).await;
+                        }
+                        continue;
+                    }
                     let Some(id) = msg.get("id") else { continue };
                     let method = msg["method"].as_str().unwrap();
+                    if method == "_acpmux/send_queue" {
+                        requests.lock().unwrap().push(msg["params"]["request"]["_meta"]["acpmux"].clone());
+                    }
+                    if phase == "legacy" && generation > 1 && method == "_acpmux/send_queue" {
+                        let response = json!({"jsonrpc":"2.0", "id":id, "error":{"code":-32601,"message":"method not found"}});
+                        if write.write_all(format!("{response}\n").as_bytes()).await.is_err() { break; }
+                        continue;
+                    }
+                    if phase == "legacy" && method == "session/prompt" {
+                        requests.lock().unwrap().push(msg["params"]["_meta"]["acpmux"].clone());
+                    }
                     let stall = match phase {
                         "initialize" => method == "initialize",
                         "new" => method == "session/new",
                         "info" => method == "_acpmux/info",
                         "queue" => generation > 1 && method == "_acpmux/send_queue",
                         "status" => generation > 1 && method == "_acpmux/send_status",
-                        "permission" => method == "_acpmux/permission_respond",
+                        "legacy" => method == "session/prompt",
+                        "permission" => false,
                         _ => unreachable!(),
                     };
                     if stall {
@@ -628,9 +687,9 @@ async fn assert_full_call_deadline(phase: &'static str, mode: &'static str) {
                         }
                         "session/prompt" => json!({"stopReason":"end_turn"}),
                         "_acpmux/permission_respond" => {
-                            let answer = json!({"jsonrpc":"2.0", "id":prompt_id.take().unwrap(), "result":{"stopReason":"end_turn"}});
-                            if write.write_all(format!("{answer}\n").as_bytes()).await.is_err() { break; }
-                            json!({})
+                            // Hold this response while continuing to read: a timeout
+                            // must still deliver cancellation for the caller's turn.
+                            continue;
                         }
                         other => panic!("unexpected deadline fixture request: {other}"),
                     };
@@ -643,16 +702,36 @@ async fn assert_full_call_deadline(phase: &'static str, mode: &'static str) {
     let mut args = match mode {
         "run" => vec!["run", "--timeout", "1", "-n", "lane", "side effect"],
         "no-wait" => vec!["send", "--no-wait", "--timeout", "1", "lane", "side effect"],
+        "no-wait-given" => vec![
+            "send",
+            "--no-wait",
+            "--prompt-id",
+            "original-prompt",
+            "--timeout",
+            "1",
+            "lane",
+            "side effect",
+        ],
         "quiet" => vec!["send", "--quiet", "--timeout", "1", "lane", "side effect"],
         "stream" => vec!["send", "--timeout", "1", "lane", "side effect"],
+        "quiet-steer" => {
+            vec!["send", "--quiet", "--steer", "--timeout", "1", "lane", "side effect"]
+        }
+        "stream-steer" => vec!["send", "--steer", "--timeout", "1", "lane", "side effect"],
         _ => unreachable!(),
     };
     if phase == "permission" {
         args.splice(1..1, ["--on-permission", "deny"]);
     }
+    if mode.starts_with("no-wait") {
+        args.insert(0, "--json");
+    }
     let started = Instant::now();
     let out = tokio::process::Command::from(cli_command(&dir, &args)).output().await.unwrap();
     let elapsed = started.elapsed();
+    // The notification can still be in the socket at process exit: give the
+    // reader its next scheduling turn before dropping the fixture.
+    tokio::task::yield_now().await;
     server.abort();
     let _ = server.await;
     fs::remove_dir_all(dir).unwrap();
@@ -662,6 +741,45 @@ async fn assert_full_call_deadline(phase: &'static str, mode: &'static str) {
         "{phase}/{mode} escaped deadline: {elapsed:?}; {}",
         text(&out)
     );
+    if phase == "permission" {
+        assert_eq!(
+            observed_cancels.load(Ordering::SeqCst),
+            usize::from(!mode.ends_with("-steer")),
+            "{phase}/{mode}: cancellation ownership"
+        );
+    }
+    if mode.starts_with("no-wait") {
+        let requests = observed_requests.lock().unwrap();
+        assert!(requests.len() >= 2, "replacement never retried queue: {requests:?}");
+        let prompt = &requests[0]["promptId"];
+        assert!(prompt.as_str().is_some_and(|id| !id.is_empty()), "no generated prompt id");
+        for request in requests.iter().skip(1) {
+            assert_eq!(&request["promptId"], prompt, "retry changed identity");
+            assert_eq!(request["resend"], true, "retry did not request dedupe");
+        }
+        if mode == "no-wait-given" {
+            assert_eq!(prompt, "original-prompt");
+            assert_eq!(requests[0]["resend"], true);
+        }
+        let envelope = String::from_utf8_lossy(&out.stderr)
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .find(|value| value.get("error").is_some())
+            .expect("no JSON error envelope");
+        assert_eq!(
+            &envelope["error"]["promptId"],
+            prompt,
+            "timeout lost accepted prompt identity: {}",
+            text(&out)
+        );
+        assert_eq!(envelope["error"]["retryable"], true);
+        if phase == "status" {
+            assert_eq!(
+                envelope["error"]["data"]["deliveryId"], "receipt",
+                "lost accepted delivery receipt"
+            );
+        }
+    }
 }
 
 async fn restart_wire_case(phase: &'static str, quiet: bool) -> (Output, usize, Duration) {
