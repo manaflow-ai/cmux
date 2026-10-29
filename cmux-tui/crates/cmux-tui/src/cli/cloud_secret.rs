@@ -314,6 +314,17 @@ mod tests {
     }
 
     #[test]
+    fn secret_help_forms_parse_and_succeed_without_a_secret_operation() {
+        for suffix in ["", "--help", "-h", "help"] {
+            assert!(parse(&words(suffix)).is_ok(), "{suffix:?} should be help");
+            assert_eq!(run_if_requested(&words(&format!("cloud secret {suffix}"))), Some(0));
+        }
+        for bad in ["help extra", "--help extra", "-h extra", "set", "rm", "unknown"] {
+            assert!(parse(&words(bad)).is_err(), "{bad:?} is still invalid");
+        }
+    }
+
+    #[test]
     fn a_value_is_long_enough_to_mask_and_small_enough_to_deliver() {
         assert!(value_size("1234567").is_err(), "under 8 characters");
         assert!(
