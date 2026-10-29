@@ -149,3 +149,63 @@ fn a_client_commit_that_waits_for_the_parser_is_acknowledged_in_panic_mode() {
     host.parser_commands.send(ParserCommand::Drain).unwrap();
     parser.join().unwrap();
 }
+
+/// A client's control sequence (where its frames run: every one waits
+/// behind the frames read before it) is owned by the client's serve loop
+/// and joined before that loop returns, so no thread of a client outlives
+/// it. The control thread was started on the client's first frame that
+/// waited for the parser and detached ("nothing joins it"): when the
+/// host's terminal exited, `serve_client` returned while that thread still
+/// waited for the client's next frame.
+#[test]
+fn a_clients_control_sequence_ends_before_its_serve_loop_returns() {
+    const CONTROL: &str = "terminal-host-client-control";
+    let (host, parser_commands) = exited_host_fixture_with_parser();
+    let initial_colors = host.term.lock().unwrap().color_overrides();
+    let parser = {
+        let host = host.clone();
+        thread::spawn(move || {
+            run_host_parser(host, parser_commands, initial_colors, ParserSignals::new())
+        })
+    };
+    let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+    client_stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let server = {
+        let host = host.clone();
+        thread::spawn(move || serve_client(host, server_stream))
+    };
+    let mut hello = snapshot_boundary_client_hello(&host, false).unwrap();
+    hello.flags = FLAG_SMART_RENDERER;
+    write_frame(&mut client_stream, &hello).unwrap();
+    for label in ["host hello", "snapshot", "colors", "ready"] {
+        read_required_frame(&mut client_stream, label).unwrap();
+    }
+    let mut metrics = Frame::new(MessageKind::SetCellPixelSize, Vec::new());
+    metrics.payload.extend_from_slice(&9u16.to_le_bytes());
+    metrics.payload.extend_from_slice(&18u16.to_le_bytes());
+    metrics.request_id = 7;
+    write_frame(&mut client_stream, &metrics).unwrap();
+    while read_required_frame(&mut client_stream, "the cell-metric acknowledgement").unwrap().kind
+        != MessageKind::CellPixelSizeAck
+    {}
+    let cursor = host.smart.publish(Frame::new(MessageKind::Exit, Vec::new()));
+    host.smart.mark_applied(cursor);
+    while read_required_frame(&mut client_stream, "exit").unwrap().kind != MessageKind::Exit {}
+    // The client is still connected: a loop that owns its control sequence
+    // has not returned. A bounded look, so the test does not hang on one.
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while !server.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
+    let returned = server.is_finished();
+    let control_rows = declared(CONTROL).len();
+    let _ = client_stream.shutdown(std::net::Shutdown::Both);
+    server.join().unwrap().unwrap();
+    assert!(
+        !returned || control_rows == 0,
+        "serve_client returned while {control_rows} control thread(s) of its client still ran"
+    );
+    assert!(declared(CONTROL).is_empty(), "the client's control thread ends with its serve loop");
+    host.parser_commands.send(ParserCommand::Drain).unwrap();
+    parser.join().unwrap();
+}

@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use crate::server::*;
 
 struct Served {
-    _mux: Arc<Mux>,
+    mux: Arc<Mux>,
     path: PathBuf,
 }
 
@@ -27,7 +27,7 @@ impl Served {
         let mux =
             Mux::new_for_test(format!("request-work-{label}"), crate::SurfaceOptions::default());
         let path = serve(mux.clone(), None).unwrap();
-        Served { _mux: mux, path }
+        Served { mux, path }
     }
 
     /// The reply to `request` (events skipped), or why there is none.
@@ -114,5 +114,19 @@ fn a_v2_chief_profile_list_is_answered_in_panic_mode() {
     let served = Served::new("chief-list");
     let params = json!({"machine": "current", "session": "current"});
     let reply = served.ask(&v2("chief.profile.list", params, None)).unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+}
+
+/// A terminal create (a process spawn and registry commits) goes to the
+/// terminal work pool, and with the pool full its caller runs it inline.
+/// That caller was the connection's control worker (`mux-seq-control`),
+/// which disallows blocking: under load the create panicked there at its
+/// first blocking call, and the client never got its reply. A connection's
+/// requests run where they may block on every path and at every load.
+#[test]
+fn owned_request_path_a_create_with_the_terminal_pool_full_is_answered_in_panic_mode() {
+    let served = Served::new("create-pool-full");
+    let _full = served.mux.fill_terminal_work_for_test();
+    let reply = served.ask(&json!({"id": 1, "cmd": "new-workspace"})).unwrap();
     assert_eq!(reply["ok"], true, "{reply}");
 }
