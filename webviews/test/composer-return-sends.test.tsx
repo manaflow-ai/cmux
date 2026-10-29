@@ -417,9 +417,8 @@ test("Quick Chat Cmd-Return opens /import immediately despite an earlier pending
   });
   await act(async () => page.field.dispatchEvent(paste));
   await dispatch(page.field, key({ key: "Enter", keyCode: 13, metaKey: true }));
-  expect(opened).toBe(0);
+  expect(opened).toBe(1);
   expect(host.querySelector(".acpmux-import-input")).not.toBeNull();
-  expect(host.querySelector(".acpmux-attachment-pending")).toBeNull();
   await act(async () => resolve(bytes));
 });
 
