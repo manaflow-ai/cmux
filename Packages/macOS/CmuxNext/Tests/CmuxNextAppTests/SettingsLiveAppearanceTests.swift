@@ -115,19 +115,25 @@ import Testing
         }
     }
 
-    @Test func interfaceSizeScalesHomeStartersOnlyOnceAndResetsThem() async throws {
+    @Test func interfaceSizeScalesFirstRunFontsOnlyOnceAndResetsThem() async throws {
         try await withPage { page, _ in
             let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
             panel.starters.setPrompts(["Start a task"])
             let button = try #require(panel.starters.buttons.first)
-            let original = try #require(button.font).pointSize
+            let controls: [NSControl] = [button, panel.hero.title, panel.hero.body,
+                                         panel.switchCard.header, panel.switchCard.note]
+            let originals = try controls.map { try #require($0.font).pointSize }
             try await call(page, "set", "appearance.metrics.chromeFontSize", .number(16))
             // The transcript passes the live interface scale to its first-run panel.
             panel.applyScale(Typography.userScale)
-            #expect(abs(try #require(button.font).pointSize - original * Typography.userScale) < 0.01)
+            for (control, original) in zip(controls, originals) {
+                #expect(abs(try #require(control.font).pointSize - original * Typography.userScale) < 0.01)
+            }
             try await call(page, "reset", "appearance.metrics.chromeFontSize")
             panel.applyScale(Typography.userScale)
-            #expect(abs(try #require(button.font).pointSize - original) < 0.01)
+            for (control, original) in zip(controls, originals) {
+                #expect(abs(try #require(control.font).pointSize - original) < 0.01)
+            }
         }
     }
 
