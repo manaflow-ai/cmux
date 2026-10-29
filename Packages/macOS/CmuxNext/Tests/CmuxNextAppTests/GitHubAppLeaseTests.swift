@@ -22,13 +22,21 @@ import Testing
     }
 
     @Test func theFirstAccountSeenCountsEvenSignedOut() {
+        // `changed` is mutating, so each result is read outside `#expect` (whose expansion
+        // takes its expression as immutable).
         var account = GitHubAppLease.Account()
-        #expect(account.changed(user: nil, team: nil), "a signed-out launch clears a kept lease")
-        #expect(!account.changed(user: nil, team: nil))
-        #expect(account.changed(user: user, team: "team_249f328cf8ed89fd792e"))
-        #expect(!account.changed(user: user, team: "team_249f328cf8ed89fd792e"))
-        #expect(account.changed(user: user, team: "team_18b8d7083ab4a1e6dd3e"))
-        #expect(account.changed(user: nil, team: nil))
+        let first = account.changed(user: nil, team: nil)
+        #expect(first, "a signed-out launch clears a kept lease")
+        let same = account.changed(user: nil, team: nil)
+        #expect(!same)
+        let signedIn = account.changed(user: user, team: "team_249f328cf8ed89fd792e")
+        #expect(signedIn)
+        let again = account.changed(user: user, team: "team_249f328cf8ed89fd792e")
+        #expect(!again)
+        let otherTeam = account.changed(user: user, team: "team_18b8d7083ab4a1e6dd3e")
+        #expect(otherTeam)
+        let signedOut = account.changed(user: nil, team: nil)
+        #expect(signedOut)
     }
 
     /// What the stand-in daemon was sent, in order.
