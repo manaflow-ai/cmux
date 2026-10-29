@@ -286,6 +286,9 @@ class GitHub:
     def jobs(self, run: dict) -> list[dict]:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
+    def pending_deployments(self, run: dict) -> list[dict]:
+        return self.call("GET", f"/actions/runs/{run['id']}/pending_deployments")
+
     def recent_runs(self, workflow: str, branch: str | None = None,
                     now: dt.datetime | None = None) -> list[dict]:
         """Every run of one workflow new enough to still be active.
@@ -411,9 +414,10 @@ def carries_tip(run: dict, tip: str, tip_landed: dt.datetime | None) -> bool:
 def stuck_run(gh: GitHub, run: dict, now: dt.datetime) -> bool:
     """A nightly build or promotion run stuck without a runner carries nothing: the tick this
     guard dispatches cancels it and re-runs the tip (scripts/ci/nightly_next_stuck_run.sh).
-    An unreadable job list keeps the run, so a failed read never doubles a build."""
+    A run with a deployment waiting for approval is gated, not stuck, as in that script. An
+    unreadable job or deployment list keeps the run, so a failed read never doubles a build."""
     try:
-        return stuck_without_runner(now, gh.jobs(run), run=run)
+        return stuck_without_runner(now, gh.jobs(run), run=run) and not gh.pending_deployments(run)
     except Exception:  # noqa: BLE001 - fail closed: the run may be carrying the tip
         return False
 

@@ -30,7 +30,8 @@ FAKE_GIT = f"""#!/bin/bash
 #   JOBS                   {run id: [jobs]}; JOBS_LATER {run id: [jobs]} answers every read after the first;
 #   PENDING                {run id: [deployments]};
 #   STATE_LATER            {run id: status} the run's status from its second read on (before a cancel);
-#   AFTER_CANCEL           the status a run reads after a cancel (default completed);
+#   AFTER_CANCEL           the status a run reads after a cancel (default completed), with
+#                          CONCLUSION (default cancelled) and ATTEMPT_AFTER_CANCEL;
 #   FAIL                   a substring: any read whose path contains it fails;
 #   UNREADABLE_AFTER_CANCEL  a run's read fails once it has been cancelled.
 FAKE_GH = r'''#!PYTHON
@@ -67,7 +68,11 @@ if "/workflows/nightly.yml/runs?" in path:
     query = dict(urllib.parse.parse_qsl(path.split("?", 1)[1]))
     source = env("NEXT_RUNS" if query.get("branch") == "nightly-next" else "MAIN_RUNS", "[]")
     chosen = [run for run in source if run["status"] == query.get("status", run["status"])
-              and run["event"] == query.get("event", run["event"])]
+              and run["event"] == query.get("event", run["event"])
+              and run["head_sha"] == query.get("head_sha", run["head_sha"])
+              and not (state / str(run["id"])).exists()]
+    chosen += [dict(run, status="completed") for run in source if (state / str(run["id"])).exists()
+               and "status" not in query and run["head_sha"] == query.get("head_sha", run["head_sha"])]
     size = int(os.environ.get("PAGE", "2"))
     for start in range(0, max(len(chosen), 1), size):  # --paginate: --jq applies to each page
         page = {"workflow_runs": chosen[start:start + size]}
@@ -96,12 +101,17 @@ if not rest:
     if (state / run_id).exists():
         if os.environ.get("UNREADABLE_AFTER_CANCEL"):
             sys.exit(1)
-        run.update(status=os.environ.get("AFTER_CANCEL", "completed"), conclusion="cancelled")
+        after = os.environ.get("AFTER_CANCEL", "completed")
+        run.update(status=after, conclusion=os.environ.get("CONCLUSION", "cancelled") if after == "completed" else None)
+        run["run_attempt"] = int(os.environ.get("ATTEMPT_AFTER_CANCEL", run["run_attempt"]))
     elif reads >= 1 and run_id in env("STATE_LATER", "{}"):
         run["status"] = env("STATE_LATER", "{}")[run_id]
     out(run)
 sys.exit(3)
 '''
+
+
+SETTLE_READ = 'api repos/o/r/actions/runs/7 --jq "\\(.status) \\(.conclusion // "-") \\(.run_attempt)"'
 
 
 def ago(minutes: float) -> str:
@@ -234,7 +244,7 @@ class StuckRun(unittest.TestCase):
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel",
                                               "api -X POST repos/o/r/actions/runs/7/force-cancel"])
         # Bounded: FORCE_AFTER + 1 reads after each cancel, then the next tick.
-        self.assertEqual(sum(call == "api repos/o/r/actions/runs/7 --jq .status" for call in calls), 6)
+        self.assertEqual(sum(call == SETTLE_READ for call in calls), 6)
         self.assertIn("the next tick checks again", result.stdout)
 
     def test_an_unreadable_status_after_the_cancel_never_force_cancels(self):
@@ -244,9 +254,47 @@ class StuckRun(unittest.TestCase):
                                         FORCE_AFTER="1", UNREADABLE_AFTER_CANCEL="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
-        self.assertEqual(sum(call == "api repos/o/r/actions/runs/7 --jq .status" for call in calls), 1)
+        self.assertEqual(sum(call == SETTLE_READ for call in calls), 1)
         self.assertNotIn("api -X POST repos/o/r/actions/runs/7/force-cancel", self.writes(calls))
         self.assertIn("has not been seen finished", result.stdout)
+
+    def test_a_run_that_finished_on_its_own_before_the_cancel_gets_nothing_more(self):
+        # Between the last stuck read and the cancel, the run succeeded, failed, or a new attempt
+        # started: nothing is re-run and no fresh run is dispatched, even out of attempts.
+        for case, env in {
+            "succeeded": dict(CONCLUSION="success"),
+            "failed": dict(CONCLUSION="failure"),
+            "a new attempt": dict(AFTER_CANCEL="queued", ATTEMPT_AFTER_CANCEL="4"),
+        }.items():
+            for event in ("push", "workflow_dispatch"):
+                with self.subTest(case, event=event):
+                    result, calls = self.run_script({7: [STUCK_DECIDE]},
+                                                    next_runs=[run(7, event=event, attempt=3)], **env)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"], case)
+                    self.assertIn("finished on its own", result.stdout)
+        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7, event="workflow_dispatch")],
+                                        CONCLUSION="success")
+        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+
+    def test_a_gated_run_of_the_tip_still_carries_it_at_the_attempt_cap(self):
+        # A second run of the tip that is waiting, pending or requested is never in the stuck
+        # listing, but it will build the tip: no fresh run is dispatched beside it.
+        for status in ("waiting", "pending", "requested"):
+            with self.subTest(status=status):
+                result, calls = self.run_script({7: [STUCK_DECIDE]},
+                                                next_runs=[run(7, attempt=3), run(8, status, "workflow_dispatch")])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+                self.assertIn("run 8 still carries the tip", result.stdout)
+                self.assertFalse(any("runs/8" in call and "/jobs" in call for call in calls), calls)
+        # The carrier list is read after the cancel, filtered to the tip, every page.
+        carriers = [call for call in calls if f"head_sha={TIP}" in call]
+        self.assertTrue(carriers and all("--paginate" in call for call in carriers), calls)
+        # Unreadable: no fresh run.
+        result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7, attempt=3)], FAIL=f"head_sha={TIP}")
+        self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+        self.assertIn("could not be read, so no fresh run", result.stdout)
 
     def test_a_dispatch_is_re_run_and_older_commits_and_promotions_are_not(self):
         jobs = {1: [STUCK_DECIDE], 2: [STUCK_DECIDE], 4: [STUCK_DECIDE], 5: [STUCK_DECIDE]}

@@ -706,10 +706,16 @@ class StuckRunTests(unittest.TestCase):
                 raise self._jobs
             return self._jobs
 
-    def guard(self, jobs, workflow="nightly.yml", status="in_progress"):
+        def pending_deployments(self, run):
+            if isinstance(self._pending, Exception):
+                raise self._pending
+            return self._pending
+
+    def guard(self, jobs, workflow="nightly.yml", status="in_progress", pending=()):
         run = {"id": 9, "status": status, "created_at": at(0.5), "head_sha": self.TIP,
                "html_url": "https://github.com/o/r/actions/runs/9"}
         gh = self.Gh(self, [run], jobs)
+        gh._pending = pending if isinstance(pending, Exception) else list(pending)
         result = watch.starvation_dispatch(
             gh, NOW, feed=NOW - dt.timedelta(minutes=90), published_sha="", branch="feat-cmux-next",
             workflow="nightly-next-tick.yml", ref="main", active_workflows=[(workflow, "nightly-next")])
@@ -745,6 +751,16 @@ class StuckRunTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assertFalse(watch.stuck_without_runner(NOW, [stuck], run={"status": status}))
         self.assertTrue(watch.stuck_without_runner(NOW, [stuck], run={"status": "queued"}))
+
+    def test_a_run_with_a_deployment_waiting_for_approval_still_holds(self):
+        # An in_progress run whose next job waits on an environment's approval shows its queued
+        # jobs with no runner; its pending deployment says it is gated, so no second build.
+        stuck = queued_job("decide", 34, ["blacksmith-4vcpu-ubuntu-2404"])
+        for pending in ([{"environment": {"name": "release"}}], OSError("boom")):
+            with self.subTest(pending=pending):
+                result, dispatched = self.guard([stuck], pending=pending)
+                self.assertEqual(result, "running https://github.com/o/r/actions/runs/9")
+                self.assertEqual(dispatched, [])
 
     def test_only_nightly_runs_are_judged(self):
         # The tick's own run is never read: a tick waiting on a dead label is replaced by the next one.

@@ -36,8 +36,12 @@
 #     the pick, else the failed and cancelled jobs;
 #   - a run of the tip at MAX_ATTEMPTS (push or dispatch) gets a fresh run instead: nightly.yml is
 #     dispatched on nightly-next, which builds the tip from attempt 1 with every runner picked
-#     afresh, unless another unfinished run already carries the tip. Left queued it would never
-#     run, and cancelled with no new run the tip would never build again;
+#     afresh, unless another unfinished run of the tip (in any state, gated ones included, read
+#     right then) already carries it. Left queued it would never run, and cancelled with no new run
+#     the tip would never build again;
+#   - nothing is re-run or dispatched unless the run is seen finished `cancelled` on the attempt that
+#     was judged stuck: a run that succeeded, failed or started a new attempt before the cancel took
+#     is left as it is;
 #   - an older commit's run is not re-run, because the tip builds;
 #   - a promotion (nightly.yml on main, "Promote nightly-next to ...") is not re-run, because the
 #     tick's promotion request, a later step of the same job, asks again.
@@ -111,22 +115,42 @@ stuck() {
   [[ -z "$job" ]] || printf '%s\t%s\n' "${state#* }" "$job"
 }
 
-# settled ID: 0 when the run has finished, 1 when it has not, 2 when it cannot be read.
+# settled ID ATTEMPT: 0 when the run has finished cancelled on ATTEMPT, 1 when it has not finished,
+# 2 when it cannot be read, 3 when it finished some other way (it succeeded or failed before the
+# cancel reached it, or a new attempt started): then nothing is re-run or dispatched for it.
 settled() {
-  local status
-  status="$(gh api "repos/$repo/actions/runs/$1" --jq .status)" || return 2
-  [[ "$status" == completed ]] || return 1
+  local now
+  now="$(gh api "repos/$repo/actions/runs/$1" --jq '"\(.status) \(.conclusion // "-") \(.run_attempt)"')" || return 2
+  case "$now" in
+    "completed cancelled $2") return 0 ;;
+    "completed "*) return 3 ;;
+    *" $2") return 1 ;;
+    *) return 3 ;;
+  esac
 }
-# wait_settled ID: settled's answer after up to FORCE_AFTER + 1 reads, SETTLE_SECONDS apart.
+# wait_settled ID ATTEMPT: settled's answer after up to FORCE_AFTER + 1 reads, SETTLE_SECONDS apart.
 wait_settled() {
   local i rc
   for ((i = 0; i <= force_after; i++)); do
     (( i == 0 )) || sleep "$settle_seconds"
     rc=0
-    settled "$1" || rc=$?
+    settled "$1" "$2" || rc=$?
     (( rc == 1 )) || return "$rc"
   done
   return 1
+}
+
+# carrier: prints the id of a nightly-next run of the tip other than the cancelled ones that has not
+# finished, whatever its state (queued, in_progress, waiting, pending, requested), or nothing; fails
+# when the list cannot be read. Read when it is needed, so a run started since the listing counts.
+carrier() {
+  local oid osha
+  gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=nightly-next&head_sha=$tip&per_page=100" \
+    --jq '.workflow_runs[] | select(.status != "completed") | "\(.id) \(.head_sha)"' >"$scratch/carriers" || return 1
+  while read -r oid osha; do
+    [[ "$osha" == "$tip" && "$cancelled" != *" $oid "* ]] && { echo "$oid"; return 0; }
+  done <"$scratch/carriers"
+  return 0
 }
 
 cancelled=" "
@@ -150,25 +174,28 @@ while read -r id event sha attempt; do
   fi
   gh api -X POST "repos/$repo/actions/runs/$id/cancel" >/dev/null || true
   rc=0
-  wait_settled "$id" || rc=$?
+  wait_settled "$id" "$attempt" || rc=$?
   if (( rc == 1 )); then
     gh api -X POST "repos/$repo/actions/runs/$id/force-cancel" >/dev/null || true
     rc=0
-    wait_settled "$id" || rc=$?
+    wait_settled "$id" "$attempt" || rc=$?
+  fi
+  if (( rc == 3 )); then
+    echo "nightly-next run $id: finished on its own or moved to a new attempt before the cancel took; nothing is re-run or dispatched"
+    continue
   fi
   if (( rc != 0 )); then
-    warn "run $id is stuck ($why); the cancel was sent but the run has not been seen finished, so nothing is re-run; the next tick checks again"
+    warn "run $id is stuck ($why); the cancel was sent but the run has not been seen finished cancelled, so nothing is re-run; the next tick checks again"
     continue
   fi
   cancelled+="$id "
   echo "::notice title=nightly-next tick::cancelled run $id ($event, ${sha:0:12}, attempt $attempt): $why"
   if [[ -n "$tip_run" ]] && (( attempt >= max_attempts )); then
-    # Out of attempts: a fresh run of the tip, unless another unfinished run carries it.
-    other=""
-    while read -r oid _ osha _; do
-      [[ "$osha" == "$tip" && "$cancelled" != *" $oid "* ]] && other="$oid"
-    done <"$scratch/runs"
-    if [[ -n "$other" ]]; then
+    # Out of attempts: a fresh run of the tip, unless another unfinished run carries it (in any
+    # state, a gated one included), read now.
+    if ! other="$(carrier)"; then
+      warn "run $id was on attempt $attempt of $max_attempts; the tip's other runs could not be read, so no fresh run is dispatched; the next tick checks again"
+    elif [[ -n "$other" ]]; then
       echo "nightly-next run $id: out of attempts; run $other still carries the tip, so no fresh run is dispatched"
     elif GH_BUDGET_WAIT_ATTEMPTS=1 gh workflow run nightly.yml -R "$repo" --ref nightly-next </dev/null; then
       echo "::notice title=nightly-next tick::run $id was on attempt $attempt of $max_attempts; dispatched a fresh nightly.yml run of the tip ${tip:0:12} on nightly-next, with every runner picked afresh"
