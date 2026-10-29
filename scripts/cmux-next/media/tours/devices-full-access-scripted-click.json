@@ -1,0 +1,62 @@
+{
+  "title": "Settings > Machines > Devices: a scripted (non-HID) click on a paired machine's Full access switch",
+  "settings": {
+    "browser": {
+      "defaultEngine": "webkit"
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Settings > Machines: a paired machine (a fixture) in Devices, Full access off",
+      "rpc": {
+        "method": "debug.devices_fixture",
+        "params": {
+          "full_access": false
+        }
+      },
+      "wait": 4,
+      "optional": "debug.devices_fixture is DEBUG only"
+    },
+    {
+      "title": "The paired machine's row in view",
+      "rpc": {
+        "method": "debug.page",
+        "params": {
+          "page": "cmux.settings",
+          "action": "scroll",
+          "selector": "[data-device-row=\"paired:dv_fixture\"]",
+          "block": "center"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "A scripted click on Full access: synthesized mouse events, not the HID system's",
+      "rpc": {
+        "method": "debug.devices_fixture",
+        "params": {
+          "action": "click"
+        }
+      },
+      "wait": 4,
+      "windows": true,
+      "optional": "debug.devices_fixture is DEBUG only"
+    },
+    {
+      "title": "What the fixture's pair_set took",
+      "rpc": {
+        "method": "debug.devices_fixture",
+        "params": {
+          "action": "state"
+        }
+      },
+      "wait": 1,
+      "optional": "debug.devices_fixture is DEBUG only"
+    }
+  ]
+}
