@@ -373,6 +373,22 @@ class SigningOwnedMacTests(unittest.TestCase):
                 run_status[0] = status
                 self.assertEqual(signing_runner.owned_pick(env, read, jobs)[0], "")
         run_status[0] = "in_progress"
+
+        def truncated(path: str) -> dict:
+            if "/runs?" in path:
+                return {"total_count": 101, "workflow_runs": [{"id": 7}]}
+            return {"jobs": []}
+
+        self.assertEqual(signing_runner.owned_pick(env, read, truncated)[0], "", "a listing past one page fails closed")
+
+        def many_jobs(path: str) -> dict:
+            return jobs(path) if "/runs?" in path else {"total_count": 150, "jobs": []}
+
+        self.assertEqual(signing_runner.owned_pick(env, read, many_jobs)[0], "", "so does a job list past one page")
+        order: list[str] = []
+        signing_runner.owned_pick(env, lambda t, r: order.append("runners") or runners,
+                                  lambda path: order.append("jobs") or jobs(path))
+        self.assertEqual(order[0], "runners", "the runners are read before the signing jobs are counted")
         held[0]["labels"] = ["blacksmith-6vcpu-macos-26"]  # on Blacksmith: it holds no mini
         self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0])
         held[0].update({"name": "verify-signed-nightly", "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]})

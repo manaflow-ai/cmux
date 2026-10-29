@@ -128,12 +128,18 @@ def owned_signing_jobs(read: Callable[[str], Any]) -> int:
         # Every run status GitHub has that is not finished: a run waiting on an environment, or pending a
         # concurrency slot, can still hold a signing job that already carries its pin.
         for status in ACTIVE_RUN_STATUSES:
-            runs = read(f"/actions/workflows/{workflow}/runs?status={status}&per_page=50").get("workflow_runs") or []
+            page = read(f"/actions/workflows/{workflow}/runs?status={status}&per_page=100")
+            runs = page.get("workflow_runs") or []
+            if int(page.get("total_count") or 0) > len(runs):
+                raise RuntimeError(f"{workflow} has more {status} runs than one page lists")
             for run in runs:
                 if run["id"] in seen:
                     continue
                 seen.add(run["id"])
-                jobs = read(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100").get("jobs") or []
+                listed = read(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
+                jobs = listed.get("jobs") or []
+                if int(listed.get("total_count") or 0) > len(jobs):
+                    raise RuntimeError(f"run {run['id']} has more jobs than one page lists")
                 for job in jobs:
                     name = str(job.get("name") or "").split(" (", 1)[0]
                     if (name in names and job.get("status") in ("queued", "in_progress", "waiting", "pending", "requested")
@@ -166,6 +172,16 @@ def owned_pick(env: Mapping[str, str],
     jobs_token = env.get("SNAPSHOT_TOKEN", "")
     if not (jobs_token or read_jobs):
         return "", "the signing jobs on owned Macs could not be counted (no actions: read token), so none is offered"
+    # The runners are read BEFORE the signing jobs are counted. A signing job that made a mini busy in this
+    # snapshot is then already listed when the count runs, so the count sees it and nothing is offered; one not
+    # yet started left its mini drained in the snapshot, and the first-drained pick (no run-ID spread) names that
+    # same mini, where glaeda's exclusive admission lets only one of the two in (the other is refused within
+    # 300 s and its re-run takes Blacksmith).
+    try:
+        runners = (read_runners or (lambda t, r: pool.GitHub(t, r).runners()))(token, repo)
+    except Exception as error:  # noqa: BLE001 - never fail the job; Blacksmith takes it
+        print(f"::warning title=signing runner::could not list owned runners ({str(error)[:200]})")
+        return "", "owned runners could not be read"
     try:
         held = owned_signing_jobs(read_jobs or pool.GitHub(jobs_token, repo).get)
     except Exception as error:  # noqa: BLE001 - never fail the job; Blacksmith takes it
@@ -173,13 +189,6 @@ def owned_pick(env: Mapping[str, str],
         return "", "the signing jobs on owned Macs could not be counted, so none is offered"
     if held >= MAX_OWNED_SIGNING:
         return "", f"{held} signing job(s) already hold an owned Mac (at most {MAX_OWNED_SIGNING} at once)"
-    try:
-        runners = (read_runners or (lambda t, r: pool.GitHub(t, r).runners()))(token, repo)
-    except Exception as error:  # noqa: BLE001 - never fail the job; Blacksmith takes it
-        print(f"::warning title=signing runner::could not list owned runners ({str(error)[:200]})")
-        return "", "owned runners could not be read"
-    # No run-ID spread: two pickers at once name the same mini, and glaeda's exclusive admission lets only one of
-    # them have it (the other is refused within 300 s and re-runs on Blacksmith), so the cap holds through a race.
     return drained_runner(runners, (env.get("OWNED_LABELS") or "").split())
 
 
