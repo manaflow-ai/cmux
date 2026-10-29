@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ab9b63f6ea5a42684b2e68a16f00c86609765793d0fafdccdc139656f146deef.
+// cmux-tui mux protocol 12, IR 7ab19e2949e8f0b31d2f38035d4d9e3f646770fad5164b47a17153493d2e12a1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -386,6 +386,15 @@ pub struct ColumnPin {
     pub mode: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub role: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ColumnSide {
+    #[serde(rename = "left")]
+    Left,
+    #[serde(rename = "right")]
+    Right,
 }
 
 #[rustfmt::skip]
@@ -987,6 +996,8 @@ pub struct IdentifyResult {
     pub build_commit: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub build_time: Optional<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

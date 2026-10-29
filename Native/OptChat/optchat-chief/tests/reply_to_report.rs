@@ -162,6 +162,11 @@ fn wait_send(h: &mut Harness, needle: &str) -> (Vec<Part>, Option<PartRef>, Opti
         if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
             h.brain.step(input);
         }
+        // The agent gap holds a send right after the turn's own reply behind
+        // the outbox timer; fire it as the host's run loop does.
+        if h.brain.next_timer().is_some_and(|at| at <= Instant::now()) {
+            h.brain.on_timer();
+        }
     }
 }
 

@@ -69,6 +69,7 @@ pub struct ResultArgs {
 }
 
 #[derive(Subcommand)]
+/// Task briefs that coordinate work across sessions.
 pub enum BriefsCmd {
     #[command(alias = "list")]
     Ls {

@@ -23,7 +23,7 @@ extension UpdatesSettings {
     public nonisolated static let webDefault: UpdatesWebSetting = .everyMerge
     /// `updates.installOnQuit`.
     public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
-    public nonisolated static let installOnQuitDefault = true
+    public nonisolated static let installOnQuitDefault = false
     /// `updates.notify`: How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.
     public nonisolated static let notifyPath = ["updates", "notify"]
     public nonisolated static let notifyDefault: UpdatesNotifySetting = .badge
@@ -96,8 +96,8 @@ nonisolated enum UpdateSettingsSchema {
                 UpdatesSettings.downloadAutomaticallyPath,
                 section: .general,
                 group: group,
-                title: SettingsText.keyed("settings.updates.downloadAutomatically", "Download and Install Updates Automatically"),
-                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."),
+                title: SettingsText.keyed("settings.updates.downloadAutomatically", "Download Updates Automatically"),
+                help: SettingsText.keyed("settings.updates.downloadAutomatically.help", "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update."),
                 kind: .toggle,
                 default: .bool(UpdatesSettings.downloadAutomaticallyDefault),
                 keywords: ["update", "download", "background", "metered"]

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ab9b63f6ea5a42684b2e68a16f00c86609765793d0fafdccdc139656f146deef. */
+/* cmux-tui mux protocol 12, IR 7ab19e2949e8f0b31d2f38035d4d9e3f646770fad5164b47a17153493d2e12a1. */
 
 
 import type * as T from "./types.js";
@@ -1781,6 +1781,7 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "side"?: (T.ColumnSide) | null;
   "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "url"?: (string) | null;

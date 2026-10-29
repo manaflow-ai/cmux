@@ -124,6 +124,12 @@ describe("run attempt promotion service", () => {
     await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "not-ready-2", dependencies: noEvidence })).rejects.toBeInstanceOf(PromotionNotReadyError);
   });
 
+  test("refuses a sandboxed run before reserving or touching the runtime (hq#3367)", async () => {
+    const { dependencies, calls } = makeDependencies(source({ environment: "sandboxed" }));
+    await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "sandboxed", dependencies })).rejects.toBeInstanceOf(PromotionNotReadyError);
+    expect(calls).toEqual([]);
+  });
+
   test("hides cross-tenant attempts as not found", async () => {
     const { dependencies } = makeDependencies(source({ userId: "other-tenant" }));
     await expect(promoteRunAttempt({ userId: "owner", runId: "run-1", attemptId: "attempt-1", requestKey: "cross-tenant", dependencies })).rejects.toBeInstanceOf(PromotionNotFoundError);

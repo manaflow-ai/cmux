@@ -106,19 +106,20 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     });
 
   for (const [engine] of engines) {
-    for (const [name, selector] of [
+    for (const [name, selector, popup] of [
       // The model button's menu (Leo 2026-10-20: one model button; its menu holds Effort and Fast mode).
-      ["Model", chip("Model")],
-      ["Computer", 'button[aria-label^="Computer"]'],
+      ["Model", chip("Model"), ".ui-popup.ui-menu"],
+      // The computer chip's searchable destination popover (#25316: a dialog with a search field).
+      ["Computer", 'button[aria-label^="Computer"]', ".ui-popup.acpmux-location-menu"],
     ])
       test(`${engine}: ${name}: a press outside the open menu leaves no ring`, async () => {
         const page = await open(engine);
         // Nothing focused first, so the menu has nowhere to return but its chip.
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         await press(page, selector!);
-        await page.locator(".ui-popup.ui-menu").first().waitFor();
+        await page.locator(popup!).first().waitFor();
         await page.mouse.click(750, 590);
-        await page.locator(".ui-popup.ui-menu").first().waitFor({ state: "detached" });
+        await page.locator(popup!).first().waitFor({ state: "detached" });
         await settled(page);
         expect((await ring(page)).ring).toBe("");
         await page.close();
@@ -137,10 +138,10 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     test(`${engine}: one press on another chip opens its picker and keeps it, focus and all`, async () => {
       const page = await open(engine);
       await press(page, 'button[aria-label^="Computer"]');
-      await page.locator(".ui-popup.ui-menu").first().waitFor();
+      await page.locator(".ui-popup.acpmux-location-menu").first().waitFor();
       await press(page, chip("Model"));
-      // The first menu's close lands after its fade; it must not pull focus back out of the picker.
-      await page.locator(".ui-popup.ui-menu:not(.acpmux-quick-menu)").first().waitFor({ state: "detached" });
+      // The first popover's close lands after its fade; it must not pull focus back out of the picker.
+      await page.locator(".ui-popup.acpmux-location-menu").first().waitFor({ state: "detached" });
       await settled(page);
       const state = await page.evaluate(() => ({
         expanded: [...document.querySelectorAll("button[aria-haspopup][aria-expanded=true]")].map((button) =>

@@ -21,9 +21,26 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Own one dedicated Codex sign-in over private stdin/stdout pipes.
+    #[cfg(unix)]
+    #[command(hide = true)]
+    CodexAuthBroker {
+        #[arg(long)]
+        home: PathBuf,
+        #[arg(long)]
+        codex: PathBuf,
+    },
+    /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
+    /// Mac that lends this machine its login (`cli/gh_shim.rs`).
+    #[command(hide = true, disable_help_flag = true)]
+    Gh {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Send a local brief to another harness on a peer (or the least-loaded
     /// allowed host with `--host auto`) and record its identity.
     Dispatch(DispatchArgs),
+    /// Task briefs: list, steer and report work tracked by the daemon.
     #[command(subcommand)]
     Briefs(BriefsCmd),
     /// Give a session here a task, end one with its result in one call, list a chat's tasks.
@@ -130,10 +147,6 @@ pub enum Command {
     /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
     /// Needs no daemon: the app bundle records them for the web agent pane.
     Capabilities,
-    /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
-    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
-    /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
-    /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
     /// `preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'`. `key=` clears one key; `--clear` removes the preset.
     #[command(alias = "presets")]
@@ -144,6 +157,10 @@ pub enum Command {
         #[arg(long)]
         clear: bool,
     },
+    /// Show or set default harness settings per model family or alias: `defaults`, `defaults claude`,
+    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
+    /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
+    /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     Defaults {
         family: Option<String>,
         /// key=value pairs: model, effort, policy, prefer (comma list), env.KEY
@@ -244,6 +261,15 @@ pub enum Command {
         /// Only sessions carrying this tag (key or key=value).
         #[arg(long)]
         tag: Option<String>,
+        /// Return at most N sessions, newest first.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        limit: Option<u64>,
+        /// Select comma-separated fields from each session record.
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+        /// Only sessions updated within this duration (for example `24h` or `30m`).
+        #[arg(long, value_name = "DURATION")]
+        since: Option<String>,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
@@ -324,7 +350,7 @@ pub enum Command {
         #[arg(long)]
         rotate_token: bool,
     },
-    /// Remote daemons: add, ls, rm.
+    /// Remote daemons and machines: add, ls, status, place, setup, update, enroll, doctor, ticket and more.
     #[command(subcommand, aliases = ["hosts", "peer"])]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
@@ -353,7 +379,7 @@ pub enum Command {
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
     Hand(crate::hand::HandCmd),
-    /// The daemon: run, status, shutdown (also stop), config, harnesses, reload, models, schema.
+    /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
     /// Serve the local CodeRouter in a separate process.
@@ -484,6 +510,8 @@ pub enum Command {
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
     DaemonStart { person_key_fd: Option<i32>, show_token: bool },
+    #[command(hide = true)]
+    DaemonRestart,
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
@@ -889,6 +917,8 @@ pub enum DaemonCmd {
         #[arg(long)]
         show_token: bool,
     },
+    /// Restart the daemon, preserving hosted sessions so they resume on startup.
+    Restart,
     /// Stop the daemon. Hosted agents keep running for the next daemon to
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
     /// every agent process too, agent hosts included, returns once they all
@@ -1010,8 +1040,8 @@ pub struct NewArgs {
     /// reused when there; implies --reuse. Replaces --cwd.
     #[arg(long, value_name = "REPO[@BASE]")]
     pub worktree: Option<String>,
-    /// Read the first prompt from this file (after any prompt words), now; a
-    /// missing or empty file fails before anything starts.
+    /// Read the first prompt from this file (after any prompt words), now; `-`
+    /// reads stdin. A missing or empty file fails before anything starts.
     #[arg(long, value_name = "FILE")]
     pub prompt_file: Option<PathBuf>,
     /// Tell the new session that this session started it and how to report back.
@@ -1101,6 +1131,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Shutdown { keep_agents, end_agents } => {
                 Command::Shutdown { keep_agents, end_agents }
             }
+            DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Config { show_token } => Command::Config { show_token },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,

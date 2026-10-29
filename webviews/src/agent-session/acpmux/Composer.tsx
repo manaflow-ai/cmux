@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
+import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
@@ -11,7 +12,7 @@ import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellR
 import { opensProcessTerminal } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
-import { isStartedChat, showsLocationRow } from "./locationRow";
+import { showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
@@ -54,10 +55,13 @@ import {
 import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
+  forgetQueuedDraft,
   hasPendingDraftWrite,
+  lastQueuedDraftText,
   readDurableDraft,
   readPersistedDraft,
   seededText,
+  settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
@@ -68,7 +72,7 @@ import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
-import { useComposerLook, useQuietRow } from "./composerLook";
+import { useComposerLook } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
@@ -87,6 +91,13 @@ import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion }
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
+import {
+  composerPlusRegistry,
+  composerPlusSections,
+  runComposerPlusAction,
+  type ComposerPlusExtension,
+} from "./composerPlusRegistry";
+import { openPicker } from "./pickerOpeners";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -186,6 +197,9 @@ export type ComposerHandle = {
   /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
   /// file chips and shell mode's unrun command. Shell runs and move chips stay with their page.
   wakeState(): ComposerWake;
+  /// Sends the typed text now and resolves once the host holds it: acpmux's draft for a chat with
+  /// a session, `chat.unsentDraft` (its 300 ms throttle flushed) for a new chat. Asked before a quit.
+  settleDraft(): Promise<void>;
   /// Puts back what a released page's composer held (the handshake's `wake`).
   wake(state: ComposerWake): void;
 };
@@ -250,7 +264,7 @@ type Props = {
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
-  onUnsentDraft?(text: string): void;
+  onUnsentDraft?(text: string): void | Promise<unknown>;
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
@@ -260,6 +274,8 @@ type Props = {
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
+  plusExtensions?: readonly ComposerPlusExtension[];
+  onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
   /// or a window, attached as an image; an error for one too large to attach (shown as the
   /// composer's note); undefined when the person cancelled the pick.
@@ -290,6 +306,8 @@ type Props = {
   onRefreshMachines?(): void;
   /// The folder menu's quiet line while a new chat has no folder (ComposerContext `folderNote`).
   folderNote?: string;
+  /// A new chat's Run as rows in the environment picker (Persistent or Sandboxed, hq#3367).
+  runMode?: RunModeRows;
   /// This Mac's name for the location row.
   localName?: string;
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
@@ -315,6 +333,8 @@ type Props = {
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
+  /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
+  authBlock?: string;
   /// Opens the Inspector at its Context section: the context ring's card links to it (Details ›).
   onOpenContext?(): void;
 };
@@ -352,6 +372,8 @@ export function Composer({
   onImportFile,
   searchFiles,
   capture,
+  plusExtensions,
+  onPlusCommand,
   upload,
   localPaths,
   onProject,
@@ -365,6 +387,7 @@ export function Composer({
   offloads,
   onRefreshMachines,
   folderNote,
+  runMode,
   localName,
   environments,
   onNewChat,
@@ -378,6 +401,7 @@ export function Composer({
   sessionId,
   switching,
   blocked,
+  authBlock,
   placeholder,
   onOpenContext,
 }: Props) {
@@ -472,6 +496,9 @@ export function Composer({
   const notTyped = () => {
     typedAt.current = Number.NEGATIVE_INFINITY;
   };
+  /// The person edited this chat's prompt before its durable draft read answered (a clear too):
+  /// that read keeps their text, empty or not, and a quit before it answers saves it.
+  const editedBeforeHydration = useRef(false);
   const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -495,11 +522,12 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend } = useComposerSettings();
-  // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
-  // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
+  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
+    useComposerSettings();
+  // Both looks put the model in the footer. Claude keeps its draft-sensitive Send and Stop layout;
+  // Codex keeps its action behavior even though the model moved.
   const look = useComposerLook();
-  const quietRow = useQuietRow();
+  const quietActions = plainFooter && look === "claude";
   const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -650,6 +678,22 @@ export function Composer({
         shell: shellRef.current.shell,
         shellText: shellRef.current.shellText,
       }),
+      async settleDraft() {
+        // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
+        const typed = field.current?.value() ?? textRef.current;
+        const session = persistedSession.current;
+        // A restore not yet committed (`restoringSession`) is acpmux's own draft: the editor still
+        // shows what it had before, so writing it would clear the draft being restored.
+        // Before the durable read answers, only what the person typed goes (the read keeps a typed
+        // prompt over acpmux's the same way); an untouched editor leaves acpmux's draft alone.
+        const ready = hydratedSession.current === session || editedBeforeHydration.current;
+        if (session && ready && !restoringSession.current && typed !== lastQueuedDraftText(session)) {
+          writePersistedDraft(session, typed);
+        }
+        const unsent = unsentDraft.current;
+        if (unsent) unsent.push(typed);
+        await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
+      },
       wake(state) {
         const back = state.attachments ?? [];
         if (back.length)
@@ -684,10 +728,13 @@ export function Composer({
     const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
     if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
+    forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
     // Another chat's prompt comes in: no key before it was typing for this one.
     notTyped();
     hydratedSession.current = undefined;
+    editedBeforeHydration.current = false;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
     // A relaunch draft arrives with the handshake at the same time as the session reset. Keep it
@@ -700,6 +747,8 @@ export function Composer({
     setCaret(initial.length);
     pendingCaret.current = initial.length;
   }, [sessionId, text, draft]);
+  // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
+  useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
   useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
@@ -733,13 +782,15 @@ export function Composer({
       if (!current) return;
       const hasPendingWrite = hasPendingDraftWrite(sessionId);
       const currentText = field.current?.value() ?? textRef.current;
-      if (!hasPendingWrite && restored && !currentText) {
+      const edited = editedBeforeHydration.current;
+      editedBeforeHydration.current = false;
+      if (!hasPendingWrite && restored && !currentText && !edited) {
         restoringSession.current = true;
         notTyped();
         setText(restored);
         setCaret(restored.length);
         pendingCaret.current = restored.length;
-      } else if (!hasPendingWrite && currentText.trim()) {
+      } else if (!hasPendingWrite && (currentText.trim() || edited)) {
         // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
         writePersistedDraft(sessionId, currentText);
       }
@@ -876,6 +927,13 @@ export function Composer({
     edit(next.text, next.caret);
     field.current?.focus();
   };
+  const pickFromPlus = (command: SlashCommand) => {
+    const existing = field.current?.value() ?? text;
+    const next = `/${command.name} ${existing}`;
+    pendingCaret.current = next.length;
+    edit(next, next.length);
+    field.current?.focus();
+  };
   /// The draft without what + wrote over it, while the text is still exactly that.
   const unwrapped = () => {
     const plus = plusDraft.current;
@@ -901,7 +959,7 @@ export function Composer({
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
-    if (blocked && !force) return false;
+    if (authBlock || (blocked && !force)) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
     // the composer says so instead of doing nothing.
     if (sending.current) {
@@ -1329,6 +1387,7 @@ export function Composer({
   promptChange.current = (value, at) => {
     edit(value, at);
     if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
+    if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
     if (sessionId && value.trim()) onTyping?.(value, sessionId);
@@ -1544,7 +1603,7 @@ export function Composer({
 
   // The location strip: the folder and computer chips over the card (hq#1957 composer location
   // strip, composerLocation.css), so the card holds one controls row. Only a new chat has the visible
-  // strip, before its first send (locationRow.ts); a started chat has it only for a move (below).
+  // strip, before its first send (locationRow.ts): a started chat cannot change folder or machine.
   // Keep a non-painting slot for that strip while the first prompt changes the transcript. The
   // composer is bottom-anchored, so removing the slot in the same render would move every control
   // by the strip's height (cx-ncc.58); the slot is hidden when a queue is present, whose own height
@@ -1564,49 +1623,39 @@ export function Composer({
     locationSlotWasShown.current = false;
   }
   const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
-  // A started chat keeps the strip, as its chip's menu, only while the host offers it a move (Move
-  // to Cloud, Bring Back Local: the tab's own menu's `moves`); that menu also offers Choose folder…
-  // for a new chat. With no move, or while its queue heads the card, it has none (#20869).
-  const startedStrip =
-    !locationVisible &&
-    isStartedChat(snapshot) &&
-    ownQueue(snapshot.queue).length === 0 &&
-    onOffload !== undefined &&
-    (offloads?.length ?? 0) > 0;
-  const context =
-    locationVisible || startedStrip ? (
-      <ComposerContext
-        started={startedStrip}
-        projectChoices={projectChoices}
-        onBrowseProject={onBrowseProject}
-        onNewWorktree={onNewWorktree}
-        onBrowseFolder={onBrowseFolder}
-        onConnect={onConnect}
-        {...(onOffload ? { onOffload } : {})}
-        {...(offloads ? { offloads } : {})}
-        summary={snapshot.summary}
-        sessions={snapshot.sessions}
-        peers={snapshot.peers}
-        {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
-        {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
-        {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
-        {...(onRefreshMachines ? { onRefreshMachines } : {})}
-        {...(folderNote ? { folderNote } : {})}
-        environments={environments}
-        {...(onComputer ? { onComputer } : {})}
-        onProject={
-          onProject &&
-          ((cwd, peer) => {
-            onProject(cwd, peer);
-            field.current?.focus();
-          })
-        }
-        localName={localName}
-        onNewChat={onNewChat}
-      />
-    ) : keepLocationSlot ? (
-      <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
-    ) : null;
+  const context = locationVisible ? (
+    <ComposerContext
+      projectChoices={projectChoices}
+      onBrowseProject={onBrowseProject}
+      onNewWorktree={onNewWorktree}
+      onBrowseFolder={onBrowseFolder}
+      onConnect={onConnect}
+      {...(onOffload ? { onOffload } : {})}
+      {...(offloads ? { offloads } : {})}
+      summary={snapshot.summary}
+      sessions={snapshot.sessions}
+      peers={snapshot.peers}
+      {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
+      {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+      {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+      {...(onRefreshMachines ? { onRefreshMachines } : {})}
+      {...(folderNote ? { folderNote } : {})}
+      {...(runMode ? { runMode } : {})}
+      environments={environments}
+      {...(onComputer ? { onComputer } : {})}
+      onProject={
+        onProject &&
+        ((cwd, peer) => {
+          onProject(cwd, peer);
+          field.current?.focus();
+        })
+      }
+      localName={localName}
+      onNewChat={onNewChat}
+    />
+  ) : keepLocationSlot ? (
+    <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
+  ) : null;
   // Stop, for the whole turn. Claude desktop's box (Leo 2026-10-20) draws it left of the mic, the
   // mic keeping the right edge; the other look keeps it at the cluster's end.
   const stopButton = running ? (
@@ -1651,7 +1700,12 @@ export function Composer({
           {t(remote.note)}
         </p>
       )}
-      {!remote.note && blocked?.reason && !blocked.shownAbove && (
+      {!remote.note && authBlock && (
+        <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="alert">
+          {authBlock}
+        </p>
+      )}
+      {!remote.note && !authBlock && blocked?.reason && !blocked.shownAbove && (
         <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="note">
           {t(blocked.reason)}
         </p>
@@ -1840,67 +1894,105 @@ export function Composer({
                 align="start"
                 returnFocus={false}
                 sections={[
-                  {
-                    choices: [
-                      { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
-                      // A harness without images would refuse the capture after the whole pick.
-                      ...(capture && allowImages
-                        ? [
-                            {
-                              id: "screenshot",
-                              name: t(COMPOSER_LABELS.attachScreenshot),
-                              icon: <Icon name="site.permission.camera" size={18} />,
+                  ...composerPlusSections(
+                    composerPlusRegistry({
+                      commands,
+                      translate: t,
+                      extensions: plusExtensions,
+                      canCapture: Boolean(capture && allowImages),
+                      canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
+                      ...(planChoice && plan
+                        ? {
+                            planMode: {
+                              id: plan.id,
+                              name: planChoice.name,
+                              description: t("picker.planHint"),
                             },
-                            {
-                              id: "window",
-                              name: t(COMPOSER_LABELS.attachWindow),
-                              icon: <Icon name="site.permission.windowmanagement" size={18} />,
-                            },
-                          ]
-                        : []),
-                      { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
-                      ...(searchFiles
-                        ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }]
-                        : []),
-                      ...(commands?.length
-                        ? [
-                            {
-                              id: "commands",
-                              name: t(COMPOSER_LABELS.commands),
-                              icon: <SlashIcon />,
-                              hint: "/",
-                            },
-                          ]
-                        : []),
-                      ...(planChoice ? [planChoice] : []),
-                    ],
-                    onPick: (id) =>
-                      id.startsWith("plan:")
-                        ? onMode?.(
-                            planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? id.slice(5)) : id.slice(5),
-                          )
-                        : id === "attach"
-                          ? chooser.current?.click()
-                          : id === "screenshot" || id === "window"
-                            ? // Back to the prompt either way (the + menu doesn't take focus back),
-                              // unless the person moved focus out of the composer while the capture ran.
-                              void capture?.(id === "window" ? "window" : "screen")
-                                .then(async (shot) => {
-                                  if (shot instanceof File) await attach([shot]);
-                                  else if (shot) setAttachError(attachmentErrorText(shot, t));
-                                })
-                                .finally(() => {
-                                  const focused = document.activeElement;
-                                  if (!focused || focused === document.body || form.current?.contains(focused))
-                                    field.current?.focus();
-                                })
-                            : id === "mention"
-                              ? mention()
-                              : id === "files"
-                                ? setFindingFiles(true)
-                                : openCommands(),
-                  },
-                ]}
+                          }
+                        : {}),
+                    }).filter((entry) => {
+                      if (entry.id === "files.search") return Boolean(searchFiles);
+                      if (entry.id === "add.commands") return Boolean(commands?.length);
+                      return true;
+                    }),
+                  ),
+                ].flatMap(([section, entries]) =>
+                  entries.length
+                    ? [
+                        {
+                          title:
+                            section === "add"
+                              ? t(COMPOSER_LABELS.add)
+                              : section === "tools"
+                                ? t("summary.tools.search")
+                                : section === "sessions"
+                                  ? t("sidebar.sessions")
+                                  : section === "tabs"
+                                    ? (t as unknown as (key: string) => string)("newTab.openTabs")
+                                    : t("files.search"),
+                          choices: entries.map((entry): Choice => ({
+                            id: entry.id,
+                            name: entry.name,
+                            description:
+                              entry.description.trim() && entry.description.trim() !== entry.name.trim()
+                                ? entry.description
+                                : undefined,
+                            icon:
+                              entry.id === "add.files" ? (
+                                <PaperclipIcon />
+                              ) : entry.id === "add.mention" ? (
+                                <AtIcon />
+                              ) : entry.id === "add.commands" ? (
+                                <SlashIcon />
+                              ) : entry.id === "files.search" ? (
+                                <SearchIcon size={18} />
+                              ) : entry.id.startsWith("add.mode.") ? (
+                                planning ? (
+                                  <BuildIcon />
+                                ) : (
+                                  <PlanIcon />
+                                )
+                              ) : (
+                                <Icon name={entry.icon} size={18} />
+                              ),
+                            ...(entry.id === "add.mention" ? { hint: "@" } : {}),
+                            ...(entry.id === "add.commands" ? { hint: "/" } : {}),
+                          })),
+                          onPick: (id: string) => {
+                            const entry = entries.find((row) => row.id === id);
+                            if (!entry) return;
+                            const handled = runComposerPlusAction(entry.action, {
+                              command: (action, modeId) => {
+                                if (action === "composer.attachFiles") chooser.current?.click();
+                                else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
+                                  void capture?.(action === "composer.attachWindow" ? "window" : "screen")
+                                    .then(async (shot) => {
+                                      if (shot instanceof File) await attach([shot]);
+                                      else if (shot) setAttachError(attachmentErrorText(shot, t));
+                                    })
+                                    .finally(() => {
+                                      const focused = document.activeElement;
+                                      if (!focused || focused === document.body || form.current?.contains(focused))
+                                        field.current?.focus();
+                                    });
+                                } else if (action === "composer.chooseProject") openPicker("Location");
+                                else if (action === "composer.planMode" && modeId)
+                                  onMode?.(
+                                    planning ? (lastMode.current.mode ?? permissionModes[0]?.id ?? modeId) : modeId,
+                                  );
+                                else if (action === "composer.mention") mention();
+                                else if (action === "searchFiles") setFindingFiles(true);
+                                else if (action === "composer.commands") openCommands();
+                              },
+                              extension: onPlusCommand,
+                              slash: pickFromPlus,
+                            });
+                            return handled ? undefined : "keep";
+                          },
+                        },
+                      ]
+                    : [],
+                )}
               />
             )}
           </>
@@ -1946,14 +2038,14 @@ export function Composer({
                 <ReturnIcon />
               </button>
             )}
-            {quietRow && stopButton}
+            {quietActions && stopButton}
           </>
         }
         accessory={accessory}
         trailing={
-          !quietRow && stop ? (
+          !quietActions && stop ? (
             stopButton
-          ) : remote.canSend && (!quietRow || shell || (hasDraft && !(running && steerable))) ? (
+          ) : remote.canSend && (!quietActions || shell || (hasDraft && !(running && steerable))) ? (
             // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
             // alone on the right; Send comes in after it with the first letter. Mid-turn it
             // queues the draft, unless the ↵ control is there to put it into the turn.
@@ -1961,23 +2053,25 @@ export function Composer({
               key="send"
               ref={sendButton}
               type="submit"
-              disabled={Boolean(blocked) && !shell}
+              disabled={Boolean(authBlock || blocked) && !shell}
               className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
               aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
               title={
                 shell
                   ? t("composer.shellRun")
-                  : blocked?.reason
-                    ? t(blocked.reason)
-                    : t(
-                        !snapshot.isWorking
-                          ? "composer.sendTooltip"
-                          : steersAlways
-                            ? "composer.steerTooltip"
-                            : returnSteers
-                              ? "composer.queueLaterTooltip"
-                              : "composer.queueTooltip",
-                      )
+                  : authBlock
+                    ? authBlock
+                    : blocked?.reason
+                      ? t(blocked.reason)
+                      : t(
+                          !snapshot.isWorking
+                            ? "composer.sendTooltip"
+                            : steersAlways
+                              ? "composer.steerTooltip"
+                              : returnSteers
+                                ? "composer.queueLaterTooltip"
+                                : "composer.queueTooltip",
+                        )
               }
             >
               <ArrowUpIcon />

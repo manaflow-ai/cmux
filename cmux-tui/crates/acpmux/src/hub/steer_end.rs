@@ -30,6 +30,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     params: Value,
     turn_id: &str,
     steer: bool,
+    fence: Option<&crate::agent::Fence>,
     on_sent: F,
 ) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
@@ -40,7 +41,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     {
         return Ok(answer);
     }
-    let request = child.request_with_hook(method::SESSION_PROMPT, params, on_sent);
+    let request = child.request_with_hook(method::SESSION_PROMPT, params, fence, on_sent);
     tokio::pin!(request);
     loop {
         tokio::select! {
@@ -85,12 +86,12 @@ impl Hub {
         let cancels = session.cancels.load(std::sync::atomic::Ordering::SeqCst);
         let prompt_id = opts.prompt_id.unwrap_or_default();
         self.check_steer(session, control, opts.full_access_device.as_deref())?;
+        // A running turn has a live agent.
+        let child = self.child_for(session).await?;
         // A family message is checked again here, as a dispatched one is, and the gate held
         // until it is written: it was checked before an MDM off push may have come
         // (`family_gate`).
         let family_gate = self.family_gate(session, opts.provenance.as_ref()).await?;
-        // A running turn has a live agent.
-        let child = self.child_for(session).await?;
         let agent_sid = session
             .meta()
             .agent_session_id
@@ -130,10 +131,26 @@ impl Hub {
         if step_now {
             params["_meta"]["steerNow"] = json!(true);
         }
+        // Another session's plain message goes in with the other agents' messages waiting for
+        // this step, as one message (claude_stdio `steer_batch.rs`). One read now goes alone at
+        // once, and so do a family message (its gate holds until it is written), a slash command
+        // (only a line's first words run one) and one with uploaded files.
+        let sender = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        if let Some(from) = sender
+            && !step_now
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            && super::forum::slash_command(&blocks).is_none()
+            && !crate::prompt_uploads::any(&blocks)
+        {
+            params["_meta"]["batch"] = json!({"from": from});
+        }
         // Counted in the turn before the agent can read it (`lane_reports.rs`).
         let count = self.lane_steer_in(session, opts.provenance.as_ref());
+        let fence = family_gate.map(|hold| self.hold_until_written(session, hold));
+        // A fence no writer took is cut (review 86 of #23322).
+        let _unsent = crate::agent::CutOnDrop(fence.as_ref());
         let answer =
-            agent_prompt_hook(session, &child, params, turn_id, true, || drop(family_gate)).await;
+            agent_prompt_hook(session, &child, params, turn_id, true, fence.as_ref(), || {}).await;
         session
             .steer_now
             .lock()

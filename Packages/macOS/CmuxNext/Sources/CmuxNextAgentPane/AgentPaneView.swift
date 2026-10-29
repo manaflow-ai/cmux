@@ -45,14 +45,18 @@ public final class AgentPaneView: NSView {
     let dictation: AgentPaneDictation
     /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
     var dictationKey = AgentPaneDictationKey()
-    var crashReloads = PageCrashReloads()
-    /// Shown instead of reloading once the page keeps crashing.
+    /// Shown when the page's web content ends (it never reloads by itself).
     var crashNotice: NSView?
+    /// The page crashed and the notice waits for the person's Reload (nothing rebuilds it meanwhile).
+    public var showsCrashNotice: Bool { crashNotice != nil }
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: ChromeLabel?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: NSStackView?
     var remoteApprovals: AgentPaneRemoteApprovals?
+    /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
+    /// approvals); nil for no notice or another one.
+    var peerApprovalsReason: AgentPanePeerApprovals?
     /// Owns the inspector export panel and its in-flight state.
     let savePanel = AgentPaneSavePanel()
     /// The app's made-ahead open panel (Add Files, Attach, a page's file input); nil: no file picker (tests).
@@ -400,6 +404,8 @@ public final class AgentPaneView: NSView {
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
         model.transport.onRemoteApprovalsOff = nil
+        model.transport.onPeerApprovalsOff = nil
+        hideRemoteApprovalsOff()
         transportPacer?.stop()
         removeContextMenu()
         if let page {

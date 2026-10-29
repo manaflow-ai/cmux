@@ -90,6 +90,12 @@ final class HomeService {
     /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
     /// placed on a paired server), as last read on a connect or sign-in.
     private(set) var cloudChiefs = HomeCloudChiefs()
+    /// Chief renames being saved, shown at once on every surface (``chiefName(of:)``).
+    var chiefRenames = HomeChiefNames()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Every live Home view, for `debug.home.api` `chief_names` (each one's header name).
+    @ObservationIgnored let debugHostViews = NSHashTable<HomeHostView>.weakObjects()
+    #endif
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
     /// whenever it is the default Chief: ``prefersLocalChief``).
     var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
@@ -172,6 +178,10 @@ final class HomeService {
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
+    /// Each chat's own bubble colours (Chat Colors…, `home.chatColors`), kept on this Mac.
+    @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
+    /// The Chat Colors… panel (one for the app).
+    @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsPanel(store: chatColors, design: .shared)
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
@@ -225,6 +235,12 @@ final class HomeService {
             }
         }
         observeChiefEngine()
+        // The team behind the list's teammate rows and New Message's To:, read again once the
+        // launch restore signs in, on another account, and when the account's teams change.
+        directory.follow { [weak auth] in
+            guard let auth, auth.isSignedIn, let user = auth.user?.id else { return nil }
+            return user + "|" + auth.activeTeam.teams.map(\.id).sorted().joined(separator: ",")
+        }
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()

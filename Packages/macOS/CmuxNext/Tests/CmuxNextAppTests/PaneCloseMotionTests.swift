@@ -369,6 +369,76 @@ struct PaneCloseMotionTests {
         #expect(window.alphaValue == 1 && !window.ignoresMouseEvents, "a closed window does not show whole again")
     }
 
+    /// The window's child windows (Chromium pages, the overlay panel above them, a popup's own
+    /// child) fade with it: AppKit does not pass a parent's alpha to its children, so a page stayed
+    /// opaque on the fading window and went only when it closed. A child keeps its own alpha as
+    /// the top of its fade and gets it back when the window closes.
+    @Test func aClosedWindowFadesItsChildWindowsWithIt() {
+        func make(_ alpha: CGFloat = 1) -> NSWindow {
+            let child = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                                 backing: .buffered, defer: true)
+            child.isReleasedWhenClosed = false
+            child.alphaValue = alpha
+            return child
+        }
+        let window = make()
+        let page = make()
+        let panel = make(0.5)
+        let nested = make()
+        window.addChildWindow(page, ordered: .above)
+        window.addChildWindow(panel, ordered: .above)
+        page.addChildWindow(nested, ordered: .above)
+        defer { [nested, panel, page].forEach { $0.parent?.removeChildWindow($0) } }
+        #expect(window.childWindows?.count == 2 && page.childWindows?.count == 1, "the child windows were not added")
+        let motion = WindowCloseMotion(window: window) {}
+        motion.start(handingKeysTo: nil, driven: false)
+        var frames = 0
+        while motion.step(Self.dt), frames < 240 {
+            frames += 1
+            let a = window.alphaValue
+            #expect(abs(page.alphaValue - a) < 0.001, "a page window stayed at \(page.alphaValue) while its window was at \(a)")
+            #expect(abs(nested.alphaValue - a) < 0.001, "a child of a child window did not fade")
+            #expect(abs(panel.alphaValue - 0.5 * a) < 0.001, "a child window lost its own alpha in the fade")
+        }
+        #expect(frames > 0)
+        #expect(page.alphaValue == 1 && nested.alphaValue == 1 && panel.alphaValue == 0.5,
+                "a child window does not get its alpha back when the window closes")
+    }
+
+    /// A child whose owner sets its alpha during the fade (a panel's own fade) keeps the owner's
+    /// alpha, and a child that moves under another window (a palette follows the key window) is
+    /// whole again at once: the fade dims only what is still the closing window's.
+    @Test func aWindowFadeLeavesAChildItsOwnerOrAnotherWindowTook() {
+        func make() -> NSWindow {
+            let child = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
+                                 backing: .buffered, defer: true)
+            child.isReleasedWhenClosed = false
+            return child
+        }
+        let window = make()
+        let other = make()
+        let panel = make()
+        let palette = make()
+        window.addChildWindow(panel, ordered: .above)
+        window.addChildWindow(palette, ordered: .above)
+        defer { [panel, palette].forEach { $0.parent?.removeChildWindow($0) } }
+        let motion = WindowCloseMotion(window: window) {}
+        motion.start(handingKeysTo: nil, driven: false)
+        for _ in 0..<3 { motion.step(Self.dt) }
+        #expect(panel.alphaValue < 1 && palette.alphaValue < 1, "the children did not start to fade")
+        panel.alphaValue = 0.3
+        window.removeChildWindow(palette)
+        other.addChildWindow(palette, ordered: .above)
+        var frames = 0
+        while motion.step(Self.dt), frames < 240 {
+            frames += 1
+            #expect(panel.alphaValue == 0.3, "the fade overwrote the alpha a child's owner set")
+            #expect(palette.alphaValue == 1, "a child that moved to another window stayed faded")
+        }
+        #expect(frames > 0)
+        #expect(panel.alphaValue == 0.3 && palette.alphaValue == 1, "the fade's end changed a child it let go of")
+    }
+
     @Test func aWindowCloseUnderReduceMotionDoesNotFade() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
                               backing: .buffered, defer: true)

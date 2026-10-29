@@ -147,7 +147,7 @@ final class SidebarBridge {
                 harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
-                    SidebarRows.visibleLayout(layout.document, window: windowState.id, machines: machines, registry: registry.value))
+                    SidebarRows.visibleLayout(layout.document, window: windowState.id, profile: windowState.profileID, machines: machines, registry: registry.value, showAppStore: services.settings?.snapshot.previewFeatures == true))
         }) { [weak self] value in
             let ((sections, decorations), launching, failed, profiles, active, shown) = value
             guard let self else { return }
@@ -192,7 +192,7 @@ final class SidebarBridge {
         // One selection: the shown page's top item, else the shown workspace.
         sameTurn.observe({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
                                                           creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
-                                                          layout: layout.document, room: state.profileID.rawValue,
+                                                          layout: SidebarRows.visibleLayout(layout.document, showAppStore: services.settings?.snapshot.previewFeatures == true), room: state.profileID.rawValue,
                                                           refs: WorkspaceLayoutRefs(machines: machines), home: services.home.dockedHomeID,
                                                           channels: services.home.dockShowsChannels) }) { [weak self] selected in
             self?.selectionHold.offer(selected) // a new workspace's waits for its row (cx-8g3sn)
@@ -226,8 +226,8 @@ final class SidebarBridge {
                                                               tabTitle: Self.tabTitle(services),
                                                               groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
                 harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
-        show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document, window: state.id, machines: services.machines,
-                                                         registry: windows.registry.value), launching: launching, failed: failed)
+        show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document, window: state.id, profile: state.profileID, machines: services.machines,
+                                                         registry: windows.registry.value, showAppStore: services.settings?.snapshot.previewFeatures == true), launching: launching, failed: failed)
     }
 
     /// Shows `live` with loading sections filled from the seed, and the
@@ -246,7 +246,7 @@ final class SidebarBridge {
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
         let elsewhere = model.docDrag.flatMap { drag in SidebarDocStore.current?.shown?.bandGroupsListedElsewhere(drag: drag) }
         rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil),
-                  elsewhere: elsewhere)
+                  elsewhere: elsewhere, showAppStore: services.settings?.snapshot.previewFeatures == true)
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()

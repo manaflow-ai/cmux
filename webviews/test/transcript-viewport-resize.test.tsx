@@ -2,6 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -50,18 +51,8 @@ Object.assign(scope, replacements);
 // jsdom has no layout: a viewport the test resizes (the pane's tab strip showing or hiding) over a
 // long conversation, and a scroll offset kept as the browser keeps it.
 let viewport = 600;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
-const offsets = new WeakMap<object, number>();
-Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
-  configurable: true,
-  get(this: object) {
-    return offsets.get(this) ?? 0;
-  },
-  set(this: object, value: number) {
-    offsets.set(this, value);
-  },
-});
+installJsdomScroller(dom.window as never, () => viewport);
 
 // The glides the transcript starts (content that grew at the latest row slides in).
 const glides: unknown[] = [];
@@ -96,8 +87,7 @@ const turns = Array.from({ length: 30 }, (_, index) => [
 test("a resized chat at its latest message stays there in the same frame, without a glide", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const latest = () =>
-    parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - viewport;
+  const latest = () => scrollerEnd(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!);
   try {
     await act(async () =>
       root.render(

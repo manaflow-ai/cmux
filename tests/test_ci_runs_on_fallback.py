@@ -270,6 +270,25 @@ class RunsOnFallbackTests(unittest.TestCase):
                         failures.append(f"{path.name} {job_id}: vars.{match.group(1)} is the last alternative")
         self.assertEqual(failures, [], "a single-host runner variable needs a later `||` pool fallback")
 
+    def test_a_picked_signing_label_has_a_rerun_alternative(self) -> None:
+        # A Blacksmith macOS label picked once can stall after the pick, and GitHub never
+        # re-routes a queued job: only a re-run leaves it. nightly.yml's signing jobs read the
+        # picker's other macOS 26 size on attempt 2 on, so a re-run never queues on the label
+        # that stalled (run 40489472569, 2026-10-27, waited on blacksmith-6vcpu-macos-26).
+        jobs = load(WORKFLOWS / "nightly.yml")["jobs"]
+        picked = re.compile(r"\|\| (needs\.(?:pick-nightly-sign-runner|find-nightly-next-recovery|legacy-identity-target)"
+                            r"\.outputs\.)(runner|sign_runner) \|\|")
+        failures, seen = [], set()
+        for job_id, job in jobs.items():
+            text = runs_on_text(job)
+            for match in picked.finditer(text):
+                seen.add(job_id)
+                alternate = match.group(1) + ("alternate" if match.group(2) == "runner" else "sign_alternate")
+                if f"|| github.run_attempt > 1 && {alternate} {match.group(0)}" not in text:
+                    failures.append(f"nightly.yml {job_id}: {match.group(1)}{match.group(2)} has no re-run alternative")
+        self.assertTrue({"build-sign-notarize-nightly", "sign-nightly-identity-legacy"} <= seen, seen)
+        self.assertEqual(failures, [], "a picked signing label needs `github.run_attempt > 1 && <alternate>` before it")
+
     def test_a_reserved_slot_always_has_a_fallback(self) -> None:
         failures, seen = [], 0
         for path in workflows():

@@ -27,12 +27,15 @@ mod host_lock;
 mod host_migrate;
 #[path = "host_update.rs"]
 mod host_update;
+pub(crate) use host_auto_update::{
+    NO_AUTO_UPDATE, UPDATE_SERVICE, UPDATE_TIMER, install_script, take_auto_update_off,
+};
 pub(crate) use host_hold::hold;
 #[cfg(test)]
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
 use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
-pub(crate) use host_update::{Caller, UpdateOptions, self_update, update};
+pub(crate) use host_update::{CLOUD_VM_MARK, Caller, UpdateOptions, self_update, update};
 
 /// Where `host setup` installs acpmux and what its daemon runs.
 pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
@@ -540,7 +543,7 @@ const SYSTEMD_MANAGER: &str = "systemctl --user show-environment >/dev/null 2>&1
 /// Whether the user's systemd manager outlives this ssh session: lingering,
 /// asked for when it is not (refused, the detached start, which survives a
 /// logout, is kept). Asked only once the unit is known to be used.
-const SYSTEMD_LINGERING: &str = r#"{ [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ] || loginctl enable-linger >/dev/null 2>&1; }"#;
+pub(crate) const SYSTEMD_LINGERING: &str = r#"{ [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ] || loginctl enable-linger >/dev/null 2>&1; }"#;
 
 /// Fails (exit 4) when the daemon still answers after its shutdown (a live
 /// daemon's status carries its `pid`; a stopped one's only `"running":
@@ -608,7 +611,14 @@ async fn connect_peer(client: &Client, name: &str, url: Option<&str>) -> Result<
                 .request("_acpmux/peer_add", json!({"name": name, "url": url, "wait": true}))
                 .await
         }
-        None => client.request("_acpmux/peer_reconnect", json!({"name": name, "wait": true})).await,
+        None => {
+            client
+                .request(
+                    "_acpmux/peer_reconnect",
+                    json!({"name": name, "wait": true, "force": true}),
+                )
+                .await
+        }
     }
 }
 

@@ -60,7 +60,7 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
     let start = cursor.map_or(0, |c| c.start(&sorted));
     let mut sessions: Vec<Value> = sorted.into_iter().skip(start).collect();
     let Some(limit) = limit else {
-        return Ok(json!({"sessions": sessions}));
+        return Ok(page(sessions, None));
     };
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let next = if sessions.len() > limit {
@@ -69,7 +69,17 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
     } else {
         None
     };
-    Ok(json!({"sessions": sessions, "nextCursor": next}))
+    Ok(page(sessions, Some(next.map_or(Value::Null, Value::String))))
+}
+
+/// `{sessions, nextCursor?}`, moving the sessions in: `json!` would deep-copy the whole list.
+fn page(sessions: Vec<Value>, next: Option<Value>) -> Value {
+    let mut reply = serde_json::Map::new();
+    reply.insert("sessions".to_owned(), Value::Array(sessions));
+    if let Some(next) = next {
+        reply.insert("nextCursor".to_owned(), next);
+    }
+    Value::Object(reply)
 }
 
 /// A string filter param: absent, null or empty is no filter (the schema allows all three);

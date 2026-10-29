@@ -106,16 +106,18 @@ final class CloudMachineUpdates {
                     return CloudMoveCLI.Answer(ok: false, errorCode: "machine_unreachable", error: "the machine is not connected")
                 }
                 logger.info("cloud machine \(machineID, privacy: .public): updating cmux-tui to the app's build")
-                return try await cli.machineUpdate(socket: socket, toBundled: true)
+                return try await cli.machineUpdate(socket: socket, toBundled: true, ifOlder: true)
             },
             reconnect: { [weak session] restarted in await session?.reconnectAfterUpdate(restarted: restarted) },
-            legacy: { [weak session] build in
+            legacy: { [weak session] build, judged in
                 // Only the build this app pins for its own: a manifest of another build is not this app's.
                 guard let api, await CloudMachineUpdates.allowsExec(session),
                       let pin = CloudLegacyMachineUpdate.pin(for: build.hash, besideCLI: binary),
                       let script = CloudLegacyMachineUpdate.script else { return nil }
                 logger.info("cloud machine \(machineID, privacy: .public): too old to update in place; installing cmux-tui \(pin.commit, privacy: .public) through exec")
-                return await CloudLegacyMachineUpdate.run(pin: pin, script: script) { command, timeoutMs in
+                // Only while it still runs the build `--if-older` judged older (checked under the
+                // machine's upgrade lock): an update by another app meanwhile is never undone here.
+                return await CloudLegacyMachineUpdate.run(pin: pin, script: script, expected: judged) { command, timeoutMs in
                     try await api.exec(machineID, command: command, timeoutMs: timeoutMs)
                 }
             })
