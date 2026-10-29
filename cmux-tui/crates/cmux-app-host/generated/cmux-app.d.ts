@@ -676,7 +676,7 @@ interface CmuxGlobal {
     /** `closed.list` (read, scope `closed:read`) */
     list: CmuxOp<{ machine?: string; session?: string; window?: string; limit?: number }, Array<Cmux.ClosedItemSnapshot>>
     /** `closed.reopen` (mutation, scope `closed:write`) */
-    reopen: CmuxOp<{ machine?: string; session?: string; closed?: Cmux.StateId; window?: string; members?: Array<number>; tab?: string /* tab_… */; fallback_pane?: string /* pane_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.ClosedReopenResult>>
+    reopen: CmuxOp<{ machine?: string; session?: string; closed?: Cmux.StateId; window?: string; members?: Array<number>; tab?: string /* tab_… */; workspace?: string /* workspace_… */; fallback_pane?: string /* pane_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.ClosedReopenResult>>
   }
   cloud: {
     auth: {
