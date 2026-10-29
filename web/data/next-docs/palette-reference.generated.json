@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1218,
+    "entries": 1219,
     "shortcuts": 189
   },
   "sections": [
@@ -5864,6 +5864,12 @@
           "title": "New Agent Chat",
           "shortcut": "⌘I",
           "command": "cmux agent new-chat"
+        },
+        {
+          "id": "palette.newAgentChatOn",
+          "title": "New Agent Chat on…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "tasks.new",

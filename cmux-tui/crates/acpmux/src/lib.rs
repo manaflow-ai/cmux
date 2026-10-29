@@ -72,6 +72,7 @@ pub mod login_env;
 pub mod machine_wake;
 pub mod mailbox;
 pub mod mesh;
+pub mod mesh_control;
 pub mod mesh_http;
 pub mod model_copies;
 pub mod native;
@@ -122,6 +123,8 @@ pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod tailnet;
+#[cfg(test)]
+mod test_exec;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;

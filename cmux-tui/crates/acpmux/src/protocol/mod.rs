@@ -195,6 +195,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
         untyped(method::MUX_SEND_QUEUE, Request),
         untyped(method::MUX_SEND_STATUS, Request),
+        untyped(method::MUX_MESH_CONTROL, Request),
         // The hub asks a session's agent adapter (claude_stdio, the Codex bridge).
         untyped(method::MUX_STEP_NOW, Request),
         untyped(method::MUX_STEER_WITHDRAW, Request),
@@ -228,6 +229,10 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
         request::<MailWaitParams, MailPageResult>(method::MUX_MAIL_WAIT),
         request::<MailAckParams, MailAckResult>(method::MUX_MAIL_ACK),
+        untyped(method::MUX_TEAM_SEND, Request),
+        untyped(method::MUX_TEAM_INBOX, Request),
+        untyped(method::MUX_TEAM_READ, Request),
+        untyped(method::MUX_TEAM_ACK, Request),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_WAIT, Request),
@@ -370,6 +375,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PAIR_REVOKE, Request),
         untyped(method::MUX_PAIR_ISSUE, Request),
         untyped(method::MUX_PAIR_SET, Request),
+        untyped(method::MUX_MACHINE_CONSENT_SET, Request),
+        untyped(method::MUX_MACHINE_CONSENT_GET, Request),
+        untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
         untyped(method::MUX_PAIR_REDEEM, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),

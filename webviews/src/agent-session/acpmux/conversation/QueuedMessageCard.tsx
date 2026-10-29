@@ -152,7 +152,9 @@ export function SteerWaitingActions({ promptId, send }: { promptId?: string; sen
           </Menu>
         </span>
       )}
-      <span className="cv-received__queued">{t("message.readAfterStep")}</span>
+      <span className="cv-received__queued" data-reveal="hover">
+        {t("message.readAfterStep")}
+      </span>
     </>
   );
 }

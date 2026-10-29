@@ -93,6 +93,10 @@ export interface AcpmuxRequests {
   "_acpmux/mail/read": { params: MailReadParams; result: MailPageResult };
   "_acpmux/mail/wait": { params: MailWaitParams; result: MailPageResult };
   "_acpmux/mail/ack": { params: MailAckParams; result: MailAckResult };
+  "_acpmux/team/send": { params: unknown; result: unknown };
+  "_acpmux/team/inbox": { params: unknown; result: unknown };
+  "_acpmux/team/read": { params: unknown; result: unknown };
+  "_acpmux/team/ack": { params: unknown; result: unknown };
   "_acpmux/history": { params: unknown; result: unknown };
   "_acpmux/complete": { params: unknown; result: unknown };
   "_acpmux/wait": { params: unknown; result: unknown };
@@ -219,6 +223,9 @@ export interface AcpmuxRequests {
   "_acpmux/pair_revoke": { params: unknown; result: unknown };
   "_acpmux/pair_issue": { params: unknown; result: unknown };
   "_acpmux/pair_set": { params: unknown; result: unknown };
+  "_acpmux/machine_consent_set": { params: unknown; result: unknown };
+  "_acpmux/machine_consent_get": { params: unknown; result: unknown };
+  "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
   "_acpmux/pair_redeem": { params: unknown; result: unknown };
 }
 
@@ -356,6 +363,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/mail/read", kind: "request", acp: false, typed: true },
   { name: "_acpmux/mail/wait", kind: "request", acp: false, typed: true },
   { name: "_acpmux/mail/ack", kind: "request", acp: false, typed: true },
+  { name: "_acpmux/team/send", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/team/inbox", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/team/read", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/team/ack", kind: "request", acp: false, typed: false },
   { name: "_acpmux/history", kind: "request", acp: false, typed: false },
   { name: "_acpmux/complete", kind: "request", acp: false, typed: false },
   { name: "_acpmux/wait", kind: "request", acp: false, typed: false },
@@ -484,6 +495,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/pair_revoke", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_issue", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_consent_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/session_changed", kind: "notification", acp: false, typed: true },
