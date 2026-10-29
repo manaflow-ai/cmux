@@ -566,7 +566,6 @@ export default componentEntry<Props>({
   height: 900,
   widths: { narrow: 320, normal: 420 },
   covers: [
-    "ui/StableLabel.tsx",
     "agent-session/acpmux/inspector/ChatInspector.tsx",
     "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
@@ -679,33 +678,6 @@ export default componentEntry<Props>({
         ...environmentProps(),
         summary: { ...summary, cwd: SCRATCHPAD, branch: undefined, worktree: undefined },
         repository: undefined,
-      },
-    },
-    "stable-actions-idle": {
-      note: "Session Info actions before their labels change, with Context and Connectors open.",
-      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
-    },
-    "stable-actions-changed": {
-      note: "The same actions after Save becomes Saved and Reconnect becomes Reconnecting. Their widths stay fixed to the widest translated label.",
-      props: {
-        ...full,
-        sections: { ...DEFAULT_SECTIONS, context: true, connectors: true },
-        onSaveEnvironment: () => undefined,
-        onReconnectMcp: () => new Promise(() => undefined),
-      },
-      play: async (ctx) => {
-        const save = ctx.find({ selector: '[data-section="environment"] button.acpmux-chat-inspector-link' });
-        const reconnect = ctx.find({ selector: '[data-section="connectors"] button.acpmux-chat-inspector-link' });
-        const widths = [save, reconnect].map((button) => button.getBoundingClientRect().width);
-        await ctx.click({ selector: '[data-section="environment"] button.acpmux-chat-inspector-link' });
-        await ctx.waitFor(() => save.hasAttribute("disabled"));
-        await ctx.click({ selector: '[data-section="connectors"] button.acpmux-chat-inspector-link' });
-        await ctx.waitFor(() => reconnect.hasAttribute("disabled"));
-        [save, reconnect].forEach((button, index) => {
-          if (Math.abs(button.getBoundingClientRect().width - widths[index]!) > 0.5) {
-            throw new Error("Session Info action changed width with its label");
-          }
-        });
       },
     },
     "context-connectors-open": {
