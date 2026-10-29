@@ -1122,7 +1122,7 @@ mod tests {
                 "systemctl --user daemon-reload",
                 "systemctl --user cat acpmux.service",
                 "systemctl --user is-active --quiet acpmux.service",
-                "acpmux daemon shutdown --keep-agents",
+                "acpmux daemon shutdown --keep-agents --restart",
                 "systemctl --user enable --now acpmux.service",
                 // The self-update timer (host_auto_update.rs), once the unit runs.
                 "systemctl --user daemon-reload",
