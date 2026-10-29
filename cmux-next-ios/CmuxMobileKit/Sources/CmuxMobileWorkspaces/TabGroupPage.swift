@@ -48,7 +48,7 @@ struct TabGroupPage: View {
                     if let emoji = WorkspaceIcon.emoji(emojiText) { Task { await source.editGroup(.setIcon(emoji), group: groupID) } }
                 }
                 .disabled(WorkspaceIcon.emoji(emojiText) == nil)
-                    .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(.defaultAction)
             } message: {
                 Text("One emoji.")
             }
