@@ -592,7 +592,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await page.close();
     });
 
-    test("a long message's card shows its first six lines; the chevron or a click opens it whole", async () => {
+    test("a long message's card shows its first eight lines' height, cut between lines; the chevron or a click opens it whole", async () => {
       const text = Array.from({ length: 20 }, (_, i) => `Step ${i + 1} of the landing report.`).join("\n\n");
       const page = await openChat({
         offered: [],
@@ -613,7 +613,18 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const lineHeight = await body.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
       const cutHeight = await card.locator(".cv-received__text").evaluate((el) => el.clientHeight);
-      expect(Math.abs(cutHeight - 6 * lineHeight)).toBeLessThanOrEqual(1);
+      // The cut fits RECEIVED_LINES (8, 25f625c2105f) and falls between whole lines, never through
+      // one (e9775bebab98): here it ends in the gap after the fifth paragraph's line.
+      expect(cutHeight).toBeLessThanOrEqual(8 * lineHeight + 1);
+      const lines = await card.locator(".cv-received__text").evaluate((el) => {
+        const top = el.getBoundingClientRect().top;
+        return [...el.querySelectorAll("p")].map((p) => {
+          const box = p.getBoundingClientRect();
+          return { top: box.top - top, bottom: box.bottom - top };
+        });
+      });
+      expect(lines.filter((line) => line.top < cutHeight - 0.5 && line.bottom > cutHeight + 0.5)).toEqual([]);
+      expect(lines.filter((line) => line.bottom <= cutHeight + 0.5).length).toBe(5);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
       // A click on the cut card opens it whole.
@@ -622,6 +633,10 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
         timeout: 5_000,
       });
       expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+      // It slides open to its whole height (fold.ts playResize): read it once the slide is over.
+      await card
+        .locator(".cv-received__text")
+        .evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
       expect(await card.locator(".cv-received__text").evaluate((el) => el.clientHeight)).toBeGreaterThan(cutHeight * 2);
       // The chevron cuts it again.
       await toggle.click();
@@ -775,6 +790,49 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await page.keyboard.type("Rebased.");
       await page.keyboard.press("Enter");
       expectReply(await replyPrompt(), "Rebased.");
+      await page.close();
+    });
+
+    test("Reply on a long message at the latest row puts its editor in view", async () => {
+      const long = Array.from(
+        { length: 30 },
+        (_, index) => `Paragraph ${index}: the grid fix is on cmux/grid-fix and its tests pass.`,
+      ).join("\n\n");
+      const page = await openChat({
+        offered: [],
+        experiment: "off",
+        extra: () => [
+          record("turn_result", { status: "completed", stopReason: "end_turn" }),
+          record("user_message", {
+            text: long,
+            _meta: {
+              provenance: {
+                kind: "agent_message",
+                from: "acp:child-3",
+                fromName: "Grid fix",
+                to: SESSION,
+                msgId: "m-1",
+                threadId: "t-1",
+              },
+            },
+          }),
+        ],
+      });
+      const card = incoming(page);
+      await card.waitFor({ timeout: 10_000 });
+      await card.getByRole("button", { name: /^Reply/ }).click();
+      const field = card.getByRole("textbox", { name: "Reply to Grid fix" });
+      await field.waitFor({ timeout: 5_000 });
+      await card
+        .locator(".cv-received__text")
+        .evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
+      // The editor has the focus and is on screen, inside the transcript's view.
+      const inView = await field.evaluate((el) => {
+        const scroller = el.closest<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+        const box = el.getBoundingClientRect();
+        return document.activeElement === el && box.top >= scroller.top && box.bottom <= scroller.bottom + 1;
+      });
+      expect(inView).toBe(true);
       await page.close();
     });
 

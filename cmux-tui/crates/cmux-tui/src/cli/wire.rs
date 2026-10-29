@@ -129,21 +129,8 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         Ok(None) => {}
         Err(code) => return code,
     }
-    // A browser tab in a session a cmux app owns is the app's to render.
-    #[cfg(unix)]
-    if let Some(code) = super::frontend_browser::run_in_app(
-        global,
-        &plan,
-        &request,
-        &mut reader,
-        &socket,
-        caller_route,
-        &key_report,
-    ) {
-        return code;
-    }
     if !plan.resolve.is_empty() {
-        let route = super::resolve::SocketRoute { path: &socket, derived: socket_is_derived };
+        let route = super::resolve::SocketRoute::new(&socket, socket_is_derived, global);
         if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route, &route) {
             // A browser tab's page zoom: the app hosts the page and owns it.
             #[cfg(unix)]
@@ -165,6 +152,19 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             Ok(encoded) => encoded,
             Err(code) => return code,
         };
+    }
+    // A browser tab in a session a cmux app owns is the app's to render (after the lookups).
+    #[cfg(unix)]
+    if let Some(code) = super::frontend_browser::run_in_app(
+        global,
+        &plan,
+        &request,
+        &mut reader,
+        &socket,
+        caller_route,
+        &key_report,
+    ) {
+        return code;
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
@@ -592,12 +592,16 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
-                    // The app's Cloud machines join the daemon's machine list.
+                    // The app's Cloud machines and the team's joined machines join the
+                    // daemon's machine list.
                     #[cfg(unix)]
                     let result = match &plan.operation {
                         WireOperation::Typed(
                             cmux_tui_core::resource::ResourceOperation::MachineList,
-                        ) => super::cloud_machines::merge(global, result),
+                        ) => super::machine_join::merge(
+                            global,
+                            super::cloud_machines::merge(global, result),
+                        ),
                         _ => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);

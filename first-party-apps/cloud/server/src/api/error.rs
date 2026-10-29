@@ -60,6 +60,12 @@ pub mod codes {
     pub const APPROVAL_EXPIRED: &str = "cmux.cloud.approval_expired";
     /// `approval.too_many_pending`: too many requests wait (retryable).
     pub const APPROVAL_TOO_MANY_PENDING: &str = "cmux.cloud.approval_too_many_pending";
+    /// `cloud.environment.invalid`: the repo, script or variables were refused (`details.field`).
+    pub const ENVIRONMENT_INVALID: &str = "cmux.cloud.environment_invalid";
+    /// `cloud.environment.busy`: a build of the environment is still running.
+    pub const ENVIRONMENT_BUSY: &str = "cmux.cloud.environment_busy";
+    /// `cloud.environment.secrets_unavailable`: secret variables wait for the hosted vault.
+    pub const SECRETS_UNAVAILABLE: &str = "cmux.cloud.secrets_unavailable";
     pub const UNSUPPORTED: &str = "cmux.cloud.unsupported";
     pub const UPSTREAM: &str = "cmux.cloud.upstream_error";
     pub const BAD_RESPONSE: &str = "cmux.cloud.bad_response";
@@ -90,6 +96,10 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("selector.not_found", codes::NOT_FOUND),
     ("cloud.machine.not_found", codes::NOT_FOUND),
     ("cloud.snapshot.not_found", codes::NOT_FOUND),
+    ("cloud.environment.not_found", codes::NOT_FOUND),
+    ("cloud.environment.invalid", codes::ENVIRONMENT_INVALID),
+    ("cloud.environment.busy", codes::ENVIRONMENT_BUSY),
+    ("cloud.environment.secrets_unavailable", codes::SECRETS_UNAVAILABLE),
     ("idempotency.conflict", codes::IDEMPOTENCY_CONFLICT),
     ("revision.conflict", codes::CONFLICT),
     ("mutation.indeterminate", codes::INDETERMINATE),

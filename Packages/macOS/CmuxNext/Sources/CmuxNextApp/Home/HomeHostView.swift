@@ -11,6 +11,7 @@ import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextPages
+import CmuxNextSidebar
 import CmuxNextWakeups
 import ImageIO
 
@@ -37,6 +38,7 @@ final class HomeHostView: NSView {
     private var avatarsWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
     private var memoryOfferWatch: Task<Void, Never>?
+    private var chiefIntroWatch: Task<Void, Never>?
     /// UserDefaults: the first-run memory offer was clicked (it shows once).
     static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
     private var shortcutsWatch: Task<Void, Never>?
@@ -60,6 +62,11 @@ final class HomeHostView: NSView {
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The conversation this view shows (`HomeService.debugHostViews`).
+    var debugConversation: String { control.conversation.rawValue }
+    #endif
+
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
@@ -71,6 +78,9 @@ final class HomeHostView: NSView {
         petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes,
                                        picks: services.chiefMascotPicks, uploads: services.chiefAvatarUploads)
         super.init(frame: .zero)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        service.debugHostViews.add(self)
+        #endif
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.
@@ -102,6 +112,7 @@ final class HomeHostView: NSView {
             guard let service, let other = service.tabChiefs.otherHost(of: conversation) else { return }
             service.hostedChief.pick(other)
         }
+        transcript.chatColors = service.chatColors  // Chat Colors…: this chat's own colours, live
         // task-owner: lives as long as this view; event-driven (Observation)
         hostWatch = Task { [weak self, weak service] in
             for await host in ObservationStream({ service?.chiefHost(of: conversation) ?? HomeChiefHostLine() }) {
@@ -130,23 +141,9 @@ final class HomeHostView: NSView {
         settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
         // Every harness this Mac's acpmux has (Settings > Agents' list), after the official engines.
         settingsView.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.listed())?.sorted() ?? [] }
+        // One rename path for every Chief (HomeService.renameChief): every surface shows the new name at once.
         settingsView.onRename = { [weak service] name in
-            guard let service else { return .noConnection }
-            // A cloud Chief's name is its account record's (UserDO renames its conversation after):
-            // the local daemon has no such conversation, and the cloud refuses title.set on a Chief's.
-            if service.isCloudConversation(id) { return await service.directory.renameChief(conversation: conversation, to: name) }
-            // A Chief of this Mac: one set-title op; no daemon, or the daemon refusing it, says so on the card.
-            guard let connection = service.connection else { return .noConnection }
-            let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
-            do {
-                _ = try await CmuxNextDaemon.ConversationClient(connection).op(
-                    CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))
-                return nil
-            } catch CmuxNextDaemon.DaemonError.command(_, let message, let code, _, _) {
-                return code == "invalid_title" ? .invalidName : .refused(message.isEmpty ? (code ?? "") : message)
-            } catch {
-                return .noConnection
-            }
+            await service?.renameChief(conversation: conversation, to: name) ?? .noConnection
         }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
@@ -185,7 +182,9 @@ final class HomeHostView: NSView {
                 // A cloud Chief's brain runs on its paired server, never on
                 // this Mac's mux home (2026-10-08: the sidebar wrote codex
                 // here while cmux-lawrence ran claude-sr).
-                return (chief, store.transcriptVersion[id] ?? 0, row?.summary.title ?? "", service.isCloudConversation(id),
+                // The Chief's own name (HomeService.chiefName(of:)), the one its tile and tab show.
+                let name = service.chiefName(of: id)
+                return (chief, store.transcriptVersion[id] ?? 0, name ?? row?.summary.title ?? "", service.isCloudConversation(id),
                         row?.isTyping ?? false, row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) },
                         service.cloudChiefPlacement(of: conversation)?.placed != true,
                         row.flatMap { HomeService.soleChief(of: $0.summary.participants) })
@@ -210,6 +209,7 @@ final class HomeHostView: NSView {
                     settingsView.use(control.engineSource())
                 }
                 settingsView.setName(title)
+                transcript.headerTitle = isChief ? service.chiefName(of: id) : nil
                 if !isChief, settings.isShown { settings.close() }
                 if settings.isShown { settingsView.refresh() }
             }
@@ -268,14 +268,36 @@ final class HomeHostView: NSView {
         // (the Chief with no messages yet): otherwise no tab is read, so tab
         // changes never wake a Chief with history.
         agentsWatch = Task { [weak self] in
-            var shown: [HomeAgentGlance] = []
-            for await agents in ObservationStream({ () -> [HomeAgentGlance] in
+            for await state in ObservationStream({ () -> ([HomeAgentGlance], HomeStarterContext)? in
                 guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return [] }
-                return HomeAgentGlances(services: services).current
-            }) where agents != shown {
-                shown = agents
-                self?.transcript.setFirstRunAgents(agents)
+                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
+                let glances = HomeAgentGlances(services: services)
+                let agents = glances.current
+                return (agents, glances.starters(agents: agents, badges: SidebarSessionTree.shared.pullRequests))
+            }) {
+                guard let state else { continue }
+                self?.transcript.setFirstRunAgents(state.0)
+                self?.transcript.setFirstRunStarters(state.1)
+            }
+        }
+        // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore): the only Chief welcomes once per
+        // install; a Chief made beside others asks what to focus on, once per Chief. It shows on the Chief's front
+        // page (no messages yet) and is marked shown the moment it does, so it never returns.
+        chiefIntroWatch = Task { [weak self] in
+            let intro = ChiefIntroStore(defaults: .standard)
+            for await kind in ObservationStream({ () -> ChiefIntroKind? in
+                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
+                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
+                let me = store.me?.id
+                let others = TopHomePageView.visible(store.rows, archivedChiefs: service.directory.archivedChiefs, me: me)
+                    .filter { $0.kind == .chief && $0.id != id }.count
+                return intro.intro(for: id, otherChiefs: others)
+            }) {
+                guard let kind else { continue }
+                guard let self else { return }
+                intro.markShown(kind, for: id)
+                self.transcript.showFirstRunIntro(kind)
+                return
             }
         }
         // The first-run rows' shortcuts and the Switching card follow rebinds
@@ -354,7 +376,7 @@ final class HomeHostView: NSView {
     // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
     // returned off main skipped all of it.
     nonisolated deinit {
-        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage, memoryOfferWatch] {
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
             task?.cancel()
         }
         let settings = settings, transcript = transcript

@@ -30,7 +30,7 @@ const button = ".nt-headline .acpmux-project-button";
 const pick = async (ctx: PlayContext, name: string) => {
   await ctx.waitFor(() => ctx.document.querySelector(button) !== null);
   await ctx.click({ selector: button });
-  await ctx.click({ role: "option", name: new RegExp(`^${name},`) });
+  await ctx.click({ role: "option", name: new RegExp(`^${name} /`) });
   await ctx.waitFor(() => ctx.document.querySelector(".nt-headline-text")?.textContent?.includes(name) ?? false);
 };
 /// The compare view's start, from any variant's played state: the menu closed and cmux picked. A

@@ -48,7 +48,7 @@ pub(super) fn begin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let path = path(ctx, true)?;
     let info = json!({"name":name,"platform":std::env::consts::OS,
         "os_version":pairing::info::os_version(),"arch":std::env::consts::ARCH,"cmux_version":ctx.running_cmux});
-    let network = Network::new()?;
+    let network = Network::with_client_version(&ctx.running_cmux)?;
     let messages = messages::current();
     let value = pairing::enroll(
         &path,

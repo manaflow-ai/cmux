@@ -11,8 +11,8 @@ extension NotificationCenterService {
     ///   tab (key window, cmux active) is seen at once;
     /// - an unread notification on a viewed tab is read at once, on every
     ///   path that marks it unread (an arrival, a held delivery, a resync),
-    ///   when the dismissal policy reads on focus (`interacted(.focus)`; the
-    ///   default `click` keeps it until the pane is clicked or typed in).
+    ///   when the dismissal policy reads on focus (`interacted(.focus)`, the
+    ///   default; `click` keeps it until the pane is clicked or typed in).
     /// Focus, typing, clicks and opens see the rest through `interacted`. An
     /// agent chat's turns are acpmux's (`unread`, cx-n8ou): its pane says
     /// whether it shows the chat.

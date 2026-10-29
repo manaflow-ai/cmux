@@ -291,6 +291,19 @@
   "needs": true
  },
  {
+  "name": "retry never",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/retry",
+   "params": {
+    "sessionId": "s"
+   }
+  },
+  "denies": [],
+  "needs": false
+ },
+ {
   "name": "btw always",
   "frame": {
    "jsonrpc": "2.0",

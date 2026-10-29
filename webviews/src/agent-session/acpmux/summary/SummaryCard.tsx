@@ -13,6 +13,8 @@ import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import type { SubsessionRow } from "../subagents/subsessions";
 import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
+import { sessionStatus } from "../inspector/ChildSessionRows";
+import { sessionRetry } from "../subagents/retryState";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { ChatToolsControl } from "./SourcesAddMenu";
@@ -44,6 +46,7 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 export function SummaryCard({
   card,
   rows,
+  cwd,
   onOpenOutput,
   onOpenImage,
   changes,
@@ -62,6 +65,7 @@ export function SummaryCard({
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
+  cwd?: string;
   onOpenOutput?: (path: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
   /// The last turn that edited files, with its counts and files; the Changes rows open its diff,
@@ -117,7 +121,7 @@ export function SummaryCard({
   const asks = subagents.asks;
   const waiting = useMemo(() => (drawn ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]);
   const galleryRow = useRef<HTMLElement | null>(null);
-  const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
+  const summary = useMemo(() => (open ? sessionSummary(rows, undefined, cwd) : undefined), [open, rows, cwd]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   const registry = background ?? NO_REGISTRY;
   const running = background?.running ?? NO_TASKS;
@@ -183,12 +187,16 @@ export function SummaryCard({
   );
   const count = (status: string) =>
     agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
-    subsessionRows.filter((session) => SUBSESSION_STATUS[session.state] === status).length;
+    subsessionRows.filter(
+      (session) =>
+        (sessionRetry(session).kind === "retrying" ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state]) ===
+        status,
+    ).length;
   // A started chat waiting on the person is counted with the waiting subagents.
-  const waitingCount = count("waiting") + children.filter((child) => child.state === "waiting").length;
+  const waitingCount = count("waiting") + children.filter((child) => sessionStatus(child) === "waiting").length;
   const runningCommands = commands.filter((command) => command.state === "running").length;
   // A started chat whose turn runs is a running subagent too: one word, as the tray says.
-  const runningCount = count("running") + children.filter((child) => child.state === "running").length;
+  const runningCount = count("running") + children.filter((child) => sessionStatus(child) === "running").length;
   const counts = [
     waitingCount > 0 && t("summary.subagents.waiting", { n: waitingCount }),
     runningCount > 0 && t("summary.subagents.running", { n: runningCount }),

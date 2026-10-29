@@ -33,8 +33,15 @@ pub(super) struct Identity {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum NativeState {
-    Pending { response: String, received_at: u64 },
-    Registered { registration: Registration },
+    Pending {
+        response: String,
+        received_at: u64,
+    },
+    Registered {
+        registration: Registration,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        confirmed_at: Option<u64>,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -202,9 +209,14 @@ pub(super) fn read(path: &Path) -> Result<Option<Identity>> {
         return Err(invalid());
     }
     let identity: Identity = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-    if !matches!(identity.schema, 1 | 2)
+    if !matches!(identity.schema, 1..=3)
         || (identity.schema == 1 && identity.native.is_some())
-        || (identity.schema == 2 && identity.native.is_none())
+        || (identity.schema >= 2 && identity.native.is_none())
+        || (identity.schema < 3
+            && matches!(
+                &identity.native,
+                Some(NativeState::Registered { confirmed_at: Some(_), .. })
+            ))
     {
         return Err(invalid());
     }

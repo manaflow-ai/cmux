@@ -36,20 +36,19 @@ export function AgentOptionsMenu({
     ),
     t("picker.optionsHelp"),
   ].join("\n");
-  const rows: NativePopupRow[] = options.map((option) =>
+  const choiceById = new Map<string, { configId: string; value: string }>();
+  const rows: NativePopupRow[] = options.flatMap((option, optionIndex) =>
     popupSection(
-      `option:${option.id}`,
+      `option:${optionIndex}`,
       option.name ?? option.id,
-      option.options.map((choice) =>
-        popupChoice(
-          `${option.id}\u0000${choice.value}`,
-          choice.name ?? choice.value,
-          {
-            description: choice.description,
-            checked: choice.value === option.currentValue,
-          },
-        ),
-      ),
+      option.options.map((choice, choiceIndex) => {
+        const id = `option:${optionIndex}:${choiceIndex}`;
+        choiceById.set(id, { configId: option.id, value: choice.value });
+        return popupChoice(id, choice.name ?? choice.value, {
+          description: choice.description,
+          checked: choice.value === option.currentValue,
+        });
+      }),
     ),
   );
   useComposerPopup({
@@ -64,12 +63,9 @@ export function AgentOptionsMenu({
     },
     onEvent: (event: NativePopupEvent) => {
       if (event.type !== "pick" || !event.id) return;
-      const separator = event.id.indexOf("\u0000");
-      if (separator < 0) return;
-      const configId = event.id.slice(0, separator);
-      const value = event.id.slice(separator + 1);
-      const option = options.find((item) => item.id === configId);
-      if (option && option.currentValue !== value) onPick(configId, value);
+      const choice = choiceById.get(event.id);
+      const option = choice && options.find((item) => item.id === choice.configId);
+      if (choice && option && option.currentValue !== choice.value) onPick(choice.configId, choice.value);
     },
     onDismiss: () => setOpen(false),
   });

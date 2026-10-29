@@ -86,7 +86,7 @@ fn recv_handoff(
     stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
     let mut bytes = vec![0u8; 4096];
     let control_len =
-        unsafe { libc::CMSG_SPACE((2 * std::mem::size_of::<RawFd>()) as u32) as usize };
+        unsafe { libc::CMSG_SPACE((3 * std::mem::size_of::<RawFd>()) as u32) as usize };
     let mut cmsg = vec![0usize; control_len.div_ceil(std::mem::size_of::<usize>())];
     let mut iov = libc::iovec { iov_base: bytes.as_mut_ptr().cast(), iov_len: bytes.len() };
     // SAFETY: all pointers refer to writable buffers for recvmsg's duration.
@@ -95,7 +95,7 @@ fn recv_handoff(
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
         msg.msg_control = cmsg.as_mut_ptr().cast();
-        msg.msg_controllen = control_len;
+        msg.msg_controllen = control_len as _;
         let n = libc::recvmsg(stream.as_raw_fd(), &mut msg, libc::MSG_CMSG_CLOEXEC);
         (n, msg)
     };
@@ -108,7 +108,8 @@ fn recv_handoff(
         let mut hdr = libc::CMSG_FIRSTHDR(&msg);
         while !hdr.is_null() {
             if (*hdr).cmsg_level == libc::SOL_SOCKET && (*hdr).cmsg_type == libc::SCM_RIGHTS {
-                let payload = (*hdr).cmsg_len - libc::CMSG_LEN(0) as usize;
+                let cmsg_len: usize = (*hdr).cmsg_len as _;
+                let payload = cmsg_len - libc::CMSG_LEN(0) as usize;
                 let count = payload / std::mem::size_of::<RawFd>();
                 let data = libc::CMSG_DATA(hdr).cast::<RawFd>();
                 for index in 0..count {
@@ -185,7 +186,7 @@ print(json.dumps({key: os.environ[key] for key in keys}))"#,
     let proxy = json["proxy"].as_u64().expect("proxy port") as u16;
     let api = json["api"].as_u64().expect("api port") as u16;
     assert!(proxy > 0 && api > 0);
-    assert_eq!(fds.len(), 2);
+    assert_eq!(fds.len(), 3); // proxy, API, and the supervisor notify listener
     let listener = &fds[0];
     let address = listener.local_addr().unwrap();
     assert_eq!(address.port(), proxy);

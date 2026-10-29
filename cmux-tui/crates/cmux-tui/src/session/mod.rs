@@ -8,6 +8,7 @@
 //! queries then work identically in both cases.
 
 mod cursor_provenance;
+mod frontend_projection;
 mod remote;
 pub(crate) mod sidebar_doc;
 pub(crate) mod tree;
@@ -38,6 +39,7 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
+pub(crate) use frontend_projection::ProjectionKey;
 pub(crate) use remote::sidebar_doc::SidebarDropAnchors;
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,

@@ -78,6 +78,7 @@ extension ActionDescriptor {
         "announcements.show", "announcements.hide", "nowPlaying.showCard", "nowPlaying.disableCard",
         "nowPlaying.hideCardUntilRelaunch", "sidebar.profileControl.show", "sidebar.profileControl.hide",
         "tabs.overflow.scroll", "tabs.overflow.shrink", "links.openInCmuxBrowser", "links.openInDefaultBrowser",
+        "links.signInPagesInCmux", "links.signInPagesByLinkSettings",
         "browser.defaultEngine.chromium", "browser.defaultEngine.webkit", "layout.centerFocusedColumn.always",
         "layout.centerFocusedColumn.never", "layout.centerFocusedColumn.onOverflow", "layout.toggleStripScrollbar",
         "appearance.titlebar.minimal", "appearance.titlebar.standard", "increaseWorkspaceTerminalFontSize",

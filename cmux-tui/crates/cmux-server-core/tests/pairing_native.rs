@@ -76,3 +76,30 @@ fn server_pairing_native_debug_and_basic_public_result_do_not_show_invitation_co
     let shown = format!("{result:?}");
     assert!(!shown.contains("msc_00000000000000000000000000"));
 }
+
+#[test]
+fn server_pairing_native_saved_registration_refuses_injected_signing_fields() {
+    let grant = frame()["network_enrollment"].clone();
+    let valid = json!({"origin":grant["origin"],"tenant":grant["tenantId"],
+        "mesh":grant["meshId"],"device":grant["deviceId"],
+        "wg_public_key":grant["binding"]["wgPublicKey"],
+        "install_public_key":grant["binding"]["installPublicKey"]});
+    for (field, bad) in
+        [("device", "device\ninjected-purpose"), ("install_public_key", "key\ninjected-message")]
+    {
+        let mut value = valid.clone();
+        value[field] = json!(bad);
+        let registration: cmux_server_core::pairing::native::Registration =
+            serde_json::from_value(value).unwrap();
+        let mut signed = false;
+        assert!(
+            registration
+                .policy_proof(1_792_411_200_000, [1; 16], |_| {
+                    signed = true;
+                    Err("must not reach signer".into())
+                })
+                .is_err()
+        );
+        assert!(!signed);
+    }
+}

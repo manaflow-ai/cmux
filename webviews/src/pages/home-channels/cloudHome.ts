@@ -42,6 +42,13 @@ export class CloudHome {
   private readonly hydrationQueue: string[] = [];
   private hydrationWorkers = 0;
   private readonly subscribed: string[] = [];
+  /** Each subscribed conversation's `cloud-conversation-subscribe`: whether it took. */
+  private readonly subscriptions = new Map<string, Promise<boolean>>();
+  /** The last presence send of each conversation (the next one waits for it). */
+  private readonly presenceSends = new Map<string, Promise<boolean>>();
+  /** Conversations the person views through this connection (the last `presence` said so): never
+   *  evicted, since the daemon ends a connection's viewing when it unsubscribes. */
+  private readonly viewing = new Set<string>();
 
   constructor(
     private readonly daemon: DaemonSocket,
@@ -306,6 +313,10 @@ export class CloudHome {
       case "cloud-subscription-state":
         // The inbox socket closed for good (the owner refused it): list again on the next read.
         if (event.scope === "inbox" && event.state === "closed") this.listed = false;
+        // A conversation's socket closed for good: the daemon dropped the subscription, so the
+        // next open or view subscribes again (a kept one would send presence it refuses).
+        if (event.scope === "conversation" && event.state === "closed" && typeof event.conversation === "string")
+          this.unsubscribed(event.conversation);
         // A conversation's socket that is not live hears no presence: its viewers go until the
         // owner's next `conversation-presence` (it sends one after each subscribe).
         if (event.scope === "conversation" && event.state !== "live" && typeof event.conversation === "string")
@@ -326,20 +337,61 @@ export class CloudHome {
     this.epoch++;
   }
 
+  /** Says that the person views `id` or stopped (`cloud-conversation-presence`), after the
+   *  conversation's subscribe (the daemon refuses presence for one nobody subscribes). One send
+   *  at a time per conversation, in order, so a quick open and switch never ends as viewing.
+   *  Resolves whether it went out; a refusal or a lost connection is not an error. */
+  presence(id: string, viewing: boolean): Promise<boolean> {
+    if (viewing) this.viewing.add(id);
+    else this.viewing.delete(id);
+    const send = async (): Promise<boolean> => {
+      if (viewing) {
+        if (!this.subscriptions.has(id)) this.subscribe(id);
+        if (!(await this.subscriptions.get(id))) return false;
+      }
+      return this.daemon.request("cloud-conversation-presence", { conversation: id, viewing }).then(
+        () => true,
+        () => false,
+      );
+    };
+    const next = (this.presenceSends.get(id) ?? Promise.resolve(false)).then(send);
+    this.presenceSends.set(id, next);
+    void next.then(() => {
+      if (this.presenceSends.get(id) === next) this.presenceSends.delete(id);
+    });
+    return next;
+  }
+
   private subscribe(id: string): void {
     const at = this.subscribed.indexOf(id);
     if (at >= 0) this.subscribed.splice(at, 1);
-    else
-      void this.daemon.request("cloud-conversation-subscribe", { conversation: id }).catch(() => {
-        // Not subscribed: the next open tries again.
-        const failed = this.subscribed.indexOf(id);
-        if (failed >= 0) this.subscribed.splice(failed, 1);
-      });
+    else {
+      const subscribed = this.daemon.request("cloud-conversation-subscribe", { conversation: id }).then(
+        () => true,
+        () => {
+          // Not subscribed: the next open tries again.
+          if (this.subscriptions.get(id) === subscribed) this.unsubscribed(id);
+          return false;
+        },
+      );
+      this.subscriptions.set(id, subscribed);
+    }
     this.subscribed.push(id);
     while (this.subscribed.length > MAX_SUBSCRIPTIONS) {
-      const oldest = this.subscribed.shift()!;
+      // The least recent one the person does not view: an unsubscribe would end the viewing.
+      const at = this.subscribed.findIndex((other) => !this.viewing.has(other));
+      if (at < 0) break;
+      const oldest = this.subscribed.splice(at, 1)[0]!;
+      this.subscriptions.delete(oldest);
       void this.daemon.request("cloud-conversation-unsubscribe", { conversation: oldest }).catch(() => undefined);
     }
+  }
+
+  /** Forgets `id`'s subscription (refused, or closed by the daemon): the next open subscribes. */
+  private unsubscribed(id: string): void {
+    const at = this.subscribed.indexOf(id);
+    if (at >= 0) this.subscribed.splice(at, 1);
+    this.subscriptions.delete(id);
   }
 
   /** Reads a one-message snapshot of each entry without a head: the inbox names no people. */

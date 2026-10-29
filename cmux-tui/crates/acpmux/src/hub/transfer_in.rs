@@ -44,6 +44,21 @@ fn recovery_owner(root: &Path, agent_id: &str, outer_id: &str) -> bool {
     false
 }
 
+/// A test's hook right after a sweep read a durable marker, to run another writer there.
+#[cfg(test)]
+pub(super) static SWEEP_PAUSE: std::sync::Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>> =
+    std::sync::Mutex::new(None);
+
+fn sweep_pause(_agent_id: &str) {
+    #[cfg(test)]
+    {
+        let hook = SWEEP_PAUSE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(hook) = hook {
+            hook(_agent_id);
+        }
+    }
+}
+
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
@@ -149,7 +164,7 @@ impl Hub {
             };
             let committed = phase == "committed" || landed;
             if committed {
-                let _ = std::fs::remove_dir_all(&entry.path());
+                let _ = std::fs::remove_dir_all(entry.path());
             } else {
                 if std::fs::symlink_metadata(&target).is_ok() {
                     let _ = std::fs::remove_dir_all(&target);
@@ -168,106 +183,8 @@ impl Hub {
             if !super::transfer::is_plain_id(agent_id) {
                 continue;
             }
-            let Ok(marker) = std::fs::read(entry.path()) else { continue };
-            let Ok(value) = serde_json::from_slice::<Value>(&marker) else { continue };
-            let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
-            if phase == "prepared" {
-                let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
-                let replace_durable =
-                    value.get("replaceDurable").and_then(Value::as_bool).unwrap_or(false);
-                let target = root.join(outer_id);
-                let backup = root.join(format!(".{outer_id}.replacement-backup"));
-                if target.join("session.json").exists() || backup.join("session.json").exists() {
-                    if value.get("agentId").and_then(Value::as_str) != Some(agent_id)
-                        || !recovery_owner(root, agent_id, outer_id)
-                    {
-                        continue;
-                    }
-                    if !replace_durable {
-                        let _ = std::fs::remove_dir_all(target);
-                    }
-                }
-                let _ = std::fs::remove_file(entry.path());
-                continue;
-            }
-            if phase != "staged" && phase != "committed" {
-                continue;
-            }
-            let filename = value.get("piFilename").and_then(Value::as_str).unwrap_or("");
-            let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
-            let replace_durable =
-                value.get("replaceDurable").and_then(Value::as_bool).unwrap_or(false);
-            if value.get("agentId").and_then(Value::as_str) != Some(agent_id)
-                || !recovery_owner(root, agent_id, outer_id)
-            {
-                continue;
-            }
-            if !filename.is_empty()
-                && (Path::new(filename).components().count() != 1 || !filename.ends_with(".jsonl"))
-            {
-                continue;
-            }
-            let Some(had_journal) = value.get("hadJournal").and_then(Value::as_bool) else {
-                continue;
-            };
-            let Some(had_pi) = value.get("hadPi").and_then(Value::as_bool) else { continue };
-            let Some(dir_was_present) = value.get("journalDirWasPresent").and_then(Value::as_bool)
-            else {
-                continue;
-            };
-            let landed = if let (Some(transfer_id), true) = (
-                value.get("transferId").and_then(Value::as_str),
-                super::transfer::is_plain_id(outer_id),
-            ) {
-                let mut landed = false;
-                let _ = self.store.scan(outer_id, 0, &mut |event: EventRecord| {
-                    landed |= event.kind == "transferred_in"
-                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
-                    !landed
-                });
-                landed
-            } else {
-                false
-            };
-            let outer_committed = phase == "committed"
-                || landed
-                || std::fs::read(root.join(format!(".{outer_id}.replacement-state.json")))
-                    .ok()
-                    .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
-                    .and_then(|v| {
-                        v.get("phase").and_then(Value::as_str).map(|phase| phase == "committed")
-                    })
-                    .unwrap_or(false);
-            let journal = root.join(agent_id).join("journal.ndjson");
-            let journal_backup = root.join(agent_id).join("journal.ndjson.transfer-backup");
-            let pi = root.join(filename);
-            let pi_backup = root.join(format!("{filename}.transfer-backup"));
-            if outer_committed {
-                let _ = std::fs::remove_file(&journal_backup);
-                let _ = std::fs::remove_file(&pi_backup);
-            } else {
-                if std::fs::symlink_metadata(&journal_backup).is_ok() {
-                    let _ = std::fs::remove_file(&journal);
-                    let _ = std::fs::rename(&journal_backup, &journal);
-                } else if !had_journal {
-                    let _ = std::fs::remove_file(&journal);
-                }
-                if std::fs::symlink_metadata(&pi_backup).is_ok() {
-                    let _ = std::fs::remove_file(&pi);
-                    let _ = std::fs::rename(&pi_backup, &pi);
-                } else if !had_pi {
-                    let _ = std::fs::remove_file(&pi);
-                }
-            }
-            let _ = std::fs::remove_file(root.join(agent_id).join("journal.ndjson.importing"));
-            let _ = std::fs::remove_file(root.join(format!("{filename}.importing")));
-            if !dir_was_present {
-                let _ = std::fs::remove_dir(root.join(agent_id));
-            }
-            if !replace_durable && !outer_committed && super::transfer::is_plain_id(outer_id) {
-                let _ = std::fs::remove_dir_all(root.join(outer_id));
-            }
-            let _ = std::fs::remove_file(entry.path());
+            let _state_lock = super::transfer::harness_state_lock();
+            self.recover_durable_marker(root, &entry.path(), agent_id);
         }
         if let Ok(entries) = std::fs::read_dir(root) {
             for entry in entries.flatten() {
@@ -275,20 +192,126 @@ impl Hub {
                 if !name.starts_with(".") || !name.ends_with(".replacement-state.json") {
                     continue;
                 }
-                if let Ok(raw) = std::fs::read(entry.path()) {
-                    if let Ok(value) = serde_json::from_slice::<Value>(&raw) {
-                        let agent = value.get("agentId").and_then(Value::as_str).unwrap_or("");
-                        let outer = value.get("outerId").and_then(Value::as_str).unwrap_or("");
-                        let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
-                        if matches!(phase, "prepared" | "staged" | "committed")
-                            && recovery_owner(root, agent, outer)
-                        {
-                            let _ = std::fs::remove_file(entry.path());
-                        }
+                if let Ok(raw) = std::fs::read(entry.path())
+                    && let Ok(value) = serde_json::from_slice::<Value>(&raw)
+                {
+                    let agent = value.get("agentId").and_then(Value::as_str).unwrap_or("");
+                    let outer = value.get("outerId").and_then(Value::as_str).unwrap_or("");
+                    let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
+                    if matches!(phase, "prepared" | "staged" | "committed")
+                        && recovery_owner(root, agent, outer)
+                    {
+                        let _ = std::fs::remove_file(entry.path());
                     }
                 }
             }
         }
+    }
+
+    /// Recover one durable session's transfer marker (`.{agent_id}.durable-transfer-state` at
+    /// `path`): the chat it stood for comes back as it was before the transfer, or keeps what a
+    /// committed one installed, and the marker goes.
+    pub(super) fn recover_durable_marker(&self, root: &Path, path: &Path, agent_id: &str) {
+        let Ok(marker) = std::fs::read(path) else { return };
+        let Ok(value) = serde_json::from_slice::<Value>(&marker) else { return };
+        sweep_pause(agent_id);
+        let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
+        if phase == "prepared" {
+            let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
+            let replace_durable =
+                value.get("replaceDurable").and_then(Value::as_bool).unwrap_or(false);
+            let target = root.join(outer_id);
+            let backup = root.join(format!(".{outer_id}.replacement-backup"));
+            if target.join("session.json").exists() || backup.join("session.json").exists() {
+                if value.get("agentId").and_then(Value::as_str) != Some(agent_id)
+                    || !recovery_owner(root, agent_id, outer_id)
+                {
+                    return;
+                }
+                if !replace_durable {
+                    let _ = std::fs::remove_dir_all(target);
+                }
+            }
+            let _ = std::fs::remove_file(path);
+            return;
+        }
+        if phase != "staged" && phase != "committed" {
+            return;
+        }
+        let filename = value.get("piFilename").and_then(Value::as_str).unwrap_or("");
+        let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
+        let replace_durable = value.get("replaceDurable").and_then(Value::as_bool).unwrap_or(false);
+        if value.get("agentId").and_then(Value::as_str) != Some(agent_id)
+            || !recovery_owner(root, agent_id, outer_id)
+        {
+            return;
+        }
+        if !filename.is_empty()
+            && (Path::new(filename).components().count() != 1 || !filename.ends_with(".jsonl"))
+        {
+            return;
+        }
+        let Some(had_journal) = value.get("hadJournal").and_then(Value::as_bool) else {
+            return;
+        };
+        let Some(had_pi) = value.get("hadPi").and_then(Value::as_bool) else { return };
+        let Some(dir_was_present) = value.get("journalDirWasPresent").and_then(Value::as_bool)
+        else {
+            return;
+        };
+        let landed = if let (Some(transfer_id), true) = (
+            value.get("transferId").and_then(Value::as_str),
+            super::transfer::is_plain_id(outer_id),
+        ) {
+            let mut landed = false;
+            let _ = self.store.scan(outer_id, 0, &mut |event: EventRecord| {
+                landed |= event.kind == "transferred_in"
+                    && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
+                !landed
+            });
+            landed
+        } else {
+            false
+        };
+        let outer_committed = phase == "committed"
+            || landed
+            || std::fs::read(root.join(format!(".{outer_id}.replacement-state.json")))
+                .ok()
+                .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+                .and_then(|v| {
+                    v.get("phase").and_then(Value::as_str).map(|phase| phase == "committed")
+                })
+                .unwrap_or(false);
+        let journal = root.join(agent_id).join("journal.ndjson");
+        let journal_backup = root.join(agent_id).join("journal.ndjson.transfer-backup");
+        let pi = root.join(filename);
+        let pi_backup = root.join(format!("{filename}.transfer-backup"));
+        if outer_committed {
+            let _ = std::fs::remove_file(&journal_backup);
+            let _ = std::fs::remove_file(&pi_backup);
+        } else {
+            if std::fs::symlink_metadata(&journal_backup).is_ok() {
+                let _ = std::fs::remove_file(&journal);
+                let _ = std::fs::rename(&journal_backup, &journal);
+            } else if !had_journal {
+                let _ = std::fs::remove_file(&journal);
+            }
+            if std::fs::symlink_metadata(&pi_backup).is_ok() {
+                let _ = std::fs::remove_file(&pi);
+                let _ = std::fs::rename(&pi_backup, &pi);
+            } else if !had_pi {
+                let _ = std::fs::remove_file(&pi);
+            }
+        }
+        let _ = std::fs::remove_file(root.join(agent_id).join("journal.ndjson.importing"));
+        let _ = std::fs::remove_file(root.join(format!("{filename}.importing")));
+        if !dir_was_present {
+            let _ = std::fs::remove_dir(root.join(agent_id));
+        }
+        if !replace_durable && !outer_committed && super::transfer::is_plain_id(outer_id) {
+            let _ = std::fs::remove_dir_all(root.join(outer_id));
+        }
+        let _ = std::fs::remove_file(path);
     }
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
@@ -490,6 +513,9 @@ impl Hub {
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
             old.replaced.store(true, Ordering::SeqCst);
+            // A log retention pass that took the chat's append lock before the mark finishes its
+            // commit first; one after it leaves the chat alone (`hub/retention.rs`).
+            drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));
             self.kill(old, false).await?;
         }
         let source_store = if replacing_durable { self.store.session_dir(id) } else { None };

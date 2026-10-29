@@ -309,15 +309,15 @@ impl Hub {
     /// reclaimed the worktree it is in. Logged as `worktree_restored`, or
     /// `worktree_restore_failed` (the start goes on and reports the
     /// missing folder as before).
-    pub(super) async fn ready_to_start(&self, session: &Arc<Session>) -> Result<(), RpcError> {
+    pub(super) async fn ready_to_start(
+        &self,
+        session: &Arc<Session>,
+        stops: u64,
+    ) -> Result<(), RpcError> {
         self.care_restore_for(session).await;
         self.revive_folder(session, &CARE.restoring).await?;
         // A stopped session reopens on demand. Only a purge is final.
-        if session.status() == SessionStatus::Closed {
-            self.append(session, "mux", "reopened", json!({}));
-            self.set_status(session, SessionStatus::Idle);
-        }
-        Ok(())
+        self.reopen_to_start(session, stops)
     }
 
     /// Before a prompt for a session with no running agent is recorded (`turns.rs`): its folder

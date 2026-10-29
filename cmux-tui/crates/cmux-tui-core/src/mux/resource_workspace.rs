@@ -299,7 +299,8 @@ impl Mux {
                     "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
                 );
                 let key = generated_key.clone();
-                let name_source = crate::resource_name::NameSource::for_requested(name.is_some());
+                let name_source =
+                    crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
                 let name = name.clone().unwrap_or_else(|| self.default_workspace_name(state));
                 let index = state.workspaces.len();
                 let workspace = Workspace {

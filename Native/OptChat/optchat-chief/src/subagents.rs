@@ -224,12 +224,17 @@ pub struct SubagentSettings {
     pub claude_md: Option<String>,
 }
 
-/// A subagent session's tags: `mux.parent`, its spawn and its id.
-pub fn tags(parent: &str, spawn: &str, id: &str) -> BTreeMap<String, String> {
+/// A subagent session's tags: `mux.parent`, its spawn and its id, and the
+/// names acpmux's approval cards give it (`mux.handle` its id, `mux.label`
+/// its `title`, the name of its workspace).
+pub fn tags(parent: &str, spawn: &str, id: &str, title: &str) -> BTreeMap<String, String> {
+    use cmux_chief::rules::{HANDLE_TAG, LABEL_TAG, PARENT_TAG};
     BTreeMap::from([
-        (cmux_chief::rules::PARENT_TAG.to_owned(), parent.to_owned()),
+        (PARENT_TAG.to_owned(), parent.to_owned()),
         (SPAWN_TAG.to_owned(), spawn.to_owned()),
         (SUBAGENT_TAG.to_owned(), id.to_owned()),
+        (HANDLE_TAG.to_owned(), id.to_owned()),
+        (LABEL_TAG.to_owned(), title.to_owned()),
     ])
 }
 
@@ -457,6 +462,9 @@ pub struct Spawner {
     /// The person profile `remember` writes (`optchat/person.md`); None: no
     /// profile on this host.
     person: Option<std::path::PathBuf>,
+    /// The app's Cloud actions `cloud_workspace` runs (cloud_workspace.rs);
+    /// None: no cmux app behind this host.
+    cloud_workspaces: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
 }
 
 impl Spawner {
@@ -485,7 +493,17 @@ impl Spawner {
             cloud_vms: None,
             agent_keys: None,
             person: None,
+            cloud_workspaces: None,
         }
+    }
+
+    /// `cloud_workspace` makes Cloud workspaces through `cloud` (None: off).
+    pub fn with_cloud_workspaces(
+        mut self,
+        cloud: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
+    ) -> Spawner {
+        self.cloud_workspaces = cloud;
+        self
     }
 
     /// `remember` keeps preferences in the profile at `path`.
@@ -696,6 +714,8 @@ impl Spawner {
             .workspaces
             .as_ref()
             .map(|_| crate::workspaces::new_key());
+        // Its workspace's name, also its name on an approval card it is in.
+        let name = crate::workspaces::title(task);
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
@@ -706,7 +726,7 @@ impl Spawner {
             effort: s.effort.clone(),
             preset: s.preset.clone(),
             tags: {
-                let mut t = tags(&s.parent, spawn, id);
+                let mut t = tags(&s.parent, spawn, id, &name);
                 if floor.is_some() {
                     t.insert(
                         crate::approval::POLICY_TAG.to_owned(),
@@ -814,7 +834,6 @@ impl Spawner {
             );
             return Ok(format!("no cmux workspace ({})", self.no_workspace_reason));
         };
-        let name = crate::workspaces::title(task);
         let group = crate::workspaces::topic_group(task);
         let key = key.unwrap_or_else(crate::workspaces::new_key);
         // The terminal beside the chat runs on this Mac: a peer session's
@@ -1580,6 +1599,26 @@ impl Orchestrator for Spawner {
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn cloud_workspace(&self, request: &crate::cloud_workspace::Request) -> Result<String, String> {
+        let Some(cloud) = &self.cloud_workspaces else {
+            return Err(
+                "cloud_workspace: this Chief host has no cmux app to make Cloud workspaces in"
+                    .into(),
+            );
+        };
+        let answer = cloud.call(request);
+        (self.log)(&format!(
+            "cloud_workspace {:?}: {}",
+            request.title,
+            answer.as_ref().unwrap_or_else(|e| e)
+        ));
+        self.trace.emit(
+            "chief.cloud_workspace",
+            serde_json::json!({"title": self.trace.text(&request.title), "ok": answer.is_ok()}),
+        );
+        answer
     }
 
     fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
