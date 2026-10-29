@@ -129,16 +129,26 @@ struct SidebarOptimisticSaveTests {
     /// Rename Workspace with a name (the palette prompt, the CLI, MCP): the name shows in the input's turn, and a
     /// failed save takes it back and says why. It waited for the daemon's echo, and a failure was only logged.
     @Test func renameWithANameShowsAtOnceAndRollsBackWithAnError() async throws {
-        let services = LayoutTemplateTests.services()
-        let id = try LayoutTemplateTests.workspace(services, key: "ws-rename", name: "api")
-        let store = services.machines.local.store
-        let rename = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id), arguments: ["name": .string("Renamed")], origin: .cli)
-        let work = services.registry.capturingWork { _ = services.registry.perform("renameWorkspace", invocation: rename) }
-        #expect(store.workspaces.first?.name == "Renamed", "the new name waited for the daemon's echo")
-        var failures: [String] = []
-        for task in work { if let failure = await task.value { failures.append(failure.message) } }
-        #expect(store.workspaces.first?.name == "api", "the name stayed after its save failed")
-        #expect(failures.count == 1, "the failed rename reported no error: \(failures)")
+        let launched = try await RapidWorkspaceCreateTests.launch()
+        let services = launched.services
+        do {
+            try #require(services.daemon.connection != nil)
+            // A connected service applies the intent now. This key exists only in its mirror, so the real
+            // daemon refuses the remote rename and exercises rollback instead of the disconnected early exit.
+            let id = try LayoutTemplateTests.workspace(services, key: "ws-rename", name: "api")
+            let store = services.machines.local.store
+            let rename = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id), arguments: ["name": .string("Renamed")], origin: .cli)
+            let work = services.registry.capturingWork { _ = services.registry.perform("renameWorkspace", invocation: rename) }
+            #expect(store.workspaces.first?.name == "Renamed", "the new name waited for the daemon's echo")
+            var failures: [String] = []
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            #expect(store.workspaces.first?.name == "api", "the name stayed after its save failed")
+            #expect(failures.count == 1, "the failed rename reported no error: \(failures)")
+        } catch {
+            await launched.stop()
+            throw error
+        }
+        await launched.stop()
     }
 
     /// Group rename on the personal path already held as a pending edit; its failed save now also says so.
