@@ -17,8 +17,10 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc;
 
 const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -182,6 +184,89 @@ async fn lying_peer(session_id: &str) -> (u16, mpsc::UnboundedReceiver<String>) 
     (port, received)
 }
 
+/// A peer that reuses a local raw id and emits a live transcript after every attach.
+/// The delayed event lets a colliding local session publish a notification at the
+/// same time, so CLI output filters must use the peer-qualified route.
+async fn event_peer(session_id: &str) -> u16 {
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let session_id = session_id.to_owned();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = listener.accept().await {
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let id = session_id.clone();
+            tokio::spawn(async move {
+                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                    let Ok(Message::Request { id: request_id, method: m, .. }) =
+                        Message::parse(&text)
+                    else {
+                        continue;
+                    };
+                    let detail = json!({
+                        "sessionId": id,
+                        "name": "remote-name",
+                        "status": "idle",
+                        "policy": "ask",
+                        "harness": "fake",
+                        "queue": [],
+                        "turn": null,
+                    });
+                    let result = match m.as_str() {
+                        method::INITIALIZE => {
+                            json!({"protocolVersion": 1, "_meta": {"acpmux": {"version": "0", "build": "event-lying", "origin": "peer"}}})
+                        }
+                        method::MUX_WATCH => {
+                            json!({"sessions": [{"sessionId": id, "name": "remote-name", "harness": "fake", "status": "idle"}]})
+                        }
+                        method::MUX_INFO => detail.clone(),
+                        method::MUX_ATTACH => {
+                            json!({"session": detail, "events": [], "hasMore": false})
+                        }
+                        method::SESSION_PROMPT => {
+                            json!({"stopReason": "steered", "_meta": {"acpmux": {"turnId": "remote-turn"}}})
+                        }
+                        _ => json!({}),
+                    };
+                    let line = Message::ok(request_id, result).to_line();
+                    if ws.send(Ws::Text(line.trim_end().to_owned().into())).await.is_err() {
+                        return;
+                    }
+                    if m != method::MUX_ATTACH {
+                        continue;
+                    }
+                    tokio::time::sleep(Duration::from_millis(350)).await;
+                    let update = Message::notification(
+                        method::SESSION_UPDATE,
+                        json!({
+                            "sessionId": id,
+                            "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "REMOTE-STREAM"}},
+                            "_meta": {"acpmux": {"seq": 1, "at": 1}},
+                        }),
+                    );
+                    let end = Message::notification(
+                        method::MUX_EVENT,
+                        json!({
+                            "sessionId": id,
+                            "seq": 2,
+                            "at": 2,
+                            "dir": "mux",
+                            "kind": "turn_result",
+                            "msg": {"turnId": "remote-turn", "status": "completed", "stopReason": "end_turn"},
+                        }),
+                    );
+                    for note in [update, end] {
+                        if ws.send(Ws::Text(note.to_line().trim_end().to_owned().into())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+        }
+    });
+    port
+}
+
 async fn new_session(client: &mut Rpc, root: &Path, name: &str) -> String {
     client
         .call(
@@ -214,6 +299,37 @@ async fn cli(root: &Path, socket: &Path, args: &[&str]) -> (bool, String, String
         String::from_utf8_lossy(&out.stdout).into_owned(),
         String::from_utf8_lossy(&out.stderr).into_owned(),
     )
+}
+
+async fn cli_until(root: &Path, socket: &Path, args: &[&str], wait: Duration) -> (bool, String, String) {
+    let mut command = daemon_env::tokio_command(root, daemon_env::Agents::Deny);
+    command
+        .env("ACPMUX_SOCKET", socket)
+        .env("PATH", format!("{}:{}", root.join("bin").display(), daemon_env::bare_path(&[])))
+        .env("GROUP_CAPTURE", root.join("group-args"))
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = command.spawn().expect("start CLI");
+    let mut stdout = child.stdout.take().expect("CLI stdout");
+    let mut stderr = child.stderr.take().expect("CLI stderr");
+    let stdout_task = tokio::spawn(async move {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes).await.unwrap();
+        bytes
+    });
+    let stderr_task = tokio::spawn(async move {
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes).await.unwrap();
+        bytes
+    });
+    tokio::time::sleep(wait).await;
+    let _ = child.kill().await;
+    let status = child.wait().await.unwrap();
+    let stdout = String::from_utf8_lossy(&stdout_task.await.unwrap()).into_owned();
+    let stderr = String::from_utf8_lossy(&stderr_task.await.unwrap()).into_owned();
+    (status.success(), stdout, stderr)
 }
 
 #[tokio::test]
@@ -439,6 +555,65 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
     a.end_agents_at_shutdown(Default::default()).unwrap();
     b.shutdown_all().await;
     c.shutdown_all().await;
+    a.shutdown_all().await;
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn cli_output_ignores_local_events_when_a_peer_reuses_the_raw_id() {
+    let root = PathBuf::from("/tmp").join(format!("amx-scp-output-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let a = hub(&root);
+    let mut ca = client(a.clone()).await;
+    let local_id = new_session(&mut ca, &root, "local-output").await;
+    ca.call(method::MUX_ATTACH, json!({"sessionId": local_id, "limit": 0})).await;
+    let port = event_peer(&local_id).await;
+    a.add_peer("lying", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let socket = root.join("a.sock");
+    let server = tokio::spawn(serve_unix(a.clone(), bind_unix(&socket).await.unwrap()));
+
+    for args in [
+        vec!["send", "lying/remote-name", "remote prompt", "--stall", "5"],
+        vec!["send", "--quiet", "lying/remote-name", "remote prompt"],
+    ] {
+        ca.send(
+            method::SESSION_PROMPT,
+            json!({"sessionId": local_id, "prompt": [{"type": "text", "text": "ticking:4:300"}]}),
+        )
+        .await;
+        ca.wait(method::SESSION_UPDATE, |p| {
+            p["sessionId"] == local_id && p["update"]["content"]["text"] == "tick0 "
+        })
+        .await;
+        let (ok, stdout, stderr) = cli(&root, &socket, &args).await;
+        assert!(ok, "{stdout}{stderr}");
+        assert!(stdout.contains("REMOTE-STREAM"), "{stdout}{stderr}");
+        assert!(!stdout.contains("tick"), "local event leaked into peer output: {stdout}{stderr}");
+    }
+
+    ca.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": local_id, "prompt": [{"type": "text", "text": "ticking:4:300"}]}),
+    )
+    .await;
+    ca.wait(method::SESSION_UPDATE, |p| {
+        p["sessionId"] == local_id && p["update"]["content"]["text"] == "tick0 "
+    })
+    .await;
+    let (_, stdout, stderr) = cli_until(
+        &root,
+        &socket,
+        &["attach", "--plain", "lying/remote-name"],
+        Duration::from_millis(900),
+    )
+    .await;
+    assert!(stdout.contains("REMOTE-STREAM"), "{stdout}{stderr}");
+    assert!(!stdout.contains("tick"), "local event leaked into plain attach: {stdout}{stderr}");
+
+    server.abort();
+    a.end_agents_at_shutdown(Default::default()).unwrap();
     a.shutdown_all().await;
     std::fs::remove_dir_all(root).unwrap();
 }
