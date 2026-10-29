@@ -104,7 +104,9 @@ describe("native popup DOM observations", () => {
     const f = fixture('<div id="host"></div><div id="unrelated"></div>');
     const closed = f.element("host").attachShadow({ mode: "closed" });
     closed.innerHTML = '<div id="nested"></div>';
-    const inner = closed.querySelector("#nested")!.attachShadow({ mode: "closed" });
+    const nestedHost = closed.querySelector<HTMLElement>("#nested");
+    if (!nestedHost) throw new Error("Fixture missing nested closed-shadow host");
+    const inner = nestedHost.attachShadow({ mode: "closed" });
     inner.innerHTML = '<div role="menu">Closed menu</div>';
     const unrelated = f.element("unrelated").attachShadow({ mode: "closed" });
     unrelated.innerHTML = '<div role="menu">Unrelated</div>';
