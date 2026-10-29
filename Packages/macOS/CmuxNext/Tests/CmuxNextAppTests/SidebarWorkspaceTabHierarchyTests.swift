@@ -85,6 +85,11 @@ struct SidebarWorkspaceTabHierarchyTests {
         try #require(list.rowViews[.tab(workspace, tab)] as? SidebarTabRowView, "tab \(tab.rawValue) has no row")
     }
 
+    static func tabTitle(_ row: SidebarTabRowView, _ text: String) throws -> ChromeLabel {
+        let labels = ([row] + row.subviews.flatMap { [$0] + $0.subviews }).compactMap { $0 as? ChromeLabel }
+        return try #require(labels.first { $0.stringValue == text }, "tab title \(text) has no ChromeLabel")
+    }
+
     static func sidebarRow(_ list: SidebarListView, _ key: SidebarRowKey) throws -> SidebarRow {
         try #require(list.displayed.rows.first { $0.key == key }, "row \(key) has no layout entry")
     }
@@ -105,12 +110,13 @@ struct SidebarWorkspaceTabHierarchyTests {
             let groupedTab = try Self.tabRow(list, Self.grouped, TabID("grouped-tab"))
             let nestedTab = try Self.tabRow(list, Self.nested, TabID("nested-tab"))
 
-            for (workspace, tab) in [(loose, looseTab), (grouped, groupedTab), (nested, nestedTab)] {
-                let workspaceX = Self.listX(list, workspace, workspace.titleFrame.minX)
-                let tabX = Self.listX(list, tab, tab.titleFrame.minX)
+            for (workspace, tab, text) in [(loose, looseTab, "shell"), (grouped, groupedTab, "browser"), (nested, nestedTab, "agent")] {
+                let tabTitle = try Self.tabTitle(tab, text)
+                let workspaceX = Self.listX(list, workspace, workspace.title.frame.minX)
+                let tabX = Self.listX(list, tab, tabTitle.frame.minX)
                 #expect(tabX - workspaceX >= Metrics.space4,
                         "\(c.testDescription): tab \(tab.key) is only \(tabX - workspaceX)pt inside its workspace")
-                #expect(tab.titleFont.pointSize < workspace.titleFont.pointSize,
+                #expect(tabTitle.font?.pointSize ?? 0 < workspace.title.font.pointSize,
                         "\(c.testDescription): child typography is not quieter")
             }
 
@@ -146,42 +152,50 @@ struct SidebarWorkspaceTabHierarchyTests {
         focused.updateLayer()
         unread.updateLayer()
         plain.updateLayer()
+        let focusedTitle = try Self.tabTitle(focused, "shell")
+        let unreadTitle = try Self.tabTitle(unread, "browser")
+        let plainTitle = try Self.tabTitle(plain, "agent")
         #expect(focused.isFocusedTab)
         #expect(unread.debugIcon == "favicon")
-        #expect(focused.titleFrame.minX > 0 && unread.titleFrame.minX > 0)
-        #expect(focused.debugTitleInk == focused.performWithTheme { Palette.textPrimary },
+        #expect(focusedTitle.frame.minX > 0 && unreadTitle.frame.minX > 0)
+        #expect(focusedTitle.textColor == focused.performWithTheme { Palette.textPrimary },
                 "focused child lost primary ink")
-        #expect(unread.debugTitleInk == unread.performWithTheme { Palette.textPrimary },
+        #expect(unreadTitle.textColor == unread.performWithTheme { Palette.textPrimary },
                 "unread child lost primary ink")
-        #expect(plain.debugTitleInk == plain.performWithTheme { Palette.textSecondary },
+        #expect(plainTitle.textColor == plain.performWithTheme { Palette.textSecondary },
                 "plain child did not recede to secondary ink")
 
         var readTab = groupedTab
         readTab.isUnread = false
         unread.configure(readTab, row: groupedRow, focused: false)
+        unread.layoutSubtreeIfNeeded()
         unread.updateLayer()
-        #expect(unread.debugTitleInk == unread.performWithTheme { Palette.textSecondary },
+        #expect(try Self.tabTitle(unread, "browser").textColor == unread.performWithTheme { Palette.textSecondary },
                 "read transition did not quiet the tab")
         unread.configure(groupedTab, row: groupedRow, focused: false)
+        unread.layoutSubtreeIfNeeded()
         unread.updateLayer()
-        #expect(unread.debugTitleInk == unread.performWithTheme { Palette.textPrimary },
+        #expect(try Self.tabTitle(unread, "browser").textColor == unread.performWithTheme { Palette.textPrimary },
                 "unread transition did not restore primary ink")
 
         focused.configure(looseTab, row: looseRow, focused: false)
+        focused.layoutSubtreeIfNeeded()
         focused.updateLayer()
-        #expect(focused.debugTitleInk == focused.performWithTheme { Palette.textSecondary },
+        #expect(try Self.tabTitle(focused, "shell").textColor == focused.performWithTheme { Palette.textSecondary },
                 "focus transition did not quiet the tab")
         focused.configure(looseTab, row: looseRow, focused: true)
+        focused.layoutSubtreeIfNeeded()
         focused.updateLayer()
-        #expect(focused.debugTitleInk == focused.performWithTheme { Palette.textPrimary },
+        #expect(try Self.tabTitle(focused, "shell").textColor == focused.performWithTheme { Palette.textPrimary },
                 "focus transition did not restore primary ink")
 
-        let before = focused.titleFrame
+        let before = try Self.tabTitle(focused, "shell").frame
         focused.prepareForReuse(key: .tab(Self.nested, TabID("nested-tab")))
-        #expect(focused.titleFrame == before, "reuse changed the disclosed child geometry before configure")
+        #expect(try Self.tabTitle(focused, "shell").frame == before, "reuse changed the disclosed child geometry before configure")
         focused.configure(nestedTab, row: nestedRow, focused: false)
+        focused.layoutSubtreeIfNeeded()
         focused.updateLayer()
-        #expect(focused.debugTitleInk == focused.performWithTheme { Palette.textSecondary },
+        #expect(try Self.tabTitle(focused, "agent").textColor == focused.performWithTheme { Palette.textSecondary },
                 "reused plain child did not recede to secondary ink")
     }
 }
