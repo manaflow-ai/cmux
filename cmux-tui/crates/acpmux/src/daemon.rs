@@ -954,6 +954,15 @@ where
     start_and_connect(path, connect).await
 }
 
+/// How long a command waits for a daemon that holds the lock: a stopping one settles its agents
+/// first (`SHUTDOWN_BUDGET`, the router's stop and kill waits; 12.3 s on cosmic-gray on
+/// 2026-10-22), a starting one binds within `START_BUDGET`. The last start then has its own
+/// `START_BUDGET`.
+const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
+
+/// How often a command tries again while another daemon holds the lock.
+const HANDOVER_RETRY: Duration = Duration::from_millis(250);
+
 /// A CLI may be launched without the service's `ACPMUX_HOME` (for example,
 /// from a session shell) while its daemon is owned by the user systemd unit.
 /// In that case never call [`spawn_detached`]: the unit may use a supervised
@@ -1037,15 +1046,12 @@ where
         }
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
         if left.is_zero() {
-            return Err(last_start_error
-                .unwrap_or_else(|| {
-                    anyhow!(
-                        "acpmux.service did not provide a socket at {} within {START_BUDGET:?}",
-                        path.display()
-                    )
-                    .to_string()
-                })
-                .into());
+            return Err(anyhow!(last_start_error.unwrap_or_else(|| {
+                format!(
+                    "acpmux.service did not provide a socket at {} within {START_BUDGET:?}",
+                    path.display()
+                )
+            })));
         }
         tokio::time::sleep(HANDOVER_RETRY.min(left)).await;
     }
@@ -1084,6 +1090,40 @@ fn equivalent_path(left: &std::path::Path, right: &std::path::Path) -> bool {
         })
     }
     left == right || normalized(left).zip(normalized(right)).is_some_and(|(l, r)| l == r)
+}
+
+/// Starts a daemon and connects. When the started daemon found the lock taken (its readiness
+/// line says `lockHeld`), another daemon is stopping or starting: the command connects once that
+/// one serves, or starts the next daemon once it has exited.
+async fn start_and_connect<T, F, Fut>(path: &std::path::Path, connect: F) -> Result<T>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    exe_path::check_start()?;
+    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
+    loop {
+        let ready = start_daemon().await?;
+        let error = match connect().await {
+            Ok(c) => return Ok(c),
+            Err(e) => e,
+        };
+        if !lock_held(&ready) {
+            return Err(not_ready(path, &ready, &error));
+        }
+        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
+            return Err(anyhow!(
+                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?} and serves no socket at {}; see {}",
+                home().join("daemon.lock").display(),
+                path.display(),
+                home().join("daemon.log").display()
+            ));
+        }
+        tokio::time::sleep(HANDOVER_RETRY).await;
+        if let Ok(c) = connect().await {
+            return Ok(c);
+        }
+    }
 }
 
 /// Whether a started daemon's readiness line says another daemon holds the lock.
