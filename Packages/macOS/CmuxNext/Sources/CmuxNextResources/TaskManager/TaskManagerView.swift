@@ -1,4 +1,4 @@
-public import AppKit
+package import AppKit
 import CmuxNextDesign
 public import SwiftUI
 
@@ -17,8 +17,9 @@ public struct TaskManagerView: View {
         self.table = table
     }
 
-    /// The page as an AppKit view: its `NSHostingView`, for the page tab's gate and for AppKit callers.
-    public static func hostingView(model: TaskManagerModel, table: TaskManagerTableState) -> NSView {
+    /// The page as an AppKit view: its `NSHostingView`. Its AppKit callers and tests (which import no SwiftUI)
+    /// use this.
+    package static func hostingView(model: TaskManagerModel, table: TaskManagerTableState) -> NSView {
         NSHostingView(rootView: TaskManagerView(model: model, table: table))
     }
 

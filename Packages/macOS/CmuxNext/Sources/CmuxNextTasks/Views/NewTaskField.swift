@@ -14,11 +14,6 @@ struct NewTaskField: View {
     @Binding private var title: String
     @State private var focused = false
 
-    /// The field alone as an AppKit view at `size` (its `NSHostingView`), for AppKit callers and tests.
-    static func hostingView(model: TasksModel, size: CGSize) -> NSView {
-        NSHostingView(rootView: NewTaskField(model: model).frame(width: size.width, height: size.height))
-    }
-
     init(model: TasksModel) {
         self.model = model
         _title = Bindable(model).newTaskDraft
