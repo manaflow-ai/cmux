@@ -6,9 +6,9 @@ public import Foundation
 /// feature for that, where just at the top right, there's a little icon that says, Oh, hey, this
 /// came from Cmax, this came from Claude, or whatever."
 ///
-/// A source is only ever what the system says: a paste's pasteboard owner, a drop's dragging app,
-/// a file's own metadata, or cmux's own capture (``AttachmentSourceResolver``). An unknown source
-/// is none, and its chip wears no icon: never a guess.
+/// A source is only ever what the system records: a file's own metadata (AttachmentSourceFiles.swift),
+/// the app a pasteboard says wrote it (AttachmentPasteboardOrigin.swift), or cmux's own capture. An
+/// unknown source is none, and its chip wears no icon: never a guess.
 public nonisolated struct AttachmentSource: Codable, Sendable, Equatable {
     /// The app's name as the person knows it ("Google Chrome", "Screenshot", "cmux").
     public var name: String

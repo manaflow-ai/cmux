@@ -202,7 +202,7 @@ enum ScreenshotHandlers {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects([NSImage(cgImage: image, size: .zero)])
             // Says who wrote it (nspasteboard.org), so a paste of it wears cmux's icon.
-            AttachmentPasteboardOrigin.claim(NSPasteboard.general)
+            AttachmentSource.claim(NSPasteboard.general)
         }
         return result
     }

@@ -230,6 +230,7 @@ export async function restoreInline(
         ...(companion?.kind === "file" && companion.uri
           ? { originalPath: localPath(companion.uri), originalName: companion.name }
           : {}),
+        ...(part.source ? { source: part.source } : {}),
       };
     } else if (part.kind === "file" && part.uri) {
       attachment = {
@@ -240,6 +241,7 @@ export async function restoreInline(
         size: part.size ?? 0,
         path: localPath(part.uri),
         ...(part.video ? { video: part.video } : {}),
+        ...(part.source ? { source: part.source } : {}),
       };
     } else if (part.kind === "pasted" && part.text)
       attachment = {

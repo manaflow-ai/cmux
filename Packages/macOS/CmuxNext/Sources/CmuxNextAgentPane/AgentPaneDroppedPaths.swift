@@ -23,6 +23,10 @@ public final class AgentPaneDroppedPaths {
     public nonisolated static let maximumNames = 100
 
     private var held: [Kind: (urls: [URL], at: TimeInterval)] = [:]
+    /// What the last drop's or paste's pasteboard said about where its contents came from, for the
+    /// page's `chat.attach.source` (``AgentPaneModel/attachSource(_:names:apps:)``): its file URLs
+    /// and the app it says wrote it. Kept apart from ``held``, since each record answers one ask.
+    private var sourced: [Kind: (urls: [URL], claimed: String?, at: TimeInterval)] = [:]
     private let now: @MainActor () -> TimeInterval
 
     public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
@@ -35,6 +39,19 @@ public final class AgentPaneDroppedPaths {
     public func stash(_ urls: [URL], kind: Kind) {
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
         held[kind] = paths.isEmpty ? nil : (paths, now())
+    }
+
+    /// Records what a drop's or paste's pasteboard said, with its file URLs: where its contents came
+    /// from, as only the person's own drop or paste can say (``source(_:)``).
+    public func stashSource(_ urls: [URL], claimed: String?, kind: Kind) {
+        let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
+        sourced[kind] = (paths, claimed, now())
+    }
+
+    /// What the last drop or paste of `kind` said, once, within ``lifetime``; nil after that.
+    func source(_ kind: Kind) -> (urls: [URL], claimed: String?)? {
+        guard let record = sourced.removeValue(forKey: kind), now() - record.at <= Self.lifetime else { return nil }
+        return (record.urls, record.claimed)
     }
 
     /// The recorded URLs of `kind` for the files `names` names (WebKit's `File.name`, the URL's last

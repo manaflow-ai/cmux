@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { attachmentBlocks, attachmentSource, sourceOfFile, withSource, type ComposerAttachment } from "../attachments";
-import { normalizePromptContentPart } from "../inlinePrompt";
+import { normalizePromptContentPart, restoreInline } from "../inlinePrompt";
 import { attachSources } from "./attachmentSources";
 
 const chrome = { name: "Google Chrome", bundleId: "com.google.Chrome", site: "github.com" };
@@ -72,4 +72,22 @@ test("a chip's source goes with its prompt block, and comes back from acpmux's p
     source: chrome,
   });
   expect(normalizePromptContentPart({ kind: "file", name: "a", source: { name: "" } })).not.toHaveProperty("source");
+});
+
+test("Edit and Retry put a sent attachment back with its source", async () => {
+  const restored = await restoreInline(
+    {
+      id: "p",
+      version: 1,
+      at: 1,
+      kind: "user",
+      inlineParts: [
+        { kind: "image", id: "img", mimeType: "image/png", name: "a.png", source: chrome },
+        { kind: "file", name: "notes.txt", uri: "file:///tmp/notes.txt", source: { name: "Finder" } },
+      ],
+    },
+    "",
+    async () => ({ mimeType: "image/png", data: "AQ==" }),
+  );
+  expect(restored.attachments.map((chip) => chip.source)).toEqual([chrome, { name: "Finder" }]);
 });

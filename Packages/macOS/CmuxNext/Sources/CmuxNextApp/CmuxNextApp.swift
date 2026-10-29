@@ -60,8 +60,6 @@ public struct CmuxNextApp {
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // Each chat's unsent chips, beside it, so reopening or restoring a chat brings them back.
         AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        // Who put what on the pasteboard there, from now on: a pasted attachment's corner icon.
-        AttachmentPasteboardOrigin.shared.start()
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting.
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()

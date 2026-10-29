@@ -15,6 +15,10 @@ struct AttachmentSourceTests {
                 "com.cmuxterm.app.test": "cmux"][$0] },
         ownBundleId: { own })
 
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
     @Test func aSourceIsCheckedAsItIsMade() {
         #expect(AttachmentSource(name: " Google Chrome ", bundleId: "com.google.Chrome", site: "github.com")?.name == "Google Chrome")
         #expect(AttachmentSource(name: "") == nil)
@@ -39,44 +43,18 @@ struct AttachmentSourceTests {
 
     // MARK: Pasteboard
 
-    private typealias Mark = AttachmentPasteboardOrigin.Mark
-
-    @Test func theLastStretchWhoseCountMovedNamesTheWriter() {
-        let marks = [Mark(count: 10, front: "com.google.Chrome", capturing: false),
-                     Mark(count: 11, front: "com.apple.finder", capturing: false),
-                     Mark(count: 11, front: Self.own, capturing: false)]
-        // Copied in Chrome, then Finder and cmux came to the front.
-        #expect(AttachmentPasteboardOrigin.writer(marks: marks, count: 11, types: [], said: nil) == "com.google.Chrome")
-        // Copied again while cmux was in front: cmux.
-        #expect(AttachmentPasteboardOrigin.writer(marks: marks, count: 12, types: [], said: nil) == Self.own)
-    }
-
-    @Test func aCaptureRunningWhenTheCountMovedIsScreenshot() {
-        let marks = [Mark(count: 4, front: "com.google.Chrome", capturing: true),
-                     Mark(count: 5, front: "com.google.Chrome", capturing: false),
-                     Mark(count: 5, front: Self.own, capturing: false)]
-        #expect(AttachmentPasteboardOrigin.writer(marks: marks, count: 5, types: [], said: nil) == "com.apple.screenshot.launcher")
-        let source = AttachmentPasteboardOrigin.source(bundleId: "com.apple.screenshot.launcher", apps: Self.apps)
-        #expect(source == AttachmentSource(name: "Screenshot", bundleId: "com.apple.screenshot.launcher"))
-    }
-
-    @Test func anUnknownWriterIsNone() {
-        let marks = [Mark(count: 7, front: "com.google.Chrome", capturing: false)]
-        // Copied before the app started: the count never moved while it watched.
-        #expect(AttachmentPasteboardOrigin.writer(marks: marks, count: 7, types: [], said: nil) == nil)
-        #expect(AttachmentPasteboardOrigin.writer(marks: [], count: 7, types: [], said: nil) == nil)
-        // Another device's clipboard, and a tool's own contents.
-        #expect(AttachmentPasteboardOrigin.writer(marks: marks, count: 8, types: ["com.apple.is-remote-clipboard"], said: nil) == nil)
-        #expect(AttachmentPasteboardOrigin.writer(marks: marks, count: 8, types: ["org.nspasteboard.TransientType"], said: nil) == nil)
+    @Test func onlyAPasteboardThatSaysWhoWroteItHasAWriter() {
+        #expect(AttachmentSource.claimed(types: ["public.png"], said: "com.apple.finder") == "com.apple.finder")
+        // Saying nothing is no writer: the app in front is never taken for it.
+        #expect(AttachmentSource.claimed(types: ["public.png"], said: nil) == nil)
+        #expect(AttachmentSource.claimed(types: [], said: "not an id") == nil)
+        // Another device's clipboard, and a tool's own contents, have none even when they claim one.
+        #expect(AttachmentSource.claimed(types: ["com.apple.is-remote-clipboard"], said: "com.apple.finder") == nil)
+        #expect(AttachmentSource.claimed(types: ["org.nspasteboard.TransientType"], said: "com.apple.finder") == nil)
+        #expect(AttachmentSource.source(bundleId: Self.own, apps: Self.apps)?.name == "cmux")
+        #expect(AttachmentSource.source(bundleId: "com.apple.finder", apps: Self.apps)?.name == "Finder")
         // An app no longer installed.
-        #expect(AttachmentPasteboardOrigin.source(bundleId: "com.gone.App", apps: Self.apps) == nil)
-    }
-
-    @Test func anAppThatSaysItWroteItIsTakenAtItsWord() {
-        let marks = [Mark(count: 1, front: "com.google.Chrome", capturing: false)]
-        #expect(AttachmentPasteboardOrigin.writer(marks: marks, count: 2, types: [], said: "com.apple.finder") == "com.apple.finder")
-        #expect(AttachmentPasteboardOrigin.writer(marks: marks, count: 2, types: [], said: "not an id") == "com.google.Chrome")
-        #expect(AttachmentPasteboardOrigin.source(bundleId: Self.own, apps: Self.apps)?.name == "cmux")
+        #expect(AttachmentSource.source(bundleId: "com.gone.App", apps: Self.apps) == nil)
     }
 
     @Test func cmuxClaimsWhatItCopies() {
@@ -84,8 +62,34 @@ struct AttachmentSourceTests {
         defer { board.releaseGlobally() }
         board.clearContents()
         board.setString("x", forType: .string)
-        AttachmentPasteboardOrigin.claim(board, bundleId: Self.own)
-        #expect(board.string(forType: AttachmentPasteboardOrigin.sourceType) == Self.own)
+        #expect(AttachmentSource.claimed(on: board) == nil)
+        AttachmentSource.claim(board, bundleId: Self.own)
+        #expect(board.string(forType: AttachmentSource.pasteboardSourceType) == Self.own)
+        #expect(AttachmentSource.claimed(on: board) == Self.own)
+    }
+
+    @Test func aSourceIsAskedOnlyOfThePersonsOwnDropOrPasteOnce() {
+        final class Uptime { var now: TimeInterval = 100 }
+        let clock = Uptime()
+        let record = AgentPaneDroppedPaths(now: { clock.now })
+        #expect(record.source(.paste) == nil)
+        record.stashSource([URL(fileURLWithPath: "/tmp/a.png")], claimed: "com.apple.finder", kind: .paste)
+        // A drop's record never answers for a paste.
+        #expect(record.source(.drop) == nil)
+        let taken = record.source(.paste)
+        #expect(taken?.urls == [URL(fileURLWithPath: "/tmp/a.png")] && taken?.claimed == "com.apple.finder")
+        // Once only.
+        #expect(record.source(.paste) == nil)
+        record.stashSource([], claimed: nil, kind: .drop)
+        clock.now += AgentPaneDroppedPaths.lifetime + 1
+        #expect(record.source(.drop) == nil)
+    }
+
+    @Test func withNoDropOrPasteTheAskAnswersNoSources() async {
+        let model = AgentPaneModel(host: NoHost())
+        let answer = await model.attachSource(.paste, names: ["image.png", "notes.txt"], apps: Self.apps)
+        #expect((answer["sources"] as? [Any])?.allSatisfy { $0 is NSNull } == true)
+        #expect((answer["sources"] as? [Any])?.count == 2)
     }
 
     // MARK: Files
@@ -130,15 +134,15 @@ struct AttachmentSourceTests {
 
     // MARK: The page's ask
 
-    @Test func eachNameGetsItsFilesSourceElseTheGesturesOnce() {
+    @Test func eachNameGetsItsFilesSourceElseThePasteboardsClaim() {
         let finder = AttachmentSource(name: "Finder", bundleId: "com.apple.finder")
         let urls = [URL(fileURLWithPath: "/tmp/a.png"), URL(fileURLWithPath: "/tmp/docs")]
         let shot = AttachmentSource.screenshot
-        let sources = AgentPaneModel.sources(for: ["docs.zip", "a.png", "image.png"], urls: urls, gesture: finder) { url in
+        let sources = AgentPaneModel.sources(for: ["docs.zip", "a.png", "image.png"], urls: urls, claimed: finder) { url in
             url.lastPathComponent == "a.png" ? shot : nil
         }
         #expect(sources == [finder, shot, finder])
-        #expect(AgentPaneModel.sources(for: ["a.png"], urls: [], gesture: nil) { _ in shot } == [nil])
+        #expect(AgentPaneModel.sources(for: ["a.png"], urls: [], claimed: nil) { _ in shot } == [nil])
     }
 
     @Test func decodesTheMethods() {
