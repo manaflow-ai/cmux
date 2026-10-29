@@ -671,7 +671,9 @@ import Testing
     /// this process's own (DEBUG automation) and any other process's, in DEBUG builds too.
     @Test func theStrictPersonCheckTakesOnlyTheHIDSystemsInput() throws {
         let event = { (pid: Int64, state: CGEventSourceStateID) throws -> NSEvent in
-            let cgEvent = try #require(CGEvent(mouseEventSource: CGEventSource(stateID: state), mouseType: .leftMouseUp,
+            // No event source: making one (CGEventSource) can hang inside SkyLight on a headless Mac. The
+            // fields are what the check reads, set as a poster could set them.
+            let cgEvent = try #require(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
                                                mouseCursorPosition: .zero, mouseButton: .left))
             cgEvent.setIntegerValueField(.eventSourceUnixProcessID, value: pid)
             cgEvent.setIntegerValueField(.eventSourceStateID, value: Int64(state.rawValue))
@@ -925,7 +927,8 @@ import Testing
         var second: UInt64 = 100
         let click = { (pid: Int64) throws -> NSEvent in
             second += 1
-            let cgEvent = try #require(CGEvent(mouseEventSource: CGEventSource(stateID: .hidSystemState), mouseType: .leftMouseUp,
+            // No event source (making one can hang inside SkyLight on a headless Mac); the fields are set below.
+            let cgEvent = try #require(CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp,
                                                mouseCursorPosition: .zero, mouseButton: .left))
             cgEvent.setIntegerValueField(.eventSourceUnixProcessID, value: pid)
             cgEvent.setIntegerValueField(.eventSourceStateID, value: Int64(CGEventSourceStateID.hidSystemState.rawValue))

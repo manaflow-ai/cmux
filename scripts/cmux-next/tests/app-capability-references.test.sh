@@ -92,6 +92,25 @@ out="$(run)" || fail "a tree whose daemon serves every gate failed: $out"
 [[ "$out" == *"layout-templates-v1"* ]] || fail "a refusal-only capability is not reported as not built yet: $out"
 [[ "$out" != *"commented-out-v1"* ]] || fail "a commented-out call counted: $out"
 
+# Green: a gate on a capability the same-tree acpmux advertises (its own capability list, not cmux-tui-core's).
+mkdir -p "$tmp/cmux-tui/crates/acpmux/src"
+cat > "$tmp/cmux-tui/crates/acpmux/src/capabilities.rs" <<'EOF'
+pub const CAPABILITIES: &[Capability] = &[
+    Capability { id: "acpmux-v1", wire: &[] },
+    Capability {
+        id: "planted-acpmux-v1",
+        wire: &[method::MUX_MACHINE_CONSENT_SET],
+    },
+];
+EOF
+write_app '        struct AcpmuxFeature { static let capability = "planted-acpmux-v1" }'
+out="$(run)" || fail "a gate on a capability acpmux advertises failed: $out"
+[[ "$out" == *"PASS"* ]] || fail "no PASS line for an acpmux gate: $out"
+# Red: the same gate on a name acpmux does not define.
+write_app '        struct AcpmuxFeature { static let capability = "planted-acpmux-typo-v1" }'
+if out="$(run)"; then fail "a gate on a name acpmux does not define passed: $out"; fi
+[[ "$out" == *"planted-acpmux-typo-v1"* ]] || fail "the failure does not name the misspelled capability: $out"
+
 # Red: the app gates a feature on a capability no daemon crate defines.
 write_app '        if daemon.supports("planted-unserved-v1") {}'
 if out="$(run)"; then fail "a gate on an unserved capability passed: $out"; fi

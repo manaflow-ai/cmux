@@ -44,8 +44,11 @@ Rules (each violation names the file and line):
      only beside a sidecar binary.
   2. A capability the daemon source does not define may appear only at a
      refusal site (a feature not built yet, shown as "not available in this
-     version"), in DaemonCapability.unservedByBundledDaemon, or in PEERS (a
-     capability of another server, not cmux-tui). At a gate site it is the
+     version"), in DaemonCapability.unservedByBundledDaemon, in PEERS (a
+     capability of another server, not cmux-tui), or in the bundled acpmux's own
+     capability list (ACPMUX_LIST: the ids its `initialize` advertises in
+     `_meta.acpmux.capabilities`, read from the same tree, so a gate on a name
+     acpmux does not define still fails). At a gate site it is the
      error class P10 forbids: the feature waits for a capability the bundled
      daemon never serves.
   3. An unservedByBundledDaemon entry the daemon source now defines moves to
@@ -86,6 +89,8 @@ RUST_ROOT = "cmux-tui/crates/cmux-tui-core/src"
 # identify's list: its string literals are capabilities too ("attach-identity-v1").
 RUST_LIST = "cmux-tui/crates/cmux-tui-core/src/server/capabilities.rs"
 ENDPOINT = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"
+# The bundled acpmux's capability list: the `id: "..."` of each entry, which its `initialize` advertises.
+ACPMUX_LIST = "cmux-tui/crates/acpmux/src/capabilities.rs"
 
 # Served by cmux-tui only when a sidecar binary sits beside it, so the
 # isolated identify probe of check-daemon-capabilities.sh cannot require it.
@@ -330,15 +335,26 @@ def rust_capabilities(repo: Path) -> dict[str, str]:
     return found
 
 
+def acpmux_capabilities(repo: Path) -> dict[str, str]:
+    """The capabilities the same-tree acpmux advertises, each with its file and line (none without the file)."""
+    path = repo / ACPMUX_LIST
+    if not path.is_file():
+        return {}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return {m.group(1): f"{ACPMUX_LIST}:{text.count(chr(10), 0, m.start()) + 1}"
+            for m in re.finditer(r'\bid:\s*"([a-z][a-z0-9.-]*)"', text)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args()
     refs, lists, daemon, strays = collect(args.repo)
+    acpmux = acpmux_capabilities(args.repo)
     if args.list:
         for ref in sorted(refs, key=lambda r: (r.capability, r.kind, r.where)):
-            served = "daemon" if ref.capability in daemon else "-"
+            served = "daemon" if ref.capability in daemon else "acpmux" if ref.capability in acpmux else "-"
             print(f"{ref.capability}\t{ref.kind}\t{served}\t{ref.where}")
         return 0
 
@@ -363,13 +379,14 @@ def main() -> int:
             if capability in unserved:
                 problems.append(f"{capability}: the daemon defines it ({daemon[capability]}); move it from "
                                 "DaemonCapability.unservedByBundledDaemon to optional.")
-        elif capability in PEERS or capability in unserved:
+        elif capability in PEERS or capability in unserved or capability in acpmux:
             continue
         elif gates:
             problems.append(
                 f"{capability}: the app gates a feature on it ({', '.join(gates[:3])}), but no cmux-tui crate defines "
                 "it, so the bundled daemon never serves it and the feature stays off. Land the daemon half on this "
-                "branch (a `*_CAPABILITY` constant that identify advertises), fix the name, or remove the gate.")
+                "branch (a `*_CAPABILITY` constant that identify advertises, or an entry in " + ACPMUX_LIST
+                + " for an acpmux capability), fix the name, or remove the gate.")
         else:
             stubs[capability] = [r.where for r in sites]
     references = len({r.capability for r in refs})
