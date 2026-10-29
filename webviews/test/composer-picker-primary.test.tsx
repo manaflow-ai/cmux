@@ -126,9 +126,7 @@ test("primary press selects once, retains focus and closes", async () => {
 
 test("keep-open rows still select on a primary press", async () => {
   const { calls, trigger, row } = await fixture(true);
-  await act(async () =>
-    row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })),
-  );
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
   expect(calls).toEqual(["second"]);
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
 });
@@ -147,9 +145,7 @@ for (const key of ["Enter", " "]) {
     );
     for (const type of ["keydown", "keyup"]) {
       await act(async () =>
-        trigger.dispatchEvent(
-          new dom.window.KeyboardEvent(type, { key, bubbles: true, cancelable: true }),
-        ),
+        trigger.dispatchEvent(new dom.window.KeyboardEvent(type, { key, bubbles: true, cancelable: true })),
       );
     }
     expect(calls).toEqual(["second"]);

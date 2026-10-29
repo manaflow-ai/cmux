@@ -51,15 +51,10 @@ await requireBrowserLane("composer-picker-pointer.test.ts", async () => {
           await trigger.click();
           await page.getByRole("option", { name: "Mention file" }).click({ button });
           // Capture before the assertions so the same harness records the broken base as well.
-          if (captureDir)
-            await page.screenshot({ path: path.join(captureDir, `${engine}-${button}.png`) });
+          if (captureDir) await page.screenshot({ path: path.join(captureDir, `${engine}-${button}.png`) });
           const receipt = page.getByTestId("picker-receipt");
-          expect(await receipt.textContent()).toBe(
-            button === "left" ? "Selected: mention" : "No action selected",
-          );
-          expect(await trigger.getAttribute("aria-expanded")).toBe(
-            button === "left" ? "false" : "true",
-          );
+          expect(await receipt.textContent()).toBe(button === "left" ? "Selected: mention" : "No action selected");
+          expect(await trigger.getAttribute("aria-expanded")).toBe(button === "left" ? "false" : "true");
           expect(await trigger.evaluate((node) => node === document.activeElement)).toBe(true);
           if (button !== "left") {
             // Do not refocus: the rejected press must leave the existing keyboard path usable.
