@@ -56,6 +56,7 @@ export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
+import { CLIENT_SESSION_PATH, handleCloudClientSession } from "./cloud-client-session.ts"
 import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
@@ -206,6 +207,9 @@ export default {
     // The keyed acpmux start (cx-kvmz): outside the op path, so the key never becomes an op or a log line.
     const acpmux = url.pathname.match(ACPMUX_PATH)
     if (acpmux) return handleCloudAcpmux(request, env, acpmux[1]!, acpmux[2] as "keyed-start" | "person-holds")
+    // A scoped provider token for one of the caller's machines (cloud-client-session.ts): outside the op path, never logged.
+    const clientSession = url.pathname.match(CLIENT_SESSION_PATH)
+    if (clientSession) return handleCloudClientSession(request, env, clientSession[1]!)
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
