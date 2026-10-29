@@ -36,7 +36,7 @@ test("streaming a held tail does not rescan history or trailing tools for a mess
       next.visit(rows[1]!, 1, previous[1]);
       layout = emptyLayout();
       next.finish(observed, layout);
-      expect(latestMessageRow(observed, layout)).toBe(hasEarlierMessage ? "earlier" : undefined);
+      expect(latestMessageRow(observed, layout)).toBe("active");
       expect(reads).toBeLessThanOrEqual(1);
     }
   }
@@ -52,8 +52,8 @@ test("layout carries placement through visibility changes, folding, deletion, re
   const earlier = row("earlier", "Done");
   const tools = row("tools", "", "activity");
   const held = { ...row("active", "[unfinished"), streaming: true };
-  check([tools, held]);
-  check([earlier, tools, held], "earlier");
+  check([tools, held], "active");
+  check([earlier, tools, held], "active");
   const visible = { ...held, text: "[ready](https://example.com)", version: 2 };
   check([earlier, tools, visible], "active");
   check([earlier, tools, { ...visible, text: "", version: 3 }], "earlier");

@@ -25,7 +25,6 @@ export function usePullRequestPlacement(
     },
     [rowId, sessionId],
   );
-  const waitingForReveal =
-    row?.kind === "assistant" && !(shown && shown.rowId === rowId && shown.sessionId === sessionId && shown.visible);
-  return { rowId, report, fallback: enabled && (!row || waitingForReveal) };
+  const mounted = shown && shown.rowId === rowId && shown.sessionId === sessionId && shown.visible;
+  return { rowId, report, fallback: enabled && (!row || !mounted) };
 }

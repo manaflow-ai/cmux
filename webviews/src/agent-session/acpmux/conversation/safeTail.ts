@@ -133,9 +133,3 @@ export function safeTail(tail: string): string {
   const end = text.lastIndexOf("\n") + 1;
   return text.slice(0, end) + closedItalic(text.slice(end));
 }
-
-/// Whether the renderer has any content to draw from a message. Streaming uses the same safe tail
-/// as IncrementalMarkdown; a complete message only needs the parser's non-blank source fast path.
-export function hasRenderableMarkdown(source: string, streaming = false): boolean {
-  return (streaming ? safeTail(source) : source).trim().length > 0;
-}

@@ -1,25 +1,14 @@
 import type { AcpmuxRow, ConversationLayout } from "../model";
-import { hasRenderableMarkdown } from "./safeTail";
-
-const rendered = new WeakMap<AcpmuxRow, boolean>();
+// Candidate selection never parses a growing reply. Only the mounted renderer can confirm
+// that its displayed prefix actually provides a host (including custom registry renderers).
 function hasMessage(row: AcpmuxRow): boolean {
-  const kept = rendered.get(row);
-  if (kept !== undefined) return kept;
-  const candidate =
-    row.kind === "turnSummary" || row.kind === "assistant" || (row.kind === "user" && row.incoming?.kind === "message");
-  if (!candidate) {
-    rendered.set(row, false);
-    return false;
-  }
-  const text = row.kind === "user" && row.incoming?.kind === "message" ? row.incoming.message.text : (row.text ?? "");
-  const value = hasRenderableMarkdown(text, row.streaming === true);
-  rendered.set(row, value);
-  return value;
+  if (row.kind === "turnSummary" || row.kind === "assistant") return (row.text?.length ?? 0) > 0;
+  return row.kind === "user" && row.incoming?.kind === "message" && row.incoming.message.text.length > 0;
 }
 
 const latest = new WeakMap<ConversationLayout, number>();
 
-/// Reuse layout's existing changed-suffix pass. Streaming content checks only changed row objects;
+/// Reuse layout's existing changed-suffix pass. Candidate checks only changed row objects;
 /// an unchanged empty tail keeps the known absence of a host, without searching history again.
 export class MessagePlacement {
   private index: number;

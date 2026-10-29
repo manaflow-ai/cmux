@@ -315,3 +315,49 @@ test("empty nested Markdown keeps fallback and finished replies use their action
     }
   }
 });
+
+test("custom footer and incoming renderers without PR hosts retain fallback", async () => {
+  const { activity, tool } = await import("../src/gallery/fixtures/acpmux");
+  const opened = activity(
+    [
+      tool("gh pr create", "execute", "completed", {
+        command: "gh pr create",
+        output: "https://github.com/acme/uploader/pull/41",
+        exitCode: 0,
+      }),
+    ],
+    3,
+  );
+  for (const kind of ["turnSummary", "user"]) {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const last: AcpmuxRow = {
+      id: kind,
+      kind,
+      at: 1,
+      version: 1,
+      text: "Done",
+      ...(kind === "user"
+        ? { incoming: { kind: "message" as const, message: { name: "Helper", text: "Done", raw: "Done" } } }
+        : {}),
+    };
+    const rows = [opened, last];
+    try {
+      await act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={rows}
+            pullRequestRows={rows}
+            sessionId={`custom-${kind}`}
+            registry={{ [kind]: () => <div>Custom message</div> }}
+            expanded={new Set()}
+            onToggleActivity={() => {}}
+          />,
+        ),
+      );
+      expect(dom.window.document.querySelectorAll(".acpmux-pr-dock__bar")).toHaveLength(1);
+      expect(dom.window.document.querySelector(".acpmux-pr-fallback .acpmux-pr-dock__bar")).not.toBeNull();
+    } finally {
+      act(() => root.unmount());
+    }
+  }
+});
