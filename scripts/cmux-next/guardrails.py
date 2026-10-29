@@ -6276,14 +6276,16 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     ratchet = ratchet or Ratchet(repo, ranges)
     refused = False
     for own in ranges:
-        # Fail open per range: a range the checker could not judge goes through; one it judged keeps its answer.
+        # Fail closed per range: a range the checker could not judge refuses (it judged nothing); the other ranges
+        # are still judged and print their own answer.
         try:
             refusals, warnings = check_own(repo, own.base, own.head, own.before)
             text, refuse = format_report(refusals, warnings)
         except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
-            print(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}) on "
-                  f"{own.base[:11]}..{own.head[:11]}; not applied to that range. Tell the Performance Lead "
-                  "(PL-guardrails) with this line.", file=sys.stderr)
+            print(f"prepush-gate: guardrails.py failed ({type(error).__name__}: {error}) on "
+                  f"{own.base[:11]}..{own.head[:11]}, so it judged nothing there and refuses this push (fail "
+                  "closed). Tell the Performance Lead (PL-guardrails) with this line.", file=sys.stderr)
+            refused = True
             continue
         if text:
             print(text)
