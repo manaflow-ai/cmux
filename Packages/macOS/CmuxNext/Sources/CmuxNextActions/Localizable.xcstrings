@@ -31653,6 +31653,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Kho mã"}}
       }
     },
+    "argument.secretNames": {
+      "comment": "cloud deliver-secrets argument: the secret names (comma-separated) an own machine (SSH or an acpmux peer) gets.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Secret Names"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "シークレット名"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Geheimnisnamen"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Noms des secrets"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Nombres de secretos"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "أسماء الأسرار"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "비밀 이름"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机密名称"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機密名稱"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Imena tajni"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hemmelighedsnavne"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Nomi dei segreti"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ឈ្មោះអាថ៌កំបាំង"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hemmelighetsnavn"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nazwy sekretów"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nomes dos segredos"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Имена секретов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ชื่อความลับ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sır adları"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Імена секретів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tên bí mật"}}
+      }
+    },
     "argument.pinned": {
       "comment": "Argument of Pin/Unpin Group: true pins the group, false unpins it; left out, the action toggles.",
       "extractionState": "manual",
