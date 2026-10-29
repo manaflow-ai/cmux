@@ -369,6 +369,13 @@ public final class AgentChatStore {
     public func setMode(_ id: String) { source.send(.setMode(id)) }
     public func setConfig(_ id: String, value: String) { source.send(.setConfigOption(id: id, value: value)) }
     public func removeQueued(_ id: String) { source.send(.removeQueued(promptId: id)) }
+
+    /// The user bubble's Edit and Resend: returns the text the composer gets, or nil when
+    /// the composer gets nothing.
+    public func editAndResend(_ turn: AgentTurn, draft: String) -> String? {
+        send(prompt: turn.prompt)
+        return nil
+    }
     /// Edit queued prompt (the agent pane's wording): the new text keeps its place.
     public func editQueued(_ id: String, text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -710,7 +710,7 @@ struct TurnView: View {
         VStack(alignment: .leading, spacing: 16) {
             // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
             // place; only what arrives live animates in.
-            UserBubble(turn: turn, isLast: isLast) { store.send(prompt: $0) }
+            UserBubble(turn: turn, isLast: isLast) { _ = store.editAndResend(turn, draft: surface?.text ?? "") }
                 .findBlock(AgentChatFind.promptKey(turn.id), surface: surface)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
@@ -849,7 +849,7 @@ struct StreamingMarkdown: View {
 struct UserBubble: View {
     let turn: AgentTurn
     let isLast: Bool
-    let resend: (String) -> Void
+    let editAndResend: () -> Void
     @State private var selecting = false
 
     var body: some View {
@@ -869,7 +869,7 @@ struct UserBubble: View {
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = turn.prompt }
                         Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
                         if isLast {
-                            Button("Edit and Resend", systemImage: "pencil") { resend(turn.prompt) }
+                            Button("Edit and Resend", systemImage: "pencil") { editAndResend() }
                         }
                         ShareLink(item: turn.prompt) { Label("Share", systemImage: "square.and.arrow.up") }
                     }
