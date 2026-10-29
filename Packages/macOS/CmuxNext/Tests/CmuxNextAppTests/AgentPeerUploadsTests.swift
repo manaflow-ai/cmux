@@ -140,7 +140,7 @@ import Testing
 
     /// The peer stager of a tab whose chat runs on `huge-blue`, and that chat's session.
     private static func withPeerStager(host: (any AgentPaneHostProviding)? = nil,
-                                       _ body: (AgentPaneUploadStager, String) async throws -> Void) async throws {
+                                       _ body: @escaping (_ stager: @escaping AgentPaneUploadStager, _ session: String) async throws -> Void) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
