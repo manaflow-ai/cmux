@@ -369,4 +369,42 @@ struct EarlyTerminalKeysTests {
             #expect(coordinator.heldCount(in: window) == 3, "the held keys do not wait in order: \(Self.held(h))")
         }
     }
+
+    /// No timing decides where held keys go (principled-audit R5): the hold's bound passes while focus names the new
+    /// terminal and another view has the keyboard. The keys keep waiting for the terminal (before, the bound's forced
+    /// flush ran them into that view). When the model's target, the terminal, has the keyboard again, the next key runs
+    /// them first, in order, then goes on.
+    @Test func theBoundNeverSendsTerminalKeysToAnotherView() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window, paneKey, tab, entry) = (h.controller, h.window, h.paneKey, h.tab, h.entry)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            coordinator.holdLimit = .milliseconds(50)
+            let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+            window.contentView?.addSubview(composer)
+            defer { composer.removeFromSuperview() }
+            let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
+            for (letter, code) in [("a", UInt16(0)), ("b", UInt16(11))] {
+                #expect(router.interceptKeyDown(try Self.key(letter, keyCode: code, in: window), in: window),
+                        "a key before the reply was not held: \(Self.held(h))")
+            }
+            window.makeFirstResponder(composer)
+            let before = coordinator.replayedCount
+            coordinator.resolve(ticket, landed: true, in: window)
+            #expect(controller.focus.state.resolved == .terminal(pane: paneKey, tab: tab), "the test needs focus on the new terminal")
+
+            // Past the bound (50 ms after the reply): a forced flush would have run the keys by now.
+            try? await PasswordManagerRouteTests.until({ coordinator.replayedCount != before }, within: .milliseconds(600))
+            #expect(coordinator.replayedCount == before, "the hold's bound ran terminal keys into another view: \(Self.held(h))")
+            #expect(composer.string.isEmpty, "keys typed for the new terminal reached another text input")
+            #expect(coordinator.heldCount(in: window) == 2, "the keys typed for the new terminal no longer wait: \(Self.held(h))")
+
+            // The model's target takes the keyboard again: the held keys run first, in order, and the next key goes on.
+            window.makeFirstResponder(entry.session.surfaceView)
+            let next = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
+            #expect(!next, "the key after the terminal took the keyboard back waited: \(Self.held(h))")
+            #expect(coordinator.replayedCount == before + 2, "the held keys did not run into the new terminal")
+            #expect(!coordinator.isHolding(in: window))
+        }
+    }
 }
