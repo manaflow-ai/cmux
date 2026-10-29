@@ -117,11 +117,6 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         glow.place(along: dividerRect, vertical: true)
     }
 
-    override public func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        glow.applyTheme(self)
-    }
-
     override public func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         glow.applyTheme(self)
@@ -136,7 +131,10 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         // NSSplitView tracks the drag inside `mouseDown` and returns on the release: the band is
         // lit for exactly that span, so nothing is left to turn it off.
         let onDivider = !list.isHidden && dividerRect.insetBy(dx: -Self.grab, dy: 0).contains(point)
-        if onDivider { glow.set(.dragging) }
+        if onDivider {
+            glow.applyTheme(self)
+            glow.set(.dragging)
+        }
         defer { if onDivider { glow.set(.rest) } }
         super.mouseDown(with: event)
     }
