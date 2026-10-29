@@ -156,7 +156,7 @@ A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value.
 
 ## `tabs.terminalFirst`
 
-What Cmd-T, Cmd-D and Cmd-Shift-D open.
+What a new tab, split, workspace or window opens. Settings shows it as **cmux Classic Mode**.
 
 ```json
 {
@@ -164,10 +164,10 @@ What Cmd-T, Cmd-D and Cmd-Shift-D open.
 }
 ```
 
-- `false` (default): Cmd-T opens the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
-- `true`: Cmd-T opens a terminal tab and Cmd-D and Cmd-Shift-D open a terminal in the new pane, as in cmux classic.
+- `false` (default): Cmd-T and Cmd-N open the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
+- `true`: new tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic.
 
-With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`. A new workspace still starts on the New Tab page. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
+With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`, and a new or emptied workspace starts on a terminal instead of the New Tab page. To open the New Tab page anyway, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P); Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
 
 ## `tabs.swapCmdTAndCmdN`
 
@@ -409,7 +409,22 @@ Which scroll moves columns and rows, and which scrolls the pane under the pointe
 - `command` (default): a plain scroll, with the trackpad or the mouse wheel, in any direction, always scrolls the pane under the pointer (terminal scrollback, a web page, a wide table). Command + Scroll moves the layout from anywhere on the screen: sideways scrolls the columns, up and down scrolls the rows of the column under the pointer. In a column whose rows all fit, Command + Scroll up and down scrolls the columns. Over a scroll area, Command + Scroll sideways moves the area first. On a canvas, Command + Scroll pans the canvas. A plain scroll still moves the layout over the gaps between panes (also while a Chromium page shows) and over the columns scrollbar.
 - `none`: a sideways scroll moves the columns unless the pane under the pointer scrolls sideways itself, and rows scroll over the gaps between them or with Command held.
 
-The first event of a trackpad gesture decides what the whole gesture scrolls, including its momentum: pressing or releasing Command midway changes nothing. Each mouse-wheel notch decides on its own. Scrolling a pane does not move keyboard focus unless **Focus Follows Mouse** (`layout.focusFollowsMouse`) is on. A Command + Scroll that begins where the layout has something to scroll (columns that do not fit, rows that overflow under the pointer, a scroll area under the pointer) is the layout's from its first event, whichever way it then moves, so it never goes Back or Forward in a web page, Chromium or WebKit. Where the layout has nothing to scroll, the page gets the gesture, and a sideways swipe over a web page goes Back or Forward as it does without Command. Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollModifier none`.
+The first event of a trackpad gesture decides what the whole gesture scrolls, including its momentum: pressing or releasing Command midway changes nothing. Each mouse-wheel notch decides on its own. Scrolling a pane does not move keyboard focus unless **Focus Follows Mouse** (`layout.focusFollowsMouse`) is on. Over a terminal, a chat or any other pane that is not a Chromium page, Command + Scroll on a columns screen is always the layout's, even when the columns fit: the columns follow your fingers and spring back, and the pane never scrolls. Over a Chromium page, a Command + Scroll that begins where the layout has something to scroll (columns that do not fit, rows that overflow under the pointer, a scroll area under the pointer) is the layout's from its first event, whichever way it then moves, so it never goes Back or Forward; a page that uses Command + Scroll itself keeps it (`layout.pagesHandleCommandScroll`). Where the layout has nothing to scroll, the page gets the gesture, and a sideways swipe over a web page goes Back or Forward as it does without Command. Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollModifier none`.
+
+## `layout.pagesHandleCommandScroll`
+
+Whether a web page that uses Command + Scroll itself keeps it, such as Figma or Excalidraw zooming their canvas.
+
+```json
+{
+  "layout": { "pagesHandleCommandScroll": true }
+}
+```
+
+- `true` (default): when a Command + Scroll begins over a Chromium page, cmux asks the page first. A page that cancels the Command + wheel event (`preventDefault`) gets the whole gesture, momentum included. Over any other page, Command + Scroll moves the columns. If the page does not answer within about two frames, the columns move.
+- `false`: Command + Scroll over a page always moves the columns, as over a terminal.
+
+It applies with `layout.scrollModifier` set to `command`. A page inside a frame from another site counts as not using Command + Scroll. A page that cancels every wheel event (some code editors, maps and spreadsheets) also keeps Command + Scroll; turn this setting off to pan the columns over them. Pages in the WebKit engine are not asked: Command + Scroll moves the columns over them. Change it in **Settings > General > Columns**, in the command palette (Cmd-Shift-P, "Web Pages Get Command + Scroll First"), or with `cmux settings set layout.pagesHandleCommandScroll false`.
 
 ## `workspaces.newPlacement`
 

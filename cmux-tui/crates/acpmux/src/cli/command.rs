@@ -30,6 +30,13 @@ pub enum Command {
         #[arg(long)]
         codex: PathBuf,
     },
+    /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
+    /// Mac that lends this machine its login (`cli/gh_shim.rs`).
+    #[command(hide = true, disable_help_flag = true)]
+    Gh {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Send a local brief to another harness on a peer (or the least-loaded
     /// allowed host with `--host auto`) and record its identity.
     Dispatch(DispatchArgs),
@@ -254,6 +261,15 @@ pub enum Command {
         /// Only sessions carrying this tag (key or key=value).
         #[arg(long)]
         tag: Option<String>,
+        /// Return at most N sessions, newest first.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        limit: Option<u64>,
+        /// Select comma-separated fields from each session record.
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+        /// Only sessions updated within this duration (for example `24h` or `30m`).
+        #[arg(long, value_name = "DURATION")]
+        since: Option<String>,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]

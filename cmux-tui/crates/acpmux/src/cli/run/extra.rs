@@ -361,6 +361,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         v.get("pid").and_then(Value::as_u64).unwrap_or(0),
                         age(v.get("startedAt").and_then(Value::as_u64).unwrap_or(0))
                     );
+                    for stuck in v["stuckSessions"].as_array().into_iter().flatten() {
+                        println!(
+                            "stuck: {} ({}) since {}: {}",
+                            stuck["name"].as_str().unwrap_or(""),
+                            stuck["stuckReason"].as_str().unwrap_or(""),
+                            stuck["stuckSince"],
+                            stuck["stuckError"].as_str().unwrap_or("")
+                        );
+                    }
                     println!("socket:   {}", v.get("socket").and_then(Value::as_str).unwrap_or(""));
                     println!("home:     {}", v.get("home").and_then(Value::as_str).unwrap_or(""));
                     println!(
@@ -667,6 +676,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         harnesses,
                         remote_binary,
                         reverse,
+                        lends_github: false,
                     };
                     return crate::cli::host_enroll::run(client, plan, fix, json_out).await;
                 }
