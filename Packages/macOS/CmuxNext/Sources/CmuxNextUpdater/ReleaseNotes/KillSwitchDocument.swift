@@ -30,13 +30,10 @@ nonisolated public struct KillSwitchDocument: Equatable, Sendable {
 
     /// The `pr-<N>` switches this document turns off for `cohort`.
     public func off(cohort: String) -> Set<String> {
-        Set((cohortKeys[cohort] ?? defaultKeys ?? []).filter(Self.isSwitch))
-    }
-
-    /// `pr-<N>`, N a positive number.
-    static func isSwitch(_ key: String) -> Bool {
-        guard key.hasPrefix("pr-") else { return false }
-        let number = key.dropFirst(3)
-        return !number.isEmpty && number.first != "0" && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
+        Set((cohortKeys[cohort] ?? defaultKeys ?? []).filter { key in
+            guard key.hasPrefix("pr-") else { return false }
+            let number = key.dropFirst(3)
+            return !number.isEmpty && number.first != "0" && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)
+        })
     }
 }
