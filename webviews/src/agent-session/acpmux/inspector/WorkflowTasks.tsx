@@ -189,6 +189,13 @@ function WorkflowPhaseRow({
   const counts = tally(agents);
   // A running workflow's phase that has agents running opens on its own, so live work is in view.
   const [open, setOpen] = useState(running && counts.running > 0);
+  // A pending phase is listed before any agent starts, so it mounts closed. When its first agents
+  // arrive it opens by the same rule, as if it had mounted then.
+  const [started, setStarted] = useState(agents.length > 0);
+  if (started !== agents.length > 0) {
+    setStarted(agents.length > 0);
+    if (agents.length > 0) setOpen(running && counts.running > 0);
+  }
   const label = running ? countLine(t, counts).join(" · ") : counts.total > 0 ? `${counts.done}/${counts.total}` : "";
   return (
     <li className="acpmux-workflow-phase" data-state={phase.state}>
