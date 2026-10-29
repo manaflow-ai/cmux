@@ -61,7 +61,12 @@ impl Hub {
         }
         let (hub, id) = (self.clone(), id.to_owned());
         let installed = tokio::task::spawn_blocking(move || {
-            if hub.sessions.lock().unwrap().contains_key(&id) {
+            if hub
+                .sessions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains_key(&id)
+            {
                 return true;
             }
             let Ok(Some(meta)) = hub.store.load_startup(&id) else {
@@ -112,7 +117,7 @@ impl Hub {
     }
 
     pub(crate) fn loading_status(&self) -> Value {
-        let loaded = self.sessions.lock().unwrap().len();
+        let loaded = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len();
         let total = self.store_load.total.load(Ordering::SeqCst).max(loaded);
         let phase = if !self.store_loaded() {
             "loading-store"

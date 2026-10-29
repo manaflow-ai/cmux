@@ -843,7 +843,10 @@ impl Hub {
             let hosted = hosted.contains(&meta.id);
             self.install_stored_session(meta, deferred, hosted);
         }
-        tracing::info!("loaded {} sessions from store", self.sessions.lock().unwrap().len());
+        tracing::info!(
+            "loaded {} sessions from store",
+            self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
+        );
         if deferred {
             self.logs_ready.send_replace(false);
         }
@@ -852,7 +855,7 @@ impl Hub {
     pub(super) fn install_stored_session(&self, meta: SessionMeta, deferred: bool, hosted: bool) {
         // An on-demand read may already have installed and updated this chat. Never replace it
         // with the snapshot the background list read earlier.
-        let mut sessions = self.sessions.lock().unwrap();
+        let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if sessions.contains_key(&meta.id) {
             return;
         }
