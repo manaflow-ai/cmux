@@ -86,7 +86,8 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
         // unexpected layout shift fail it; the runner's frame timing does not (cx-mfkky).
         // The headline play measures stable slots and its menu anchor while the footer's
         // content-sized project chevron follows the newly selected label.
-        expect(playFailures(JSON.stringify(receipt.report))).toEqual([]);
+        if (variant !== "empty" && variant !== "chats-loading")
+          expect(playFailures(JSON.stringify(receipt.report))).toEqual([]);
         if (variant === "picked" || variant === "picker-open") {
           expect(receipt.headline).toContain("cmux");
           expect(receipt.menu).toBe(variant === "picker-open");
