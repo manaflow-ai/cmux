@@ -192,6 +192,58 @@ await requireBrowserLane("inline-video-controls-browser.test.ts", async () => {
       });
     }
   for (const [engine] of engines) {
+    if (engine === "webkit")
+      test("webkit: expanded playback takes over the inline playhead without stopping unrelated playback", async () => {
+        const page = await open(engine, "");
+        try {
+          const inline = page.locator(".cv-media.is-video > .cv-media__frame video");
+          await page.locator("button.cv-media__poster").click();
+          await inline.evaluate((video: HTMLVideoElement) => { video.currentTime = 2; });
+          await page.waitForFunction(() => {
+            const video = document.querySelector("video")!;
+            return !video.paused && !video.seeking && video.currentTime >= 2;
+          });
+          // An independent player must remain untouched by this pair's handoff.
+          await inline.evaluate(async (video: HTMLVideoElement) => {
+            const other = video.cloneNode() as HTMLVideoElement;
+            other.id = "unrelated-video";
+            other.muted = true;
+            document.body.append(other);
+            await other.play();
+          });
+          await rest(page);
+          await page.getByRole("button", { name: "Expand", exact: true }).click();
+          const dialog = page.getByRole("dialog");
+          await dialog.waitFor();
+          expect(await inline.evaluate((video: HTMLVideoElement) => video.paused)).toBe(false);
+          await dialog.locator("button.cv-media__poster").click();
+          await page.waitForFunction(() => {
+            const video = document.querySelector<HTMLVideoElement>(".cv-media-stage video")!;
+            return !video.paused && !video.seeking;
+          });
+          const state = await page.evaluate(() => {
+            const inline = document.querySelector<HTMLVideoElement>(".cv-media.is-video > .cv-media__frame video")!;
+            const expanded = document.querySelector<HTMLVideoElement>(".cv-media-stage video")!;
+            return { paused: inline.paused, inlineTime: inline.currentTime, expandedTime: expanded.currentTime,
+              muted: expanded.muted, unrelatedPaused: document.querySelector<HTMLVideoElement>("#unrelated-video")!.paused };
+          });
+          console.log("video handoff", state);
+          expect(state.paused).toBe(true);
+          expect(state.muted).toBe(false);
+          expect(state.expandedTime).toBeGreaterThanOrEqual(state.inlineTime - 0.1);
+          expect(state.expandedTime).toBeLessThan(state.inlineTime + 1);
+          expect(state.unrelatedPaused).toBe(false);
+          await page.evaluate(() => {
+            document.dispatchEvent(new Event("scroll"));
+            document.dispatchEvent(new Event("visibilitychange"));
+            window.dispatchEvent(new Event("pagehide"));
+          });
+          expect(await dialog.locator("video").evaluate((video: HTMLVideoElement) => video.paused)).toBe(false);
+        } finally {
+          await page.close();
+        }
+      });
+
     test(`${engine}: a short video's Open in tab and Expand each perform only their own action`, async () => {
       const page = await open(engine, "?height=100");
       await rest(page);
