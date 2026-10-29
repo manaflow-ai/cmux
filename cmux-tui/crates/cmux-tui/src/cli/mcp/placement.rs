@@ -10,6 +10,7 @@ use super::transport::{self, CallFailure};
 use super::{
     Backend, Server, caller_scope, envelope, failure_result, success, tool_error, v2_tools,
 };
+use cmux_json::JsonSet as _;
 
 /// The app's `system.identify` answer, whose `caller` names the chat's
 /// workspace, screen, pane and tab and whose `beside` names the column
@@ -85,7 +86,7 @@ impl<B: Backend> Server<B> {
         let mut params =
             json!({"url": arguments.get("url").cloned().unwrap_or(Value::Null), "focus": false});
         if let Some(key) = key {
-            params["idempotency_key"] = json!(key);
+            params.set("idempotency_key", json!(key));
         }
         let timeout = crate::cli::app::waiting_run_timeout("openBrowser");
         match self.backend.app("browser.open_split", params, timeout, key, true) {

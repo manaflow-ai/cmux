@@ -71,11 +71,17 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    // Server-side local/non-closed session-list filters used by native quit
+    // census callers. Older daemons keep serving the unfiltered list.
+    Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
+    // older daemons treat that field as legacy side-session input, so this id gates the shape.
+    Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
     // Owner-VM Codex app-server bridge: access-only external tokens are read
     // from the private broker file and never exposed through ACP frames.
     Capability {
