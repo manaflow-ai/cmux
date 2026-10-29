@@ -2,7 +2,9 @@
 // stage, the agent pane runs on the gallery's stand-in for the app's pane bridge; this test wraps
 // that bridge so `popup.show/update/hide` are recorded and answered as the app's host does
 // (WebPopupHost), and sends the host's events back as the app does (the `cmux-popup` event).
-// In a 600x400 window the composer's commands list has no room above the prompt:
+// In a 600x360 window the composer's commands list has no room above the prompt (at 400px its
+// capped 296px list just fits over the prompt once the gallery's cascade matched the app's,
+// a5393bc0de6f, so it rightly stays in the page there):
 // - its rows go to the host, every one of them, and the page's list goes invisible without moving
 //   the transcript or the composer;
 // - the keyboard stays in the prompt: ArrowDown moves the host's highlight;
@@ -97,8 +99,8 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     await vite?.close();
   });
 
-  test("a 600x400 window sends the commands list past its edge, keyboard and pick intact", async () => {
-    const page = await stage("agent-pane.composer", "slash-menu-full", { width: 600, height: 400 });
+  test("a 600x360 window sends the commands list past its edge, keyboard and pick intact", async () => {
+    const page = await stage("agent-pane.composer", "slash-menu-full", { width: 600, height: 360 });
     // The variant's play opened the list before the recorder; clear the prompt and open it again.
     await page.click("[contenteditable='true']");
     await page.keyboard.press("Backspace");

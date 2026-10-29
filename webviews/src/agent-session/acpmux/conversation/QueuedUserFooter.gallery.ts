@@ -42,7 +42,7 @@ export default agentPaneEntry({
       play: preview("0px"),
     },
     balanced: {
-      note: "Chosen: plain Send now and a 24px remove target, separated by 4px. No receipt, time, dot, Copy or Retry.",
+      note: "Chosen: Send now and a 24px remove target sit beside the waiting bubble, separated by 4px. No receipt, time, dot, Copy or Retry.",
       snapshot: snapshot(),
       play: preview(),
     },

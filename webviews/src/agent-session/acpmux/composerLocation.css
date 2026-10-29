@@ -895,10 +895,12 @@
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-queue-edge);
 }
 
-/* plain: the content edge is where the prompt's text starts in the card (16 px in the chat's card,
-   the New Tab's 18 px); a small ghost button's icon ink sits 6 px in from its edge (ui/ghost.css). */
-:root[data-top-strip="plain"] .acpmux-composer { --acpmux-top-strip-edge: 16px; }
-:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: 18px; }
+/* plain: the content edge is the card's first column, the + glyph's box: 14 px in the chat's card (its
+   center 22 px in under the box's 8 px grid inset, composer-alignment-centers.test.ts), 23 px in the
+   New Tab's (its + since #25125: an 18 px glyph in a 28 px button 18 px in). A small ghost button's
+   icon ink sits 6 px in from its edge (ui/ghost.css). */
+:root[data-top-strip="plain"] .acpmux-composer { --acpmux-top-strip-edge: 14px; }
+:root[data-top-strip="plain"] .nt-composer { --acpmux-top-strip-edge: 23px; }
 :root[data-top-strip="plain"] .acpmux-composer-strip,
 :root[data-top-strip="plain"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   height: auto;
@@ -954,8 +956,9 @@
     var(--acpmux-composer-tray)
   );
 }
-:root[data-top-strip="tray"] .acpmux-composer { --acpmux-top-strip-edge: 16px; }
-:root[data-top-strip="tray"] .nt-composer { --acpmux-top-strip-edge: 18px; }
+/* The same column as plain's (above): the + glyph's box in each card. */
+:root[data-top-strip="tray"] .acpmux-composer { --acpmux-top-strip-edge: 14px; }
+:root[data-top-strip="tray"] .nt-composer { --acpmux-top-strip-edge: 23px; }
 :root[data-top-strip="tray"] .acpmux-composer > .acpmux-composer-box,
 :root[data-top-strip="tray"] .nt-composer .nt-box { z-index: var(--layer-raised, 1); }
 /* A small ghost button's icon ink sits 6 px in from the button's edge (ui/ghost.css). */
@@ -968,6 +971,14 @@
   border-radius: 14px 14px 0 0;
   background: var(--acpmux-top-tray);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge);
+}
+/* The strip keeps the card's blur (composerStates.css), and glass is never opaque: off Reduce
+   Transparency the tray's step goes over the card's glass tint, as Codex's tray does
+   (composerLook.css), not over the solid tray tone (accent-glass-invariants). */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-top-strip="tray"]:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-strip {
+    background: color-mix(in srgb, var(--agent-text) 5%, var(--glass-tint));
+  }
 }
 :root[data-top-strip="tray"] .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   border-radius: 0;

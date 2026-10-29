@@ -229,13 +229,15 @@ test("every clickable thing in the Inspector does something, and nothing else lo
   expect(container.querySelector('section[data-section="tasks"] .acpmux-chat-inspector-server')).not.toBeNull();
   expect(container.querySelector(".acpmux-chat-inspector-subagents__more")).not.toBeNull();
   expect(container.querySelector(".acpmux-chat-inspector-subagents__ended")).not.toBeNull();
-  // Ended-agent avatars preview the fold; their containing button owns the click.
+  // Every avatar previews a fold and is decoration: the button around it owns the click. Ended-agent
+  // avatars sit in the ended row's button; the agent summary card's avatar stack sits in its own button.
   const avatars = [...container.querySelectorAll(".cv-subagent-avatar")];
   expect(avatars.length).toBeGreaterThan(0);
-  for (const avatar of avatars) {
-    expect(avatar.closest("button.acpmux-chat-inspector-subagents__ended")).not.toBeNull();
-    expect(avatar.closest('[aria-hidden="true"]')).not.toBeNull();
-  }
+  const endedAvatars = avatars.filter((avatar) => avatar.closest("button.acpmux-chat-inspector-subagents__ended"));
+  const summaryAvatars = avatars.filter((avatar) => avatar.closest("button.acpmux-chat-inspector-agent-summary"));
+  expect(endedAvatars.length).toBeGreaterThan(0);
+  expect(endedAvatars.length + summaryAvatars.length).toBe(avatars.length);
+  for (const avatar of avatars) expect(avatar.closest('[aria-hidden="true"]')).not.toBeNull();
   expect(loneChevrons(container)).toEqual([]);
   const { dead, clicked } = await deadClicks(container, calls);
   expect(dead).toEqual([]);

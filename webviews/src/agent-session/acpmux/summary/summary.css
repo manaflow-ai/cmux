@@ -4,9 +4,14 @@
 /* The button is the header's panel toggle (header/PanelToggle.tsx, header.css .acpmux-header-tool). */
 .acpmux-summary-card{display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:18px;background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation)}
-.acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 300px;min-width:0;max-height:100%;overflow:hidden;padding:8px 8px 10px;border-left:var(--cmux-hairline, .5px) solid var(--agent-border);background:var(--agent-page-bg)}
+.acpmux-summary-card[data-placement=inline]{position:relative;flex:0 0 var(--acpmux-summary-column-width);min-width:0;max-height:100%;overflow:hidden;padding:8px 8px 10px;border-left:var(--cmux-hairline, .5px) solid var(--agent-border);background:var(--agent-page-bg)}
 .acpmux-summary-card--reserve{visibility:hidden;pointer-events:none}
 .acpmux-main[data-summary=inline]{min-width:0}
+/* The inline Summary is beside the chat, not inside its stage: it must leave the native shared
+   tab row empty too. The same column width keeps the tools at the pane edge while the chat narrows. */
+.acpmux-shell{--acpmux-summary-column-width:300px}
+.acpmux-shell[data-tab-row]>.acpmux-summary-card[data-placement=inline]{margin-top:var(--acpmux-tab-row-height);max-height:calc(100% - var(--acpmux-tab-row-height))}
+.acpmux-shell[data-tab-row]:has(>.acpmux-summary-card[data-placement=inline]) .acpmux-header[data-tab-row]{width:calc(100% + var(--acpmux-summary-column-width))}
 /* Under the tab row when the header's tools sit in it (header/tabRow.ts). */
 .acpmux-header[data-tab-row]~.acpmux-summary-card{top:calc(var(--acpmux-tab-row-height) + 8px)}
 .acpmux-reviewing>.acpmux-summary-card,.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
