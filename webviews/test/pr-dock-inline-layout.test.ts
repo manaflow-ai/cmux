@@ -223,6 +223,19 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
         expect(await page.locator(".cv-md .acpmux-pr-dock").count()).toBe(0);
         const host = variant === "empty-quote" ? ".acpmux-pr-fallback" : ".cv-reply-actions";
         expect(await page.locator(`${host} .acpmux-pr-dock`).count()).toBe(1);
+        const effectiveOpacity = await page.locator(`${host} .acpmux-pr-dock`).evaluate((node) => {
+          let opacity = 1;
+          for (let element: Element | null = node; element; element = element.parentElement)
+            opacity *= Number(getComputedStyle(element).opacity);
+          return opacity;
+        });
+        expect(effectiveOpacity).toBe(1);
+        if (variant === "reply-actions") {
+          const controls = page.locator(".cv-reply-actions > .cv-turn-action-group");
+          expect(await controls.evaluate((node) => getComputedStyle(node).opacity)).toBe("0");
+          await page.locator(".acpmux-assistant").hover();
+          expect(await controls.evaluate((node) => getComputedStyle(node).opacity)).toBe("1");
+        }
         await page.screenshot({ path: `${captures}/${variant}-320.png` });
       } finally {
         await page.close();

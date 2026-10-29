@@ -41,7 +41,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     },
     {
       entry: "agent-pane.pr-dock",
-      variant: "compact-count",
+      variant: "inline-pills",
       edge: ".acpmux-composer-box",
       blocks: {
         transcript: ".acpmux-row:not(.acpmux-user)",
@@ -148,7 +148,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       }
       // In a narrow pane the New Tab card and the chat's composer card stand at the same page edge.
       if (width > 600) continue;
-      const chat = edges[`agent-pane.pr-dock:compact-count @${width}`]!;
+      const chat = edges[`agent-pane.pr-dock:inline-pills @${width}`]!;
       const newTab = edges[`agent-pane.new-tab:empty @${width}`]!;
       if (Math.abs(newTab - chat) > 1) {
         offenders.push(`agent-pane.new-tab:empty @${width} card ${newTab - chat}px from the chat's`);

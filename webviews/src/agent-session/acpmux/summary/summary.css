@@ -230,14 +230,17 @@ html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
 .cv-block-tail>.acpmux-pr-dock{flex:0 1 220px;max-width:45%;height:1lh}
 .cv-received__line:has(>.acpmux-pr-dock)>.cv-received__name{flex:0 1 auto;min-width:0}
 /* Keep the links visible while the existing action buttons retain their hover behavior. */
-.acpmux-turnSummary .cv-turn-actions:has(> .acpmux-pr-dock) {
+.acpmux-turnSummary .cv-turn-actions:has(> .acpmux-pr-dock),
+.cv-reply-actions:has(> .acpmux-pr-dock) {
   opacity: 1;
 }
 .acpmux-turnSummary:not([data-turn-revealed]):not(:hover):not(:focus-within)
   .cv-turn-actions:not(.cv-turn-actions--failed):not(.cv-turn-actions--resumable):has(
     > .acpmux-pr-dock
   )
-  > :not(.acpmux-pr-dock) {
+  > :not(.acpmux-pr-dock),
+.acpmux-assistant:not(:hover):not(:focus-within)
+  .cv-reply-actions:has(> .acpmux-pr-dock) > :not(.acpmux-pr-dock) {
   opacity: 0;
 }
 /* Retained gallery comparisons, isolated from the selected inline treatment. */
