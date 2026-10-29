@@ -136,6 +136,34 @@ struct AgentPaneNativeSessionInfoTests {
         view.close()
     }
 
+    /// The panel is AppKit (no SwiftUI host): its lines follow the model, and a line's or a button's
+    /// click sends that action; a folded section shows its title row alone.
+    @Test func panelIsAppKitAndItsLinesRunTheirActions() throws {
+        let store = AgentPaneSessionInfoStore()
+        var sent: [String] = []
+        store.send = { sent.append($0) }
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        panel.frame = CGRect(x: 0, y: 0, width: 320, height: 600)
+        store.update(try Self.model(Self.info()))
+        panel.layoutSubtreeIfNeeded()
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        #expect(!all(panel).contains { String(describing: type(of: $0)).contains("NSHostingView") })
+        let content = try #require(all(panel).compactMap { $0 as? AgentPaneSessionInfoContent }.first)
+        #expect(content.lines.map(\.line.title) == ["Subagents", "rail-fix"])
+        #expect(content.lines[0].press())
+        #expect(content.lines[1].press())
+        #expect(content.lines[1].buttons.first?.press() == true)
+        #expect(sent == ["fold:subagents:0", "subagents.open:a1", "subagents.stop:a1"])
+
+        var folded = Self.info()
+        var section = (folded["sections"] as? [[String: Any]])?.first ?? [:]
+        section["open"] = false
+        folded["sections"] = [section]
+        store.update(try Self.model(folded))
+        #expect(content.lines.map(\.line.title) == ["Subagents"])
+        #expect(content.lines[0].line.action == "fold:subagents:1")
+    }
+
     /// A drag of the panel's left edge widens it at once and hands the page the width when it ends.
     @Test func edgeDragWidensThePanelAndTellsThePage() throws {
         let store = AgentPaneSessionInfoStore()
