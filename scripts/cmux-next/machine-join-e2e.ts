@@ -258,11 +258,15 @@ export async function runE2E(
     if (r.status !== 200 || !Array.isArray(r.json?.machines)) throw refusedBy("list", r)
     return (r.json.machines as any[]).find((m) => m?.joinTokenId === evidence.joinTokenId)
   }
+  // One retry: status records a revoke under the join lock, which the daemon's heartbeat may hold for a moment.
   const status = async () => {
-    const r = await acpmux(["host", "join", "--status", "--json"])
-    const s = lastJson(r.stdout)
-    if (r.code !== 0 || !s) throw new Failed(`status: exit ${r.code}`)
-    return s
+    for (let attempt = 0; ; attempt++) {
+      const r = await acpmux(["host", "join", "--status", "--json"])
+      const s = lastJson(r.stdout)
+      if (r.code === 0 && s) return s
+      if (attempt >= 1) throw new Failed(`status: exit ${r.code}`)
+      await deps.sleep(1_000)
+    }
   }
 
   const revokeMachine = async () => {
