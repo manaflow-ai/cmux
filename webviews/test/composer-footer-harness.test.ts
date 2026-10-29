@@ -79,6 +79,18 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
   }
 
   for (const variant of ["footer-harness", "footer-harness-codex"] as const) {
+    test(`${variant}: the composer box keeps each look's grid contract`, async () => {
+      const page = await open(variant, 760);
+      const structure = await page.$eval(".acpmux-composer", (composer) => ({
+        look: composer.getAttribute("data-composer-look") ?? "claude",
+        inner: !!composer.querySelector(".acpmux-composer-box .acpmux-composer-inner"),
+        footer: !!composer.querySelector(".acpmux-composer-foot .acpmux-model"),
+      }));
+      await page.close();
+      expect(structure.footer).toBe(true);
+      expect(structure.inner).toBe(structure.look !== "codex");
+    });
+
     test(`${variant}: the quiet row has no harness label`, async () => {
       const page = await open(variant, 760);
       const foot = await page.$eval(".acpmux-composer-foot", (element) => ({
@@ -114,7 +126,7 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
     const foot = await page.$eval(".acpmux-composer-foot", (element) => ({
       harness: element.querySelectorAll(".acpmux-foot-harness").length,
       modes: element.querySelectorAll(".acpmux-mode, .acpmux-access").length,
-      text: element.textContent?.trim(),
+      text: element.querySelector(".acpmux-add-harness")?.textContent?.trim(),
     }));
     expect(foot).toEqual({ harness: 0, modes: 0, text: "Add harness" });
     await page.close();

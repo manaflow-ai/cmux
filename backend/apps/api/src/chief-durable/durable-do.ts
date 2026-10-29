@@ -7,6 +7,7 @@ import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "a
 import type { Env } from "../env.ts"
 import { assertFaultHooks } from "../chief-fault.ts"
 import { ackWake, chiefPrincipal, postReply, readConversation, runChanged, typing } from "../chief-brain/brain-io.ts"
+import { postMessage } from "./post.ts"
 import { clip, clipInput, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "../chief-brain/brain-runs.ts"
 import { type BrainConfig, readConfig, SCHEMA, writeConfig } from "../chief-brain/brain-store.ts"
 import { claudeAuthFor, forgetClaudeAuth, HOLDER, turnsObject } from "../chief-brain/claude-auth.ts"
@@ -16,8 +17,9 @@ import { capText, type Kind, Memory, RETRY_MS } from "../chief-brain/memory.ts"
 import { brainModels, compactorModel, FAKE, gatewayOptions, isClaude, isMetered, pickTurnModel, turnFailedNotice } from "../chief-brain/models.ts"
 import { meteredOwner } from "../model-gateway/routes.ts"
 import { clipReply, formatMessage, inboxKind, isNoReply, linkIds, replyTarget, textParts } from "../chief-brain/brain-text.ts"
-import { AGENT, systemPrompt } from "../chief-brain/prompts.ts"
-import { memoryTools } from "../chief-brain/brain-tools.ts"
+import { AGENT } from "../chief-brain/prompts.ts"
+import { kernelSystem, kernelTools, type LedgerIntent, ledgerStep } from "./kernel.ts"
+import { oneLine } from "../chief-brain/brain-text.ts"
 import { AGENT_RATE_WINDOW_MS, brainName, POST_RETRY_MS, TURN_MS, type Admission } from "../chief-brain/brain-do.ts"
 import { batchMarker, runRequest } from "./run-view.ts"
 
@@ -43,8 +45,14 @@ import { batchMarker, runRequest } from "./run-view.ts"
  */
 const SCHEMA_D = [
   `CREATE TABLE IF NOT EXISTS cd_batch (n INTEGER PRIMARY KEY AUTOINCREMENT, request TEXT UNIQUE NOT NULL, run TEXT NOT NULL, first_seq INTEGER NOT NULL, last_seq INTEGER NOT NULL, trigger_message TEXT NOT NULL, trigger_kind TEXT NOT NULL, trigger_thread_root TEXT, created INTEGER NOT NULL, submitted INTEGER NOT NULL DEFAULT 0)`,
-  `CREATE TABLE IF NOT EXISTS cd_run (id TEXT PRIMARY KEY, first INTEGER NOT NULL, covered TEXT NOT NULL, view TEXT NOT NULL, state TEXT NOT NULL, created INTEGER NOT NULL, post_key INTEGER NOT NULL DEFAULT 0)`
+  `CREATE TABLE IF NOT EXISTS cd_run (id TEXT PRIMARY KEY, first INTEGER NOT NULL, covered TEXT NOT NULL, view TEXT NOT NULL, state TEXT NOT NULL, created INTEGER NOT NULL, post_key INTEGER NOT NULL DEFAULT 0)`,
+  // View line id -> conversation message id: the kernel's send/reply name a line, a post names a message.
+  `CREATE TABLE IF NOT EXISTS cd_line (i INTEGER PRIMARY KEY, message TEXT NOT NULL)`,
+  // The kernel's ledgers (chief-kernel ledger.rs), as its fold returns them.
+  `CREATE TABLE IF NOT EXISTS cd_ledger (k INTEGER PRIMARY KEY CHECK (k = 1), state TEXT NOT NULL)`
 ]
+/** Columns added after the first staging deploy (CREATE TABLE IF NOT EXISTS does not add them). */
+const COLUMNS_D: ReadonlyArray<[string, string, string]> = [["cd_run", "stopped", "INTEGER NOT NULL DEFAULT 0"]]
 export const HOST_D = "cloud-chief-d"
 const HARNESS_NAME = "pi-durable-d"
 
@@ -76,8 +84,9 @@ export class ChiefDurableDO extends DurableObject<Env> {
     harness: ({ storage, context }) => {
       this.registry.install({
         name: "chief-d",
-        sections: [section("chief", () => systemPrompt(this.config()), { tag: false })],
-        tools: [...memoryTools(() => this.memory)],
+        // The kernel's system text and tool contract (chief-kernel, design section 13).
+        sections: [section("chief", () => kernelSystem(this.config()), { tag: false })],
+        tools: kernelTools({ memory: () => this.memory, send: (id, t, line, att) => this.send(id, t, line, att), stop: (id) => this.stopRun(id) }),
         hooks: [
           hook(GenerationTask, {
             beforeRequest: ({ messages }) => this.request(messages),
@@ -122,6 +131,7 @@ export class ChiefDurableDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     for (const q of [...SCHEMA, ...SCHEMA_D]) this.sql.exec(q)
+    for (const [t, c, def] of COLUMNS_D) if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(${t})`).toArray().some((r) => r.name === c)) this.sql.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`)
     this.memory = new Memory(this.sql, Number(env.CHIEF_BRAIN_VIEW_BUDGET ?? "0") || 0)
     const cache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL))
     this.compactor = new Compactor({
@@ -238,7 +248,9 @@ export class ChiefDurableDO extends DurableObject<Env> {
     const principal = chiefPrincipal(cfg.agent, cfg.owner)
     const t = this.sql.exec<{ trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; last_seq: number }>(`SELECT trigger_message, trigger_kind, trigger_thread_root, last_seq FROM cd_batch WHERE run = ? ORDER BY n DESC LIMIT 1`, run.id).toArray()[0]
     const lastSeq = Number(this.sql.exec<{ s: number }>(`SELECT MAX(last_seq) AS s FROM cd_batch WHERE run = ?`, run.id).one().s)
-    const reply = ok && text && !isNoReply(text) ? clipReply(linkIds(text)) : ""
+    const stopped = Number(this.sql.exec<{ s: number }>(`SELECT stopped AS s FROM cd_run WHERE id = ?`, run.id).one().s) === 1
+    // After stop() nothing more is posted (chief-kernel STOP_DESCRIPTION).
+    const reply = ok && text && !stopped && !isNoReply(text) ? clipReply(linkIds(text)) : ""
     let post: string = !ok ? "none" : reply ? "pending" : "no_reply"
     let posted: string | null = null
     // The op ledger replays a refusal under its key, so each refused try moves to a new key (kept here, so a rerun of
@@ -256,6 +268,7 @@ export class ChiefDurableDO extends DurableObject<Env> {
         if (res.ok) {
           post = "posted"
           posted = res.message
+          this.ledger({ type: "reply_posted", answers: [], reply_to: replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root).reply_to ?? null, chief: true, text: reply })
           break
         }
         if ((res.code === "agent_rate" || res.code === "owner.unreachable") && Date.now() - ended < AGENT_RATE_WINDOW_MS) {
@@ -276,6 +289,7 @@ export class ChiefDurableDO extends DurableObject<Env> {
     })
     this.current = undefined
     this.announce(run.id, [])
+    this.ledger({ type: "turn_ended", said_no_reply: ok && isNoReply(text) })
     if (!ok) await turnFailedNotice(this.env, this.sql, cfg, conversation, run.id, reason ?? "unknown", undefined)
     await typing(this.env, conversation, cfg.agent, false)
     if (Number.isFinite(lastSeq)) await ackWake(this.env, cfg.agent, principal, conversation, lastSeq).catch(() => undefined)
@@ -312,48 +326,75 @@ export class ChiefDurableDO extends DurableObject<Env> {
       this.watchOpen()
       return { queued: 0 }
     }
+    const kind = inboxKind(view.head)
+    const trigger = rows.find((r) => r.seq === w.seq) ?? rows[rows.length - 1]!
+    // A person's message waits for words (the reply ledger) when it was for the Chief: its own chat or a DM, or a
+    // mention or reply in a group. A group message that woke it only by wake_policy "all" may get NO_REPLY.
+    const forChief = oneLine(kind) || w.reason === "mention" || w.reason === "reply"
+    const persons = new Set(view.head.participants.filter((p) => p.kind === "human").map((p) => p.id))
+    const waits = new Set(fresh.filter((m) => m.seq === w.seq && forChief && persons.has(m.author)).map((m) => m.id))
+    return this.submitBatch({ agent: w.agent, owner: w.owner, conversation: w.conversation, request: `batch:${rows[0]!.id}`, rows, trigger: { id: trigger.id, thread_root: trigger.thread_root }, kind, wokeSeq: w.seq, top, waits })
+  }
+
+  /**
+   * Opens a run for a batch, or joins the open run with it, and submits it to pi once (request id `request`).
+   * `rows`: the new messages (logged to memory once each, keyed by message id); `note`: a host note instead
+   * (the reply ledger's retry), shown after the view and never logged. `waits`: the person messages the
+   * kernel's reply ledger tracks.
+   */
+  private async submitBatch(b: { agent: string; owner: string; conversation: string; request: string; rows: ReadonlyArray<{ id: string; seq: number; thread_root: string | null; text: string }>; note?: string; trigger: { id: string; thread_root: string | null }; kind: string; wokeSeq: number; top: number; waits: ReadonlySet<string> }): Promise<{ queued: number } | { skipped: string; retry?: true }> {
+    const principal = chiefPrincipal(b.agent, b.owner)
+    const { rows } = b
     // A new run is admitted (the daily turn count, credits) once; a batch that joins an open run is not.
     const open = this.openRun()
     if (!open) {
-      const t = await this.admitted(w.agent, w.owner, true).catch((): Admission => ({ ok: false, reason: "owner.unreachable" }))
+      const t = await this.admitted(b.agent, b.owner, true).catch((): Admission => ({ ok: false, reason: "owner.unreachable" }))
       if (!t.ok) {
         // Not answered: the rows were seen (cursor moved), the wake is acked so the queue stays bounded.
         if (t.reason === "owner.unreachable") return { skipped: t.reason, retry: true }
-        await typing(this.env, w.conversation, w.agent, false)
-        await ackWake(this.env, w.agent, principal, w.conversation, top).catch(() => undefined)
+        await typing(this.env, b.conversation, b.agent, false)
+        await ackWake(this.env, b.agent, principal, b.conversation, b.top).catch(() => undefined)
         return { skipped: t.reason }
       }
     }
-    const kind = inboxKind(view.head)
-    const trigger = rows.find((r) => r.seq === w.seq) ?? rows[rows.length - 1]!
-    const request = `batch:${rows[0]!.id}`
+    const request = b.request
     let n = 0
     let runId = open?.id ?? ""
     let model = this.config().model
     if (!open) {
-      const picked = await pickTurnModel(model, this.env.CHIEF_BRAIN_FALLBACK_MODEL, (m) => this.turns(w.owner).claudeTurn(w.owner, m).then((v) => (v !== "ok" || !isClaude(m) ? v : claudeAuthFor(this.env, this.holder).then(() => "ok", () => "auth_failed"))).catch(() => "holder_unreachable"))
+      const picked = await pickTurnModel(model, this.env.CHIEF_BRAIN_FALLBACK_MODEL, (m) => this.turns(b.owner).claudeTurn(b.owner, m).then((v) => (v !== "ok" || !isClaude(m) ? v : claudeAuthFor(this.env, this.holder).then(() => "ok", () => "auth_failed"))).catch(() => "holder_unreachable"))
       if (picked.model === null) {
         console.warn(JSON.stringify({ msg: "chief_d.paid_model_refused", reason: picked.reason }))
-        await ackWake(this.env, w.agent, principal, w.conversation, top).catch(() => undefined)
+        await ackWake(this.env, b.agent, principal, b.conversation, b.top).catch(() => undefined)
         return { skipped: "model_refused" }
       }
       model = picked.model
     }
+    const firstSeq = rows[0]?.seq ?? b.top
+    const lastSeq = rows[rows.length - 1]?.seq ?? b.top
     const created = this.ctx.storage.transactionSync(() => {
       const dup = this.sql.exec<{ n: number }>(`SELECT n FROM cd_batch WHERE request = ?`, request).toArray()[0]
       if (dup) return false
-      n = Number(this.sql.exec<{ n: number }>(`INSERT INTO cd_batch (request, run, first_seq, last_seq, trigger_message, trigger_kind, trigger_thread_root, created) VALUES (?, '', ?, ?, ?, ?, ?, ?) RETURNING n`, request, rows[0]!.seq, rows[rows.length - 1]!.seq, trigger.id, kind, trigger.thread_root, Date.now()).one().n)
+      n = Number(this.sql.exec<{ n: number }>(`INSERT INTO cd_batch (request, run, first_seq, last_seq, trigger_message, trigger_kind, trigger_thread_root, created) VALUES (?, '', ?, ?, ?, ?, ?, ?) RETURNING n`, request, firstSeq, lastSeq, b.trigger.id, b.kind, b.trigger.thread_root, Date.now()).one().n)
       const fresher = this.memory.first() >= this.memory.len()
-      for (const r of rows) if (this.sql.exec(`INSERT INTO oc_logged (key) VALUES (?) ON CONFLICT DO NOTHING RETURNING key`, `user:${r.id}`).toArray().length > 0) this.memory.append("user", r.text)
+      for (const r of rows) {
+        if (this.sql.exec(`INSERT INTO oc_logged (key) VALUES (?) ON CONFLICT DO NOTHING RETURNING key`, `user:${r.id}`).toArray().length === 0) continue
+        const entry = this.memory.append("user", r.text)
+        this.sql.exec(`INSERT INTO cd_line (i, message) VALUES (?, ?) ON CONFLICT DO NOTHING`, entry.i, r.id)
+        this.ledgerSync({ type: "message_logged", id: r.id, seq: r.seq, text: r.text, from_person: b.waits.has(r.id) })
+      }
       if (!open) {
         runId = runIdOf(n)
-        const blocks = this.memory.turnInput(rows.length, fresher).filter((t) => t.trim().length > 0)
+        const blocks = [...this.memory.turnInput(rows.length, fresher), ...(b.note ? [b.note] : [])].filter((t) => t.trim().length > 0)
         writeConfig(this.sql, { [`marks:${runId}`]: marksHeader(turnPlan(this.sql, model, blocks, ttlMs(this.env.CHIEF_BRAIN_CACHE_TTL))) })
         this.sql.exec(`INSERT INTO cd_run (id, first, covered, view, state, created) VALUES (?, ?, ?, ?, 'open', ?)`, runId, n, JSON.stringify([n]), JSON.stringify(blocks), Date.now())
-        this.sql.exec(`INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, submitted) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, 1)`, runId, w.conversation, trigger.id, kind, trigger.thread_root, rows[rows.length - 1]!.seq, model, Date.now())
-      } else this.sql.exec(`UPDATE cb_turn SET last_seq = MAX(last_seq, ?), trigger_message = ?, trigger_thread_root = ? WHERE id = ?`, rows[rows.length - 1]!.seq, trigger.id, trigger.thread_root, runId)
+        this.sql.exec(`INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, submitted) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, 1)`, runId, b.conversation, b.trigger.id, b.kind, b.trigger.thread_root, lastSeq, model, Date.now())
+      } else this.sql.exec(`UPDATE cb_turn SET last_seq = MAX(last_seq, ?), trigger_message = ?, trigger_thread_root = ? WHERE id = ?`, lastSeq, b.trigger.id, b.trigger.thread_root, runId)
       this.sql.exec(`UPDATE cd_batch SET run = ? WHERE n = ?`, runId, n)
-      for (const r of rows) this.sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, woke, state, turn) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?) ON CONFLICT (message) DO NOTHING`, r.id, w.conversation, r.seq, kind, r.thread_root, r.text, r.seq === w.seq ? 1 : 0, runId)
+      for (const r of rows) this.sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, woke, state, turn) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?) ON CONFLICT (message) DO NOTHING`, r.id, b.conversation, r.seq, b.kind, r.thread_root, r.text, r.seq === b.wokeSeq ? 1 : 0, runId)
+      // Every message this run will see; a retry note's run sees the messages that still wait.
+      const seen = b.note ? this.awaitingIds() : rows.map((r) => r.id)
+      this.ledgerSync({ type: "turn_started", seen, reports: [] })
       return true
     })
     this.compactor.pump()
@@ -374,12 +415,82 @@ export class ChiefDurableDO extends DurableObject<Env> {
       await this.schedule("watch", "watch", Date.now() + 60_000)
       this.announce(runId, [])
     }
-    const input = [{ type: "text" as const, text: `${batchMarker(n)}${rows.map((r) => r.text).join("\n\n")}` }]
+    const body = b.note ?? rows.map((r) => r.text).join("\n\n")
+    const input = [{ type: "text" as const, text: `${batchMarker(n)}${body}` }]
     await this.harness.submit(input, { operationId: request, whenBusy: "steer" })
     // Only a submitted batch is waited on (pi answers an unknown id "not_found", which is not a failed run).
     this.sql.exec(`UPDATE cd_batch SET submitted = 1 WHERE n = ?`, n)
     this.watchOpen()
     return { queued: rows.length }
+  }
+
+  // ------------------------------------------------------------------ kernel tools and ledgers
+
+  /** The kernel's send/reply: one post now, in the thread of view line `line` (its message), keyed by the call. */
+  private async send(callId: string, text: string, line: number | undefined, attachments: ReadonlyArray<string>): Promise<string> {
+    const cfg = this.config()
+    const conversation = this.conversation()
+    if (!cfg.agent || !cfg.owner || !conversation) return "Not sent: this Chief has no conversation yet."
+    const body = clipReply(linkIds(text.trim()))
+    if (!body) return "Not sent: the text is empty."
+    const replyTo = line === undefined ? undefined : this.sql.exec<{ message: string }>(`SELECT message FROM cd_line WHERE i = ?`, line).toArray()[0]?.message
+    const res = await postMessage(this.env, chiefPrincipal(cfg.agent, cfg.owner), { conversation, text: body, key: `chief-send-d:${cfg.agent}:${callId}`, ...(replyTo ? { reply_to: replyTo } : {}) })
+    if (!res.ok) return `Not sent: ${res.code}.`
+    this.logOnce(`send:${callId}`, "talk", body)
+    this.ledger({ type: "reply_posted", answers: [], reply_to: replyTo ?? null, chief: true, text: body })
+    const notes = [line !== undefined && !replyTo ? `line ${line} is not a message this Chief can reply to, so it went to the chat` : "", attachments.length > 0 ? "attachments are not sent by a Cloud Chief yet" : ""].filter(Boolean)
+    return `Sent${notes.length ? ` (${notes.join("; ")})` : ""}.`
+  }
+
+  /** The kernel's stop: the open run posts nothing more. */
+  private stopRun(_callId: string): void {
+    const run = this.openRun()
+    if (run) this.sql.exec(`UPDATE cd_run SET stopped = 1 WHERE id = ?`, run.id)
+  }
+
+  private awaitingIds(): Array<string> {
+    const state = this.sql.exec<{ state: string }>(`SELECT state FROM cd_ledger WHERE k = 1`).toArray()[0]?.state ?? "{}"
+    return ((JSON.parse(state) as { awaiting?: Array<{ id: string }> }).awaiting ?? []).map((a) => a.id)
+  }
+
+  /** One ledger fold in the caller's transaction; its intents are kept and done after it (doIntents). */
+  private ledgerSync(event: Record<string, unknown>): void {
+    const state = this.sql.exec<{ state: string }>(`SELECT state FROM cd_ledger WHERE k = 1`).toArray()[0]?.state ?? "{}"
+    const out = ledgerStep(state, event, Date.now())
+    this.sql.exec(`INSERT INTO cd_ledger (k, state) VALUES (1, ?) ON CONFLICT (k) DO UPDATE SET state = excluded.state`, out.state)
+    this.pendingIntents.push(...out.intents)
+    if (out.intents.length > 0) queueMicrotask(() => void this.doIntents())
+  }
+  private pendingIntents: Array<LedgerIntent> = []
+
+  /** One ledger fold now, then its intents. */
+  private ledger(event: Record<string, unknown>): void {
+    this.ctx.storage.transactionSync(() => this.ledgerSync(event))
+  }
+
+  /** The kernel decided, the host acts: a check at a time, a retry turn on a note, or a failure post. Each is keyed. */
+  private async doIntents(): Promise<void> {
+    const todo = this.pendingIntents.splice(0)
+    const cfg = this.config()
+    const conversation = this.conversation()
+    for (const it of todo) {
+      try {
+        if (it.kind === "schedule") await this.schedule(it.key, "ledger", it.at_ms)
+        else if (it.kind === "notice" && cfg.agent && cfg.owner && conversation) await this.notice(cfg.agent, cfg.owner, conversation, it.text, it.key)
+        else if (it.kind === "post" && cfg.agent && cfg.owner && conversation) await postMessage(this.env, chiefPrincipal(cfg.agent, cfg.owner), { conversation, text: it.text, reply_to: it.reply_to, key: `chief-ledger-d:${cfg.agent}:${it.key}` })
+      } catch (e) {
+        console.warn(JSON.stringify({ msg: "chief_d.intent_failed", kind: it.kind, key: it.key, error: String(e).slice(0, 200) }))
+      }
+    }
+  }
+
+  /** A retry turn on the ledger's note, answering in the thread of the newest batch's trigger. */
+  private async notice(agent: string, owner: string, conversation: string, note: string, key: string): Promise<void> {
+    const last = this.sql.exec<{ trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; last_seq: number }>(`SELECT trigger_message, trigger_kind, trigger_thread_root, last_seq FROM cd_batch ORDER BY n DESC LIMIT 1`).toArray()[0]
+    if (!last) return
+    const p = this.intake.then(() => this.submitBatch({ agent, owner, conversation, request: `note:${key}`, rows: [], note, trigger: { id: last.trigger_message, thread_root: last.trigger_thread_root }, kind: last.trigger_kind, wokeSeq: -1, top: Number(last.last_seq), waits: new Set() }))
+    this.intake = p.catch(() => undefined)
+    await p
   }
 
   /**
@@ -490,6 +601,7 @@ export class ChiefDurableDO extends DurableObject<Env> {
       this.watchOpen()
       return this.openRun() ? { rescheduleAt: Date.now() + 60_000 } : undefined
     }
+    if (job.fn === "ledger") return void this.ledger({ type: "check_due" })
     if (job.fn !== "compact" || this.compactor.off()) return
     this.compactor.pump()
     if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + RETRY_MS }

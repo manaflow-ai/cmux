@@ -96,19 +96,20 @@ extension ShellModel {
             tab = .feed
             toast = NotificationTarget.fallbackToast(route, macName: macName(route.mac))
         default:
-            open(target: target)
+            open(target: target, conversationID: route.conversationID)
         }
         return true
     }
 
     /// Shows a decided target: Chief on Home, a chat on the Feed, a workspace at a tab.
-    func open(target: NotificationTarget) {
+    /// `conversationID`: for Chief, the conversation the notification is about.
+    func open(target: NotificationTarget, conversationID: String? = nil) {
         switch target {
         case .chief:
             tab = .home
-            var path = NavigationPath()
-            path.append(ChiefRoute(place: .mac))
-            homePath = path
+            // The notification's own conversation: the Mac Chief, the Cloud
+            // Chief, or another conversation of the Mac's Home list.
+            homePath = NavigationPath(chiefConversation: conversationID)
         case .chat(let destination):
             tab = .feed
             feedPath = [destination]
