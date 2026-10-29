@@ -18,7 +18,6 @@ pub(super) struct LocalOutput {
     pub(super) title_changed: Arc<AtomicBool>,
     pub(super) pending_responses: Arc<Mutex<Vec<u8>>>,
     pub(super) pending_bells: PendingBells,
-    registry_publication: Arc<RegistryPublication>,
     #[cfg(unix)]
     pub(super) parsed_sink: Option<Arc<crate::holder_runtime::HolderSink>>,
     shell_marks: crate::prompt_mode_reset::ShellMarks,
@@ -38,60 +37,6 @@ pub(super) struct ParsedOutput {
 pub(super) struct OutputPublisher {
     pending_responses: Arc<Mutex<Vec<u8>>>,
     pending_bells: PendingBells,
-    registry_publication: Arc<RegistryPublication>,
-}
-
-/// One terminal's registry publication (directory, progress and program
-/// status) runs as one job at a time on the owner's terminal work pool, off
-/// the reader: it takes the registry lock and writes sqlite, which an echo
-/// path never waits on (Chrome posts such work to a `MayBlock` ThreadPool
-/// task, base/task/task_traits.h). A change during a job runs one more pass
-/// after it, so the latest state is the one published.
-#[derive(Default)]
-struct RegistryPublication(AtomicU8);
-
-impl RegistryPublication {
-    const IDLE: u8 = 0;
-    const SCHEDULED: u8 = 1;
-    /// Scheduled, and a change came after the running pass read its state.
-    const AGAIN: u8 = 2;
-
-    /// True when the caller must start the job: none is queued or running.
-    fn schedule(&self) -> bool {
-        let previous = self.0.swap(Self::AGAIN, Ordering::AcqRel);
-        if previous == Self::IDLE {
-            self.0.store(Self::SCHEDULED, Ordering::Release);
-            return true;
-        }
-        false
-    }
-
-    /// After a pass: true when another one is due.
-    fn pass_done(&self) -> bool {
-        self.0
-            .compare_exchange(Self::SCHEDULED, Self::IDLE, Ordering::AcqRel, Ordering::Acquire)
-            .is_err_and(|_| {
-                self.0.store(Self::SCHEDULED, Ordering::Release);
-                true
-            })
-    }
-
-    /// The job ends with no pass due: a panicking pass must not leave the
-    /// terminal unpublished for good.
-    fn reset(&self) {
-        self.0.store(Self::IDLE, Ordering::Release);
-    }
-}
-
-/// Resets a [`RegistryPublication`] when its job unwinds.
-struct PublicationJob(Arc<RegistryPublication>);
-
-impl Drop for PublicationJob {
-    fn drop(&mut self) {
-        if std::thread::panicking() {
-            self.0.reset();
-        }
-    }
 }
 
 impl LocalOutput {
@@ -106,7 +51,6 @@ impl LocalOutput {
             title_changed,
             pending_responses,
             pending_bells,
-            registry_publication: Arc::default(),
             #[cfg(unix)]
             descriptor,
             #[cfg(unix)]
@@ -334,7 +278,6 @@ impl LocalOutput {
         OutputPublisher {
             pending_responses: self.pending_responses.clone(),
             pending_bells: self.pending_bells.clone(),
-            registry_publication: self.registry_publication.clone(),
         }
     }
 }
@@ -344,7 +287,10 @@ impl OutputPublisher {
         let Some(pty) = surface.as_pty() else { return };
         let mux = &pty.mux;
         if !events.is_empty() {
-            self.publish_registry(surface, mux);
+            // The registry publication (cwd, progress, program status) goes
+            // to the terminal's publication sequence, as a hosted
+            // terminal's does: never here, at any load.
+            surface.post_pending_publications();
         }
         for ParsedOutput {
             generation,
@@ -390,38 +336,11 @@ impl OutputPublisher {
             }
         }
     }
-
-    /// Hands the terminal's pending directory and progress publication to
-    /// the terminal work pool (inline only when the pool is full).
-    fn publish_registry(&self, surface: &Arc<Surface>, mux: &Weak<Mux>) {
-        if !surface.has_pending_publication() {
-            return;
-        }
-        let Some(owner) = mux.upgrade() else { return };
-        if !self.registry_publication.schedule() {
-            return;
-        }
-        let job = PublicationJob(self.registry_publication.clone());
-        let surface = surface.clone();
-        let publish = Box::new(move || {
-            loop {
-                surface.check_pending_shell_foreground();
-                surface.publish_pending_directory();
-                surface.publish_pending_progress();
-                if !job.0.pass_done() {
-                    break;
-                }
-            }
-        });
-        if let Err(publish) = owner.submit_terminal_work(publish) {
-            will_block(publish);
-        }
-    }
 }
 
-/// A publication call that may wait on others. On a read-loop worker it
-/// frees the worker's slot while it runs (`read_loop::will_block`); a
-/// reader thread of its own just runs it.
+/// A query response write that may wait on the child (one that does not
+/// read its input). On a read-loop worker it frees the worker's slot while
+/// it runs (`read_loop::will_block`); a reader thread of its own just runs it.
 fn will_block<R>(f: impl FnOnce() -> R) -> R {
     #[cfg(unix)]
     {

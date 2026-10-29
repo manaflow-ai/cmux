@@ -335,11 +335,15 @@ pub struct PtyTerminalRuntime {
     pub(super) pwd: Mutex<Option<String>>,
     pub(super) published_directory: Mutex<PublishedDirectory>,
     pub(super) directory_pending: AtomicBool,
-    /// A publication of this terminal's cwd and progress is queued on the
-    /// mux's work lane (`Surface::post_pending_publications`): its output
-    /// threads queue at most one at a time.
-    pub(super) publication_posted: AtomicBool,
-    /// This terminal's publications, in order, one at a time.
+    /// The terminal's one dirty flag for its registry publication (cwd,
+    /// progress, program status): set while a pass is queued on
+    /// `publications` that has not read the terminal's state yet
+    /// (`Surface::post_pending_publications`). The pass clears it before it
+    /// reads, so a change after that read queues one more pass; a burst of
+    /// output queues one. A pass that never runs (shutdown) clears it too.
+    pub(super) publication_posted: Arc<AtomicBool>,
+    /// This terminal's publications, in order, one at a time, on the Files
+    /// lane (may block): every terminal, local and hosted, the same way.
     pub(super) publications: Arc<crate::mux::mux_work::Sequence>,
     /// A shell has reported a directory at least once; only then is a later
     /// absent report a clear rather than the still-unreported launch directory.

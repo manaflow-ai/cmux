@@ -239,7 +239,7 @@ impl Surface {
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
-                publication_posted: AtomicBool::new(false),
+                publication_posted: Arc::default(),
                 publications: Arc::default(),
                 directory_reported: AtomicBool::new(false),
                 geometry: RankedMutex::new(LockRank::Geometry, "pty.geometry", initial_geometry),

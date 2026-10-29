@@ -205,15 +205,17 @@ impl Surface {
 
     /// Hands the publications this terminal's output asked for (its cwd, its
     /// progress and program status upserts) to the mux's work lane. Each is
-    /// a SQLite workspace registry commit, which an output thread
-    /// (`surface-<id>-reader`, `surface-<id>-host`: echo threads with
-    /// blocking disallowed) may not make (MQ-13): in the
-    /// detector's panic mode the reader panicked holding the registry and
-    /// state locks. Chromium posts such work as a `MayBlock` task
-    /// (base/task/task_traits.h). The check here is memory only; at most one
-    /// publication is queued per terminal, in the terminal's own sequence,
-    /// and it publishes the newest state when it runs, so a burst of output
-    /// asks for one commit.
+    /// a SQLite workspace registry commit, which an output thread (a
+    /// `mux-terminal-read` worker, `surface-<id>-reader`,
+    /// `surface-<id>-host`: echo threads with blocking disallowed) may not
+    /// make (MQ-13): in the detector's panic mode the reader panicked
+    /// holding the registry and state locks. Chromium posts such work as a
+    /// `MayBlock` task (base/task/task_traits.h). The one path for every
+    /// terminal, local and hosted. The check here is memory only; at most
+    /// one publication is queued per terminal (`publication_posted`, its
+    /// dirty flag), in the terminal's own sequence, and it publishes the
+    /// newest state when it runs, so a burst of output asks for one commit
+    /// at any load: the lane queues, it never hands the work back.
     pub(crate) fn post_pending_publications(&self) {
         let Some(pty) = self.as_pty() else { return };
         if !self.has_pending_publication() {
@@ -222,11 +224,11 @@ impl Surface {
         if pty.publication_posted.swap(true, Ordering::AcqRel) {
             return;
         }
-        let posted = pty
-            .mux
-            .upgrade()
-            .is_some_and(|mux| mux.post_terminal_publications(self.id, &pty.publications));
-        if !posted {
+        // A refused post (shutdown) drops its pass unrun, which clears the
+        // flag (`mux::terminal_directory::PublicationPass`).
+        if let Some(mux) = pty.mux.upgrade() {
+            mux.post_terminal_publications(self.id, &pty.publications, &pty.publication_posted);
+        } else {
             pty.publication_posted.store(false, Ordering::Release);
         }
     }
@@ -248,6 +250,13 @@ impl Surface {
     /// work lane: the next change queues another.
     pub(crate) fn publish_posted_publications(&self) {
         let Some(pty) = self.as_pty() else { return };
+        // R3 (Debug): a registry publication never runs on a thread that
+        // disallows blocking (an output thread), on any path and at any load.
+        debug_assert!(
+            !cmux_threads::is_blocking_disallowed(),
+            "terminal {} published its registry state on a thread that disallows blocking",
+            self.id,
+        );
         pty.publication_posted.store(false, Ordering::Release);
         // The foreground check first: the directory upsert below carries the
         // record too, and must not publish the previous check's idle fact.

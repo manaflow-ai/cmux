@@ -842,7 +842,7 @@ impl Surface {
                 pwd: Mutex::new(pwd),
                 published_directory: Mutex::new(PublishedDirectory::Unreported),
                 directory_pending: AtomicBool::new(true),
-                publication_posted: AtomicBool::new(false),
+                publication_posted: Arc::default(),
                 publications: Arc::default(),
                 geometry: RankedMutex::new(
                     LockRank::Geometry,

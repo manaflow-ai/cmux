@@ -96,20 +96,33 @@ impl Mux {
     /// `surface` on the Files lane, in `sequence`
     /// ([`Surface::post_pending_publications`]): an output thread may not
     /// commit to the registry itself. The item finds the runtime when it
-    /// runs; one gone by then has nothing left to publish. `false` when the
-    /// work was refused (the mux is shutting down).
+    /// runs; one gone by then has nothing left to publish. `posted` is the
+    /// terminal's dirty flag, set by the caller: the pass clears it before
+    /// it reads, and a pass that never runs (shutdown refused or dropped
+    /// it) clears it as it drops, so the flag never stays set with no pass
+    /// queued.
     pub(crate) fn post_terminal_publications(
         &self,
         surface: SurfaceId,
         sequence: &Arc<mux_work::Sequence>,
-    ) -> bool {
-        self.post_mux_work_sequenced(sequence, Priority::UserVisible, Lane::Files, move |mux| {
-            let Some(mux) = mux.upgrade() else { return };
-            if let Some(runtime) = mux.surface(surface) {
-                runtime.publish_posted_publications();
-            }
-        })
-        .is_ok()
+        posted: &Arc<std::sync::atomic::AtomicBool>,
+    ) {
+        let pass = PublicationPass { posted: posted.clone(), ran: false };
+        let _ = self.post_mux_work_sequenced(
+            sequence,
+            Priority::UserVisible,
+            Lane::Files,
+            move |mux| {
+                // The whole pass moves in, so it drops with the item.
+                let mut pass = pass;
+                let Some(mux) = mux.upgrade() else { return };
+                if let Some(runtime) = mux.surface(surface) {
+                    // The pass clears the flag itself, before it reads.
+                    pass.ran = true;
+                    runtime.publish_posted_publications();
+                }
+            },
+        );
     }
 
     /// Posts the desktop notifications terminal runtime `surface`'s output
@@ -160,6 +173,24 @@ impl Mux {
             .collect::<Vec<_>>();
         for surface in terminals {
             surface.publish_pending_directory();
+        }
+    }
+}
+
+/// One queued publication pass of a terminal. A pass that runs clears the
+/// terminal's dirty flag itself, before it reads the state; one that never
+/// runs (shutdown refused or dropped it, its mux or runtime is gone)
+/// clears it as it drops, so the flag is never left set with no pass
+/// queued and a later change always queues a new one.
+struct PublicationPass {
+    posted: Arc<std::sync::atomic::AtomicBool>,
+    ran: bool,
+}
+
+impl Drop for PublicationPass {
+    fn drop(&mut self) {
+        if !self.ran {
+            self.posted.store(false, std::sync::atomic::Ordering::Release);
         }
     }
 }

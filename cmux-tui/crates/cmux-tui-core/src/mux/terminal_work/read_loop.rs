@@ -20,10 +20,11 @@
 //!   at once, no thread start) and the others exit. So any number of idle
 //!   terminals costs two threads and no wakeup.
 //! - **Blocking.** A run reads without blocking. Registry publication
-//!   (directory, progress, the exit) goes to the terminal work pool, but a
-//!   query response written to a PTY whose child does not read its input
-//!   still waits, as does any publication the full pool hands back. Those
-//!   calls run in [`will_block`], Chrome's `ScopedBlockingCall` with
+//!   goes to the mux's Files lane at every load (directory, progress,
+//!   program status and notifications on the terminal's publication
+//!   sequence, the exit as its own item), but a query response written to
+//!   a PTY whose child does not read its input still waits. That call
+//!   runs in [`will_block`], Chrome's `ScopedBlockingCall` with
 //!   `BlockingType::WILL_BLOCK` (base/threading/scoped_blocking_call.h): a
 //!   worker inside it stops counting against [`MAX_READ_WORKERS`], so the
 //!   other ready sources get a worker at once, as Chrome's thread group
