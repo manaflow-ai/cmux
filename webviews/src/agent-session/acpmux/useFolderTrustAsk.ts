@@ -204,7 +204,7 @@ export function useFolderTrustAsk(
   /// Each chat's refused prompt, sent again after Trust there: another chat's refusal keeps its own.
   /// Each is kept until Trust has saved and no folder choice or auth refusal holds the chat.
   const resend = useRef(
-    new Map<string | undefined, { again: () => void; cwd?: string; family?: string; ready: boolean }>(),
+    new Map<string | undefined, { again: () => void; cwds: (string | undefined)[]; family?: string; ready: boolean }>(),
   );
   /// What acpmux's last trust refusal said of each chat's folder, until an answer there: the
   /// question draws from it when the folder's read gets no answer in time (a peer's folder, read
@@ -509,9 +509,12 @@ export function useFolderTrustAsk(
   // Both Composer.send and failed-row retries pass through this one gate. Retain the callback
   // (and its prompt/attachments/gesture) while the folder answer saves; never replay in another chat.
   useEffect(() => {
+    // A retry Trust already released waits only on the folder choice: leaving its chat drops it.
+    // One still waiting for Trust stays with its chat (sent after Trust there, as before).
+    for (const [chat, waiting] of resend.current) if (chat !== sessionId && waiting.ready) resend.current.delete(chat);
     const held = resend.current.get(sessionId);
     if (!held) return;
-    if (held.cwd !== cwd || held.family !== family) {
+    if (!held.cwds.includes(cwd) || held.family !== family) {
       resend.current.delete(sessionId);
       return;
     }
@@ -589,7 +592,7 @@ export function useFolderTrustAsk(
         setTrusted(false);
         setReading(true);
         // A refusal without its own re-run (a prompt the client routed first) keeps the one set.
-        if (again) resend.current.set(sessionId, { again, cwd: refusedFolder, family, ready: false });
+        if (again) resend.current.set(sessionId, { again, cwds: [cwd, refusedFolder], family, ready: false });
         else {
           const held = resend.current.get(sessionId);
           if (held) held.ready = false;
