@@ -141,7 +141,7 @@ async fn wait_inner(client: Arc<Client>, opts: WaitOpts, json_out: bool) -> Resu
         let id = resolve_id_after_update(
             &mut client,
             &key,
-            opts.timeout.map(|s| std::time::Duration::from_secs(s)),
+            opts.timeout.map(std::time::Duration::from_secs),
         )
         .await?;
         ids.push((key, id));

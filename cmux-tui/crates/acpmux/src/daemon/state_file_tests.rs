@@ -67,7 +67,7 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
     std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
     let started = dir.join("started");
     let detached = dir.join("detached");
-    let result = connect_with_systemctl(&systemctl, &link, &socket, true, {
+    connect_with_systemctl(&systemctl, &link, &socket, true, {
         let started = started.clone();
         let detached = detached.clone();
         move || {
@@ -86,7 +86,6 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
     .await
     .unwrap();
 
-    assert_eq!(result, ());
     assert!(started.exists(), "the CLI did not start the managed unit");
     assert!(!socket.exists(), "the test should not need a detached socket");
     let _ = std::fs::remove_dir_all(&dir);
@@ -98,7 +97,7 @@ async fn managed_unit_start_matches_shortened_sockets() {
     use std::os::unix::fs::PermissionsExt;
     let scratch = cmux_unix_socket::short_test_dir("managed-socket");
     let dir = scratch.path();
-    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir_all(dir).unwrap();
     let unit_home = dir.join("long-home-".repeat(15));
     std::fs::create_dir_all(&unit_home).unwrap();
     for configured in [None, Some(unit_home.join("configured.sock"))] {
