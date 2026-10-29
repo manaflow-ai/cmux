@@ -379,6 +379,13 @@ flight whose model has shown no sign for that long has stalled: `lane.stalledSin
 `turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in
 one tool call is in flight, so it never stalls. It is checked when a summary is read, with
 no timer.
+`agentSteerWindowMs` (default 600000, 10 min): automatic agent messages steer only inside
+this window from the turn's original start. Later messages wait in the durable queue,
+behind prompts already waiting; they never interrupt the running tool or renew the
+window. A steer-only request is refused explicitly. Human steering and explicit Send
+now are unchanged. Zero queues automatic agent messages from the start of every turn.
+This bounds admission, not tool execution: work already running finishes normally.
+The original start survives daemon adoption; elapsed time uses the system clock.
 `stalledTurnEndMs` (default 21600000, 6 h; 0 turns it off): a running turn whose model has
 shown no sign of work, counted the same way, for that long (four times that while one of its tool
 calls has not ended; also across a daemon restart: an adopted

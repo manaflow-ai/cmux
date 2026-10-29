@@ -4,6 +4,10 @@ use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
 
+#[cfg(all(test, unix))]
+#[path = "agent_steer_window_tests.rs"]
+mod agent_steer_window_tests;
+
 /// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
 /// (`model_copies.rs`), then [`acp_prompt_blocks`]. No copy is made, or kept, for a turn a remote
 /// device controls: it is read from this machine's disk as the prompt's sender, who was local.
@@ -270,13 +274,30 @@ impl Hub {
             None => false,
         };
         let text = prompt_text(&blocks);
+        // Automatic messages may extend a turn only inside its original steering window.
+        // Once it expires, let existing work finish and drain the durable queue. Human steers
+        // and an explicit Send now remain available; neither activity nor new messages renew it.
+        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        let agent_window = if steer && agent.is_some() && !opts.steer_now {
+            Some(self.config.read().await.agent_steer_window())
+        } else {
+            None
+        };
         let running = session.turn();
-        let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
+        let defer_agent = agent_window
+            .zip(running.as_ref())
+            .is_some_and(|(window, turn)| now_ms().saturating_sub(turn.started_at) >= window);
+        let steer_now =
+            steer && !defer_agent && session.steering.load(Ordering::SeqCst) && running.is_some();
         if steer && opts.steer_only && !steer_now {
-            return Err(RpcError::invalid_params(
-                "steer.unavailable: the session has no running turn that its agent can steer",
-            )
-            .with_data(json!({"reason": "steer.unavailable"})));
+            let message = if defer_agent {
+                "steer.unavailable: the automatic agent steering window has ended"
+            } else {
+                "steer.unavailable: the session has no running turn that its agent can steer"
+            };
+            return Err(
+                RpcError::invalid_params(message).with_data(json!({"reason": "steer.unavailable"}))
+            );
         }
         if !live {
             self.cold_prompt_check(session).await?;
@@ -284,8 +305,6 @@ impl Hub {
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
-        // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
-        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // What it asks of this chat: another agent's only, `result` when it named none.
         let class = crate::prompt_class::of_message(opts.class, agent.is_some());
         if steer_now {
@@ -306,7 +325,8 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            interrupt: opts.interrupt,
+            // Budget deferral is cooperative: never use the non-steering interrupt fallback.
+            interrupt: opts.interrupt && !defer_agent,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),

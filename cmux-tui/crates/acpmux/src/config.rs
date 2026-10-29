@@ -939,6 +939,12 @@ pub struct Config {
     /// call never stalls. Default 600000; 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_ms: Option<u64>,
+    /// `agentSteerWindowMs`: how long automatic agent messages may steer into one turn,
+    /// measured from its original start, never renewed by activity. Later messages queue
+    /// durably without interrupting tools. Human steering and explicit Send now are unchanged.
+    /// Default 600000 (10 min); 0 queues automatic messages from the start of every turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_steer_window_ms: Option<u64>,
     /// `stalledTurnEndMs`: how long a running turn may go with no sign of its model at work (as
     /// `silentTurnMs` counts them, also across a daemon restart) before acpmux ends it as failed,
     /// `detail` `stalled` (`hub/stalled_turn.rs`); four times that inside a tool call that has
@@ -1126,6 +1132,11 @@ impl Config {
             0 => None,
             ms => Some(ms),
         }
+    }
+
+    /// Original-turn window for automatic agent steering; zero queues it immediately.
+    pub fn agent_steer_window(&self) -> u64 {
+        self.agent_steer_window_ms.unwrap_or(600_000)
     }
 
     /// `stalledTurnEndMs`, or its 6 h default; None when it is 0 (off).
