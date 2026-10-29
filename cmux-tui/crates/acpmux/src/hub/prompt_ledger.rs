@@ -299,6 +299,9 @@ mod tests {
         store.save(&meta).unwrap();
         let hub = Hub::new(cfg, store);
         let session = hub.resolve("s").unwrap();
+        // Normal status writes cannot reopen a closed session. Exercise finishing states
+        // on an open session, as the adopted-turn path does in production.
+        assert!(hub.reopen(&session, session.stops.load(std::sync::atomic::Ordering::SeqCst)));
         (hub, session)
     }
 
@@ -365,6 +368,7 @@ mod tests {
         }
         *session.turn.lock().unwrap() = None;
         hub.set_status(&session, crate::store::SessionStatus::Running);
+        assert_eq!(session.status(), crate::store::SessionStatus::Running);
         tokio::select! {
             biased;
             result = &mut query => panic!("finishing adopted prompt answered early: {result:?}"),
@@ -394,6 +398,7 @@ mod tests {
         // finish_turn has taken TurnInfo and recorded lastTurn, but has not appended
         // turn_result yet. A reconnect must wait for its original code and error data.
         hub.set_status(&session, crate::store::SessionStatus::Running);
+        assert_eq!(session.status(), crate::store::SessionStatus::Running);
         session.meta.lock().unwrap().last_turn = Some(json!({
             "promptId": "p", "turnId": "t", "status": "failed", "errorText": "summary only",
         }));
@@ -459,6 +464,7 @@ mod tests {
             json!({"promptId": "other", "turnId": "other-turn"}),
         );
         hub.set_status(&session, crate::store::SessionStatus::Running);
+        assert_eq!(session.status(), crate::store::SessionStatus::Running);
         let orphan = tokio::time::timeout(
             std::time::Duration::from_secs(1),
             hub.prompt_outcome(&session, "p"),
