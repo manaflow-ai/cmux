@@ -180,3 +180,51 @@ async fn a_waiting_start_takes_over_when_the_old_daemon_releases_its_lock() {
             .success()
     );
 }
+
+// The detached launch's readiness wait must cover handover, not just the usual
+// eight-second bind budget. Drive the CLI, which owns that readiness timeout.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn cli_start_waits_for_a_lock_held_beyond_the_normal_bind_budget() {
+    use std::os::fd::AsRawFd;
+    let dir = Scratch::new();
+    let socket = dir.0.join("s.sock");
+    let lock = std::fs::File::create(dir.0.join("daemon.lock")).unwrap();
+    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let cli = |args: &[&str]| {
+        let mut cmd = daemon_env::acpmux(&dir.0);
+        cmd.args(args)
+            .env("ACPMUX_HOME", &dir.0)
+            .env("ACPMUX_SOCKET", &socket)
+            .env("ACPMUX_LOGIN_ENV", "0")
+            .stdin(Stdio::null());
+        let mut cmd = tokio::process::Command::from(cmd);
+        cmd.kill_on_drop(true);
+        cmd
+    };
+    let started = cli(&["--json", "daemon", "start"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let release = async {
+        tokio::time::sleep(Duration::from_secs(9)).await;
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+    };
+    let (_, output) = tokio::join!(
+        release,
+        tokio::time::timeout(Duration::from_secs(35), started.wait_with_output())
+    );
+    // Clean up even on the regressed eight-second timeout: its detached child
+    // may still be acquiring the released lock. A second start waits for it.
+    let cleanup_start =
+        tokio::time::timeout(Duration::from_secs(35), cli(&["daemon", "start"]).output()).await;
+    let shutdown =
+        tokio::time::timeout(Duration::from_secs(10), cli(&["daemon", "shutdown"]).output()).await;
+    assert!(cleanup_start.unwrap().unwrap().status.success());
+    assert!(shutdown.unwrap().unwrap().status.success());
+    let output = output.unwrap().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(answer["pid"].is_number(), "{answer}");
+}
