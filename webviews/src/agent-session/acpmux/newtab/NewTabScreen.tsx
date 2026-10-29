@@ -1189,9 +1189,13 @@ export function NewTabScreen(props: Props) {
           ...paletteSections(
             (id) => {
               setPaletteError(undefined);
-              void Promise.resolve(props.onPaletteAction?.(id)).catch((error: unknown) => {
+              try {
+                void Promise.resolve(props.onPaletteAction?.(id)).catch((error: unknown) => {
+                  setPaletteError(error instanceof Error ? error.message : String(error));
+                });
+              } catch (error: unknown) {
                 setPaletteError(error instanceof Error ? error.message : String(error));
-              });
+              }
             },
             t,
             props.plusExtensions,
