@@ -35,7 +35,8 @@ pub(super) struct HostedReader {
     pub(super) shell_marks: crate::prompt_mode_reset::ShellMarks,
     pub(super) title_changed: Arc<AtomicBool>,
     pub(super) pending_bells: PendingBells,
-    /// Test seam: slows applying each output frame so tests can build an
+    /// Test seam: slows applying each output frame (CPU, as a slow parse; the
+    /// reader disallows blocking while it streams) so tests can build an
     /// output backlog ahead of a targeted host response.
     pub(super) output_apply_delay: Option<Duration>,
     /// One backoff across consecutive losses: a host that accepts and then
