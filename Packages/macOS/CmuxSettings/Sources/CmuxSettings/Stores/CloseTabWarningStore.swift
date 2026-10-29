@@ -3,7 +3,7 @@ import Foundation
 /// Repository for the close warning settings, persisted in `UserDefaults`
 /// under the catalog's `app.warnBeforeClosingTab`,
 /// `app.warnBeforeClosingTabXButton`, `app.warnBeforeClosingAgentSession`,
-/// `app.warnBeforeClosingWorkspace`,
+/// `app.warnBeforeClosingWorkspace`, `app.alwaysConfirmWorkspaceClose`,
 /// `app.warnBeforeClosingWindow`, and
 /// `app.hideTabCloseButton` keys.
 ///
@@ -59,6 +59,11 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
         keys.warnBeforeClosingWorkspace.value(in: defaults)
     }
 
+    /// Whether every workspace close asks first, even when nothing is running.
+    public var alwaysConfirmsWorkspaceClose: Bool {
+        keys.alwaysConfirmWorkspaceClose.value(in: defaults)
+    }
+
     /// Turns off the given warnings, for a dialog's "Don't ask again" checkbox.
     public func disableWarnings(_ kinds: CloseWarningKinds) {
         // An agent-session prompt owns its own suppression choice. Keep a
@@ -79,6 +84,9 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
         }
         if kinds.contains(.workspace) {
             keys.warnBeforeClosingWorkspace.set(false, in: defaults)
+        }
+        if kinds.contains(.alwaysConfirmWorkspace) {
+            keys.alwaysConfirmWorkspaceClose.set(false, in: defaults)
         }
         if kinds.contains(.window) {
             keys.warnBeforeClosingWindow.set(false, in: defaults)

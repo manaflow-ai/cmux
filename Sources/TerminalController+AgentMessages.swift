@@ -250,7 +250,7 @@ extension TerminalController {
         }
         let store = AgentMessageCenter.store
         if params["mark_delivered_read"] as? Bool == true {
-            store.markDeliveredRead(recipientSurfaceId: surfaceId)
+            store.markPreviouslyDeliveredRead(recipientSurfaceId: surfaceId)
         }
         let via = Self.agentMessageTrimmed(params["via"]) ?? "hook"
         let messages: [AgentMessage]
@@ -335,7 +335,7 @@ extension TerminalController {
             return .ok(["status": "superseded"])
         case .current(let queued):
             if register, params["mark_delivered_read"] as? Bool == true {
-                store.markDeliveredRead(recipientSurfaceId: surfaceId)
+                store.markPreviouslyDeliveredRead(recipientSurfaceId: surfaceId)
             }
             let held: Bool
             if queued > 0 {

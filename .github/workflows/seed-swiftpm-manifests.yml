@@ -64,7 +64,7 @@ jobs:
         if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          git submodule update --init --depth 1 vendor/bonsplit
+          bash scripts/ci/init-submodule.sh vendor/bonsplit
           GHOSTTY_SHA="$(git ls-tree HEAD ghostty | awk '{print $3}')" ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Restore Swift packages

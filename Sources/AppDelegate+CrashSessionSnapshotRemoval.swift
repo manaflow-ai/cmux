@@ -55,6 +55,10 @@ extension AppDelegate {
             // here, and the next autosave would replace it. Copy it aside.
             sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: primaryURL)
             sessionSnapshotStore.preserveNewerSchemaSnapshot(fileURL: backupURL)
+            // Any other unrestorable snapshot is copied aside too, so a later
+            // autosave cannot destroy data a fixed build could still recover.
+            sessionSnapshotStore.preserveUnusableSnapshot(fileURL: primaryURL)
+            sessionSnapshotStore.preserveUnusableSnapshot(fileURL: backupURL)
         }
     }
 

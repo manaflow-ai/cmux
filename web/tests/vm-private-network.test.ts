@@ -229,6 +229,9 @@ function testRepo(options: {
   lockRenewed?: boolean;
 } = {}): VmRepositoryShape {
   const calls = options.calls;
+  // Like the table: the live row for this device is the last one written, and
+  // a revoked row is no longer found.
+  let currentTunnel: CloudVmTunnelRow | null = options.tunnel ?? null;
   const base: Partial<VmRepositoryShape> = {
     findNetwork: () => Effect.succeed(options.network ?? null),
     upsertNetwork: (input) =>
@@ -250,30 +253,34 @@ function testRepo(options: {
     listAccessGrantTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
     claimAccessGrantMutation: () => Effect.succeed(true),
     releaseAccessGrantMutation: () => Effect.void,
-    revokeAccessGrant: () => Effect.succeed(true),
-    findTunnel: () => Effect.succeed(options.tunnel ?? null),
+    revokeAccessGrant: () => Effect.succeed({ revoked: true, stackSessionIds: ["session-1"] }),
+    findTunnel: () => Effect.sync(() => currentTunnel),
     listUserTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
     insertTunnel: (input) =>
       Effect.sync(() => {
         if (calls) calls.inserts += 1;
-        return tunnelRow({
+        currentTunnel = tunnelRow({
           providerTunnelId: input.providerTunnelId,
           accessGrantId: input.accessGrantId,
           deviceFingerprint: input.deviceFingerprint,
           tunnelPurpose: input.tunnelPurpose,
           clientPublicKey: input.clientPublicKey,
         });
+        return currentTunnel;
       }),
     updateTunnel: (input) =>
       Effect.sync(() => {
         if (calls) calls.updates += 1;
-        return tunnelRow({
+        currentTunnel = tunnelRow({
+          ...(currentTunnel ? { id: currentTunnel.id } : {}),
           ...(input.clientPublicKey ? { clientPublicKey: input.clientPublicKey } : {}),
         });
+        return currentTunnel;
       }),
     revokeTunnel: (id) =>
       Effect.sync(() => {
         calls?.revoked.push(id);
+        if (currentTunnel?.id === id) currentTunnel = null;
         return true;
       }),
     acquireTunnelEnrollmentLock: () => Effect.sync(() => {
@@ -906,6 +913,51 @@ describe("team tunnel reconciliation", () => {
     }).pipe(Effect.provide(layerFor(repo, gateway))));
   }
 
+  test("never returns a tunnel that a revoke deleted while team networks reconciled", async () => {
+    // Reconciliation runs outside the lease, so a grant revoke can delete the
+    // tunnel meanwhile. Returning its config would hand the client a dead peer.
+    const repo = testRepo({ network: networkRow() });
+    let revokeDuringAttach: (() => void) | null = null;
+    const gateway = testGateway({
+      teamNetworks: [TEAM_NETWORK],
+      attachTunnelNetwork: (networkId) => Effect.sync(() => {
+        revokeDuringAttach?.();
+        return { networkId, addressV4: "10.50.0.2", addressV6: "fd50::2" };
+      }),
+    });
+    revokeDuringAttach = () => {
+      Effect.runSync(repo.findTunnel!({ userId: "user-1", deviceFingerprint: "device-1", tunnelPurpose: "browser" })
+        .pipe(Effect.flatMap((row) => row ? repo.revokeTunnel!(row.id) : Effect.succeed(false))));
+    };
+    await expect(enroll(["team-1"], repo, gateway)).rejects.toThrow();
+  });
+
+  test("releases the Mac mutation lease before attaching team networks", async () => {
+    // Every build and tunnel role on one Mac shares this lease. Holding it
+    // across per-team provider calls answered them all 409 vm_access_grant_busy.
+    const events: string[] = [];
+    const repo = {
+      ...testRepo({ network: networkRow() }),
+      claimAccessGrantMutation: () => Effect.sync(() => {
+        events.push("claim");
+        return true;
+      }),
+      releaseAccessGrantMutation: () => Effect.sync(() => {
+        events.push("release");
+      }),
+    } as VmRepositoryShape;
+    const gateway = testGateway({
+      teamNetworks: [TEAM_NETWORK],
+      attachTunnelNetwork: (networkId) => Effect.sync(() => {
+        events.push(`attach:${networkId}`);
+        return { networkId, addressV4: "10.50.0.2", addressV6: "fd50::2" };
+      }),
+    });
+    const result = await enroll(["team-1"], repo, gateway);
+    expect(events).toEqual(["claim", "release", `attach:${TEAM_NETWORK.id}`]);
+    expect(result.networks.map((network) => network.id)).toEqual([NETWORK.id, TEAM_NETWORK.id]);
+  });
+
   test("a new tunnel is attached to the caller's team network and lists it after the home network", async () => {
     const calls = newGatewayCalls();
     const result = await enroll(["team-1"], testRepo({ network: networkRow() }), testGateway({ calls, teamNetworks: [TEAM_NETWORK] }));
@@ -1177,7 +1229,7 @@ describe("Cloud VM access grant revocation", () => {
       }),
       revokeAccessGrant: () => Effect.sync(() => {
         events.push("grant-revoke");
-        return true;
+        return { revoked: true, stackSessionIds: [] };
       }),
     } as VmRepositoryShape;
     const gateway = {
@@ -1245,7 +1297,7 @@ describe("Cloud VM access grant revocation", () => {
         revoked.push(id);
         return true;
       }),
-      revokeAccessGrant: () => Effect.succeed(true),
+      revokeAccessGrant: () => Effect.succeed({ revoked: true, stackSessionIds: ["session-stable", "session-nightly"] }),
     } as VmRepositoryShape;
     const gateway = {
       ...testGateway(),

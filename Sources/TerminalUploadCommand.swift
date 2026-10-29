@@ -92,6 +92,10 @@ struct TerminalUploadCommand: Sendable, Equatable {
     /// Environment handed to the custom command for one file. The full context is
     /// on the environment (not stdin) so a plain shell one-liner can use it; the
     /// standard process environment is inherited by the caller.
+    ///
+    /// `remotePath` is a standalone path under `/tmp` for the custom command. The
+    /// command owns its transport, permissions, and cleanup; the built-in SSH
+    /// transport uses its separate private per-session directory.
     static func environment(
         localPath: String,
         remotePath: String,
@@ -115,6 +119,29 @@ struct TerminalUploadCommand: Sendable, Equatable {
             env["CMUX_UPLOAD_SSH_OPTIONS"] = sshOptions.joined(separator: "\n")
         }
         return env
+    }
+
+    /// The path handed to a custom upload command. It is intentionally independent
+    /// of the built-in SSH transport's private session directory: custom commands
+    /// may use an interactive SSH wrapper, an artifact service, or another
+    /// transport that cannot run cmux's directory-maintenance SSH command.
+    static func customRemotePath(for fileURL: URL, uuid: UUID = UUID()) -> String {
+        // Preserve the path shape used by custom commands before the private
+        // session directory was introduced in #16523.
+        let extensionValue = fileURL.pathExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        // Keep the optional extension useful to commands that inspect the
+        // destination, but bound it by UTF-8 bytes so the generated name stays
+        // well below the 255-byte filename-component limit on remote filesystems.
+        var boundedExtension = String()
+        for scalar in extensionValue.unicodeScalars {
+            let scalarText = String(scalar)
+            guard boundedExtension.utf8.count + scalarText.utf8.count <= 16 else { break }
+            boundedExtension.unicodeScalars.append(scalar)
+        }
+        let suffix = boundedExtension.isEmpty ? "" : "." + boundedExtension
+        return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(suffix)"
     }
 
     /// The ready-to-type string cmux inserts for one file after the command runs.

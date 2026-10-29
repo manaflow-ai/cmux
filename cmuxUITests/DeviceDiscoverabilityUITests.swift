@@ -131,7 +131,6 @@ final class DeviceDiscoverabilityUITests: SettingsUITestCase {
         app.launchEnvironment["CMUX_UITEST_AUTH_USER_ID"] = "discoverability-fixture"
         app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         app.launchArguments += settingsLaunchArguments + [
-            "-cmux.flags.override.cloud-machines-enabled-release", "<true/>",
             "-cloud.beta.machines.enabled", "<true/>",
             "-fileExplorer.isVisible", "YES",
             "-workspacePresentationMode", "standard",

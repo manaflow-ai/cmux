@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxBrowser
 
@@ -103,14 +104,19 @@ import Testing
         #expect(ownership.recipient(for: .fileChooser) == nil)
     }
 
-    @Test func aHandlerStillWinsOverTheSessionWhoseInputOpenedTheEvent() {
+    // A dialog or file chooser the page opens while it handles one
+    // session's input is that session's doing: another session's handler
+    // on the user's tab must not answer it (accept a confirm, pick files).
+    @Test func theSessionWhoseInputOpenedTheEventWinsOverAnotherSessionsHandler() {
         var ownership = BrowserReplTabOwnership()
         ownership.attach(sessionID: "agent")
         ownership.attach(sessionID: "watcher")
-        ownership.setHandledEvents([.dialog], for: "watcher")
+        ownership.setHandledEvents([.dialog, .fileChooser], for: "watcher")
         ownership.beginInput(sessionID: "agent")
-        #expect(ownership.recipient(for: .dialog) == "watcher")
+        #expect(ownership.recipient(for: .dialog) == "agent")
         #expect(ownership.recipient(for: .fileChooser) == "agent")
+        ownership.endInput(sessionID: "agent")
+        #expect(ownership.recipient(for: .dialog) == "watcher", "the page's own dialog goes to the handler")
     }
 
     @Test func inputEndsWithTheSessionAndNests() {
@@ -118,10 +124,13 @@ import Testing
         ownership.attach(sessionID: "a")
         ownership.attach(sessionID: "b")
         ownership.beginInput(sessionID: "a")
-        ownership.beginInput(sessionID: "b")
-        #expect(ownership.recipient(for: .dialog) == "b", "the latest input")
-        ownership.endInput(sessionID: "b")
+        ownership.beginInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == "a", "one session's nested inputs")
+        ownership.endInput(sessionID: "a")
         #expect(ownership.recipient(for: .dialog) == "a")
+        ownership.endInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == nil)
+        ownership.beginInput(sessionID: "a")
         ownership.detach(sessionID: "a")
         #expect(ownership.recipient(for: .dialog) == nil, "a session that left gets nothing")
         // Input from a session that is not attached routes nothing.
@@ -129,9 +138,19 @@ import Testing
         #expect(ownership.recipient(for: .dialog) == nil)
     }
 
+    /// Whether `route` ends the download with nobody getting the file: not
+    /// the user's location, and no session.
+    private static func cancels(_ route: BrowserReplDownloadRoute) -> Bool {
+        switch route {
+        case .user, .session: false
+        default: true
+        }
+    }
+
     @Test func eventNamesParseStrictly() {
-        #expect(BrowserReplTabOwnership.events(named: ["dialog", "filechooser", "download"]) == Set(BrowserReplTabEvent.allCases))
+        #expect(BrowserReplTabOwnership.events(named: ["dialog", "filechooser", "download", "network"]) == Set(BrowserReplTabEvent.allCases))
         #expect(BrowserReplTabOwnership.events(named: []) == [])
         #expect(BrowserReplTabOwnership.events(named: ["dialog", "popup"]) == nil)
     }
+
 }

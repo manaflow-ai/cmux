@@ -81,7 +81,7 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     ) async {
         let current = loadIfNeeded().refreshToken
         let matches = current == compareRefreshToken
-        log.log("file.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false)")
+        log.log("file.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false) \(AccessTokenLifetime.logFields(newAccessToken))")
         guard matches else { return }
         if newRefreshToken == nil && newAccessToken == nil {
             log.log("file.compareAndSet: cleared definitively-rejected session")

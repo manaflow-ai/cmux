@@ -287,6 +287,51 @@ struct AgentSessionRecoveryAppTests {
         #expect(carried == Set(candidates.map(\.sessionId)))
     }
 
+    /// A hook binding can carry its session id with stray whitespace. Closing
+    /// the pane must still clear that session's pending Feed decision, which
+    /// the waiter registry keys by the trimmed id.
+    @MainActor
+    @Test
+    func closedPaneClearsFeedDecisionForAPaddedCheckpointID() throws {
+        let sessionID = "feed-close-\(UUID().uuidString)"
+        let requestID = "feed-close-request-\(UUID().uuidString)"
+        let event = WorkstreamEvent(
+            sessionId: sessionID, hookEventName: .permissionRequest,
+            source: "claude", toolName: "Tool", toolInputJSON: "{}", requestId: requestID
+        )
+        let registry = FeedCoordinator.shared.waiterRegistry
+        let registration = try #require(registry.register(requestID: requestID, event: event))
+        registry.accepted(registration, event: event, item: WorkstreamItem(
+            workstreamId: sessionID, source: .claude, kind: .permissionRequest, status: .pending,
+            payload: .permissionRequest(requestId: requestID, toolName: "Tool", toolInputJSON: "{}", pattern: nil)
+        ))
+        defer {
+            _ = registry.finish(registration)
+            registry.cleanupStored(requestID: requestID, groupID: registration.groupID)
+        }
+        #expect(registry.isAwaiting(requestID))
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-recovery-feed-close-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        dock.agentSessionCloseJournal = AgentSessionCloseJournal(
+            center: AgentJournalLifecycleCenter(databaseURL: root.appendingPathComponent("journal.sqlite3"))
+        )
+        let pane = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: false))
+        dock.surfaceResumeBindingsByPanelId[panelID] = SurfaceResumeBindingSnapshot(
+            name: "Claude Code", kind: "claude", command: "claude --resume \(sessionID)",
+            checkpointId: " \(sessionID)\n", source: "agent-hook", updatedAt: Date().timeIntervalSince1970
+        )
+
+        dock.journalClosedAgentSessions(panelId: panelID)
+
+        #expect(!registry.isAwaiting(requestID))
+    }
+
     /// Closing a Claude pane in the Dock must journal its end the same way a
     /// workspace pane does, or crash recovery brings the closed pane back.
     @MainActor

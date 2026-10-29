@@ -106,7 +106,7 @@ done
 if ! awk '
   /^  workflow-guard-tests:$/ { in_job = 1; next }
   in_job && /^  [[:alnum:]_-]+:$/ { exit }
-  in_job && index($0, "git submodule update --init --depth 1 ghostty") { found = 1 }
+  in_job && index($0, "scripts/ci/init-submodule.sh ghostty") { found = 1 }
   END { exit !found }
 ' "$ROOT_DIR/.github/workflows/ci-guards.yml"; then
   echo "workflow-guard-tests does not initialize Ghostty before reading its Zig manifest" >&2

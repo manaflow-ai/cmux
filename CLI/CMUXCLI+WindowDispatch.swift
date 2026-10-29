@@ -10,6 +10,11 @@ extension CMUXCLI {
         if normalizedCommand == "window" {
             return false
         }
+        // `chief open` passes the window to `chief.open`, which owns the
+        // focus decision; the other chief verbs never change focus.
+        if normalizedCommand == "chief" {
+            return false
+        }
         if normalizedCommand == "surface-resume" || normalizedCommand == "pr" {
             return false
         }

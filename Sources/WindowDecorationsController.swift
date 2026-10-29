@@ -354,7 +354,8 @@ final class WindowDecorationsController {
             case .newTab:
                 _ = appDelegate.performNewWorkspaceAction(
                     tabManager: context.tabManager,
-                    debugSource: "titlebar.minimalSidebarControl"
+                    debugSource: "titlebar.minimalSidebarControl",
+                    localOnly: true
                 )
             case .newWorkspaceMenu:
                 if let anchorView {
@@ -476,6 +477,10 @@ final class WindowDecorationsController {
 
     private func shouldHideTrafficLights(for window: NSWindow) -> Bool {
         if window.isSheet {
+            return true
+        }
+        // The Cloud welcome's own × (and Escape) closes it.
+        if window.identifier?.rawValue == "cmux.cloud.welcome" {
             return true
         }
         if window.styleMask.contains(.docModalWindow) {

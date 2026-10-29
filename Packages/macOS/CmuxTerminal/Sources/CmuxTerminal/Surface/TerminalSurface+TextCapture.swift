@@ -15,6 +15,48 @@ extension TerminalSurface {
         return readText(surface: surface, region: region)
     }
 
+    /// Captures a bounded VT reconstruction of the newest terminal rows.
+    ///
+    /// Ghostty formats only the requested tail while it holds the surface
+    /// lock, so callers that already have a row and byte budget do not need to
+    /// export the entire scrollback and trim it afterward.
+    ///
+    /// - Parameters:
+    ///   - maxRows: Maximum number of physical history/current-screen rows.
+    ///   - maxBytes: Hard maximum for the formatted VT output.
+    /// - Returns: UTF-8 VT text, or `nil` when the runtime cannot provide it.
+    @MainActor
+    public func readBoundedScreenTailVT(maxRows: Int, maxBytes: Int) -> String? {
+        guard maxRows > 0,
+              maxBytes > 0,
+              let maxRows = UInt(exactly: maxRows),
+              let maxBytes = UInt(exactly: maxBytes),
+              let surface = liveSurfaceForGhosttyAccess(
+                reason: "readBoundedScreenTailVT"
+              ) else {
+            return nil
+        }
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_screen_tail_vt(
+            surface,
+            maxRows,
+            maxBytes,
+            &text
+        ) else {
+            return nil
+        }
+        defer { ghostty_surface_free_text(surface, &text) }
+
+        guard let pointer = text.text,
+              let byteCount = Int(exactly: text.text_len),
+              byteCount > 0 else {
+            return ""
+        }
+        let rawData = Data(bytes: pointer, count: byteCount)
+        return String(decoding: rawData, as: UTF8.self)
+    }
+
     private func readText(
         surface: ghostty_surface_t,
         region: TerminalTextRegion

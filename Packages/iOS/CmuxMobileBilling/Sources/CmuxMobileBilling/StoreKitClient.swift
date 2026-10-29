@@ -38,6 +38,11 @@ public protocol StoreKitClient: Sendable {
     ///   that prompt, or a StoreKit error.
     func syncWithAppStore() async throws
 
+    /// The App Store storefront country code (ISO 3166-1 alpha-3, such as
+    /// `USA`), for analytics.
+    /// - Returns: The country code, or nil when StoreKit has no storefront.
+    func storefrontCountryCode() async -> String?
+
     /// Finishes a transaction after the server accepted it.
     /// - Parameter transactionID: The transaction to finish.
     func finish(transactionID: UInt64) async

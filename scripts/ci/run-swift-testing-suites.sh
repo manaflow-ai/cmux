@@ -23,6 +23,19 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
+# Fleet ci-steps check the ref out with every submodule deinitialized: populate
+# the ones this package reaches through local dependencies (vendor/bonsplit),
+# never the rest (ghostty).
+if repo_root="$(git -C "$package_path" rev-parse --show-toplevel 2>/dev/null)"; then
+  empty_submodules=()
+  while IFS= read -r submodule; do
+    [ -n "$(ls -A "$repo_root/$submodule" 2>/dev/null)" ] || empty_submodules+=("$submodule")
+  done < <(python3 "$script_dir/swift_package_submodules.py" "$repo_root" "$package_path")
+  if [ "${#empty_submodules[@]}" -gt 0 ]; then
+    echo "Populating submodules this package reaches: ${empty_submodules[*]}" >&2
+    git -C "$repo_root" submodule update --init --depth 1 -- "${empty_submodules[@]}" >&2
+  fi
+fi
 # Keep process-global test state inside one suite. Some packages otherwise
 # finish every assertion but leave the aggregate Swift Testing runner waiting.
 swift test list --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"

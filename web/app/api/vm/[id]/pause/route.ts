@@ -11,6 +11,10 @@ import { pauseVm } from "../../../../../services/vms/workflows";
 // home and the daemon's durable session stay. A paused machine answers 200
 // again (idempotent); a provider without pause answers 501 vm_operation_unsupported.
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 300;
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -30,7 +34,7 @@ export async function POST(
         billingTeamId: account.entitlements.billingTeamId,
         teamIds: user.teamIds,
         providerVmId: id,
-      }), { request });
+      }), { request, deadline: { operation: "pause" } });
       if (!run.ok) return run.response;
       return jsonResponse({ id: run.value.id, status: run.value.status });
     },

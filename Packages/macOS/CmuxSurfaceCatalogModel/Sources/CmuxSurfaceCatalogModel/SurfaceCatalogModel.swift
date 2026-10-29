@@ -1606,6 +1606,7 @@ public enum CloudVMRemoteMutationAuthority: Equatable, Sendable {
 public struct CloudVMPendingMutation: Hashable, Codable, Sendable {
     public enum Kind: String, Codable, Sendable {
         case terminalCreate = "terminal_create"
+        case browserCreate = "browser_create"
         case workspaceRename = "workspace_rename"
         case tabRename = "tab_rename"
     }

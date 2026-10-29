@@ -69,8 +69,7 @@ extension AppDelegate {
     func makeCloudTunnelCoordinator() -> CloudTunnelCoordinator {
         let tunnelManager = VMTunnelManager()
         let activation = CloudActivationPolicy.live(
-            browserTunnel: tunnelManager,
-            remoteEnabled: { CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.cloudMachinesFlag) }
+            browserTunnel: tunnelManager
         )
         let coordinator = CloudTunnelCoordinator.live(
             consumers: CloudTunnelAppConsumers(),

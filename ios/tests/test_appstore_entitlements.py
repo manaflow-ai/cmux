@@ -39,7 +39,7 @@ class AppStoreEntitlementTests(unittest.TestCase):
         self.assertIn('codesign --force --sign "$identity" --entitlements "$merged_entitlements"', function)
 
         call = script.index('resign_cloud_vpn_extension \\\n', function_end)
-        self.assertIn('if [[ "$LANE" == "appstore" ]]', script[call - 80:call])
+        self.assertIn('if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]', script[call - 80:call])
         host_resign = script.index('codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS"', call)
         self.assertLess(call, host_resign)
 
@@ -102,6 +102,53 @@ class AppStoreEntitlementTests(unittest.TestCase):
             )
             self.assertEqual(filtered["com.apple.developer.networking.vpn.api"], ["allow-vpn"])
             self.assertIn("removed unsupported iOS main-app entitlement", result.stderr)
+
+    def test_app_store_filter_can_remove_the_system_vpn_entitlement(self):
+        module = load_filter_module()
+        source = {
+            "com.apple.developer.networking.networkextension": ["packet-tunnel-provider"],
+            "com.apple.developer.networking.vpn.api": ["allow-vpn"],
+            "aps-environment": "production",
+        }
+
+        filtered, removed = module.remove_network_extension_entitlement(source)
+
+        self.assertNotIn("com.apple.developer.networking.networkextension", filtered)
+        self.assertNotIn("com.apple.developer.networking.vpn.api", filtered)
+        self.assertEqual(
+            removed,
+            [
+                "com.apple.developer.networking.networkextension[packet-tunnel-provider]",
+                "com.apple.developer.networking.vpn.api[allow-vpn]",
+            ],
+        )
+
+    def test_app_store_filter_rejects_personal_vpn_in_check_mode(self):
+        source = {"com.apple.developer.networking.vpn.api": ["allow-vpn"]}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "entitlements.plist"
+            path.write_bytes(plistlib.dumps(source))
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(FILTER_SCRIPT),
+                    "--check",
+                    "--remove-network-extension",
+                    str(path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("com.apple.developer.networking.vpn.api[allow-vpn]", result.stderr)
+
+    def test_app_store_release_entitlements_omit_network_extension(self):
+        entitlements = plistlib.loads(
+            (REPO_ROOT / "ios/Config/cmux-appstore-release.entitlements").read_bytes()
+        )
+        self.assertNotIn("com.apple.developer.networking.networkextension", entitlements)
 
 
 if __name__ == "__main__":

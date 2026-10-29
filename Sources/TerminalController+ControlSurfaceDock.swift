@@ -42,7 +42,7 @@ extension TerminalController {
         workspaceNotFound: Resolution,
         conflictingSelectors: (String) -> Resolution
     ) -> Resolution? {
-        guard panelType == .terminal || panelType == .browser else {
+        guard panelType == .terminal || panelType == .browser || panelType == .chief else {
             return unsupportedType(panelType.rawValue, dockUnsupportedSurfaceTypeMessage())
         }
         guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
@@ -78,7 +78,7 @@ extension TerminalController {
     }
 
     func dockUnsupportedSurfaceTypeMessage() -> String {
-        String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports only terminal and browser surfaces")
+        String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports terminal, browser, and Chief surfaces")
     }
 
     func dockUnavailableMessage() -> String {
@@ -100,6 +100,7 @@ extension TerminalController {
         tabManager: TabManager,
         panelType: PanelType,
         url: URL?,
+        preferredProfileID: UUID? = nil,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
         if let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
@@ -115,7 +116,7 @@ extension TerminalController {
             return .paneNotFound
         }
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
-        let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
+        let kind: DockSurfaceKind = panelType == .browser ? .browser : (panelType == .chief ? .chief : .terminal)
         if focus {
             // Creation is authoritative; revealing its secondary focus request
             // is best-effort when the Dock host is still mounting.
@@ -131,7 +132,9 @@ extension TerminalController {
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
             initialInput: kind == .terminal ? inputs.initialInput : nil,
             focus: false,
-            preloadInitialNavigationInBackground: kind == .browser
+            preferredProfileID: kind == .browser ? preferredProfileID : nil,
+            preloadInitialNavigationInBackground: kind == .browser,
+            conversationID: nil
         )
         guard let newPanelId else {
             return .createFailed
@@ -369,6 +372,9 @@ extension TerminalController {
         }
         guard windowDock.containsPanel(surfaceId) else {
             return .closeFailed(surfaceId)
+        }
+        if let message = browserReplTabRefusalMessage(surfaceId) {
+            return .denied(surfaceId, message: message)
         }
         if !force,
            let panel = windowDock.panel(for: TabID(uuid: surfaceId)),

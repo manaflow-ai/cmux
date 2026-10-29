@@ -45,6 +45,7 @@ struct SidebarWorkspaceRowInput {
     let inferredTaskStatus: WorkspaceTaskStatus
     let activeTodoOverride: WorkspaceTaskStatus?
     let isTodoStatusHidden: Bool
+    let hasManualCustomColor: Bool
 
     @MainActor
     func rowSnapshot(list: SidebarWorkspaceRowsSnapshot) -> SidebarWorkspaceRowSnapshot {
@@ -97,6 +98,7 @@ struct SidebarWorkspaceRowInput {
                 canMarkUnread: targetAggregate.canMarkUnread,
                 hasLatestNotification: targetAggregate.hasLatestNotification,
                 allNotificationsMuted: targetAggregate.allNotificationsMuted,
+                hasManualCustomColor: targetAggregate.hasManualCustomColor,
                 notifications: targetAggregate.notifications
             )
         )

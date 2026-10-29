@@ -168,6 +168,86 @@ struct ClaudeHookSessionLivenessTests {
         #expect(restoredPanel.surface.initialInput?.contains(fixture.sessionId) == true)
     }
 
+    /// A quit whose fresh process census misses its deadline saves with the
+    /// cached shared index (#20186). That index may predate a live Claude
+    /// session, so a missing entry is not evidence that the agent stopped.
+    @Test("A quit save from a stale cached index keeps a live Claude tab resumable")
+    func quitSaveFromStaleCachedIndexKeepsLiveClaudeResumable() throws {
+        let fixture = try makeFixture(prefix: "cmux-claude-quit-cached-index")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let defaultsName = "cmux-claude-quit-cached-index-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let source = Workspace(id: fixture.workspaceId, agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let panelID = try #require(source.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Claude Code",
+            kind: "claude",
+            command: "claude --resume \(fixture.sessionId)",
+            cwd: fixture.root.path,
+            checkpointId: fixture.sessionId,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: fixture.capturedAt
+        )
+        #expect(source.setSurfaceResumeBinding(binding, panelId: panelID))
+
+        let quitFallback = ProcessDetectedResumeIndexes.cached(restorableAgentIndex: .empty)
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: quitFallback.restorableAgentIndex,
+            surfaceResumeBindingIndex: quitFallback.surfaceResumeBindingIndex
+        )
+        let terminal = try #require(snapshot.panels.first?.terminal)
+        #expect(terminal.wasAgentRunning != false)
+        #expect(terminal.resumeBinding?.checkpointId == fixture.sessionId)
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restored.focusedPanelId)
+        let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
+        #expect(restoredPanel.surface.initialInput?.contains(fixture.sessionId) == true)
+    }
+
+    /// The incomplete-index fallback must not resume an agent whose shell is
+    /// already back at its prompt: that agent exited before the quit.
+    @Test("A quit save from a stale cached index keeps an exited agent stopped")
+    func quitSaveFromStaleCachedIndexKeepsExitedAgentStopped() throws {
+        let fixture = try makeFixture(prefix: "cmux-claude-quit-cached-exited")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let source = Workspace(id: fixture.workspaceId)
+        defer { source.teardownAllPanels() }
+        let panelID = try #require(source.focusedPanelId)
+        #expect(source.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                name: "Claude Code",
+                kind: "claude",
+                command: "claude --resume \(fixture.sessionId)",
+                cwd: fixture.root.path,
+                checkpointId: fixture.sessionId,
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: fixture.capturedAt
+            ),
+            panelId: panelID
+        ))
+        source.updatePanelShellActivityState(panelId: panelID, state: .promptIdle)
+
+        let quitFallback = ProcessDetectedResumeIndexes.cached(restorableAgentIndex: .empty)
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: quitFallback.restorableAgentIndex,
+            surfaceResumeBindingIndex: quitFallback.surfaceResumeBindingIndex
+        )
+        #expect(snapshot.panels.first?.terminal?.wasAgentRunning == false)
+    }
+
     /// A busy Mac always has some process exiting between the PID listing and
     /// the per-process reads. That process is gone, not unreadable, so the census
     /// must stay complete and the live Claude session must stay running.

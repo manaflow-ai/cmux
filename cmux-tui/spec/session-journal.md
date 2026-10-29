@@ -395,9 +395,21 @@ exits. It does not initialize the TUI frontend. The main terminal process owns
 only the bounded socket handler and single-writer journal actor; provider hook
 execution remains in the provider's external process.
 
+If a terminal output write exhausts that wait, the capture lane waits for
+bounded durable admission of a `terminal.output.gap` marker and disables
+further capture for that terminal. If journal admission has already failed, the
+daemon reports that the marker could not be stored. The daemon and PTY host
+continue running; a stored gap makes the missing byte range explicit for
+restoration and diagnostics.
+
 The helper allows four seconds for the complete journal receipt. Installed
 command providers allow at least five seconds, so their outer timeout cannot
-cancel an event before the journal's two-second commit-admission window ends.
+cancel an event before the helper's bounded wait ends. Terminal output capture
+uses a separate thirty-second durable-admission default because a hosted VM can
+be descheduled for longer than a normal interactive request. Set
+`CMUX_TUI_JOURNAL_DURABLE_WAIT_MS` to tune that wait on a host; values are
+clamped to five seconds through five minutes. Older registries migrate to
+SQLite incremental auto-vacuum once at open before periodic maintenance starts.
 
 Install, inspect, or remove all detected provider adapters with:
 
@@ -616,6 +628,12 @@ cmux --session main --jsonl session current journal segment seal \
 cmux --session main --jsonl session current journal segment list
 ```
 
+Checkpoint and segment list responses are bounded to the catalog-safe result
+size (4,096 entries), with checkpoints ordered newest first and segments in
+their existing sequence order. The active journal remains the source of truth;
+the list operations are inspection surfaces and do not attempt to materialize
+an unbounded history in one protocol response.
+
 ## Retention and storage
 
 Append-only does not require one SQLite table to grow forever. The active tail
@@ -642,6 +660,15 @@ The public stream is asynchronous, while blocking SQLite work stays on the
 session writer or dedicated read workers. An async SQLite wrapper would move
 the same synchronous SQLite calls onto another worker and add scheduling hops;
 it would not make the database engine asynchronous.
+
+The daemon's journal-maintenance worker periodically creates a checkpoint after
+4,096 new records and seals up to eight 1,024-record segments per maintenance
+tick. Preparation and compression happen outside the registry writer, and each
+short commit releases that writer before the next segment. New registries use
+SQLite incremental auto-vacuum and take a bounded 256-page vacuum step after a
+maintenance pass. Existing registries keep their current SQLite auto-vacuum
+mode; sealing still reclaims active journal rows, while filesystem shrinkage
+requires the registry's existing vacuum policy.
 
 Canonical segments are retained until explicit session deletion or an explicit
 export-and-forget policy. Size pressure cannot silently delete history. Storage

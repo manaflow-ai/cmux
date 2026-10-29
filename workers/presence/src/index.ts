@@ -17,12 +17,23 @@
 //   POST /v1/replies                      park one phone inline-notification reply
 //   GET  /v1/replies?macDeviceId=…        pending replies for one Mac
 //   POST /v1/replies/ack                  remove processed replies
+//   POST /v1/sync/vms                     backend-only Cloud machine list
+//                                         publication ({teamId, ops}); the
+//                                         DO broadcasts `vms` sync deltas
+//   GET  /releases/v1/socket?feed=<id>    PUBLIC release push WebSocket: the
+//                                         newest build of one allowlisted
+//                                         appcast, then one frame per new build
+//   POST /releases/v1/poke?feed=<id>      PUBLIC: re-read that appcast (coalesced)
+//   GET  /releases/v1/latest?feed=<id>    PUBLIC: the current release frame
+//   cron (every minute)                   pokes every release feed (self-heal)
 //
 // Auth on every /v1 route: `Authorization: Bearer <Stack access token>` plus
 // optional `X-Cmux-Team-Id` / `?teamId=` team scoping, verified in auth.ts the
 // same way web/app/api verifies native callers. The worker resolves the team,
 // derives the per-team Durable Object from the VERIFIED team id, and forwards;
-// the DO never sees unauthenticated input.
+// the DO never sees unauthenticated input. The /releases/v1 routes are the one
+// exception: public, carrying only what the public appcasts already show
+// (releaseFeedRoute.ts).
 
 import {
   bearerToken,
@@ -39,11 +50,13 @@ import { AccountControlPlane, type ControlPlaneEnv } from "./controlPlaneDo";
 import { parseRevocationRequest } from "./controlPlane";
 import {
   isConnectivityPublisherAuthorized,
+  isVmsPublisherAuthorized,
   parseConnectivityInvalidation,
   parseHeartbeat,
   readBoundedJson,
 } from "./validate";
 import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
+import { MAX_VM_PUBLISH_BYTES, parseVmPublish } from "./syncVms";
 import {
   MAX_PHONE_REPLY_BODY_BYTES,
   parsePhoneReply,
@@ -59,14 +72,20 @@ import { captureSentryException } from "./sentry";
 import { rateLimitedJson } from "./retryAfterResponse";
 import { WorkspacePresence } from "./workspacePresenceDo";
 import { workspacePresenceRoute } from "./workspacePresenceRoute";
+import { ReleaseFeed } from "./releaseFeedDo";
+import { RELEASE_ROUTE_PREFIX, pokeAllReleaseFeeds, releaseFeedRoute } from "./releaseFeedRoute";
 
-export { TeamPresence, AccountControlPlane, WorkspacePresence };
+export { TeamPresence, AccountControlPlane, WorkspacePresence, ReleaseFeed };
 
 export interface Env extends AuthEnv, ControlPlaneEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
   ACCOUNT_CONTROL_PLANE: DurableObjectNamespace<AccountControlPlane>;
   WORKSPACE_PRESENCE: DurableObjectNamespace<WorkspacePresence>;
+  RELEASE_FEED: DurableObjectNamespace<ReleaseFeed>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
+  /** Service secret for `POST /v1/sync/vms`; must equal the web backend's
+   * `CMUX_PRESENCE_VMS_PUBLISHER_SECRET`. */
+  VMS_PUBLISHER_SECRET?: string;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -117,6 +136,10 @@ const worker = {
 
     if (url.pathname === "/healthz") {
       return json({ ok: true, service: "cmux-presence" });
+    }
+
+    if (url.pathname.startsWith(RELEASE_ROUTE_PREFIX)) {
+      return releaseFeedRoute(request, env);
     }
 
     if (url.pathname === "/v1/workspace-presence") {
@@ -372,6 +395,22 @@ const worker = {
       return json(result);
     }
 
+    if (url.pathname === "/v1/sync/vms") {
+      // Backend-only Cloud machine list publication. Service-to-service auth
+      // only: the web backend (route handlers and cron reconcilers, which
+      // have no user bearer) proves itself with the shared publisher secret
+      // and names the list scope (`ownerTeamId`) in the body. The DO is
+      // derived from that trusted team id exactly like a verified team.
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      if (!await isVmsPublisherAuthorized(request, env.VMS_PUBLISHER_SECRET)) return unauthorized();
+      const body = await readBoundedJson(request, MAX_VM_PUBLISH_BYTES);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parseVmPublish(body.value);
+      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      const stub = env.TEAM_PRESENCE.get(env.TEAM_PRESENCE.idFromName(parsed.teamId));
+      return json(await stub.publishVms(parsed.teamId, parsed.ops));
+    }
+
     if (url.pathname === "/v1/presence/snapshot") {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
       const team = await resolveTeamOr403(request, env);
@@ -432,5 +471,11 @@ export default {
       });
       return json({ error: "internal_error" }, 500);
     }
+  },
+
+  // The minute cron (wrangler.toml [triggers]): each tick pokes every release
+  // feed once and ends; the feed objects coalesce it with publisher pokes.
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(pokeAllReleaseFeeds(env));
   },
 } satisfies ExportedHandler<Env>;

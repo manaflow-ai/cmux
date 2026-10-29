@@ -3135,6 +3135,36 @@ describe("recordCheckoutCompletion", () => {
     });
   });
 
+  test("reads the plan from the licensed item when a metered usage item comes first", async () => {
+    const update = mock(async () => undefined);
+    const user = { id: "user_123", primaryEmail: "buyer@example.com", clientReadOnlyMetadata: {}, update };
+    selectResults = [[], []];
+    const subscription = userSubscriptionUpdate({ status: "active" });
+    subscription.items.data = [
+      {
+        id: "si_usage",
+        current_period_end: 1_800_000_000,
+        price: { id: "price_ai_usage", lookup_key: "cmux-ai-usage-test", recurring: { usage_type: "metered" } },
+      },
+      {
+        id: "si_plan",
+        quantity: 1,
+        current_period_end: 1_800_000_000,
+        price: { id: "price_max", lookup_key: "cmux-max-monthly-200", recurring: { usage_type: "licensed" } },
+      },
+    ] as never;
+
+    const result = await applySubscriptionUpdate(subscription as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser: async () => user } as never,
+    });
+
+    expect(result).toEqual({ scope: "user", stackUserId: "user_123", isActive: true });
+    const row = inserts.find((insert) => insert.table === stripeSubscriptions)?.values;
+    expect(row).toMatchObject({ id: "sub_user", priceId: "price_max", plan: "max" });
+    expect(update).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxPlan: "max" } });
+  });
+
   test("creates a missing user subscription row when the customer mapping already exists", async () => {
     const user = {
       id: "user_123",

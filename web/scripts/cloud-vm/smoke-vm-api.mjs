@@ -12,8 +12,9 @@ import {
   parseWebDirAndTarget,
   requireEnvKeys,
 } from "./projects.mjs";
+import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--sweep-this-run] [--result-file <path>]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -59,6 +60,24 @@ const claudeUpstreamBody = claudeUpstreamJson
 const zeroToken = rest.includes("--zero-token");
 if (zeroToken && (!edgeCheck || claudeCheck)) {
   console.error("--zero-token requires --edge-check and excludes --claude-check");
+  process.exit(2);
+}
+// --sweep-this-run creates nothing: it deletes the smoke users (and their
+// VMs) this GitHub Actions run made, whatever their age. A workflow runs it in
+// an `if: always()` step, which GitHub runs after a cancel or timeout too, so
+// a run killed before its own cleanup still leaves no VM behind. Each run's
+// users carry its id in their address (runEmailTag), so a concurrent smoke or
+// canary is never touched.
+const sweepThisRun = rest.includes("--sweep-this-run");
+// `gh-<run id>-<attempt>` inside GitHub Actions; null anywhere else.
+const runEmailTag = (() => {
+  const runId = process.env.GITHUB_RUN_ID?.trim();
+  if (!runId || !/^\d+$/.test(runId)) return null;
+  const attempt = process.env.GITHUB_RUN_ATTEMPT?.trim();
+  return `gh-${runId}-${attempt && /^\d+$/.test(attempt) ? attempt : "1"}`;
+})();
+if (sweepThisRun && !runEmailTag) {
+  console.error("--sweep-this-run needs GITHUB_RUN_ID (it only runs inside GitHub Actions)");
   process.exit(2);
 }
 // --sweep-older-than-minutes deletes leftovers from earlier smoke runs that
@@ -210,11 +229,14 @@ async function sessionHeaders(stackUser, expiresInMillis) {
   return {
     authorization: `Bearer ${tokens.accessToken}`,
     "x-stack-refresh-token": tokens.refreshToken,
+    // Names the probe in `cloud_vm_request.client_name`. The server also tags
+    // every event of this account `is_synthetic` from its smoke address.
+    "x-cmux-client": "cmux-cloud-smoke",
   };
 }
 
 async function sweepLeftovers(app, emailPrefix, olderThanMinutes) {
-  const cutoff = Date.now() - olderThanMinutes * 60_000;
+  const cutoff = olderThanMinutes === 0 ? Infinity : Date.now() - olderThanMinutes * 60_000;
   const candidates = await app.listUsers({ query: emailPrefix, limit: 200 });
   const swept = { users: 0, vms: 0, kept: [] };
   for (const leftover of candidates) {
@@ -244,6 +266,27 @@ async function sweepLeftovers(app, emailPrefix, olderThanMinutes) {
   return swept;
 }
 
+// A cancelled CI run or a Ctrl-C: delete the VM this run created before
+// exiting. The finally below never runs on a signal. A SIGKILL is covered by
+// the workflow's always() --sweep-this-run step instead.
+let signalled = false;
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    if (signalled) return;
+    signalled = true;
+    console.error(`${signal}: cleaning up before exit`);
+    const exitCode = signal === "SIGINT" ? 130 : 143;
+    const pendingVm = vmId;
+    const cleanup = pendingVm && authHeaders
+      ? fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(pendingVm)}`, { method: "DELETE", headers: authHeaders }, 10_000)
+        .then((destroy) => console.error(`cleanup_on_signal_vm=${pendingVm} status=${destroy.status}`))
+      : Promise.resolve();
+    cleanup
+      .catch((error) => console.error(`cleanup_on_signal_failed vm=${pendingVm} error=${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => process.exit(exitCode));
+  });
+}
+
 try {
   const env = loadTargetEnv(project);
   requireEnvKeys(env, [
@@ -257,6 +300,16 @@ try {
 
   const app = new StackServerApp({ projectId, publishableClientKey, secretServerKey });
   const emailPrefix = `cmux-${project.stackLabel}-smoke+`;
+  if (sweepThisRun) {
+    stage = "sweep";
+    const own = await timed("sweep", () => sweepLeftovers(app, `${emailPrefix}${runEmailTag}-`, 0));
+    console.log(JSON.stringify({ ok: own.kept.length === 0, target, sweptThisRun: runEmailTag, swept: own }));
+    if (own.kept.length > 0) {
+      throw new Error(`could not delete the VMs of ${own.kept.length} smoke user(s) from this run: ${own.kept.join(", ")}`);
+    }
+    writeResultFile({ ok: true });
+    process.exit(0);
+  }
   const swept = sweepOlderThanMinutes === null
     ? null
     : await timed("sweep", () => sweepLeftovers(app, emailPrefix, sweepOlderThanMinutes));
@@ -265,7 +318,7 @@ try {
     throw new Error(`sweep could not delete the VMs of ${swept.kept.length} earlier smoke user(s): ${swept.kept.join(", ")}`);
   }
   stage = "auth";
-  const suffix = `${Date.now()}-${randomBytes(3).toString("hex")}`;
+  const suffix = `${runEmailTag ? `${runEmailTag}-` : ""}${Date.now()}-${randomBytes(3).toString("hex")}`;
   user = await app.createUser({
     primaryEmail: `${emailPrefix}${suffix}@manaflow.dev`,
     primaryEmailVerified: true,
@@ -399,9 +452,7 @@ try {
       };
       const guestEnv = "export HOME=/root; for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done; . /etc/cmux/agent-config.sh;";
       const originHost = await exec(`${guestEnv} printf '%s' "$CMUX_CODEROUTER_URL" | sed -e 's#^https\\?://##' -e 's#/.*$##'`);
-      const hosts = await exec("sed -n '/BEGIN freestyle-tls-egress/,/END freestyle-tls-egress/p' /etc/hosts");
       const host = (originHost.stdout ?? "").trim();
-      const steered = host.length > 0 && (hosts.stdout ?? "").includes(host);
       // Any crt_ string under the agent config roots means a token leaked into the guest.
       const leak = await exec("grep -rslE 'crt_[A-Za-z0-9_-]{40,}' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
       const tokenOnDisk = (leak.stdout ?? "").trim();
@@ -413,16 +464,9 @@ try {
         ? await exec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
         : await exec(`${guestEnv} cd /root && command -v codex && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20; echo "codex-exit $?"`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
-      // codex echoes the prompt, so only a line that is exactly the answer counts.
-      const codexPong = !zeroToken && codexOut.split("\n").some((line) => line.trim().toLowerCase() === "pong");
-      // The edge delivered the token but the team has no upstream subscription:
-      // a real outcome on staging teams, reported rather than failed. In
-      // zero-token mode it is the only passing outcome.
-      const codexOutcome = /codex-missing/.test(codexOut)
-        ? "failed"
-        : codexPong ? "answered" : /"error":\s*"no_usable_account"/.test(codexOut) ? "no_account" : "failed";
+      const codexOutcome = classifyCodexCanaryOutcome(codexOut, { zeroToken });
       edge = {
-        hostsSteered: steered,
+        edgeHost: host || null,
         tokenOnDisk: tokenOnDisk === "" ? null : tokenOnDisk,
         modelsStatus,
         codexExit: codex.exitCode,
@@ -445,14 +489,14 @@ try {
         const selfUsage = await exec(`${guestEnv} curl -sS --max-time 20 -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
         edge.selfUsage = (selfUsage.stdout ?? "").trim().slice(0, 600);
       }
-      const problems = [];
-      if (!steered) problems.push(`guest /etc/hosts is not steered to the edge for ${host || "the coderouter origin"}`);
-      if (tokenOnDisk) problems.push(`route token found in guest files: ${tokenOnDisk}`);
-      if (modelsStatus !== "200") problems.push(`GET /api/coderouter/vm-usage/self from the guest returned ${modelsStatus || "nothing"}`);
-      if (codexOutcome === "failed") problems.push(`codex turn through the edge did not answer: ${edge.codexTail}`);
-      if (claudeCheck && edge.claudeOutcome !== "answered") problems.push(`claude turn through the edge did not answer: ${edge.claudeTail}`);
+      const problems = edgeCanaryProblems({
+        ...edge,
+        claudeCheck,
+        codexTail: edge.codexTail,
+        claudeTail: edge.claudeTail,
+      });
       timings.edgeMs = Math.round(performance.now() - edgeStartedAt);
-      // Everything past the guest's hosts and disk is coderouter answering.
+      // Everything past the guest's alias and disk is coderouter answering.
       if (modelsStatus !== "200" || codexOutcome === "failed" || (claudeCheck && edge.claudeOutcome !== "answered")) {
         stage = "coderouter";
       }
@@ -544,8 +588,10 @@ try {
   process.exitCode = 1;
 } finally {
   // A create that failed before returning an id, or a VM that could not be
-  // deleted, may still exist; deleting its owner would orphan it.
-  if (user && keepUserForSweep && sweepOlderThanMinutes !== null) {
+  // deleted, may still exist; deleting its owner would orphan it where no
+  // sweep can find it. Keep the user, so the next --sweep-older-than-minutes
+  // run (the canary's) or this run's --sweep-this-run step deletes both.
+  if (user && keepUserForSweep) {
     console.error(`cleanup_kept_user_for_sweep=${user.id}`);
   } else if (user) {
     try {

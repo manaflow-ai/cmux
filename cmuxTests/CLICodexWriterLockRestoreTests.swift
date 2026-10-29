@@ -115,6 +115,96 @@ struct CLICodexWriterLockRestoreTests {
         }
     }
 
+    /// A relaunch resumes dozens of Codex threads at once. Each briefly holds
+    /// the shared coordination lock, which must not fail an unowned restore.
+    @Test("Coordination-lock contention is retried, and persistent contention says so", arguments: [true, false])
+    func coordinationContentionIsTransient(releases: Bool) throws {
+        let runner = CMUXCLIErrorOutputRegressionTests()
+        let cli = try runner.bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-coordination-\(UUID().uuidString)")
+        let home = root.appendingPathComponent(".codex")
+        let cwd = root.appendingPathComponent("project")
+        let sessions = home.appendingPathComponent("sessions")
+        let locks = home.appendingPathComponent("thread-writer-locks")
+        let marker = home.appendingPathComponent("started")
+        let executable = root.appendingPathComponent("codex")
+        let session = UUID().uuidString.lowercased()
+        let surface = UUID().uuidString
+        for directory in [cwd, sessions, locks] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        let metadata: [String: Any] = ["type": "session_meta", "payload": [
+            "id": session, "cwd": cwd.path, "source": "cli", "originator": "codex-tui"
+        ]]
+        var rollout = try JSONSerialization.data(withJSONObject: metadata)
+        rollout.append(10)
+        try rollout.write(to: sessions.appendingPathComponent("rollout-\(session).jsonl"))
+        try "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CODEX_HOME/started\"\n"
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        let record: [String: Any] = [
+            "kind": "codex", "mode": "resumeAgent", "checkpoint_id": session,
+            "source": "session-snapshot", "working_directory": cwd.path,
+            "launch_command": [
+                "launcher": "codex", "executable_path": executable.path,
+                "arguments": [executable.path], "verification_home": root.path,
+                "working_directory": cwd.path
+            ]
+        ]
+        // Another Codex is starting its own thread: it holds coordination
+        // exclusively, and this conversation has no writer at all.
+        let coordination = open(locks.appendingPathComponent(".coordination.lock").path,
+                                O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        try #require(coordination >= 0)
+        let pendingRelease = DispatchGroup()
+        // The descriptor must outlive a scheduled release, even after a failure.
+        defer {
+            _ = pendingRelease.wait(timeout: .now() + 5)
+            close(coordination)
+        }
+        try #require(flock(coordination, LOCK_EX | LOCK_NB) == 0)
+        let socket = "/tmp/cmux-coord-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socket,
+            responses: [try response(["workspace_id": UUID().uuidString, "surface_id": surface, "restore_record": record])],
+            onRequest: { _ in
+                guard releases else { return }
+                // Release only after the CLI is past its socket round trip, so
+                // the final exec guard observes the contention first.
+                pendingRelease.enter()
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.4) {
+                    _ = flock(coordination, LOCK_UN)
+                    pendingRelease.leave()
+                }
+            }
+        )
+        defer { responder.stop() }
+        var environment = [
+            "HOME": root.path, "CFFIXED_USER_HOME": root.path, "PATH": "/usr/bin:/bin",
+            "CMUX_SOCKET_PATH": socket, "CMUX_CLI_SENTRY_DISABLED": "1", "SHELL": "/bin/sh"
+        ]
+        for key in ["DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH"] {
+            environment[key] = ProcessInfo.processInfo.environment[key]
+        }
+        let result = runner.runProcess(
+            executablePath: cli, arguments: ["restore", "--surface", surface, "codex", session],
+            environment: environment,
+            timeout: 30
+        )
+        try #require(!result.timedOut, Comment(rawValue: result.diagnostics))
+        if releases {
+            try #require(result.status == 0, Comment(rawValue: result.diagnostics))
+            let started = try String(contentsOf: marker, encoding: .utf8)
+            #expect(started.contains(session))
+        } else {
+            #expect(result.status != 0, Comment(rawValue: result.diagnostics))
+            #expect(!FileManager.default.fileExists(atPath: marker.path))
+            #expect(result.stderr.contains("still updating its session locks"), Comment(rawValue: result.diagnostics))
+            #expect(!result.stderr.contains("could not verify"), Comment(rawValue: result.diagnostics))
+        }
+    }
+
     private func response(_ result: [String: Any]) throws -> String {
         String(decoding: try JSONSerialization.data(withJSONObject: ["ok": true, "result": result]), as: UTF8.self)
     }

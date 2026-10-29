@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Owns overlapping read requests for one VM client. Caller cancellation releases
@@ -6,7 +7,12 @@ import Foundation
 /// Caller deadlines are independent upper bounds. The shared transport also has
 /// a fixed lifetime cap; reaching it fails even later callers without extending it.
 public actor CloudReadRequestCoordinator {
-    @TaskLocal public static var current: Context?
+    /// The read whose transport the current task runs, if any.
+    public static var current: Context? { boundContext?.value }
+
+    // Bound by reference: a value payload can take macOS 14's back-deployed
+    // TaskLocal fallback, which aborts when the payload's size is dynamic.
+    @TaskLocal private static var boundContext: TaskLocalReference<Context>?
 
     private nonisolated let clock: CloudRequestClock
     private nonisolated let budget: Duration
@@ -26,6 +32,13 @@ public actor CloudReadRequestCoordinator {
 
     public nonisolated func makeDeadline(elapsed: Duration = .zero, limit: Duration? = nil) -> Duration {
         clock.now() + min(budget, limit ?? budget) - elapsed
+    }
+
+    /// The shared transport's lifetime cap in seconds, which a coordinated
+    /// read states as its budget (``CloudRequestBudget``).
+    public nonisolated var transportBudgetSeconds: TimeInterval {
+        let parts = budget.components
+        return TimeInterval(parts.seconds) + TimeInterval(parts.attoseconds) / 1e18
     }
 
     public func read(_ key: Key, deadline: Duration? = nil, operation: @escaping @Sendable () async throws -> Response) async throws -> Response {
@@ -167,7 +180,7 @@ public actor CloudReadRequestCoordinator {
             let result: Result<Response, Error>
             do {
                 try Task.checkCancellation()
-                result = .success(try await Self.$current.withValue(context, operation: operation))
+                result = .success(try await Self.$boundContext.withReferencedValue(context, operation: operation))
             } catch {
                 result = .failure(error)
             }

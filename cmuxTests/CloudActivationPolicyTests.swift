@@ -12,7 +12,7 @@ import Testing
 /// The one launch-time decision for Cloud, as behavior: a Mac that never opted
 /// in and never had a machine is inert (no fleet polling, no tunnel start, no
 /// NetworkExtension preferences read); the persisted activation marker plus a machine
-/// admits the tunnel; prior Cloud use never bypasses a disabled remote gate.
+/// admits the tunnel; managed policy remains the only administrative gate.
 @Suite
 struct CloudActivationPolicyTests {
     private func policy(
@@ -95,7 +95,7 @@ struct CloudActivationPolicyTests {
         #expect(await off.resolvedTunnelStartRefusal() == .cloudMachinesOff)
     }
 
-    @Test("prior Cloud use cannot bypass the remote Cloud gate")
+    @Test("prior Cloud use cannot bypass the Cloud activation policy")
     func priorUseWithoutToggle() async {
         let policy = policy(enabled: false, usedCloud: true, machine: nil, configured: true, resolved: true)
         #expect(policy.allowsBackgroundCloudWork == false)
@@ -159,7 +159,6 @@ struct CloudActivationPolicyTests {
                 machineCache: cache,
                 browserTunnel: browser,
                 terminalTunnel: terminal,
-                remoteEnabled: { true },
                 resolveCloudMachine: { nil }
             )
         }
@@ -241,7 +240,7 @@ struct CloudActivationPolicyTests {
         #expect(policy.hasCloudMachine() == nil)
 
         // The user-space hub enrolled the terminal role (a link to a machine):
-        // this Mac used Cloud, but the remote gate still stops fleet polling
+        // this Mac used Cloud, but the activation policy still stops fleet polling
         // when the integration is disabled.
         _ = try harness.terminal.deviceFingerprint()
         #expect(policy.hasUsedCloud())
@@ -286,8 +285,8 @@ struct CloudActivationPolicyTests {
         #expect(cache.hasAnyMachine == nil)
     }
 
-    @Test("Cloud requires the remote gate and activation marker, and never bypasses managed DisableCloud")
-    func cloudMachinesGateRequiresRemoteAndActivation() throws {
+    @Test("Cloud requires activation and never bypasses managed DisableCloud")
+    func cloudMachinesGateRequiresActivation() throws {
         let suiteName = "cmux.cloud.feature.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -298,15 +297,14 @@ struct CloudActivationPolicyTests {
 
         let expectedDefault = false
         #expect(CloudMachinesFeature.localOptIn(defaults: defaults) == expectedDefault)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: false) == false)
+        #expect(!CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged))
 
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: false) == false)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: true))
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: managedOff, remoteEnabled: true) == false)
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged))
+        #expect(!CloudMachinesFeature.isEnabled(defaults: defaults, policy: managedOff))
 
         defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: true) == false)
+        #expect(!CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged))
 
     }
 }

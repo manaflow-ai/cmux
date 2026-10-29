@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -115,27 +116,15 @@ extension CMUXCLI {
         return false
     }
 
-    func tmuxCommandTextContainsWord(_ commandText: String, word: String) -> Bool {
-        let escapedWord = NSRegularExpression.escapedPattern(for: word)
-        let pattern = "(^|[^A-Za-z0-9_-])\(escapedWord)([^A-Za-z0-9_-]|$)"
-        return commandText.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
-    }
-
-    func tmuxCommandLooksLikeOMXHud(_ commandTokens: [String]) -> Bool {
-        let commandText = commandTokens.joined(separator: " ")
-        let lowered = commandText.lowercased()
-        guard tmuxCommandTextContainsWord(lowered, word: "hud") else {
-            return false
-        }
-
+    /// Whether `commandText`, a pane command as a shell would receive it, starts the OMX HUD.
+    func tmuxCommandLooksLikeOMXHud(_ commandText: String) -> Bool {
         let environment = ProcessInfo.processInfo.environment
         let launchedThroughOMXShim = environment["CMUX_OMX_CMUX_BIN"] != nil
             || environment["CMUX_AGENT_LAUNCH_KIND"] == "omx"
-        if launchedThroughOMXShim {
-            return true
-        }
-
-        return lowered.contains("omx") || lowered.contains("oh-my-codex")
+        return OMXHudCommandMatcher().matches(
+            command: commandText,
+            launchedThroughOMXShim: launchedThroughOMXShim
+        )
     }
 
     func tmuxDebugDiagnosticsEnabled() -> Bool {

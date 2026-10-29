@@ -61,7 +61,7 @@ extension RemoteSessionCoordinator {
             try operation.throwIfCancelled()
             // Mark before preparing: a failed prepare may still leave the directory.
             hasTouchedRemotePasteDirectory = true
-            try prepareRemotePasteDirectoryLocked()
+            let remoteHomeDirectory = try prepareRemotePasteDirectoryLocked()
             for localURL in fileURLs {
                 try operation.throwIfCancelled()
                 let normalizedLocalURL = localURL.standardizedFileURL
@@ -69,7 +69,10 @@ extension RemoteSessionCoordinator {
                     throw RemoteDropUploadError.invalidFileURL
                 }
 
-                let remotePath = remotePastePolicy.remotePath(for: normalizedLocalURL)
+                let remotePath = remotePastePolicy.remotePath(
+                    for: normalizedLocalURL,
+                    homeDirectory: remoteHomeDirectory
+                )
                 uploadedRemotePaths.append(remotePath)
                 // SCP's stream is a batch protocol; a remote PTY would corrupt
                 // its framing even when an interactive workspace requested one.
@@ -121,15 +124,15 @@ extension RemoteSessionCoordinator {
     func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
         let cleanupScript = remotePastePolicy.cleanupScript(for: remotePaths)
-        let cleanupCommand = "sh -c \(cleanupScript.shellSingleQuoted)"
+        let cleanupCommand = RemotePOSIXShellCommand(script: cleanupScript).commandLine
         _ = try? sshExec(
             arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, cleanupCommand],
             timeout: 8
         )
     }
 
-    private func prepareRemotePasteDirectoryLocked() throws {
-        let command = "sh -c \(remotePastePolicy.maintenanceScript().shellSingleQuoted)"
+    private func prepareRemotePasteDirectoryLocked() throws -> String {
+        let command = RemotePOSIXShellCommand(script: remotePastePolicy.maintenanceScript()).commandLine
         let result = try sshExec(
             arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
             timeout: 12
@@ -139,10 +142,16 @@ extension RemoteSessionCoordinator {
                 ?? "ssh exited \(result.status)"
             throw RemoteDropUploadError.uploadFailed(detail)
         }
+        guard let remoteHomeDirectory = remotePastePolicy.remoteHomeDirectory(
+            fromMaintenanceOutput: result.stdout
+        ) else {
+            throw RemoteDropUploadError.uploadFailed("remote home directory unavailable")
+        }
+        return remoteHomeDirectory
     }
 
     private func finalizeRemotePasteFileLocked(_ remotePath: String) throws {
-        let command = "sh -c \(remotePastePolicy.finalizeScript(for: remotePath).shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: remotePastePolicy.finalizeScript(for: remotePath)).commandLine
         let result = try sshExec(
             arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
             timeout: 8
@@ -155,7 +164,7 @@ extension RemoteSessionCoordinator {
     }
 
     func cleanupRemotePasteDirectoryLocked() {
-        let command = "sh -c \(remotePastePolicy.teardownCleanupScript().shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: remotePastePolicy.teardownCleanupScript()).commandLine
         _ = try? sshExec(
             arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
             timeout: 8

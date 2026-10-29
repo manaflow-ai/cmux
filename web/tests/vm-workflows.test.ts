@@ -11,6 +11,7 @@ import {
   type VmCreateCreditReservation,
 } from "../services/vms/billingGateway";
 import type { AttachEndpoint, SSHEndpoint, VMHandle } from "../services/vms/drivers";
+import { ProviderGuestUnresponsiveError } from "../services/vms/drivers/types";
 import { vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
@@ -47,6 +48,7 @@ import {
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 import { networkSlugForTeam } from "../services/vms/privateNetwork";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
+import { settleOnTestClock } from "./helpers/test-clock";
 import { freestyleGuestFixture, guestCreateOptions } from "./fixtures/freestyleGuest";
 import {
   VM_DISK_MB_MAX,
@@ -56,6 +58,8 @@ import {
 import {
   createVm,
   destroyVm,
+  EXEC_ANSWER_MARGIN_MS,
+  execAnswerBudgetMs,
   execVm,
   forkVm,
   getVm,
@@ -74,10 +78,81 @@ import {
   renameVm,
   restoreVm,
   reconcileVmProviderStatuses,
+  restartVm,
   resizeVm,
   snapshotVm,
   type VmModelPlaneProvisioner,
 } from "../services/vms/workflows";
+
+describe("VM hard restart", () => {
+  test("restarts a frozen machine without probing its status or guest", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-frozen", status: "running" });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    let restartCalls = 0;
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const result = await Effect.runPromise(restartVm({
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, {
+        ...unusedProviderGateway(),
+        restart: (_provider, providerVmId) => Effect.sync(() => {
+          expect(providerVmId).toBe("vm-frozen");
+          restartCalls += 1;
+        }),
+        // A frozen provider would never answer this probe. The workflow must
+        // invoke restart directly instead of requiring a healthy read first.
+        getStatus: () => Effect.die(new Error("status probe must not run")),
+      }),
+    ))));
+
+    expect(result).toEqual({ id: "vm-frozen", status: "running" });
+    expect(restartCalls).toBe(1);
+    expect(observedStatuses).toEqual([{ id: vm.id, providerVmId: "vm-frozen", status: "running" }]);
+    expect(usageEvents).toContainEqual(expect.objectContaining({ eventType: "vm.restarted", vmId: vm.id }));
+  });
+
+  test("declared unsupported restart never mutates lifecycle or records success", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-frozen", status: "running" });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    let restartCalls = 0;
+    const result = await Effect.runPromise(Effect.either(restartVm({
+      userId: vm.userId, providerVmId: vm.providerVmId!,
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, testWorkflowRepo({ vm, usageEvents, observedStatuses })),
+      Layer.succeed(VmProviderGateway, {
+        ...unusedProviderGateway(),
+        capabilities: () => ({ ...vmCapabilitiesFor("freestyle"), restart: false }),
+        restart: () => Effect.sync(() => { restartCalls += 1; }),
+      }),
+    )))));
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).toBeInstanceOf(VmOperationUnsupportedError);
+    expect(restartCalls).toBe(0);
+    expect(observedStatuses).toEqual([]);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("returns a typed unsupported error when the provider has no hard restart", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-no-restart", status: "running" });
+    const result = await Effect.runPromise(Effect.either(restartVm({
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, testWorkflowRepo({ vm })),
+      Layer.succeed(VmProviderGateway, unusedProviderGateway()),
+    )))));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left).toBeInstanceOf(VmOperationUnsupportedError);
+      expect(result.left).toMatchObject({ operation: "restart" });
+    }
+  });
+});
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 // These cases share one Postgres database and several exercise paths read or
@@ -767,10 +842,11 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    // A legacy source draws from the pool at the plan's default machine size.
-    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
+    // A legacy source is measured before the fork so its actual shape is
+    // reserved while the copy is provisioned.
+    expect(reservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
     expect(beginInput?.forkPending).toBe(true);
-    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
+    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
     expect(finalizedReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
   });
 
@@ -855,11 +931,10 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    // A legacy source draws from the pool at the plan's default machine size.
-    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
+    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 });
     expect(beginInput?.forkPending).toBe(true);
-    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
-    expect(finalizedReservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
+    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 });
+    expect(finalizedReservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 });
   });
 
   test("keeps the supported 1-vCPU legacy fork shape", async () => {
@@ -942,8 +1017,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    // A legacy source draws from the pool at the plan's default machine size.
-    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
+    expect(reservation).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 16384 });
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 16384 });
@@ -1077,8 +1151,8 @@ describe("VM Effect workflows", () => {
 
     const event = usageEvents.find((candidate) => candidate.eventType === "vm.snapshot.created");
     expect(event?.metadata).toMatchObject({
-      vcpus: 5,
-      memoryMb: 20 * 1024,
+      vcpus: 32,
+      memoryMb: 64 * 1024,
       diskMb: VM_DISK_MB_MAX,
     });
   });
@@ -1274,6 +1348,7 @@ describe("VM Effect workflows", () => {
       billingPlanId: "pro",
       providerVmId: "provider-vm-resize-confirmed",
       status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 } },
     });
     const confirmations: Array<{
       id: string;
@@ -1334,6 +1409,7 @@ describe("VM Effect workflows", () => {
       billingPlanId: "pro",
       providerVmId: "provider-vm-resize-confirmation-race",
       status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 } },
     });
     const usageEvents: RecordedUsageEvent[] = [];
     let statsCalls = 0;
@@ -1381,6 +1457,7 @@ describe("VM Effect workflows", () => {
       billingPlanId: "pro",
       providerVmId: "provider-vm-resize-stats-failure",
       status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 } },
     });
     const unconfirmed: Array<{
       id: string;
@@ -1459,6 +1536,94 @@ describe("VM Effect workflows", () => {
     );
     expect(error).toMatchObject({ _tag: "VmResizeInvalidError", reason: "below_current" });
     expect(resizeCalls).toBe(0);
+  });
+
+  test.each([
+    ["cpu", { cpu: 32 }, 8],
+    ["memory", { memoryMb: 64 * 1024 }, 16 * 1024],
+    ["storage", { storageMb: 256 * 1024 }, 128 * 1024],
+  ] as const)("rejects a Pro %s resize above its subscription ceiling before provider I/O", async (_resource, request, maximum) => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000145",
+      userId: "user-workflow-resize-plan",
+      billingTeamId: "team-workflow-resize-plan",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-resize-plan",
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 } },
+    });
+    let providerCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStats: () => Effect.sync(() => {
+        providerCalls += 1;
+        return { state: "awake" as const, sampledAt: Date.now(), cpus: 4, memoryTotalMb: 8 * 1024, diskTotalMb: 32 * 1024 };
+      }),
+      resize: () => Effect.sync(() => { providerCalls += 1; }),
+    };
+    const error = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        billingPlanId: "pro",
+        ...request,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(error).toMatchObject({
+      _tag: "VmResizePlanLimitError",
+      max: maximum,
+      planId: "pro",
+    });
+    expect(providerCalls).toBe(0);
+  });
+
+  test.each([
+    [12, 24 * 1024],
+    [16, 32 * 1024],
+  ] as const)("Max can resize to the %d-vCPU image-ladder row", async (cpu, memoryMb) => {
+    const vm = testCloudVmRow({
+      id: `00000000-0000-4000-8000-00000000014${cpu}`,
+      userId: `user-workflow-resize-max-${cpu}`,
+      billingTeamId: `team-workflow-resize-max-${cpu}`,
+      billingPlanId: "max",
+      providerVmId: `provider-vm-resize-max-${cpu}`,
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 8, memoryMb: 16 * 1024, diskMb: 65536 } },
+    });
+    let resized = false;
+    let resizeOptions: { cpu?: number; memoryMb?: number } | undefined;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        cpus: resized ? cpu : 8,
+        memoryTotalMb: resized ? memoryMb : 16 * 1024,
+        diskTotalMb: 65536,
+      }),
+      resize: (_provider, _providerVmId, options) => Effect.sync(() => {
+        resizeOptions = options;
+        resized = true;
+      }),
+    };
+
+    const result = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        billingPlanId: "max",
+        maxActiveVms: 5,
+        cpu,
+        memoryMb,
+      }).pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+
+    expect(resizeOptions).toEqual({ cpu, memoryMb });
+    expect(result.cpus).toBe(cpu);
+    expect(result.memoryTotalMb).toBe(memoryMb);
   });
 
   test("rejects an unsupported port before attempting to resume a paused VM", async () => {
@@ -1682,6 +1847,93 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(0);
   });
 
+  // The exec route owns its answer deadline: the Mac client gives up at the
+  // requested timeout plus 5 s, so a provider answer that comes later (a
+  // background-request poll failing at 75 s on a 60 s exec, production
+  // 2026-10-08) never reaches anyone. At the deadline the workflow answers
+  // the command's timeout itself, and a provider failure after the command's
+  // own timeout has elapsed is that same timeout.
+  const execDeadlineFixture = (exec: VmProviderGatewayShape["exec"], key: string) => {
+    const vm = testCloudVmRow({
+      id: `00000000-0000-4000-8000-0000000001${key}`,
+      userId: `user-workflow-exec-deadline-${key}`,
+      providerVmId: `provider-vm-exec-deadline-${key}`,
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec,
+      getStatus: () => Effect.succeed("running" as const),
+    };
+    return { vm, usageEvents, layer: workflowLayer(repo, provider) };
+  };
+
+  // Runs `execVm` on the test clock until it answers; returns the answer and
+  // the virtual time it took.
+  const execOnTestClock = async (layer: ReturnType<typeof workflowLayer>, input: Parameters<typeof execVm>[0]) => {
+    const { exit, elapsedMs } = await settleOnTestClock(execVm(input).pipe(Effect.provide(layer)));
+    if (!exit) throw new Error("execVm did not settle on the test clock");
+    return { result: await Effect.runPromise(exit), elapsedMs };
+  };
+
+  test("exec answers the command timeout at its deadline when the provider has not answered", async () => {
+    const { vm, usageEvents, layer } = execDeadlineFixture(() => Effect.never, "91");
+    const { result, elapsedMs } = await execOnTestClock(layer, {
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+      command: "sleep 999",
+      timeoutMs: 60_000,
+      answerWithinMs: 61_000,
+    });
+    expect(elapsedMs).toBe(61_000);
+    expect(result.exitCode).toBe(124);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("did not finish within 60s");
+    expect(usageEvents.find((event) => event.eventType === "vm.exec")?.metadata).toMatchObject({ exitCode: 124 });
+  });
+
+  test("exec reads a provider failure after the command timeout elapsed as that timeout", async () => {
+    const late = providerOperationError("exec", "Internal server error");
+    const { vm, layer } = execDeadlineFixture(
+      () => Effect.sleep("2 seconds").pipe(Effect.andThen(Effect.fail(late))),
+      "92",
+    );
+    const { result } = await execOnTestClock(layer, {
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+      command: "sleep 999",
+      timeoutMs: 1_000,
+      answerWithinMs: 4_000,
+    });
+    expect(result.exitCode).toBe(124);
+    expect(result.stderr).toContain("may still be running");
+  });
+
+  test("the exec answer budget is the timeout plus the margin, less the route's own time", () => {
+    expect(execAnswerBudgetMs(60_000, 0)).toBe(60_000 + EXEC_ANSWER_MARGIN_MS);
+    expect(execAnswerBudgetMs(60_000, 1_200)).toBe(60_000 + EXEC_ANSWER_MARGIN_MS - 1_200);
+    expect(execAnswerBudgetMs(1_000, 10_000)).toBe(0);
+    // Inside the Mac client's request budget (timeout + 5 s, VMClient+Exec.swift).
+    expect(EXEC_ANSWER_MARGIN_MS).toBeLessThan(5_000);
+  });
+
+  test("exec gives a dispatched command its own timeout even when the request budget is spent", async () => {
+    const { vm, layer } = execDeadlineFixture(
+      () => Effect.sleep("500 millis").pipe(Effect.as({ exitCode: 0, stdout: "ran", stderr: "" })),
+      "93",
+    );
+    const { result } = await execOnTestClock(layer, {
+      userId: vm.userId,
+      providerVmId: vm.providerVmId!,
+      command: "true",
+      timeoutMs: 1_000,
+      answerWithinMs: 0,
+    });
+    expect(result).toEqual({ exitCode: 0, stdout: "ran", stderr: "" });
+  });
+
   test("exec preflight resume failure propagates the resume error without exec", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000103",
@@ -1858,6 +2110,33 @@ describe("VM Effect workflows", () => {
 
     expect(revokeCalls).toBe(1);
     expect(destroyCalls).toBe(0);
+  });
+
+  // A destroy the route answered as in progress may have removed the
+  // machine at the provider already; the retry treats that as done.
+  test("a destroy retry after the first destroy removed the machine finishes the row", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000133",
+      userId: "user-workflow-destroy-retry",
+      providerVmId: "provider-vm-destroy-retry",
+      status: "running",
+    });
+    const repo = testWorkflowRepo({ vm });
+    let destroyCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      destroy: () => {
+        destroyCalls += 1;
+        return Effect.fail(new VmProviderOperationError({
+          provider: "freestyle", operation: "destroy",
+          cause: Object.assign(new Error("VM not found"), { status: 404, code: "NOT_FOUND" }),
+        }));
+      },
+    };
+    await Effect.runPromise(
+      destroyVm({ userId: vm.userId, providerVmId: "provider-vm-destroy-retry" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+    expect(destroyCalls).toBe(1);
   });
 
   test("destroyVm fails closed when active identity cleanup exceeds the hot-path cap", async () => {
@@ -2702,7 +2981,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(result).toEqual(endpoint);
+    expect(result).toEqual({ ...endpoint, vmKind: "team" });
     expect(attachCalls).toBe(1);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
@@ -2803,7 +3082,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(result).toEqual(endpoint);
+    expect(result).toEqual({ ...endpoint, vmKind: "team" });
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
     expect(attachCalls).toBe(1);
@@ -3082,7 +3361,7 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(result).toEqual(endpoint);
+    expect(result).toEqual({ ...endpoint, vmKind: "team" });
     expect(attachCalls).toBe(2);
     // The forced preflight probe and the failure recovery probe cover the
     // pause race without a third provider call after the running resume handle.
@@ -3266,6 +3545,7 @@ describe("VM Effect workflows", () => {
     let providerImageSize: { name: string; cpu: number; memoryMb: number; storageMb: number } | null = null;
     let usageEventAttempts = 0;
     const repo: VmRepositoryShape = {
+      countSavedUserVms: () => Effect.succeed(0),
       listUserVms: () => Effect.succeed([]),
       claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
       markBillingGrantApplied: () => Effect.void,
@@ -3354,6 +3634,90 @@ describe("VM Effect workflows", () => {
     // A sized image reaches the driver as the shape to boot at, never to resize to.
     expect(providerImageSize).toEqual({ name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 });
     expect(usageEventAttempts).toBe(2);
+  });
+
+  dbTest.each([
+    { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
+    { name: "md", cpu: 4, memoryMb: 8192, storageMb: 32768 },
+    { name: "lg", cpu: 8, memoryMb: 16384, storageMb: 65536 },
+  ])("Plus provisions the requested Pro size: $name", async (imageSize) => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = `plus-size-${imageSize.name}`;
+    let requestedSize: unknown;
+    const provider = {
+      ...unusedProviderGateway(),
+      create: (_provider: unknown, options: { imageSize?: unknown }) => Effect.sync(() => {
+        requestedSize = options.imageSize;
+        return testVmHandle({ providerVmId: `plus-provider-${imageSize.name}` });
+      }),
+    };
+    await Effect.runPromise(createVm({
+      userId, billingCustomerType: "user", billingTeamId: userId,
+      billingPlanId: "go", maxActiveVms: 1, provider: "freestyle",
+      image: "snapshot-plus", imageSize, memoryMb: imageSize.memoryMb,
+    }).pipe(Effect.provide(providerLayer(provider))));
+    expect(requestedSize).toEqual(imageSize);
+    const [row] = await sql<{ id: string; status: string }[]>`select id, status from cloud_vms where user_id = ${userId}`;
+    expect(row.status).toBe("running");
+    await sql`update cloud_vms set status = 'paused' where user_id = ${userId}`;
+    // Resuming an existing machine does not claim a second saved-machine slot.
+    const reserved = await Effect.runPromise(vmRepositoryLiveShape.reservePausedResume({
+      id: row.id, userId, billingTeamId: userId, providerVmId: `plus-provider-${imageSize.name}`, maxActiveVms: 1,
+    }));
+    expect(reserved?.status).toBe("running");
+  });
+
+  dbTest("replaces a destroyed Plus idempotent row without a billing-period or hour gate", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (
+        user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, idempotency_key, destroyed_at
+      )
+      values (
+        'user-workflow-go-destroyed-retry', 'team-workflow-go-destroyed-retry',
+        'go', 'freestyle', 'provider-vm-go-destroyed', 'snapshot-go',
+        'destroyed', 'go-destroyed-retry', now()
+      )
+    `;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: () => Effect.sync(() => {
+        createCalls += 1;
+        return testVmHandle({ providerVmId: "provider-vm-starter-replacement" });
+      }),
+    };
+
+    const result = await Effect.runPromise(Effect.either(
+      createVm({
+        userId: "user-workflow-go-destroyed-retry",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-go-destroyed-retry",
+        billingPlanId: "go",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-go",
+        // Match a supported Plus image sent by the create route so this
+        // exercises replacement admission without any subscription period.
+        imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
+        idempotencyKey: "go-destroyed-retry",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    ));
+
+    expect(result._tag).toBe("Right");
+    if (result._tag === "Right") expect(result.right.providerVmId).toBe("provider-vm-starter-replacement");
+    expect(createCalls).toBe(1);
+
+    const rows = await sql<{ status: string }[]>`
+      select status
+      from cloud_vms
+      where billing_team_id = 'team-workflow-go-destroyed-retry'
+    `;
+    // The replacement is retained alongside the destroyed machine's history.
+    expect(rows.map((row) => row.status).sort()).toEqual(["destroyed", "running"]);
   });
 
   test("create configures the first guest prompt with the stored display name", async () => {
@@ -3725,8 +4089,8 @@ describe("VM Effect workflows", () => {
       getStatus: (_provider, providerVmId) =>
         Effect.suspend(() => {
           statusCalls += 1;
-          const deleted = new Error(`VM_DELETED: Vm ${providerVmId} is marked as deleted but still exists in the database`);
-          deleted.name = "VmDeletedError";
+          // Freestyle's explicit answer; a bare or message-only 404 is an outage.
+          const deleted = Object.assign(new Error(`VM ${providerVmId} not found`), { status: 404, code: "NOT_FOUND" });
           return Effect.fail(new VmProviderOperationError({
             provider: "freestyle",
             operation: "getStatus",
@@ -3870,8 +4234,8 @@ describe("VM Effect workflows", () => {
           : Effect.fail(new Error("stop after recovery reservation check") as never);
       },
     } as unknown as VmRepositoryShape;
-    const deleted = new Error("VM_DELETED: provider VM is gone");
-    deleted.name = "VmDeletedError";
+    // Freestyle's explicit answer; a message alone is not proof the machine is gone.
+    const deleted = Object.assign(new Error("VM_DELETED: provider VM is gone"), { status: 404, code: "VM_DELETED" });
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
       getStatus: () => {
@@ -5359,12 +5723,12 @@ describe("VM Effect workflows", () => {
     expect(createCalls).toBe(0);
   });
 
-  dbTest("does not count paused VMs against the active billing team limit", async () => {
+  dbTest("counts paused machines against Pro’s five-machine limit and frees a slot only on delete", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-paused-slot-old', 'team-workflow-paused-slot', 'free', 'freestyle', 'provider-vm-paused-old', 'snapshot-test', 'paused')
+      select 'user-workflow-paused-slot-old', 'team-workflow-paused-slot', 'pro', 'freestyle', 'provider-vm-paused-' || n, 'snapshot-test', 'paused' from generate_series(1,5) n
     `;
 
     let createCalls = 0;
@@ -5393,19 +5757,23 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
+    const attempt = () => Effect.runPromise(
       createVm({
         userId: "user-workflow-paused-slot-new",
         billingCustomerType: "team",
         billingTeamId: "team-workflow-paused-slot",
-        billingPlanId: "free",
-        maxActiveVms: 1,
+        billingPlanId: "pro",
+        maxActiveVms: 5,
         provider: "freestyle",
         image: "snapshot-test",
         idempotencyKey: "paused-slot-new",
       }).pipe(Effect.provide(providerLayer(provider))),
     );
 
+    await expect(attempt()).rejects.toThrow();
+    expect(createCalls).toBe(0);
+    await sql`update cloud_vms set status = 'destroyed' where provider_vm_id = 'provider-vm-paused-1'`;
+    const created = await attempt();
     expect(created.providerVmId).toBe("provider-vm-paused-new");
     expect(createCalls).toBe(1);
     expect(statusCalls).toBe(0);
@@ -5494,8 +5862,26 @@ describe("VM Effect workflows", () => {
     // would fail the resume reservation before the rollback path under test
     // ever runs.
     await sql`
-      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-resume-fail', 'team-workflow-resume-fail', 'pro', 'freestyle', 'provider-vm-resume-fail', 'snapshot-test', 'paused')
+      insert into cloud_vms (
+        user_id,
+        billing_team_id,
+        billing_plan_id,
+        provider,
+        provider_vm_id,
+        image_id,
+        status,
+        provider_metadata
+      )
+      values (
+        'user-workflow-resume-fail',
+        'team-workflow-resume-fail',
+        'pro',
+        'freestyle',
+        'provider-vm-resume-fail',
+        'snapshot-test',
+        'paused',
+        '{"cmuxResourceReservation":{"vcpus":4,"memoryMb":8192,"diskMb":32768}}'::jsonb
+      )
     `;
 
     const resumeError = new VmProviderOperationError({
@@ -5713,7 +6099,7 @@ describe("VM Effect workflows", () => {
     expect(createCalls).toBe(1);
   });
 
-  dbTest("refreshes Freestyle running rows before active limit enforcement", async () => {
+  dbTest("refreshes Freestyle running rows before saved limit refusal", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
@@ -5747,7 +6133,7 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
+    const error = await Effect.runPromise(
       createVm({
         userId: "user-workflow-provider-paused-new",
         billingCustomerType: "team",
@@ -5757,12 +6143,12 @@ describe("VM Effect workflows", () => {
         provider: "freestyle",
         image: "snapshot-test",
         idempotencyKey: "provider-paused-new",
-      }).pipe(Effect.provide(providerLayer(provider))),
+      }).pipe(Effect.flip, Effect.provide(providerLayer(provider))),
     );
 
-    expect(created.providerVmId).toBe("provider-vm-provider-paused-new");
+    expect(error).toBeInstanceOf(VmLimitExceededError);
     expect(statusCalls).toBe(1);
-    expect(createCalls).toBe(1);
+    expect(createCalls).toBe(0);
 
     const [oldVm] = await sql<{ status: string }[]>`
       select status from cloud_vms
@@ -5801,10 +6187,10 @@ describe("VM Effect workflows", () => {
       getStatus: () =>
         Effect.suspend(() => {
           statusCalls += 1;
-          const deleted = new Error(
+          // Freestyle's explicit answer; a message alone is not proof the machine is gone.
+          const deleted = Object.assign(new Error(
             "VM_DELETED: Vm provider-vm-provider-deleted-old is marked as deleted but still exists in the database",
-          );
-          deleted.name = "VmDeletedError";
+          ), { status: 404, code: "VM_DELETED" });
           return Effect.fail(new VmProviderOperationError({
             provider: "freestyle",
             operation: "getStatus",
@@ -5850,7 +6236,7 @@ describe("VM Effect workflows", () => {
     expect(destroyedUsageCount).toBe("1");
   });
 
-  dbTest("refreshes Freestyle running rows concurrently before active limit enforcement", async () => {
+  dbTest("refreshes Freestyle running rows concurrently before saved limit refusal", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
@@ -5892,7 +6278,7 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
+    const error = await Effect.runPromise(
       createVm({
         userId: "user-workflow-provider-concurrent-new",
         billingCustomerType: "team",
@@ -5902,13 +6288,13 @@ describe("VM Effect workflows", () => {
         provider: "freestyle",
         image: "snapshot-test",
         idempotencyKey: "provider-concurrent-new",
-      }).pipe(Effect.provide(providerLayer(provider))),
+      }).pipe(Effect.flip, Effect.provide(providerLayer(provider))),
     );
 
-    expect(created.providerVmId).toBe("provider-vm-provider-concurrent-new");
+    expect(error).toBeInstanceOf(VmLimitExceededError);
     expect(statusCalls).toBe(2);
     expect(maxInFlight).toBe(2);
-    expect(createCalls).toBe(1);
+    expect(createCalls).toBe(0);
 
     const [{ oldRunningCount }] = await sql<{ oldRunningCount: string }[]>`
       select count(*)::text as "oldRunningCount" from cloud_vms
@@ -6341,8 +6727,8 @@ describe("VM Effect workflows", () => {
       ...unusedProviderGateway(),
       getStatus: (_provider, vmId) =>
         Effect.suspend(() => {
-          const gone = new Error(`sandbox ${vmId} -> 404 not found`);
-          (gone as Error & { status?: number }).status = 404;
+          // Freestyle's explicit answer; a bare 404 is an outage, not a missing machine.
+          const gone = Object.assign(new Error(`sandbox ${vmId} -> 404 not found`), { status: 404, code: "NOT_FOUND" });
           return Effect.fail(new VmProviderOperationError({
             provider: "freestyle",
             operation: "getStatus",
@@ -6399,6 +6785,7 @@ describe("VM Effect workflows", () => {
       updated: 1,
       destroyed: 0,
       skipped: 0,
+      repaused: 0,
       skippedNoGetStatus: false,
     });
 
@@ -6407,6 +6794,58 @@ describe("VM Effect workflows", () => {
       where provider_vm_id = 'provider-vm-reconcile-drift'
     `;
     expect(vm?.status).toBe("paused");
+  });
+
+  dbTest("claims a woken paused row for one re-pause per claim window", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-wake-claim', 'team-workflow-wake-claim', 'pro', 'freestyle', 'provider-vm-wake-claim', 'snapshot-test', 'paused')
+      returning id
+    `;
+    const claim = () => Effect.runPromise(vmRepositoryLiveShape.claimUnexpectedWakeRepause!({
+      id: vm.id,
+      providerVmId: "provider-vm-wake-claim",
+      ttlMs: 300_000,
+    }));
+    // Move the stored claim back in time, as if it had been taken earlier.
+    const ageClaim = (ms: number) => sql!`
+      update cloud_vms
+      set provider_metadata = provider_metadata || jsonb_build_object(
+        'unexpectedWakeClaimAtMs', (provider_metadata->>'unexpectedWakeClaimAtMs')::bigint - ${ms}::bigint)
+      where id = ${vm.id}
+    `;
+    await sql`update cloud_vms set updated_at = now() - interval '1 hour' where id = ${vm.id}`;
+    const [other] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, updated_at)
+      values ('user-workflow-wake-claim', 'team-workflow-wake-claim', 'pro', 'freestyle', 'provider-vm-wake-claim-other', 'snapshot-test', 'paused', now() - interval '30 minutes')
+      returning id
+    `;
+    const candidateOrder = async () => (await Effect.runPromise(vmRepositoryLiveShape.reconciliationCandidates({ limit: 10 })))
+      .map((row) => row.id)
+      .filter((id) => id === vm.id || id === other.id);
+    expect(await candidateOrder()).toEqual([vm.id, other.id]);
+    expect(await claim()).toBe(true);
+    // A claim moves the row behind a row updated earlier in the oldest-first reconcile order.
+    expect(await candidateOrder()).toEqual([other.id, vm.id]);
+    expect(await claim()).toBe(false);
+    await ageClaim(299_000);
+    expect(await claim()).toBe(false);
+    await ageClaim(2_000);
+    expect(await claim()).toBe(true);
+    await sql`update cloud_vms set status = 'running' where id = ${vm.id}`;
+    await ageClaim(900_000);
+    expect(await claim()).toBe(false);
+    // The marker is the database's clock at the last winning claim.
+    const [row] = await sql<{ status: string; claimAgeMs: number }[]>`
+      select status,
+        ((extract(epoch from now()) * 1000)::bigint - (provider_metadata->>'unexpectedWakeClaimAtMs')::bigint)::int as "claimAgeMs"
+      from cloud_vms where id = ${vm.id}
+    `;
+    expect(row?.status).toBe("running");
+    expect(row!.claimAgeMs).toBeGreaterThanOrEqual(900_000);
+    expect(row!.claimAgeMs).toBeLessThan(960_000);
   });
 
   dbTest("cron reconcile skips destroyed rows", async () => {
@@ -7730,6 +8169,7 @@ function testWorkflowRepo(input: {
   }>;
 }): VmRepositoryShape {
   return {
+    countSavedUserVms: () => Effect.succeed(0),
     listUserVms: () => Effect.succeed([]),
     setDisplayName: () => Effect.succeed(true),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
@@ -8349,6 +8789,55 @@ describe("status read that observes a gone machine", () => {
     });
   });
 
+  // https://github.com/manaflow-ai/cmux/issues/21820: a status read that a
+  // gateway or endpoint answered with a bare 404 retired a live machine, and
+  // the next Base open handed the user a blank replacement.
+  test.each([
+    { name: "a bare gateway 404", cause: { status: 404, code: "UNKNOWN_ERROR", message: "<html>404 Not Found</html>" } },
+    { name: "a message that only says not found", cause: new Error("VM not found in upstream cache") },
+  ])("a status read that fails with $name keeps the machine", async ({ cause }) => {
+    const userId = "user-status-read-ambiguous-404";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000156");
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    const provider: VmProviderGatewayShape = {
+      ...providerGone,
+      getStatus: () => Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getStatus", cause })),
+    };
+
+    const result = await Effect.runPromise(Effect.either(
+      getVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    ));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).not.toBeInstanceOf(VmNotFoundError);
+    expect(observedStatuses).toEqual([]);
+    expect(usageEvents).toEqual([]);
+  });
+
+  test("a status read the provider answers with an explicit NOT_FOUND still retires the row", async () => {
+    const userId = "user-status-read-confirmed-404";
+    const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000157");
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, observedStatuses });
+    const provider: VmProviderGatewayShape = {
+      ...providerGone,
+      getStatus: () => Effect.fail(new VmProviderOperationError({
+        provider: "freestyle",
+        operation: "getStatus",
+        cause: { status: 404, code: "NOT_FOUND", message: "VM not found" },
+      })),
+    };
+
+    const entry = await Effect.runPromise(
+      getVm({ userId, providerVmId: "noble-wren" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(entry.status).toBe("destroyed");
+    expect(observedStatuses.map((update) => update.status)).toEqual(["destroyed"]);
+  });
+
   test("an access preflight that retires the row records vm.destroyed too", async () => {
     const userId = "user-access-preflight-gone";
     const vm = goneMachine(userId, "00000000-0000-4000-8000-000000000152");
@@ -8719,7 +9208,12 @@ describe("status read that observes a gone machine", () => {
 
 describe("private SCP workflow", () => {
   test("returns the private endpoint without revoking another transfer or recording a bearer lease", async () => {
-    const vm = testCloudVmRow({ providerVmId: "vm-scp", status: "running", billingPlanId: "pro" });
+    const vm = testCloudVmRow({
+      providerVmId: "vm-scp",
+      status: "running",
+      billingPlanId: "pro",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 4, memoryMb: 8 * 1024, diskMb: 32768 } },
+    });
     const leases: RecordedLease[] = [];
     const events: RecordedUsageEvent[] = [];
     const endpoint = { host: "10.1.2.3", port: 22, username: "cmux", hostPublicKey: "guest-key", expiresAtUnix: 123 };
@@ -8733,6 +9227,89 @@ describe("private SCP workflow", () => {
     expect(result).toEqual(endpoint);
     expect(leases).toHaveLength(0);
     expect(events.map(event => event.eventType)).toEqual(["vm.scp_endpoint"]);
+  });
+
+  const scpOnTestClock = async (layer: ReturnType<typeof workflowLayer>, providerVmId: string, userId: string) => {
+    const { exit, elapsedMs } = await settleOnTestClock(
+      prepareScpEndpoint({ userId, providerVmId, publicKey: "client-key", callerPlanId: "pro" }).pipe(Effect.flip, Effect.provide(layer)),
+      { giveUpAtMs: 300_000 },
+    );
+    return { error: exit ? await Effect.runPromise(exit) : null, elapsedMs };
+  };
+
+  // Production 2026-10-11: the guest exec behind SCP setup hung in Freestyle's
+  // background-request poll for 3-4 minutes, then failed 502, while the Mac
+  // client had given up at 60 s. The setup now answers inside that budget.
+  test("answers a hung guest setup within the client's request budget", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-hung", status: "running", billingPlanId: "pro" });
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      prepareSCP: () => Effect.never,
+    });
+    const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-hung", vm.userId);
+    // The Mac's URLRequest gives up after 60 s without a response byte.
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    const cause = error && "cause" in error ? error.cause as { name?: string } : null;
+    expect(cause?.name).toBe("ProviderGuestUnresponsiveError");
+  });
+
+  test("the answer bound covers a slow status probe after a failed setup", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-slow-probe", status: "running", billingPlanId: "pro" });
+    let probes = 0;
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      // The preflight probe answers; the recovery probe after the failed setup hangs.
+      getStatus: () => (probes++ === 0 ? Effect.succeed("running" as const) : Effect.never),
+      resume: () => Effect.never,
+      prepareSCP: () => Effect.fail(providerOperationError("prepareSCP", "Internal server error")),
+    });
+    const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-slow-probe", vm.userId);
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    expect(probes).toBeGreaterThanOrEqual(2);
+    // The setup failed before the deadline, so its own error is the answer.
+    expect(error && "cause" in error ? (error.cause as Error).message : "").toBe("Internal server error");
+  });
+
+  test("an early refusal keeps its own error when the recovery probe stalls past the deadline", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-early-401", status: "running", billingPlanId: "pro" });
+    let probes = 0;
+    const refused = providerOperationError("prepareSCP", "401 Unauthorized: invalid api key");
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      getStatus: () => (probes++ === 0 ? Effect.succeed("running" as const) : Effect.never),
+      resume: () => Effect.never,
+      prepareSCP: () => Effect.fail(refused),
+    });
+    const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-early-401", vm.userId);
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error).toBe(refused);
+  });
+
+  test("a guest that did not answer is not probed or resumed again in the same request", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-unanswered", status: "running", billingPlanId: "pro" });
+    let probes = 0;
+    let setups = 0;
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      // A recovery probe would see "paused" and resume; only the preflight may probe.
+      getStatus: () => Effect.succeed(probes++ === 0 ? "running" as const : "paused" as const),
+      resume: () => Effect.die("must not resume a guest that did not answer"),
+      prepareSCP: () => {
+        setups++;
+        return Effect.fail(new VmProviderOperationError({
+          provider: "freestyle", operation: "prepareSCP",
+          cause: new ProviderGuestUnresponsiveError("freestyle", "the machine did not answer the setup command"),
+        }));
+      },
+    });
+    const { error } = await scpOnTestClock(layer, "vm-scp-unanswered", vm.userId);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    expect(setups).toBe(1);
+    // Only the preflight probe ran; the failure skipped the recovery probe.
+    expect(probes).toBe(1);
   });
 
   test("refuses an inaccessible VM before installing a public key", async () => {
@@ -8926,7 +9503,7 @@ describe("team tunnel cron reconciliation", () => {
     ))));
     expect(events).toEqual(["status", "revoke-model-plane", "heal", "directory-first", "tun-first"]);
     expect(pages).toBe(1);
-    expect(result).toEqual({ checked: 1, updated: 0, destroyed: 1, skipped: 0, skippedNoGetStatus: false });
+    expect(result).toEqual({ checked: 1, updated: 0, destroyed: 1, skipped: 0, repaused: 0, skippedNoGetStatus: false });
   });
 
   test("directory timeout skips a team and pages continue after the last team and provider", async () => {

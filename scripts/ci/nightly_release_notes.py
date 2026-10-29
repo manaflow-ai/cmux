@@ -8,11 +8,13 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from urllib.parse import quote
 from xml.dom import minidom
 
 MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.I)
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+COMMIT_BATCH = 10
 REPAIR = "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
 
 
@@ -22,7 +24,13 @@ class GitHub:
 
     @staticmethod
     def request(args: list[str]) -> dict:
-        result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
+        # GitHub answers a heavy GraphQL batch with a transient 5xx now and
+        # then; retry those with backoff. Other failures stop immediately.
+        for attempt in range(4):
+            result = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
+            if not result.returncode or not re.search(r"HTTP 5\d\d", result.stderr) or attempt == 3:
+                break
+            time.sleep(2 ** (attempt + 1))
         if result.returncode:
             raise RuntimeError("GitHub metadata request failed; check Actions token contents/pull-requests read access and API availability")
         value = json.loads(result.stdout)
@@ -49,6 +57,13 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
     commits = []
     for page in range(1, 101):
         comparison = github.rest(f"compare/{base}...{head}?per_page=100&page={page}")
+        if comparison["status"] == "diverged" and branch.startswith("rc/") and page == 1:
+            # A new RC line is a new rc/vX.Y.Z branch cut from main, so the
+            # previous line's published commit is not its ancestor. Summarize
+            # from where the two lines split.
+            merge_base = (comparison.get("merge_base_commit") or {}).get("sha")
+            if merge_base and merge_base != base:
+                return collect_prs(github, merge_base, head, branch)
         if comparison["status"] not in ("ahead", "identical"):
             raise RuntimeError("Published SHA is not an ancestor of the built SHA; verify the channel marker before retrying")
         commits.extend(c["sha"] for c in comparison["commits"])
@@ -61,9 +76,11 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
     owner, name = github.repo.split("/")
     members = set(commits)
     prs = {}
-    for offset in range(0, len(commits), 25):
+    # Each commit asks for up to 10 PRs with 100 labels and 100 files; GitHub
+    # answers 25 commits per query with HTTP 502, so batch fewer.
+    for offset in range(0, len(commits), COMMIT_BATCH):
         objects = []
-        for index, sha in enumerate(commits[offset:offset + 25]):
+        for index, sha in enumerate(commits[offset:offset + COMMIT_BATCH]):
             objects.append(f'''c{index}: object(oid: "{sha}") {{ ... on Commit {{ associatedPullRequests(first: 10) {{
               pageInfo {{ hasNextPage }} nodes {{ number title url mergedAt baseRefName mergeCommit {{ oid }}
                 labels(first: 100) {{ nodes {{ name }} }}
@@ -79,7 +96,10 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
                 raise RuntimeError("A commit has more than ten associated PRs; inspect its associations before retrying")
             for pr in associated["nodes"]:
                 merged = pr.get("mergeCommit") or {}
-                if pr["mergedAt"] and pr["baseRefName"] == branch and merged.get("oid") in members:
+                # An RC branch is cut from main and gets picks, so its notes
+                # include PRs merged to main in the compared range.
+                bases = {branch, "main"} if branch.startswith("rc/") else {branch}
+                if pr["mergedAt"] and pr["baseRefName"] in bases and merged.get("oid") in members:
                     prs[pr["number"]] = pr
     return list(prs.values())
 

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { vmHealthRepositoryMethods, type VmHealthRepositoryMethods } from "./health/repository";
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, max, ne, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { alias, type AnyPgColumn } from "drizzle-orm/pg-core";
 import * as Context from "effect/Context";
@@ -23,6 +24,7 @@ import {
   cloudVms,
   cloudVmUsageEvents,
   observedDestroyCleanupValidityPredicate,
+  stackSessionRevocations,
 } from "../../db/schema";
 import {
   accountDeletionAdvisoryLockKey,
@@ -41,11 +43,28 @@ import {
 import { storedAgentUpdates, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
 import {
+  VM_API_ACTIVITY_MIN_INTERVAL_MS,
+  VM_IDLE_EPOCH_KEY,
+  VM_IDLE_OBSERVATION_KEY,
+  VM_IDLE_PAUSE_CLAIM_KEY,
+  VM_IDLE_PAUSE_MINUTES_KEY,
+  VM_IDLE_PROBED_AT_KEY,
+  VM_LAST_API_ACTIVITY_KEY,
+  VM_PAUSE_INTENT_EPOCH_KEY,
+  VM_PAUSE_REASON_KEY,
+  VM_PAUSE_INTENT_TTL_MS,
+  VM_PENDING_PAUSE_KEY,
+  type VmIdleObservation,
+  type VmIdlePauseMinutes,
+  type VmPauseCause,
+} from "./idlePause";
+import {
   VmCreateDisabledError,
   VmCreateInProgressError,
   VmAccountDeletionInProgressError,
   VmDatabaseError,
   VmLimitExceededError,
+  VmMemoryPlanError,
   VmResizeInProgressError,
   VmResourcePoolExceededError,
   LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE,
@@ -109,6 +128,8 @@ export type VmResizeReservation = {
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
 export const OBSERVED_DESTROY_CLEANUP_METADATA_KEY = "cmuxObservedDestroyCleanup";
+/** When a status cron last claimed this paused row to re-pause an unexpected wake (ms). */
+export const UNEXPECTED_WAKE_CLAIM_METADATA_KEY = "unexpectedWakeClaimAtMs";
 /**
  * Keep every partial-index predicate value literal. PostgreSQL generic prepared
  * plans cannot prove that a bound status parameter implies the partial index.
@@ -202,7 +223,8 @@ export type BillingGrantClaim =
   | { readonly kind: "inserted"; readonly grantId: string }
   | { readonly kind: "already_claimed" };
 
-export type VmRepositoryShape = {
+export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
+  readonly countSavedUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<number, VmDatabaseError>;
   readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
    * Private-network and tunnel bookkeeping. Optional as a group so test
@@ -281,7 +303,15 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly leaseId: string;
   }) => Effect.Effect<void, VmDatabaseError>;
-  readonly revokeAccessGrant?: (id: string) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Revoke the grant. With `revokeStackSessions`, the grant's Stack sessions
+   * are queued in `stack_session_revocations` in the same transaction, so a
+   * crash cannot revoke the grant and lose the session revocations.
+   */
+  readonly revokeAccessGrant?: (input: {
+    readonly id: string;
+    readonly revokeStackSessions: { readonly userId: string; readonly firstRetryAt: Date } | null;
+  }) => Effect.Effect<{ readonly revoked: boolean; readonly stackSessionIds: readonly string[] }, VmDatabaseError>;
   /** The live (unrevoked) tunnel row for one of the owner's devices. */
   readonly findTunnel?: (input: {
     readonly userId: string;
@@ -377,6 +407,74 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly agentUpdates: VmAgentUpdatesSetting;
   }) => Effect.Effect<void, VmDatabaseError>;
+  /** Store the machine's idle auto-pause choice in minutes (0 is Off; services/vms/idlePause.ts). */
+  readonly setIdlePauseMinutes?: (input: {
+    readonly id: string;
+    readonly minutes: VmIdlePauseMinutes;
+  }) => Effect.Effect<void, VmDatabaseError>;
+  /**
+   * Store (or clear, with null) the idle cron's observation of a running
+   * machine, and when the cron checked it (`probedAt`). Not a lifecycle
+   * mutation: `updated_at` stays, so the five-minute probe does not republish
+   * every machine. False when the row is no longer that running machine.
+   */
+  readonly recordIdleObservation?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly observation: VmIdleObservation | null;
+    readonly probedAt: number;
+    /** The idle fence the cron read (VM_IDLE_EPOCH_KEY); a moved fence makes this a stale write (false). */
+    readonly epoch: number;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * The idle cron's last check before it pauses a machine at the provider:
+   * moves the fence if the row is still that running machine at `epoch`, and
+   * returns the new fence for the pause record (markProviderObservedStatus's
+   * expectIdleEpoch). Null when anything moved it since the cron's read.
+   */
+  readonly claimIdlePause?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly epoch: number;
+  }) => Effect.Effect<number | null, VmDatabaseError>;
+  /**
+   * The cron's compensating resume after it lost an idle pause: moves the
+   * fence if the row (any live status) still holds `epoch`, and returns the
+   * new fence for the running record. Null when a newer write landed since
+   * the cron read the row, such as a person's own pause.
+   */
+  readonly claimIdleResume?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly epoch: number;
+  }) => Effect.Effect<number | null, VmDatabaseError>;
+  /**
+   * A deliberate pause about to touch the provider (a person's Pause Machine,
+   * the allowance enforcer): moves the idle fence and stores the pause as
+   * under way at the new fence (VM_PENDING_PAUSE_KEY), so the idle cron's
+   * recoveries never undo it (hasOutstandingPauseIntent). Returns the fence
+   * it set, for the pause's own fenced clear; null when the row is gone or
+   * replaced.
+   */
+  readonly recordPauseIntent?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly cause: "user" | "allowance";
+  }) => Effect.Effect<number | null, VmDatabaseError>;
+  /** A pause that failed drops its own intent: only if the stored intent is still the one it wrote at `epoch`. */
+  readonly clearPauseIntent?: (input: { readonly id: string; readonly epoch: number }) => Effect.Effect<void, VmDatabaseError>;
+  /** Running Freestyle machines for the idle cron, least recently checked (never checked first). */
+  readonly idlePauseCandidates?: (input: { readonly limit: number }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /**
+   * Note a person's exec, files or attach call (epoch ms) for the idle timer.
+   * Not a lifecycle mutation: `updated_at` stays. Skipped (false) when the row
+   * already holds a time within VM_API_ACTIVITY_MIN_INTERVAL_MS of `at`.
+   */
+  readonly recordVmApiActivity?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly at: number;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   /** Atomically coalesce advisory samples; false also covers a replaced VM. */
   readonly recordResourceUsage?: (input: {
     readonly id: string;
@@ -403,6 +501,9 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
+    /** Per-machine CPU/RAM ceilings for a newly inserted row. */
+    readonly planMaxMemoryMb?: number;
+    readonly planMaxVcpus?: number;
     readonly displayName?: string | null;
     /** The individual machine shape used for fork, snapshot, and resize recovery. */
     readonly resourceReservation?: VmResourceReservation;
@@ -412,11 +513,18 @@ export type VmRepositoryShape = {
     readonly forkMinimumResourceReservation?: VmResourceReservation;
     /** "latest" opts the machine into coding-agent updates; absent keeps the image's pins. */
     readonly agentUpdates?: VmAgentUpdatesSetting;
+    /** The machine's idle auto-pause from its create (services/vms/idlePause.ts); absent: the default. */
+    readonly idlePauseMinutes?: VmIdlePauseMinutes;
     /** The plan's shared vCPU/memory pool; absent or null when the plan has none. */
     readonly resourcePool?: VmResourcePoolPolicy | null;
     /** How a pool refusal names this operation. Defaults to `create`. */
     readonly resourcePoolPhase?: "create" | "fork";
-  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError | VmResourcePoolExceededError>;
+  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
+  /** Read an idempotent create row before validating a new request shape. */
+  readonly findCreateByIdempotencyKey?: (input: {
+    readonly billingTeamId: string;
+    readonly idempotencyKey: string;
+  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError>;
   readonly beginBaseOpen: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -428,8 +536,11 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number | null;
     readonly baseName?: string;
     readonly resourceReservation?: VmResourceReservation;
+    /** Per-machine CPU/RAM ceilings for a new Base generation. */
+    readonly planMaxMemoryMb?: number;
+    readonly planMaxVcpus?: number;
     readonly resourcePool?: VmResourcePoolPolicy | null;
-  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError>;
+  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
   readonly beginBaseReset: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -442,8 +553,11 @@ export type VmRepositoryShape = {
     readonly baseName?: string;
     readonly reason?: string | null;
     readonly resourceReservation?: VmResourceReservation;
+    /** Per-machine CPU/RAM ceilings for a new Base generation. */
+    readonly planMaxMemoryMb?: number;
+    readonly planMaxVcpus?: number;
     readonly resourcePool?: VmResourcePoolPolicy | null;
-  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError>;
+  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
   readonly markBaseCreateRunning: (input: {
     readonly baseId: string;
     readonly generation: number;
@@ -499,6 +613,8 @@ export type VmRepositoryShape = {
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
     readonly maxActiveVms: number | null;
+    /** Existing grandfathered rows may resume above the current count. */
+    readonly skipActiveLimit?: boolean;
     /** The plan's shared vCPU/memory pool; absent or null when the plan has none. */
     readonly resourcePool?: VmResourcePoolPolicy | null;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError | VmResourcePoolExceededError>;
@@ -653,10 +769,36 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly providerVmId: string;
     readonly status: CloudVmStatus;
+    /**
+     * With `paused`: why the control plane paused it (shown as "Paused
+     * (idle)"). A paused write without one keeps the stored reason; any other
+     * status clears it, so a resumed machine carries no stale reason. Every
+     * write also drops the idle observation (services/vms/idlePause.ts).
+     */
+    readonly pauseReason?: VmPauseCause;
+    /**
+     * The idle cron's own writes: record only if the row still holds this
+     * idle fence (claimIdlePause's or claimIdleResume's answer). False when
+     * activity, a setting change, a person's pause, a status write or a
+     * resume landed since. Every status write moves the fence, so a held
+     * fence also means the status is the one the claim saw.
+     */
+    readonly expectIdleEpoch?: number;
     /** Inserted atomically with a winning status transition. */
     readonly usageEvent?: VmUsageEventInput;
     /** Durable external cleanup work inserted atomically with a terminal status. */
     readonly cleanup?: VmObservedDestroyCleanup;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Claim a paused row for a re-pause after an unexpected wake. True only for
+   * the one caller that finds the row still paused and unclaimed within
+   * `ttlMs`, so overlapping status crons pause and record a wake once. The
+   * claim time is the database's clock, so callers' clocks cannot disagree.
+   */
+  readonly claimUnexpectedWakeRepause?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly ttlMs: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
     readonly id: string;
@@ -779,7 +921,8 @@ export type VmUsageEventInput = {
   readonly metadata?: Record<string, unknown>;
   /**
    * The machine's `createdAt`, supplied by destroy sites so analytics can
-   * report the machine's lifetime. Not persisted: the ledger row already
+   * report the machine's lifetime, and by create-success sites for
+   * `cloud_vm_ready.time_to_ready_ms`. Not persisted: the ledger row already
    * joins to `cloud_vms` by `vmId`.
    */
   readonly vmCreatedAt?: Date | null;
@@ -1068,6 +1211,62 @@ function idempotencyScopeWhere(input: {
   );
 }
 
+/** Reject a newly allocated machine shape that exceeds its plan's ceilings. */
+function assertCreateReservationFitsPlan(input: {
+  readonly planId: string;
+  readonly resourceReservation?: VmResourceReservation;
+  readonly planMaxMemoryMb?: number;
+  readonly planMaxVcpus?: number;
+}): void {
+  const reservation = input.resourceReservation;
+  if (!reservation || input.planMaxMemoryMb === undefined || input.planMaxVcpus === undefined ||
+    (reservation.memoryMb <= input.planMaxMemoryMb && reservation.vcpus <= input.planMaxVcpus)) return;
+  throw new VmMemoryPlanError({
+    planId: input.planId,
+    memoryMb: Math.max(reservation.memoryMb, reservation.vcpus * 2 * 1024),
+    maxMemoryMb: input.planMaxMemoryMb,
+  });
+}
+
+/** At most this many counted machines ride on an active-limit refusal. */
+const ACTIVE_LIMIT_NAMED_MACHINES = 20;
+
+/**
+ * The refusal for a full machine allowance, naming the machines the count
+ * saw. New allocations include paused machines; a resume only checks active
+ * compute admission because its saved machine already occupies a slot.
+ */
+async function activeLimitExceededInTx(
+  tx: CloudDbTransaction,
+  input: { readonly scope: SQL | undefined; readonly billingTeamId: string; readonly limit: number; readonly includesPaused?: boolean },
+): Promise<VmLimitExceededError> {
+  const rows = await tx
+    .select({
+      id: cloudVms.id,
+      providerVmId: cloudVms.providerVmId,
+      displayName: cloudVms.displayName,
+      slug: cloudVms.slug,
+      status: cloudVms.status,
+    })
+    .from(cloudVms)
+    .where(and(inArray(cloudVms.status, input.includesPaused === false ? ["provisioning", "running"] : LIVE_VM_RESOURCE_STATUSES), input.scope))
+    .orderBy(asc(cloudVms.createdAt))
+    .limit(ACTIVE_LIMIT_NAMED_MACHINES);
+  return new VmLimitExceededError({
+    kind: "active_vms",
+    billingTeamId: input.billingTeamId,
+    limit: input.limit,
+    activeMachines: rows.map((row) => {
+      const id = row.providerVmId ?? row.id;
+      return {
+        id,
+        name: row.displayName?.trim() || row.slug?.trim() || id,
+        status: row.status === "paused" ? "paused" as const : row.status === "running" ? "running" as const : "provisioning" as const,
+      };
+    }),
+  });
+}
+
 function accountScopeWhere(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -1124,7 +1323,8 @@ function reservationMetadataForInput(
 /**
  * One pooled dimension of a live row's reservation. A row without a complete,
  * bounded marker (legacy rows, or a malformed marker) draws from the pool at
- * the plan's default machine size, never at a quota-sized historical default.
+ * the plan's conservative legacy claim until provider reconciliation records
+ * its actual shape.
  */
 function pooledResourceFieldSql(key: "vcpus" | "memoryMb", fallback: number) {
   const markerKey = sql.raw(`'${VM_RESOURCE_RESERVATION_METADATA_KEY}'`);
@@ -1197,7 +1397,7 @@ async function assertResourcePoolFits(
   });
 }
 
-/** A row's pooled share: its valid marker, or the plan default for a legacy row. */
+/** A row's pooled share: its valid marker, or the plan's conservative legacy claim. */
 function pooledReservationForRow(
   row: Pick<CloudVmRow, "providerMetadata">,
   legacy: VmComputeResources,
@@ -1223,9 +1423,70 @@ function providerMetadataPatchForPersistence(
       key !== CREATE_CLEANUP_ATTEMPT_KEY &&
       key !== CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY &&
       key !== CREATE_CLEANUP_LEASE_ID_KEY &&
-      key !== CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY,
+      key !== CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY &&
+      key !== VM_IDLE_PAUSE_MINUTES_KEY &&
+      key !== VM_IDLE_OBSERVATION_KEY &&
+      key !== VM_IDLE_PROBED_AT_KEY &&
+      key !== VM_IDLE_EPOCH_KEY &&
+      key !== VM_IDLE_PAUSE_CLAIM_KEY &&
+      key !== VM_PAUSE_INTENT_EPOCH_KEY &&
+      key !== VM_PENDING_PAUSE_KEY &&
+      key !== VM_LAST_API_ACTIVITY_KEY &&
+      key !== VM_PAUSE_REASON_KEY,
     ),
   );
+}
+
+/** A providerMetadata key's whole-millisecond value as bigint; 0 when absent or malformed. */
+function metadataMillis(key: string): SQL {
+  const text = sql`(${cloudVms.providerMetadata} ->> ${key}::text)`;
+  return sql`(case when ${text} ~ '^[0-9]{1,15}$' then ${text}::bigint else 0 end)`;
+}
+
+/** `metadata` with the idle fence (VM_IDLE_EPOCH_KEY) moved one past the row's current value. */
+function bumpIdleEpoch(metadata: SQL): SQL {
+  return sql`(${metadata} || jsonb_build_object(${VM_IDLE_EPOCH_KEY}::text, ${metadataMillis(VM_IDLE_EPOCH_KEY)} + 1))`;
+}
+
+/** No deliberate pause under way: the SQL side of hasOutstandingPauseIntent (services/vms/idlePause.ts). */
+function noOutstandingPauseIntent(): SQL {
+  const at = sql`(${cloudVms.providerMetadata} -> ${VM_PENDING_PAUSE_KEY}::text ->> 'requestedAt')`;
+  return sql`((case when ${at} ~ '^-?[0-9]{1,15}$' then ${at}::bigint else null end) is null
+    or (case when ${at} ~ '^-?[0-9]{1,15}$' then ${at}::bigint end) <= ${Date.now() - VM_PAUSE_INTENT_TTL_MS}::bigint)`;
+}
+
+/** The row's idle fence still holds the value the idle cron read. */
+function idleEpochIs(epoch: number): SQL {
+  return sql`${metadataMillis(VM_IDLE_EPOCH_KEY)} = ${epoch}::bigint`;
+}
+
+/**
+ * The metadata a provider-observed status write leaves. Every write drops the
+ * idle observation and moves the idle fence, so a paused, resumed or destroyed
+ * machine starts a new idle stretch and an in-flight probe's write loses. An
+ * unsettled idle pause claim is dropped only by a write that settles it: a
+ * stated pause, the cron's own fenced write, or a destroy. The status
+ * reconciler's write keeps it, so the cron still resolves a pause whose answer
+ * it lost. A paused write with a reason records it and stamps the fence it
+ * sets (a decision); a paused write without one (the status reconciler) keeps
+ * what is stored; any other status clears both.
+ */
+function observedStatusMetadata(input: Parameters<VmRepositoryShape["markProviderObservedStatus"]>[0]): SQL {
+  const settlesClaim = input.pauseReason !== undefined || input.expectIdleEpoch !== undefined || input.status === "destroyed";
+  const withoutObservation = sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text)`;
+  const base = settlesClaim ? sql`(${withoutObservation} - ${VM_IDLE_PAUSE_CLAIM_KEY}::text)` : withoutObservation;
+  const cleared = sql`(${base} - ${VM_PAUSE_REASON_KEY}::text - ${VM_PAUSE_INTENT_EPOCH_KEY}::text)`;
+  if (input.cleanup && input.status === "destroyed") {
+    return bumpIdleEpoch(sql`(${cleared}
+      || ${JSON.stringify({ [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: input.cleanup })}::jsonb)`);
+  }
+  if (input.status !== "paused") return bumpIdleEpoch(cleared);
+  if (!input.pauseReason) return bumpIdleEpoch(base);
+  // A stated pause is the end of any deliberate pause under way: its stamp takes over.
+  return bumpIdleEpoch(sql`((${base} - ${VM_PENDING_PAUSE_KEY}::text) || jsonb_build_object(
+    ${VM_PAUSE_REASON_KEY}::text, ${input.pauseReason}::text,
+    ${VM_PAUSE_INTENT_EPOCH_KEY}::text, ${metadataMillis(VM_IDLE_EPOCH_KEY)} + 1
+  ))`);
 }
 
 /** Build trusted numeric claim JSON without binding a JSON string as a JSON scalar. */
@@ -1672,15 +1933,34 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         ));
     }),
 
-  revokeAccessGrant: (id) =>
+  revokeAccessGrant: (input) =>
     dbEffect("revokeAccessGrant", async () => {
       const db = cloudDb();
-      const rows = await db
-        .update(cloudVmAccessGrants)
-        .set({ revokedAt: new Date(), updatedAt: new Date() })
-        .where(and(eq(cloudVmAccessGrants.id, id), isNull(cloudVmAccessGrants.revokedAt)))
-        .returning({ id: cloudVmAccessGrants.id });
-      return rows.length > 0;
+      return await db.transaction(async (tx) => {
+        const rows = await tx
+          .update(cloudVmAccessGrants)
+          .set({ revokedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(cloudVmAccessGrants.id, input.id), isNull(cloudVmAccessGrants.revokedAt)))
+          .returning({ id: cloudVmAccessGrants.id });
+        const sessions = await tx
+          .select({ stackSessionId: cloudVmAccessGrantSessions.stackSessionId })
+          .from(cloudVmAccessGrantSessions)
+          .where(eq(cloudVmAccessGrantSessions.accessGrantId, input.id));
+        const stackSessionIds = sessions.map((row) => row.stackSessionId);
+        const revoked = rows.length > 0;
+        if (revoked && input.revokeStackSessions && stackSessionIds.length > 0) {
+          await tx
+            .insert(stackSessionRevocations)
+            .values(stackSessionIds.map((stackSessionId) => ({
+              stackSessionId,
+              userId: input.revokeStackSessions!.userId,
+              accessGrantId: input.id,
+              nextAttemptAt: input.revokeStackSessions!.firstRetryAt,
+            })))
+            .onConflictDoNothing({ target: stackSessionRevocations.stackSessionId });
+        }
+        return { revoked, stackSessionIds };
+      });
     }),
 
   findTunnel: (input) =>
@@ -1825,6 +2105,132 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .set({ agentUpdates: storedAgentUpdates(input.agentUpdates), updatedAt: new Date() })
         .where(eq(cloudVms.id, input.id));
     }),
+  setIdlePauseMinutes: (input) =>
+    dbEffect("setIdlePauseMinutes", async () => {
+      await cloudDb()
+        .update(cloudVms)
+        .set({
+          // A changed setting moves the idle fence: a pause already under way records nothing.
+          providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_IDLE_PAUSE_MINUTES_KEY]: input.minutes })}::jsonb)`),
+          updatedAt: new Date(),
+        })
+        .where(eq(cloudVms.id, input.id));
+    }),
+  recordIdleObservation: (input) =>
+    dbEffect("recordIdleObservation", async () => {
+      const probed = JSON.stringify({ [VM_IDLE_PROBED_AT_KEY]: input.probedAt });
+      const rows = await cloudDb()
+        .update(cloudVms)
+        .set({
+          providerMetadata: bumpIdleEpoch(input.observation
+            ? sql`((coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_PAUSE_CLAIM_KEY}::text) || ${JSON.stringify({ [VM_IDLE_OBSERVATION_KEY]: input.observation, [VM_IDLE_PROBED_AT_KEY]: input.probedAt })}::jsonb)`
+            : sql`((coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text - ${VM_IDLE_PAUSE_CLAIM_KEY}::text) || ${probed}::jsonb)`),
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.providerVmId, input.providerVmId),
+          eq(cloudVms.status, "running"),
+          idleEpochIs(input.epoch),
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0;
+    }),
+  claimIdlePause: (input) =>
+    dbEffect("claimIdlePause", async () => {
+      const rows = await cloudDb()
+        .update(cloudVms)
+        // The claim stays in the row until a write settles it, so a lost provider answer is reconciled next run.
+        .set({ providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || jsonb_build_object(${VM_IDLE_PAUSE_CLAIM_KEY}::text, ${input.epoch + 1}::bigint))`) })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.providerVmId, input.providerVmId),
+          eq(cloudVms.status, "running"),
+          idleEpochIs(input.epoch),
+          noOutstandingPauseIntent(),
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0 ? input.epoch + 1 : null;
+    }),
+  claimIdleResume: (input) =>
+    dbEffect("claimIdleResume", async () => {
+      const rows = await cloudDb()
+        .update(cloudVms)
+        .set({ providerMetadata: bumpIdleEpoch(sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)`) })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.providerVmId, input.providerVmId),
+          ne(cloudVms.status, "destroyed"),
+          idleEpochIs(input.epoch),
+          noOutstandingPauseIntent(),
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0 ? input.epoch + 1 : null;
+    }),
+  recordPauseIntent: (input) =>
+    dbEffect("recordPauseIntent", async () => {
+      const rows = await cloudDb()
+        .update(cloudVms)
+        .set({ providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || jsonb_build_object(
+          ${VM_PENDING_PAUSE_KEY}::text,
+          jsonb_build_object('cause', ${input.cause}::text, 'epoch', ${metadataMillis(VM_IDLE_EPOCH_KEY)} + 1, 'requestedAt', ${Date.now()}::bigint)
+        ))`) })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.providerVmId, input.providerVmId),
+          ne(cloudVms.status, "destroyed"),
+        ))
+        .returning({ epoch: sql<string>`${cloudVms.providerMetadata} ->> ${VM_IDLE_EPOCH_KEY}::text` });
+      return rows.length > 0 ? Number(rows[0].epoch) : null;
+    }),
+  clearPauseIntent: (input) =>
+    dbEffect("clearPauseIntent", async () => {
+      await cloudDb()
+        .update(cloudVms)
+        .set({ providerMetadata: sql`(${cloudVms.providerMetadata} - ${VM_PENDING_PAUSE_KEY}::text)` })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          sql`(${cloudVms.providerMetadata} -> ${VM_PENDING_PAUSE_KEY}::text ->> 'epoch') = ${String(input.epoch)}::text`,
+        ));
+    }),
+  idlePauseCandidates: (input) =>
+    dbEffect("idlePauseCandidates", async () => await cloudDb()
+      .select()
+      .from(cloudVms)
+      .where(and(
+        eq(cloudVms.provider, "freestyle"),
+        isNotNull(cloudVms.providerVmId),
+        // Running machines, and any live row still holding an unresolved idle pause claim,
+        // which the status reconciler may already have marked paused.
+        or(
+          eq(cloudVms.status, "running"),
+          and(ne(cloudVms.status, "destroyed"), sql`(${cloudVms.providerMetadata} -> ${VM_IDLE_PAUSE_CLAIM_KEY}::text) is not null`),
+        ),
+      ))
+      // Unresolved claims first; then least recently checked (never checked reads as 0), so a capped run rotates.
+      .orderBy(
+        sql`(${cloudVms.providerMetadata} -> ${VM_IDLE_PAUSE_CLAIM_KEY}::text) is null`,
+        asc(metadataMillis(VM_IDLE_PROBED_AT_KEY)),
+        asc(cloudVms.id),
+      )
+      .limit(input.limit)),
+  recordVmApiActivity: (input) =>
+    dbEffect("recordVmApiActivity", async () => {
+      const rows = await cloudDb()
+        .update(cloudVms)
+        .set({
+          // Activity has its own timestamp; it is not a lifecycle mutation. It
+          // moves the idle fence, so an idle pause already under way records nothing.
+          providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify({ [VM_LAST_API_ACTIVITY_KEY]: input.at })}::jsonb)`),
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.providerVmId, input.providerVmId),
+          ne(cloudVms.status, "destroyed"),
+          sql`${metadataMillis(VM_LAST_API_ACTIVITY_KEY)} <= ${input.at - VM_API_ACTIVITY_MIN_INTERVAL_MS}::bigint`,
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0;
+    }),
   mergeProviderMetadata: (input) =>
     dbEffect("mergeProviderMetadata", async () => {
       const db = cloudDb();
@@ -1862,6 +2268,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       )).returning({ id: cloudVms.id });
       return rows.length > 0;
     }),
+
+  countSavedUserVms: (userId, billingTeamId) => dbEffect("countSavedUserVms", async () => {
+    const [row] = await cloudDb().select({ total: count() }).from(cloudVms)
+      .where(and(billingTeamId ? eq(cloudVms.billingTeamId, billingTeamId) : eq(cloudVms.userId, userId), inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES)));
+    return Number(row?.total ?? 0);
+  }),
 
   listUserVms: (userId, billingTeamId) =>
     dbEffect("listUserVms", async () => {
@@ -1978,20 +2390,30 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               }
             }
 
+            // Idempotent replays return above before this check. A request
+            // that wins the insert race must still be checked atomically so a
+            // plan change cannot turn a new row into an entitlement bypass.
+            assertCreateReservationFitsPlan({
+              planId: input.billingPlanId,
+              resourceReservation: input.resourceReservation,
+              planMaxMemoryMb: input.planMaxMemoryMb,
+              planMaxVcpus: input.planMaxVcpus,
+            });
+
             const [active] = await tx
               .select({ total: count() })
               .from(cloudVms)
               .where(
                 and(
-                  inArray(cloudVms.status, ["provisioning", "running"]),
+                  inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
                   eq(cloudVms.billingTeamId, input.billingTeamId),
                 ),
               );
             const activeCount = Number(active?.total ?? 0);
             const limit = input.maxActiveVms;
             if (limit !== null && activeCount >= limit) {
-              throw new VmLimitExceededError({
-                kind: "active_vms",
+              throw await activeLimitExceededInTx(tx, {
+                scope: eq(cloudVms.billingTeamId, input.billingTeamId),
                 billingTeamId: input.billingTeamId,
                 limit,
               });
@@ -2017,11 +2439,14 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 displayName: input.displayName ?? null,
                 idempotencyKey,
                 agentUpdates: storedAgentUpdates(input.agentUpdates),
-                providerMetadata: reservationMetadataForInput(
-                  input.resourceReservation,
-                  input.forkPending,
-                  input.forkMinimumResourceReservation ?? input.resourceReservation,
-                ),
+                providerMetadata: {
+                  ...reservationMetadataForInput(
+                    input.resourceReservation,
+                    input.forkPending,
+                    input.forkMinimumResourceReservation ?? input.resourceReservation,
+                  ),
+                  ...(input.idlePauseMinutes === undefined ? {} : { [VM_IDLE_PAUSE_MINUTES_KEY]: input.idlePauseMinutes }),
+                },
                 slug: await allocateSlugInTx(tx, input.billingTeamId),
               })
               .returning();
@@ -2037,9 +2462,19 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
+      catch: (cause) => cause instanceof VmMemoryPlanError || isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginCreate", cause }),
+    }),
+
+  findCreateByIdempotencyKey: (input) =>
+    dbEffect("findCreateByIdempotencyKey", async () => {
+      const [existing] = await cloudDb()
+        .select()
+        .from(cloudVms)
+        .where(idempotencyScopeWhere(input))
+        .limit(1);
+      return existing ?? null;
     }),
 
   beginBaseOpen: (input) =>
@@ -2099,18 +2534,28 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               };
             }
 
+            // Existing Base machines are grandfathered. Apply the current
+            // per-machine entitlement only when this transaction is about to
+            // allocate a new generation.
+            assertCreateReservationFitsPlan({
+              planId: input.billingPlanId,
+              resourceReservation: input.resourceReservation,
+              planMaxMemoryMb: input.planMaxMemoryMb,
+              planMaxVcpus: input.planMaxVcpus,
+            });
+
             const [active] = await tx
               .select({ total: count() })
               .from(cloudVms)
               .where(and(
-                inArray(cloudVms.status, ["provisioning", "running"]),
+                inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
                 eq(cloudVms.billingTeamId, input.billingTeamId),
               ));
             const activeCount = Number(active?.total ?? 0);
             const limit = input.maxActiveVms;
             if (limit !== null && activeCount >= limit) {
-              throw new VmLimitExceededError({
-                kind: "active_vms",
+              throw await activeLimitExceededInTx(tx, {
+                scope: eq(cloudVms.billingTeamId, input.billingTeamId),
                 billingTeamId: input.billingTeamId,
                 limit,
               });
@@ -2257,7 +2702,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
+      catch: (cause) => cause instanceof VmMemoryPlanError || isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmResourcePoolExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseOpen", cause }),
     }),
@@ -2314,10 +2759,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 `base:${scope.scopeType}:${scope.scopeId}:${name}:g${existing?.base.activeGeneration ?? 0}`,
             });
           }
+          assertCreateReservationFitsPlan({
+            planId: input.billingPlanId,
+            resourceReservation: input.resourceReservation,
+            planMaxMemoryMb: input.planMaxMemoryMb,
+            planMaxVcpus: input.planMaxVcpus,
+          });
           const nextGeneration = await nextBaseGenerationInTx(tx, existing?.base.id, existing?.base.activeGeneration ?? 0);
           const idempotencyKey = `base:${scope.scopeType}:${scope.scopeId}:${name}:g${nextGeneration}`;
           const activePredicates = [
-            inArray(cloudVms.status, ["provisioning", "running"]),
+            inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
             eq(cloudVms.billingTeamId, input.billingTeamId),
           ];
           const [active] = await tx
@@ -2327,8 +2778,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           const activeCount = Number(active?.total ?? 0);
           const limit = input.maxActiveVms;
           if (limit !== null && activeCount >= limit) {
-            throw new VmLimitExceededError({
-              kind: "active_vms",
+            throw await activeLimitExceededInTx(tx, {
+              scope: eq(cloudVms.billingTeamId, input.billingTeamId),
               billingTeamId: input.billingTeamId,
               limit,
             });
@@ -2437,7 +2888,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           };
         });
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmCreateInProgressError(cause) || isVmResourcePoolExceededError(cause)
+      catch: (cause) => cause instanceof VmMemoryPlanError || isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmCreateInProgressError(cause) || isVmResourcePoolExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseReset", cause }),
     }),
@@ -2772,11 +3223,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             .where(and(inArray(cloudVms.status, ["provisioning", "running"]), teamScope));
           const activeCount = Number(active?.total ?? 0);
           const limit = input.maxActiveVms;
-          if (limit !== null && activeCount >= limit) {
-            throw new VmLimitExceededError({
-              kind: "active_vms",
+          if (!input.skipActiveLimit && limit !== null && activeCount >= limit) {
+            throw await activeLimitExceededInTx(tx, {
+              scope: teamScope,
               billingTeamId: input.billingTeamId ?? input.userId,
               limit,
+              includesPaused: false,
             });
           }
           if (input.resourcePool) {
@@ -2792,7 +3244,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
 
           const [reserved] = await tx
             .update(cloudVms)
-            .set({ status: "running", updatedAt: new Date() })
+            // A resumed machine starts a new idle stretch, and an older probe's write loses.
+            .set({
+              status: "running",
+              updatedAt: new Date(),
+              providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) - ${VM_IDLE_OBSERVATION_KEY}::text - ${VM_IDLE_PAUSE_CLAIM_KEY}::text - ${VM_PAUSE_INTENT_EPOCH_KEY}::text)`),
+            })
             .where(
               and(
                 eq(cloudVms.id, input.id),
@@ -3654,18 +4111,14 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             status: input.status,
             destroyedAt: input.status === "destroyed" ? new Date() : null,
             updatedAt: new Date(),
-            ...(input.cleanup && input.status === "destroyed"
-              ? {
-                providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
-                  || ${JSON.stringify({ [OBSERVED_DESTROY_CLEANUP_METADATA_KEY]: input.cleanup })}::jsonb`,
-              }
-              : {}),
+            providerMetadata: observedStatusMetadata(input),
           })
           .where(
             and(
               eq(cloudVms.id, input.id),
               eq(cloudVms.providerVmId, input.providerVmId),
               ne(cloudVms.status, "destroyed"),
+              input.expectIdleEpoch === undefined ? undefined : idleEpochIs(input.expectIdleEpoch),
             ),
           )
           .returning({ id: cloudVms.id });
@@ -3684,6 +4137,30 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         }
         return true;
       });
+    }),
+
+  claimUnexpectedWakeRepause: (input) =>
+    dbEffect("claimUnexpectedWakeRepause", async () => {
+      const nowMs = sql`(extract(epoch from now()) * 1000)::bigint`;
+      const claimed = await cloudDb()
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+            || jsonb_build_object(${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text, ${nowMs})`,
+          // Reconciliation reads oldest `updatedAt` first; moving a claimed row
+          // to the back lets a capped run reach the wakes it left behind.
+          updatedAt: sql`greatest(${cloudVms.updatedAt} + interval '1 millisecond', now())`,
+        })
+        .where(
+          and(
+            eq(cloudVms.id, input.id),
+            eq(cloudVms.providerVmId, input.providerVmId),
+            eq(cloudVms.status, "paused"),
+            sql`coalesce((${cloudVms.providerMetadata}->>${UNEXPECTED_WAKE_CLAIM_METADATA_KEY}::text)::bigint, 0) < ${nowMs} - ${input.ttlMs}::bigint`,
+          ),
+        )
+        .returning({ id: cloudVms.id });
+      return claimed.length > 0;
     }),
 
   setDisplayName: (input) =>
@@ -4240,6 +4717,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
 // functions keep their reviewed complexity fingerprints. The lease methods
 // remain one independently testable cross-instance capability.
 Object.assign(vmRepositoryLiveShape, tunnelEnrollmentRepositoryMethods);
+// The staff health sweep's reads and its own snapshot table.
+Object.assign(vmRepositoryLiveShape, vmHealthRepositoryMethods);
 
 export const VmRepositoryLive = Layer.succeed(VmRepository, vmRepositoryLiveShape);
 

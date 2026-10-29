@@ -7,6 +7,7 @@ private final class FakeSurfaceController: TerminalSurfaceControlling {
     let surfaceId = UUID()
     let owningTabId = UUID()
     var runtimeSurfacePointer: ghostty_surface_t?
+    var requiresClipboardReadGesture = false
 }
 
 private final class FakeSurfaceHost: TerminalSurfaceHosting {
@@ -62,6 +63,50 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
             context.hasPointerSelectionCopyIntent
         }
         #expect(!sawIntent)
+    }
+
+    @Test func pasteIntentSupportsSynchronousAllSurfaceBindings() {
+        let context = Self.makeContext()
+        let otherContext = Self.makeContext()
+
+        let otherSawIntent = context.withRuntimeClipboardPasteIntent {
+            otherContext.hasRuntimeClipboardPasteIntent
+        }
+        #expect(otherSawIntent)
+        #expect(!otherContext.hasRuntimeClipboardPasteIntent)
+    }
+
+    @Test func userInitiatedClipboardWriteIntentIsScopedToItsDispatch() {
+        let context = Self.makeContext()
+
+        #expect(!context.hasUserInitiatedClipboardWriteIntent)
+        let sawIntent = context.withUserInitiatedClipboardWriteIntent {
+            context.hasUserInitiatedClipboardWriteIntent
+        }
+        #expect(sawIntent)
+        #expect(!context.hasUserInitiatedClipboardWriteIntent)
+    }
+
+    @Test func userInitiatedClipboardWriteIntentDoesNotLeakToOtherSurfaces() {
+        let context = Self.makeContext()
+        let otherContext = Self.makeContext()
+
+        let otherSawIntent = context.withUserInitiatedClipboardWriteIntent {
+            otherContext.hasUserInitiatedClipboardWriteIntent
+        }
+        #expect(!otherSawIntent)
+    }
+
+    @Test func userInitiatedClipboardWriteIntentIsClearedWhenDispatchThrows() {
+        struct DispatchFailure: Error {}
+        let context = Self.makeContext()
+
+        #expect(throws: DispatchFailure.self) {
+            try context.withUserInitiatedClipboardWriteIntent {
+                throw DispatchFailure()
+            }
+        }
+        #expect(!context.hasUserInitiatedClipboardWriteIntent)
     }
 
     @Test func intentIsClearedWhenDispatchThrows() {

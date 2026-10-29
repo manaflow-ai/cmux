@@ -45,6 +45,10 @@ struct CloudMachinesEnablementView: View {
     /// The account's plan is known (not just "a request finished").
     let isPlanKnown: Bool
     let isProActive: Bool
+    /// Whether the signed-in account belongs to an accepted shared team.
+    /// This opens Cloud for the team's scope without changing the account's
+    /// personal plan or its personal VM allowance.
+    let hasCloudTeamAccess: Bool
     /// Title for ``CloudMachinesEnablementPhase/unavailable`` (the feature
     /// flag or managed policy message).
     let unavailableMessage: String
@@ -101,7 +105,19 @@ struct CloudMachinesEnablementView: View {
 
     /// Free accounts see Upgrade to Pro in place of Enable Cloud.
     private var isProGated: Bool {
-        isPlanKnown && !isProActive
+        Self.shouldRequirePro(
+            isPlanKnown: isPlanKnown,
+            isProActive: isProActive,
+            hasCloudTeamAccess: hasCloudTeamAccess
+        )
+    }
+
+    static func shouldRequirePro(
+        isPlanKnown: Bool,
+        isProActive: Bool,
+        hasCloudTeamAccess: Bool
+    ) -> Bool {
+        isPlanKnown && !isProActive && !hasCloudTeamAccess
     }
 
     // MARK: Introduction (Enable or Upgrade)
@@ -192,6 +208,12 @@ struct CloudMachinesEnablementView: View {
     private var planNote: String {
         if isPlanKnown && isProActive {
             return String(localized: "cloud.welcome.note.included", defaultValue: "Included in your plan.")
+        }
+        if hasCloudTeamAccess {
+            return String(
+                localized: "cloud.welcome.note.teamAvailable",
+                defaultValue: "Cloud can be enabled through your team; machine access follows the team’s plan."
+            )
         }
         return String(localized: "cloud.welcome.note.available", defaultValue: "Cloud is available on cmux Pro and Max.")
     }

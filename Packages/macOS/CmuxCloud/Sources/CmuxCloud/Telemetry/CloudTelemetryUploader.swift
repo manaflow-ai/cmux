@@ -12,6 +12,9 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
     /// Axiom independently of the tag's GCP stack.
     public static var telemetryBaseURL: URL {
         #if DEBUG
+        if let override = AuthEnvironment.debugCloudDiagnosticsBaseURL {
+            return override
+        }
         if BuildFlavor.current == .dev,
            AuthEnvironment.resolvedStackAuthEnvironment(
                environment: ProcessInfo.processInfo.environment,
@@ -24,9 +27,16 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
     }
 
     private struct Entry: Codable {
-        let accountKey: String
+        /// The account the span belongs to. `nil` for an install-scoped
+        /// record, such as a sign-in rate limit seen before any sign-in,
+        /// which the next signed-in account uploads.
+        let accountKey: String?
         let client: CloudTelemetryClient
         let span: CloudTelemetrySpan
+
+        func uploadable(by accountKey: String) -> Bool {
+            self.accountKey == nil || self.accountKey == accountKey
+        }
     }
     private struct Batch: Encodable {
         let version = 1
@@ -60,7 +70,7 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
         self.client = client
         self.session = session
         self.batchDelay = batchDelay
-        self.queueURL = queueURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        self.queueURL = queueURL ?? (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app")
             .appendingPathComponent("cloud-diagnostics.json")
     }
@@ -71,7 +81,7 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
         guard await auth.isAuthenticatedSessionIdentityCurrent(identity) else { return }
         loadIfNeeded()
         let accountKey = Self.accountKey(identity.accountID)
-        entries.removeAll { $0.accountKey != accountKey || $0.span.endedAtMs < Self.nowMs - 86_400_000 }
+        entries.removeAll { !$0.uploadable(by: accountKey) || $0.span.endedAtMs < Self.nowMs - 86_400_000 }
         // Production polling retains a deterministic 2% sample of successful detail.
         // Every root outcome and every failure remains available as a denominator or error.
         if client.channel == "production", original.outcome == .success,
@@ -80,22 +90,50 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
         var span = original
         if droppedCount > 0 { span.droppedCount = min(droppedCount, 1_000_000); droppedCount = 0 }
         entries.append(Entry(accountKey: accountKey, client: client, span: span))
+        trimToCapacity()
+        if span.outcome == .failure || span.outcome == .timeout { persist() }
+        schedule()
+    }
+
+    /// Queues a span that belongs to this app install rather than to an
+    /// account: a sign-in service rate limit can happen before sign-in.
+    ///
+    /// The upload authenticates to the Cloud service with the current
+    /// session token. While no session exists, or its token cannot be read,
+    /// the span waits in the persisted queue and goes out with the next
+    /// successful upload.
+    public func enqueueInstanceScoped(_ original: CloudTelemetrySpan) {
+        loadIfNeeded()
+        var span = original
+        if droppedCount > 0 { span.droppedCount = min(droppedCount, 1_000_000); droppedCount = 0 }
+        entries.append(Entry(accountKey: nil, client: client, span: span))
+        trimToCapacity()
+        persist()
+        schedule()
+    }
+
+    /// Starts a drain for spans persisted by an earlier launch.
+    public func resumePending() {
+        loadIfNeeded()
+        if !entries.isEmpty { schedule() }
+    }
+
+    private func trimToCapacity() {
         while entries.count > 2000 {
             let index = entries.firstIndex { $0.span.outcome == .success } ?? 0
             entries.remove(at: index)
             droppedCount += 1
         }
-        if span.outcome == .failure || span.outcome == .timeout { persist() }
-        schedule()
     }
 
     public func clearForSignOut() {
         generation &+= 1
         uploadTask?.cancel()
         uploadTask = nil
-        entries.removeAll()
+        loadIfNeeded()
+        // Install-scoped records belong to no account; the next one uploads them.
+        entries.removeAll { $0.accountKey != nil }
         droppedCount = 0
-        loaded = true
         persist()
     }
 
@@ -115,11 +153,21 @@ public actor CloudTelemetryUploader: CloudTelemetrySending {
         defer { if generation == currentGeneration { uploadTask = nil } }
         var failures = 0
         while !Task.isCancelled, generation == currentGeneration, !entries.isEmpty {
-            guard let identity = await auth.authenticatedSessionIdentity else { return }
+            guard let identity = await auth.authenticatedSessionIdentity else {
+                // Install-scoped records wait for a session: check again
+                // later instead of waiting for the next span to schedule a drain.
+                guard entries.contains(where: { $0.accountKey == nil }) else { return }
+                try? await Task.sleep(for: .seconds(60))
+                continue
+            }
             let key = Self.accountKey(identity.accountID)
-            entries.removeAll { $0.accountKey != key || $0.span.endedAtMs < Self.nowMs - 86_400_000 }
+            entries.removeAll { !$0.uploadable(by: key) || $0.span.endedAtMs < Self.nowMs - 86_400_000 }
             guard let first = entries.first else { persist(); return }
-            let batchEntries = Array(entries.lazy.filter { $0.client == first.client }.prefix(40))
+            // Auth records travel in their own batches, so a backend that
+            // rejects them cannot take Cloud spans down with them.
+            let batchEntries = Array(entries.lazy.filter {
+                $0.client == first.client && ($0.span.auth == nil) == (first.span.auth == nil)
+            }.prefix(40))
             let ids = Set(batchEntries.map { $0.span.eventId })
             do {
                 let tokens = try await auth.currentTokens()

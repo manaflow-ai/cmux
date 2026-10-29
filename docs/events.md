@@ -1,7 +1,7 @@
 # cmux Events
 
 cmux exposes a reconnectable event stream for local tools that need to observe
-workspace, pane, surface, notification, browser, Feed, and agent-hook activity.
+workspace, pane, surface, terminal, notification, browser, Feed, and agent-hook activity.
 
 The same events are appended to `~/.cmuxterm/events.jsonl` as newline-delimited
 JSON. The live stream is delivered over the existing cmux socket. Clients call
@@ -310,6 +310,7 @@ Surface and pane:
 | `surface.action` | Surface or tab action command completed. |
 | `surface.input_sent` | Text was sent through the socket API. Text is redacted. |
 | `surface.key_sent` | Key was sent through the socket API. |
+| `surface.jump_to_last_prompt_requested` | Socket command asked cmux to focus the surface where the user last submitted an agent prompt. |
 | `pane.created` | Pane created. |
 | `pane.closed` | Pane closed. |
 | `pane.focused` | Focused pane changed for a workspace. Fires for pane clicks, split focus, `focus-pane`, `last-pane`, and selection convergence after close/move. |
@@ -334,6 +335,44 @@ Sidebar metadata:
 | `sidebar.log.appended` | Sidebar log entry appended. |
 | `sidebar.log.cleared` | Sidebar log cleared. |
 | `sidebar.reset` | Sidebar context reset. |
+
+Terminal program status:
+
+| Name | Trigger |
+| --- | --- |
+| `program_status.changed` | An OSC 7501 report, clear, prompt-start, lifecycle cleanup, or terminal close or move changed a terminal's records. Large snapshots are split into bounded chunks. |
+
+The `program_status.changed` payload has `event` (`report`, `clear`,
+`prompt_start`, `transient_drop`, `dismissed`, `removed`, or `adopted`), `id` (the addressed record
+id, or `null`), `record` (the updated record, or `null` for lifecycle cleanup),
+and `records` (a chunk of the terminal's current records). `records_total` is
+the number of records in the complete snapshot. When a snapshot has more than
+32 records, the event is split into consecutive events with the same
+`snapshot_id`; `snapshot_index` is zero-based and `snapshot_count` is the total
+number of chunks. A one-chunk snapshot still carries these fields, so consumers
+can use the same assembly path for every change. This keeps every event below
+the event stream's 16 KiB line limit without dropping the addressed record.
+Each chunk is a separate event. If the stream reports `slow_consumer` or
+`ack.resume.gap` indicates that events are missing, discard every chunk for the
+affected `snapshot_id` and do not apply a partial snapshot. Reconnect with the
+last successfully processed sequence and wait for the next complete snapshot;
+cmux does not currently provide a dedicated program-status snapshot query.
+`transient_drop` is emitted when shell prompt-idle or child-exit cleanup removes
+working/blocked records; `dismissed` is emitted when focusing a pane removes
+done/error records. `removed` is emitted with empty `records` when a terminal
+that had records closes, its workspace closes, or it is moved out of the
+workspace; drop every record held for that `surface_id` under that
+`workspace_id`. `adopted` is emitted with the complete snapshot when a moved
+terminal arrives in its new workspace, so a move is a `removed` event under the
+old `workspace_id` followed by an `adopted` event under the new one.
+A sidebar reset (the `reset_sidebar` socket command) emits `clear` with empty `records` for
+each terminal that had records.
+`transient_drop` and `dismissed` are suppressed when the store is already
+unchanged, so a later prompt-start callback does not duplicate the cleanup
+event. Each record contains only the safe protocol fields `id`, `state`, `kind`,
+`progress`, and `updated_seq`; free-form OSC text and provider names are
+intentionally omitted from the user-facing stream and persistent event log.
+Subscribe with `--category terminal` or `--name program_status.changed`.
 
 Notifications:
 

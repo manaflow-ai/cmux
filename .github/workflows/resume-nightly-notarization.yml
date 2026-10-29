@@ -1,0 +1,321 @@
+name: Resume nightly notarization
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Failed nightly workflow run that uploaded the recovery artifact
+        required: true
+        type: string
+      artifact_run_id:
+        description: Optional workflow run that owns the named artifact (for outer-DMG continuation artifacts)
+        required: false
+        default: ""
+        type: string
+      recovery_artifact:
+        description: Exact recovery artifact name from that run
+        required: true
+        type: string
+      channel:
+        description: Channel recorded by the source nightly run
+        required: true
+        type: choice
+        options:
+          - nightly
+          - rc
+      variant:
+        description: Architecture variant recorded by the recovery manifest
+        required: true
+        type: choice
+        options:
+          - arm64
+          - x86_64
+          - universal
+
+permissions:
+  actions: read
+  contents: read
+
+# Per source run: a group per channel and variant let a newer recovery replace
+# a waiting one for another source run, whose accepted DMG then never
+# published. Every recovery of one source run (its first and outer DMG
+# artifacts, and retries) still takes turns.
+concurrency:
+  group: notarization-recovery-${{ inputs.channel }}-${{ inputs.variant }}-${{ inputs.source_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 180
+    # Secrets and the job token are set only on the steps that use them, so the
+    # steps that launch the recovered app do not inherit them.
+    env:
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+      RECOVERY_ARTIFACT: ${{ inputs.recovery_artifact }}
+      REQUESTED_CHANNEL: ${{ inputs.channel }}
+      REQUESTED_VARIANT: ${{ inputs.variant }}
+    steps:
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up Node for recovered DMG packaging
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+
+      - name: Install recovered DMG packaging tools
+        env:
+          CREATE_DMG_VERSION: 8.0.0
+        run: |
+          set -euo pipefail
+          export npm_config_prefix="$RUNNER_TEMP/npm-global"
+          mkdir -p "$npm_config_prefix"
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
+          wrapper_dir="$RUNNER_TEMP/create-dmg-wrapper"
+          mkdir -p "$wrapper_dir"
+          cat > "$wrapper_dir/create-dmg" <<EOF
+          #!/usr/bin/env bash
+          exec "$(command -v node)" "$npm_config_prefix/lib/node_modules/create-dmg/cli.js" "\$@"
+          EOF
+          chmod +x "$wrapper_dir/create-dmg"
+          echo "$wrapper_dir" >> "$GITHUB_PATH"
+
+      - name: Verify trusted source workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "source_run_id must be numeric" >&2; exit 2; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
+          read -r source_head_sha source_run_attempt < <(python3 - "$RUNNER_TEMP/source-run.json" "$GITHUB_REPOSITORY" "$REQUESTED_CHANNEL" <<'PY'
+          import json
+          import pathlib
+          import re
+          import sys
+
+          run = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          repository, channel = sys.argv[2:]
+          if run.get("path") != ".github/workflows/nightly.yml":
+              raise SystemExit("source run is not the trusted nightly workflow")
+          if run.get("repository", {}).get("full_name") != repository:
+              raise SystemExit("source run belongs to a different repository")
+          if run.get("head_repository", {}).get("full_name") != repository:
+              raise SystemExit("source run was created from a different repository")
+          if run.get("event") not in {"push", "schedule", "workflow_dispatch"}:
+              raise SystemExit("source run event is not a published nightly event")
+          branch = run.get("head_branch") or ""
+          if channel == "nightly" and branch not in {"main", "nightly-next"}:
+              raise SystemExit("nightly recovery source is not on a published branch")
+          if channel == "rc" and not branch.startswith("rc/"):
+              raise SystemExit("RC recovery source is not on an RC branch")
+          if run.get("conclusion") not in {"failure", "success", "timed_out", "cancelled"}:
+              raise SystemExit("source run did not complete before recovery")
+          head_sha = run.get("head_sha", "")
+          if not re.fullmatch(r"[0-9a-fA-F]{40}", head_sha):
+              raise SystemExit("source run has no valid head SHA")
+          run_attempt = run.get("run_attempt")
+          if not isinstance(run_attempt, int) or run_attempt < 1:
+              raise SystemExit("source run has no valid run attempt")
+          print(head_sha, run_attempt)
+          PY
+          )
+          {
+            echo "SOURCE_HEAD_SHA=$source_head_sha"
+            echo "SOURCE_RUN_ATTEMPT=$source_run_attempt"
+          } >> "$GITHUB_ENV"
+
+      - name: Download exact recovery artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$RECOVERY_ARTIFACT" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "invalid recovery artifact name" >&2; exit 2; }
+          artifact_run_id="${ARTIFACT_RUN_ID:-$SOURCE_RUN_ID}"
+          [[ "$artifact_run_id" =~ ^[0-9]+$ ]] || { echo "artifact_run_id must be numeric" >&2; exit 2; }
+          rm -rf recovery
+          mkdir -p recovery
+          gh run download "$artifact_run_id" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$RECOVERY_ARTIFACT" \
+            --dir recovery
+          test -f recovery/cmux-nightly-notarization-recovery.json
+          test -f recovery/cmux-nightly-notarization-recovery-app.tar.gz
+
+      - name: Resolve and verify exact recovery manifest
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/resolve-notarization-recovery.py \
+            recovery/cmux-nightly-notarization-recovery.json \
+            "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$REQUESTED_CHANNEL" "$REQUESTED_VARIANT" \
+            --source-run-attempt "$SOURCE_RUN_ATTEMPT" --extract-app > "$RUNNER_TEMP/recovery.env"
+          while IFS='=' read -r key value; do
+            printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
+          done < "$RUNNER_TEMP/recovery.env"
+
+      # Only a recovered Computer Use helper needs a keychain before the wait:
+      # the helper re-seals the app. notarize-nightly-dmg.sh deletes it after
+      # the outer DMG signature. The DMG around the stapled app is signed with
+      # a keychain that resume-stapled-app-notarization.sh makes just before
+      # that signature.
+      - name: Import signing certificate for recovered DMG
+        if: env.RECOVERY_KIND == 'computer-use-helper'
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: ./scripts/ci/signing-keychain.sh create
+
+      # The step limit leaves the job time to stage the outer submission below.
+      - name: Wait, staple, and validate exact submitted DMG
+        id: wait-staple
+        timeout-minutes: 150
+        env:
+          # Launch smokes run in verify-stapled, which holds no secrets.
+          CMUX_DEFER_LAUNCH_SMOKES: "true"
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Only for the keychain of the DMG around the stapled app.
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p verified
+          if [ "${RECOVERY_KIND:-dmg}" = "computer-use-helper" ]; then
+            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
+            CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+            NIGHTLY_VARIANT="$REQUESTED_VARIANT" \
+            CHANNEL_RELEASE_TAG="$REQUESTED_CHANNEL" \
+            CHANNEL_DMG_PREFIX="cmux-$REQUESTED_CHANNEL-macos" \
+            CMUX_OUTER_NOTARY_WAIT_TIMEOUT=25m \
+            CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=20m \
+            ./scripts/ci/resume-helper-notarization.sh \
+              "$HELPER_STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+              "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$APPLE_SIGNING_IDENTITY" "$outer_state"
+          else
+            # A state with stapled_app=true (an outer continuation artifact)
+            # is only continued; any other one gets the DMG around its stapled app.
+            outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
+            CMUX_CHANNEL="$REQUESTED_CHANNEL" \
+            NIGHTLY_VARIANT="$REQUESTED_VARIANT" \
+            CHANNEL_RELEASE_TAG="$REQUESTED_CHANNEL" \
+            CHANNEL_DMG_PREFIX="cmux-$REQUESTED_CHANNEL-macos" \
+            CMUX_NOTARY_WAIT_TIMEOUT=2m \
+            CMUX_NOTARY_EVIDENCE_FILE="$EVIDENCE_FILE" \
+            CMUX_STAPLED_APP_NOTARY_WAIT_TIMEOUT=40m \
+            ./scripts/ci/resume-stapled-app-notarization.sh \
+              "$STATE_FILE" "$APP_PATH" "$DMG_RELEASE" "verified/$IMMUTABLE_NAME" \
+              "${APP_ENTITLEMENTS:-cmux.$REQUESTED_CHANNEL.entitlements}" "$outer_state"
+          fi
+
+      # A submission still at Apple after the bounded waits is kept for the
+      # next manual run (artifact_run_id = this run): the DMG around the
+      # stapled app when it exists, else a recovered helper's outer DMG.
+      - name: Prepare outer DMG recovery after bounded wait
+        id: prepare-outer
+        if: always() && steps.wait-staple.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          outer_state="$RUNNER_TEMP/cmux-outer-dmg-notarization.state"
+          require=(--require-stapled-app)
+          if [ ! -s "$outer_state" ] && [ "${RECOVERY_KIND:-dmg}" = computer-use-helper ]; then
+            outer_state="$outer_state.first"
+            require=()
+          fi
+          if [ ! -s "$outer_state" ]; then
+            if grep -Fxq 'stapled_app=true' "${STATE_FILE:-/dev/null}"; then
+              # A continued stapled-app DMG that is still pending before its
+              # 6 h fallback: the input artifact is unchanged.
+              echo "::warning::The DMG around the stapled app is not Accepted yet and is before its 6 h fallback; run this workflow again with the same inputs"
+            else
+              echo "The failure came before an outer DMG was submitted; nothing to hand off."
+            fi
+            exit 0
+          fi
+          python3 scripts/ci/stage-outer-notarization-recovery.py \
+            recovery/cmux-nightly-notarization-recovery.json \
+            "$outer_state" "$DMG_RELEASE" "$APP_PATH" outer-recovery-staging ${require[@]+"${require[@]}"} \
+            --source-run-id "$SOURCE_RUN_ID" --head-sha "$SOURCE_HEAD_SHA" \
+            --run-attempt "$SOURCE_RUN_ATTEMPT" --channel "$REQUESTED_CHANNEL" --variant "$REQUESTED_VARIANT" \
+            --release-tag "$RELEASE_TAG" --dmg-prefix "$DMG_PREFIX" --short-sha "${SOURCE_HEAD_SHA:0:7}"
+          id="$(awk -F= '$1 == "submission_id" { print $2; exit }' "$outer_state")"
+          echo "::warning::Apple submission $id is still pending. Continue it with this workflow: source_run_id=$SOURCE_RUN_ID artifact_run_id=$GITHUB_RUN_ID recovery_artifact=cmux-$REQUESTED_CHANNEL-outer-notarization-recovery-$REQUESTED_VARIANT-$GITHUB_RUN_ID"
+          echo "prepared=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload outer DMG recovery artifact
+        if: always() && steps.prepare-outer.outputs.prepared == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ inputs.channel }}-outer-notarization-recovery-${{ inputs.variant }}-${{ github.run_id }}
+          path: outer-recovery-staging/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload verified recovery artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ inputs.channel }}-notarization-verified-${{ inputs.variant }}-${{ github.run_id }}
+          path: |
+            recovery
+            verified
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
+            || security delete-keychain build.keychain >/dev/null 2>&1 || true
+          rm -f /tmp/cert.p12
+
+  verify-stapled:
+    name: Verify stapled DMG
+    # No environment and no secrets: launch the app inside the exact DMG the
+    # resume job stapled.
+    needs: resume
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout trusted continuation tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: refs/heads/main
+
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download verified recovery artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-${{ inputs.channel }}-notarization-verified-${{ inputs.variant }}-${{ github.run_id }}
+          path: recovered
+
+      - name: Launch the app inside the exact stapled DMG
+        env:
+          REQUESTED_CHANNEL: ${{ inputs.channel }}
+        run: |
+          set -euo pipefail
+          manifest="$(find recovered -type f -name cmux-nightly-notarization-recovery.json -print -quit)"
+          test -n "$manifest"
+          immutable="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["immutable_path"].split("/")[-1])' "$manifest")"
+          dmg="$(find recovered -type f -path "*/verified/$immutable" -print -quit)"
+          test -n "$dmg"
+          # Only the 6 h fallback ships an app without its own ticket.
+          stapled=(--require-stapled-app)
+          if [ -f "$dmg.stapled-app-fallback" ]; then
+            stapled=(--stapled-app-fallback "$(cat "$dmg.stapled-app-fallback")")
+          fi
+          ./scripts/ci/smoke-dmg.sh "$dmg" "$REQUESTED_CHANNEL" "${stapled[@]}"

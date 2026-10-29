@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxCloud
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -215,6 +216,198 @@ struct CloudClosedPanelRestoreTests {
             }
             #expect(root.orientation == "horizontal")
             #expect(nested.orientation == "vertical")
+        }
+    }
+
+    @Test("Only daemon browsers retain Cloud routing for external pages", arguments: [false, true])
+    func externalNavigationBelongsOnlyToDaemonBrowser(daemonBrowser: Bool) throws {
+        try withCloudBrowser(daemonBrowser: daemonBrowser) { _, browser, provider, resource in
+            browser.cloudAccess.retainResource(resource.id)
+            browser.prepareCloudBrowserStore(machineID: provider.machineID)
+            let external = try #require(URL(string: "https://external.example.test/"))
+            #expect((browser.privateAddressRouteProvider(for: external) === provider) == daemonBrowser)
+            #expect(browser.privateAddressRouteProvider(for: URL(string: "http://localhost:3000/")!) === provider)
+            browser.leaveCloudResourceForLocalNavigation()
+            #expect(browser.privateAddressRouteProvider(for: external) == nil,
+                    "A retained store or workspace binding alone cannot capture an external page")
+        }
+    }
+
+    @Test("A saved daemon document restores when the catalog still says about:blank",
+          arguments: ["session", "projection", "reconnect"],
+          ["http://localhost:3000/document?step=2#saved", "https://saved.example.test/document?step=2#saved"])
+    func blankDaemonResourceKeepsSavedDocument(path: String, savedAddress: String) throws {
+        try withCloudBrowser { workspace, browser, provider, resource in
+            let saved = try #require(URL(string: savedAddress))
+            let catalog = SurfaceCatalog.shared
+            let restored: BrowserPanel
+            if path == "session" {
+                var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+                snapshot.panels[0].browser?.urlString = savedAddress
+                snapshot.panels[0].browser?.cloudResource = resource.id
+                snapshot.surfaceProjections = [SurfaceProjectionRecord(
+                    panelID: browser.id, resource: resource.id,
+                    remoteWorkspaceID: "ws-browser-restore", remoteTabID: "tab-browser-restore"
+                )]
+                let remap = workspace.restoreSessionSnapshot(snapshot)
+                let restoredID = try #require(remap[browser.id])
+                restored = try #require(workspace.browserPanel(for: restoredID))
+                // A hidden/disabled browser activates this same saved resource on reveal.
+                restored.restoreCloudResource(resource.id, preferredURL: saved)
+            } else {
+                restored = browser
+                browser.cloudAccess.retainResource(resource.id)
+                browser.pendingCloudRestoreURL = saved
+                catalog.record(SurfaceProjection(
+                    resource: resource.id, workspaceID: workspace.id, panelID: browser.id,
+                    remoteWorkspaceID: "ws-browser-restore", remoteTabID: "tab-browser-restore"
+                ))
+                if path == "projection" {
+                    provider.reprojectRestoredBrowserPanes(generation: provider.currentLifecycleGeneration)
+                } else {
+                    provider.refreshCloudBrowserRoutes()
+                }
+            }
+            #expect(restored.cloudAccess.remoteURL == saved)
+            #expect(restored.cloudAccess.model?.usesRemoteNetwork == true)
+            #expect(restored.cloudAccess.resourceID == resource.id)
+            #expect(restored.pendingCloudRestoreURL == nil)
+            #expect(workspace.pendingCloudBrowserPanelIDs.isEmpty)
+            #expect(catalog.projectionRecord(forPanel: restored.id)?.resource == resource.id)
+            #expect(catalog.resources[resource.id]?.url == "about:blank")
+            let captured = try #require(workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == restored.id })
+            #expect(captured.browser?.cloudResource == resource.id)
+            #expect(captured.browser?.urlString == savedAddress)
+        }
+    }
+
+    @Test("The Cloud row and a second browser view follow the native document",
+          arguments: [false, true], ["", "about:blank", "Research"])
+    func cloudSidebarFollowsNativeDocument(daemonBrowser: Bool, tabName: String) throws {
+        try withCloudBrowser(daemonBrowser: daemonBrowser, tabName: tabName.isEmpty ? nil : tabName) { workspace, browser, provider, resource in
+            let catalog = SurfaceCatalog.shared
+            browser.cloudAccess.retainResource(resource.id)
+            catalog.record(SurfaceProjection(
+                resource: resource.id, workspaceID: workspace.id, panelID: browser.id,
+                remoteWorkspaceID: "ws-browser-restore",
+                remoteTabID: daemonBrowser ? "tab-browser-restore" : nil
+            ))
+            let document = try #require(URL(string: "https://search.example.test/results?q=test#page"))
+            let originalWebView = browser.webView
+            browser.showCloudAddress(document)
+            // A subsequent daemon refresh still contains the creation URL.
+            catalog.upsert(resource, from: provider)
+            let row = try #require(catalog.snapshot.resources.first { $0.id == resource.id })
+            if !daemonBrowser {
+                #expect(row.url == resource.url, "Port previews cannot publish unrelated local navigation")
+                return
+            }
+            #expect(row.url == document.absoluteString)
+            #expect(CloudTreeResourceName(resource: row, remoteView: row.remoteViews?.first).browserName
+                == (tabName == "Research" ? tabName : document.absoluteString))
+            let target = try #require(provider.cloudBrowserOriginURL(for: resource))
+            #expect(target == document)
+            let viewer = BrowserPanel(workspaceId: workspace.id, websiteDataStore: .nonPersistent())
+            defer { viewer.close() }
+            #expect(provider.configureBrowser(viewer, url: target, resourceID: resource.id))
+            #expect(viewer.cloudAccess.remoteURL == document)
+            #expect(viewer.cloudAccess.resourceID == resource.id)
+            #expect(viewer.cloudAccess.model?.usesRemoteNetwork == true)
+            #expect(browser.webView === originalWebView, "Publishing metadata must not reload the source")
+            catalog.endProjections(panelID: browser.id, reason: .replaced)
+            #expect(catalog.snapshot.resources.first { $0.id == resource.id }?.url == resource.url)
+        }
+    }
+
+    @Test("Restored browser metadata is seeded and survives route reconnection",
+          arguments: ["preloaded", "legacy", "pending", "reconnect"])
+    func restoredBrowserDocumentReachesSidebar(path: String) throws {
+        try withCloudBrowser(tabName: "about:blank") { workspace, browser, provider, resource in
+            let catalog = SurfaceCatalog.shared
+            let document = try #require(URL(string: "https://restore.example.test/document"))
+            browser.cloudAccess.retainResource(resource.id)
+            if path == "preloaded" { browser.showCloudAddress(document) }
+            let projection = SurfaceProjection(
+                resource: resource.id, workspaceID: workspace.id, panelID: browser.id,
+                remoteWorkspaceID: "ws-browser-restore",
+                remoteTabID: path == "legacy" || path == "pending" ? nil : "tab-browser-restore"
+            )
+            if path == "pending" {
+                catalog.pendingRestoredProjections.stage(SurfaceProjectionRecord(
+                    panelID: browser.id, resource: resource.id,
+                    remoteWorkspaceID: projection.remoteWorkspaceID, remoteTabID: nil
+                ), workspaceID: workspace.id)
+            } else {
+                catalog.record(projection)
+            }
+            if path != "preloaded" { browser.showCloudAddress(document) }
+            if path == "reconnect" {
+                let replacement = CmuxTuiSurfaceProvider(summary: provider.summary,
+                    links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+                    catalog: catalog, browserPolicy: { .init(managedPatterns: nil) })
+                catalog.register(replacement)
+                // The document has not changed, so its didSet hook cannot seed the new provider.
+                #expect(replacement.configureBrowser(browser, url: document, resourceID: resource.id,
+                    preserveCurrentNavigation: true))
+            }
+            let row = try #require(catalog.snapshot.resources.first { $0.id == resource.id })
+            #expect(row.url == document.absoluteString)
+            #expect(CloudTreeResourceName(resource: row, remoteView: row.remoteViews?.first).browserName
+                == document.absoluteString)
+            catalog.endProjections(panelID: browser.id, reason: .replaced)
+            #expect(catalog.snapshot.resources.first { $0.id == resource.id }?.url == resource.url)
+        }
+    }
+
+    @Test("An untouched daemon browser opens as a blank browser instead of a port failure")
+    func blankDaemonBrowserDoesNotNeedAPort() throws {
+        try withCloudBrowser { workspace, _, provider, resource in
+            let target = try #require(provider.cloudBrowserOriginURL(for: resource))
+            #expect(target == SurfacePaneFactory.blankURL)
+            let viewer = BrowserPanel(workspaceId: workspace.id, websiteDataStore: .nonPersistent())
+            defer { viewer.close() }
+            #expect(provider.configureBrowser(viewer, url: target, resourceID: resource.id))
+            #expect(viewer.cloudAccess.resourceID == resource.id)
+            #expect(viewer.cloudAccess.model == nil)
+            #expect(viewer.cloudAccess.error == nil)
+            #expect(!viewer.shouldRenderWebView)
+        }
+    }
+
+    private func withCloudBrowser(
+        daemonBrowser: Bool = true,
+        tabName: String? = nil,
+        _ body: (Workspace, BrowserPanel, CmuxTuiSurfaceProvider, SurfaceResource) throws -> Void
+    ) throws {
+        try withManager(registeredWithApp: true) { manager in
+            let workspace = manager.addWorkspace(initialSurface: .browser, autoWelcomeIfNeeded: false)
+            let panelID = try #require(workspace.focusedPanelId)
+            let browser = try #require(workspace.browserPanel(for: panelID))
+            let machineID = "browser-restore-\(UUID())"
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machineID, isBase: false,
+                remoteWorkspaceID: "ws-browser-restore")
+            let catalog = SurfaceCatalog.shared
+            var summary = VMSummary(id: machineID, provider: "freestyle", status: "running",
+                image: "cmux-devbox", createdAt: 0, base: nil)
+            summary.addressIPv4 = "10.0.0.7"
+            let provider = CmuxTuiSurfaceProvider(summary: summary,
+                links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+                catalog: catalog, browserPolicy: { .init(managedPatterns: nil) })
+            catalog.register(provider)
+            defer { catalog.unregister(machine: provider.machine) }
+            let remote = SurfaceRemoteWorkspace(id: "ws-browser-restore", name: "browser", index: 0, focused: true)
+            var resource = SurfaceResource(
+                id: SurfaceResourceID(machine: provider.machine, kind: .browser,
+                    key: daemonBrowser ? "browser-restore" : "port:3000"),
+                title: "browser", detail: nil, lifecycle: .running, agent: nil,
+                remoteWorkspace: remote, port: daemonBrowser ? nil : 3000,
+                url: daemonBrowser ? "about:blank" : "http://10.0.0.7:3000/"
+            )
+            if daemonBrowser {
+                resource.remoteViews = [SurfaceRemoteView(tabID: "tab-browser-restore", workspace: remote, name: tabName)]
+            }
+            catalog.upsert(resource, from: provider)
+            try body(workspace, browser, provider, resource)
         }
     }
 

@@ -102,6 +102,54 @@ describe("app pricing page", () => {
     ).rejects.toMatchObject({ href: "/pricing" });
   });
 
+  test("a signed-out app is sent to the app's own sign-in before any plan button shows", async () => {
+    stackConfigured = true;
+    for (const user of [null, { id: "anon", isAnonymous: true, primaryEmail: null }]) {
+      currentUser = user;
+      const thrown = await renderSettled(AppPricingPage({
+        searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test", appearance: "dark" }),
+      })).then(() => null, (error: unknown) => error);
+      const href = (thrown as { href?: unknown } | null)?.href;
+      expect(typeof href).toBe("string");
+      const nativeSignIn = new URL(href as string, "https://cmux.test");
+      expect(nativeSignIn.pathname).toBe("/handler/native-sign-in");
+      const afterSignIn = new URL(nativeSignIn.searchParams.get("after_auth_return_to")!, "https://cmux.test");
+      expect(afterSignIn.searchParams.get("native_app_return_to")).toBe("cmux-dev-test://auth-callback");
+      expect(afterSignIn.searchParams.get("web_return_to")).toBe(
+        "/app-pricing?cmux_app=1&cmux_scheme=cmux-dev-test&appearance=dark",
+      );
+    }
+  });
+
+  test("a signed-in app and the App Store page are not sent to sign-in", async () => {
+    stackConfigured = true;
+    currentUser = proUser;
+    const signedIn = await renderSettled(AppPricingPage({
+      searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+    }));
+    expect(signedIn).toContain("Get Max");
+    currentUser = null;
+    const appStore = await renderSettled(AppPricingPage({
+      searchParams: Promise.resolve({ cmux_app: "1", cmux_distribution: "appstore" }),
+    }));
+    expect(appStore).toContain("$50");
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  test("an account lookup failure keeps the page instead of sending it to sign-in", async () => {
+    stackConfigured = true;
+    getUser.mockImplementation(async () => { throw new Error("sign-in service down"); });
+    try {
+      const html = await renderSettled(AppPricingPage({
+        searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+      }));
+      expect(html).toContain("$50");
+      expect(redirect).not.toHaveBeenCalled();
+    } finally {
+      getUser.mockImplementation(async () => currentUser);
+    }
+  });
+
   test("renders embedded pricing with checkout links carrying the validated scheme", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
@@ -115,13 +163,13 @@ describe("app pricing page", () => {
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
     expect(html).toContain("plan%253Dmax");
-    expect(html).not.toMatch(/plan=max[^"]*interval=/);
+    expect(html).toMatch(/plan=max[^"]*interval=month/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("$50");
     expect(html).toContain("$200");
-    expect(html).toContain("$10");
-    expect(html).toContain("Get Go");
+    expect(html).toContain("$15");
+    expect(html).toContain("Get Plus");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
     expect(html).toContain("Get Max");
@@ -135,8 +183,8 @@ describe("app pricing page", () => {
     expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
     expect(html).toContain("md:grid-cols-2 lg:grid-cols-4");
-    expect(html).toContain("$10");
-    expect(html).toContain("Get Go");
+    expect(html).toContain("$15");
+    expect(html).toContain("Get Plus");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
     expect(html).toContain("plan%253Dpro");
@@ -244,15 +292,13 @@ describe("app pricing page", () => {
     expect(html).toContain("$60/user/mo");
     expect(html).not.toContain("$480/year");
     expect(html).not.toContain("$576/user/year");
-    // Max ignores the annual selector: still $200 /mo, never billed yearly.
+    // Max follows the annual selector just like Pro.
     expect(html).toContain("$200");
-    expect(html).toContain("$200 /mo");
-    expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).not.toMatch(/plan=max[^"]*interval=/);
+    expect(html).toContain("$160");
+    expect(html).toContain("Yearly");
+    expect(html).toMatch(/plan=max[^"]*interval=year/);
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
-    expect(html).not.toContain('role="radiogroup"');
-    expect(html).not.toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain("appearance=dark&amp;interval=month");
     expect(html).toContain('data-cmux-app-theme="true"');
     expect(html).toContain("--ghostty-background:#112233");
@@ -261,21 +307,23 @@ describe("app pricing page", () => {
     expect(html).toContain("--cmux-product-blue-on-background:#0091ff");
     expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
     expect(html).toContain('data-testid="pricing-controls"');
-    expect(html).not.toContain("Save 20%");
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
-  test("does not advertise annual savings", async () => {
+  test("defaults the Pro card to monthly billing", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
         cmux_scheme: "cmux-dev-test",
-        interval: "month",
       }),
     });
     const html = (await renderSettled(element));
 
-    expect(html).not.toContain("Save 20%");
+    expect(html).toMatch(/>\$50</);
+    expect(html).not.toMatch(/>\$40</);
+    expect(html).toMatch(/plan%253Dpro[^"]*interval%253Dmonth/);
+    expect(html).not.toMatch(/plan%253Dpro[^"]*interval%253Dyear/);
+    expect(html).not.toMatch(/plan%253D(go|team)[^"]*interval%253Dyear/);
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {
@@ -372,9 +420,51 @@ describe("app pricing page", () => {
     const card = Array.from(html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0]).find((section) => section.includes("Manage billing")) ?? "";
     expect(card.match(/Current plan/g)).toHaveLength(1);
     expect(card.includes("Manage billing")).toBe(true);
-    // A Pro subscriber can still upgrade to Max from the app.
-    expect(html).toContain("api/billing/portal?flow=switch_plan&amp;plan=max");
+    // The checkout endpoint routes an active Pro subscription to the portal
+    // upgrade flow while also handling granted Pro users without a customer.
+    expect(card).toContain("api/billing/checkout?plan=max");
+    expect(html).not.toContain("api/billing/portal?flow=switch_plan");
     expect(html).toContain("Get Max");
+  });
+
+  test("routes a granted Pro user's Max CTA through checkout", async () => {
+    stackConfigured = true;
+    currentUser = { ...proUser, clientReadOnlyMetadata: { cmuxVmPlan: "pro" } };
+
+    const html = await renderSettled(
+      await AppPricingPage({
+        searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+      }),
+    );
+    const card = Array.from(
+      html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g),
+      (match) => match[0],
+    ).find((section) => section.includes("Current plan")) ?? "";
+    expect(card).toContain("Current plan");
+    expect(card).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*><span>Get Max/);
+    expect(card).not.toContain("/api/billing/portal?flow=switch_plan");
+  });
+
+  test("a past-due Pro subscriber is sent to fix the payment, not offered Max", async () => {
+    stackConfigured = true;
+    currentUser = proUser;
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro", status: "past_due" }];
+
+    const html = await renderSettled(
+      await AppPricingPage({
+        searchParams: Promise.resolve({ cmux_app: "1", cmux_scheme: "cmux-dev-test" }),
+      }),
+    );
+
+    // The personalized card set, not the signed-out streaming fallback.
+    const card = Array.from(
+      html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g),
+      (match) => match[0],
+    ).find((section) => section.includes("Current plan")) ?? "";
+    expect(card).toContain("Current plan");
+    expect(card).not.toContain("Get Max");
+    expect(card).not.toContain("plan=max");
+    expect(card.match(/href="\/api\/billing\/portal"/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 
   for (const [name, params, message] of [

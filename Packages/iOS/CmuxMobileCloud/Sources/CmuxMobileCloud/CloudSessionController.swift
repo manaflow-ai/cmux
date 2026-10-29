@@ -19,10 +19,10 @@ public final class CloudSessionController {
     public private(set) var isCreatingMachine = false
     /// The latest create failure, shown beside the create action.
     public private(set) var lastCreateFailure: CloudSessionFailure?
-    /// Machines with a pause, resume or delete in flight. Their rows show
+    /// Machines with a pause, resume, restart or delete in flight. Their rows show
     /// progress and refuse a second action until the first settles.
     public private(set) var machineActionsInFlight: Set<String> = []
-    /// The latest pause, resume or delete failure, with the machine it hit.
+    /// The latest pause, resume, restart or delete failure, with the machine it hit.
     public private(set) var lastMachineActionFailure: CloudMachineActionFailure?
     /// How many Cloud screens are on screen; the tunnel is wanted while > 0.
     public private(set) var visibleScreenCount = 0
@@ -221,6 +221,12 @@ public final class CloudSessionController {
         await runMachineAction(.resume, on: machine) { try await $0.resumeMachine(id: machine.id) }
     }
 
+    /// Hard-restarts a running machine through the provider recovery path.
+    @discardableResult
+    public func restartMachine(_ machine: CloudMachine) async -> Bool {
+        await runMachineAction(.restart, on: machine) { try await $0.restartMachine(id: machine.id) }
+    }
+
     /// Deletes a machine and its disk. Its link closes first, so nothing keeps
     /// talking to a machine that is being destroyed.
     @discardableResult
@@ -257,6 +263,10 @@ public final class CloudSessionController {
             do {
                 try await perform(self.service)
                 guard self.accountGeneration == generation, !Task.isCancelled else { return false }
+                if action == .restart {
+                    self.connections.removeValue(forKey: machine.id)?.close()
+                    self.connectionRetryGeneration &+= 1
+                }
                 if self.lastMachineActionFailure?.machineID == machine.id { self.lastMachineActionFailure = nil }
                 self.refreshMachines()
                 return true

@@ -20,7 +20,8 @@ struct RightSidebarModeBarTabsLayout: Layout {
                 natural: subviews.map { $0.sizeThatFits(.unspecified).width },
                 floors: subviews.map { $0.sizeThatFits(ProposedViewSize(width: 0, height: nil)).width }
             ) + gaps(subviews)
-            MainActor.assumeIsolated { widthReport.note(tabsWidth: width) }
+            // SwiftUI can measure this layout off the main thread; `note` is thread-safe.
+            widthReport.note(tabsWidth: width)
         }
         let widths = tabWidths(available: proposal.width, subviews: subviews)
         let height = subviews.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0

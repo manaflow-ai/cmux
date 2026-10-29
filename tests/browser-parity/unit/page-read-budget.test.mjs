@@ -1,0 +1,833 @@
+// Page reads that marshal page-controlled values to the session are bounded
+// before they leave the page (docs/browser-repl/README.md, Large output): a
+// hostile page can hold millions of nodes or one text of megabytes, and
+// every read below runs on the page's main thread and crosses to the
+// session before any output limit applies. Each read stops at the same
+// page-read budget as a snapshot (250,000 nodes, 2,000,000 characters,
+// 8 s) and says it was cut. Runs on Playwright WebKit through the dev
+// driver; the driver log records what each agent-world read returned.
+//
+//   node --test tests/browser-parity/unit/page-read-budget.test.mjs
+import test from "node:test";
+import assert from "node:assert/strict";
+import http from "node:http";
+import { createDevBrowser, createNodeHost, createDevRepl } from "../lib/dev-driver.mjs";
+import { startFixtureServers } from "../lib/fixture-server.mjs";
+import { makeTestDir, removeTestDir } from "../lib/test-dirs.mjs";
+
+const READ_SIZE = 2000000;
+
+// A REPL on the dev driver whose driver calls are logged: for each
+// agent-world frame.evaluate, the length of its JSON result; for each
+// frame.contentFrames, how many elements it asked about.
+async function withLoggedRepl(fn) {
+  const dir = makeTestDir("cmux-repl-read-budget-");
+  const browser = await createDevBrowser();
+  const base = browser.driver();
+  const log = [];
+  const driver = new Proxy(base, {
+    get(target, key) {
+      if (key === "call") {
+        return async (method, params = {}) => {
+          const result = await target.call(method, params);
+          if (method === "frame.evaluate" && params.world === "agent") log.push({ method, size: JSON.stringify(result === undefined ? null : result).length });
+          if (method === "frame.contentFrames") log.push({ method, elements: (params.elements || []).length });
+          return result;
+        };
+      }
+      const value = target[key];
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const lines = [];
+  const host = createNodeHost({ workDir: dir, sessionId: `read-budget-${process.pid}`, print: (level, text) => lines.push(text) });
+  const repl = createDevRepl({ host, driver });
+  const run = async (code) => {
+    const start = lines.length;
+    log.length = 0;
+    const r = await repl.evaluate(code);
+    const output = lines.slice(start).join("\n");
+    assert.equal(r.ok, true, `${r.error}\n${output.slice(0, 2000)}`);
+    return { output, log: log.slice(), value: (output.split("\n").find((l) => l.startsWith("@@")) || "").slice(2) };
+  };
+  try {
+    await fn(run);
+  } finally {
+    repl.dispose();
+    await browser.close();
+    removeTestDir(dir);
+    removeTestDir(host.tmpdir);
+  }
+}
+
+const largestRead = (log) => Math.max(0, ...log.filter((e) => e.method === "frame.evaluate").map((e) => e.size));
+
+test("markdown: an oversized page stops at the page-read budget with a note, and asks about at most the frames it reads", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<h1>Top</h1><p id="big"></p><p>Last</p>';
+          document.getElementById("big").textContent = "A".repeat(5000000);
+        });`);
+      const big = await run(`const md = await page.markdown(); console.log("@@" + JSON.stringify({ length: md.length, top: md.includes("# Top"), tail: md.slice(-400) }));`);
+      const r = JSON.parse(big.value);
+      assert.ok(r.top, "the page's start is kept");
+      assert.ok(r.length < READ_SIZE + 100000, `a 5,000,000-character page gave ${r.length} characters of Markdown`);
+      assert.match(r.tail, /<!-- the page is too large to read whole: Markdown stopped after 2,000,000 characters/);
+      assert.ok(largestRead(big.log) < READ_SIZE + 100000, `the page agent returned ${largestRead(big.log)} characters at once`);
+
+      await run(`await page.evaluate(() => { document.body.innerHTML = "<h1>Frames</h1>" + "<iframe></iframe>".repeat(300); });`);
+      const frames = await run(`const fmd = await page.markdown(); console.log("@@" + JSON.stringify({ tail: fmd.slice(-400) }));`);
+      const asked = frames.log.filter((e) => e.method === "frame.contentFrames").reduce((n, e) => n + e.elements, 0);
+      assert.ok(asked <= 100, `markdown asked the driver about ${asked} frames`);
+      assert.match(JSON.parse(frames.value).tail, /<!-- the page is too large to read whole: Markdown stopped after 100 frames/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("snapshot: DOM read beside the walk (visible-box checks, aria-owns, labels) counts against the walk's node budget", async () => {
+  // `_maxNodes` lowers the budget for the test; each page holds far more
+  // nodes than it outside the part the walk visits.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      const pages = {
+        box: `document.body.innerHTML = '<button>First</button><a id="zero" href="#" style="display:block;width:0;height:0"></a>'; const z = document.getElementById("zero"); for (let i = 0; i < 5000; i++) z.appendChild(document.createElement("span"));`,
+        owns: `document.body.innerHTML = '<button>First</button><div role="listbox" aria-label="L"></div><div id="x">x</div>'; document.querySelector("[role=listbox]").setAttribute("aria-owns", "x ".repeat(100000));`,
+        labels: `document.body.innerHTML = '<input id="a"><div id="hidden" style="display:none"></div>'; document.getElementById("hidden").innerHTML = '<label for="a">L</label>'.repeat(5000);`,
+      };
+      for (const [name, setup] of Object.entries(pages)) {
+        const r = await run(`await page.evaluate(() => { ${setup} }); const s = await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(s.tree.split("\\n").slice(-1)[0]));`);
+        assert.match(JSON.parse(r.value), /^# the page is too large to read whole: the snapshot stopped after 1,000 nodes/, `${name}: the snapshot read past its budget without saying so`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// The label index charges the read's budget for every <label> it reads.
+// Once that budget is spent, a control's labels must not come from
+// WebKit's own getter, which scans the whole document for each control: a
+// page of many labels and controls would make every name a full scan. A
+// locator query past it names controls without those labels.
+test("frame owner lookup: light-DOM <iframe>s are checked within the node budget, not through a whole-document list", async () => {
+  // The parent agent's owner lookup (Frame._ownerHandle) for the last of
+  // 300 light-DOM <iframe>s, with a budget of 100 and of 1,000 elements.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => { document.body.innerHTML = '<iframe style="width:1px;height:1px"></iframe>'.repeat(300); });
+        await page.waitForFunction(() => window.length === 300);`);
+      const r = await run(`const main = page.mainFrame();
+        const small = await main._agent("iframeHandles", 299, 100);
+        const enough = await main._agent("iframeHandles", 299, 1000);
+        console.log("@@" + JSON.stringify({ small: [small.handles.length, small.truncated], enough: [enough.handles.length, enough.truncated] }));`);
+      const v = JSON.parse(r.value);
+      assert.deepEqual(v.small, [0, true], "the light-DOM lookup checked more <iframe>s than its node budget");
+      assert.deepEqual(v.enough, [1, false], "the light-DOM <iframe> was not found within the budget");
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("snapshot and markdown: a link URL longer than the size budget left is cut and charged before it is parsed", async () => {
+  // The dev driver's agent world is the page world, so a URL constructor
+  // the page installs records what the reads parse (in the app the agent
+  // world is the session's own; this only observes the parser's input).
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          const href = "https://other.example/?q=" + "a".repeat(200000);
+          document.body.innerHTML = '<p>Intro</p><a id="long">Long link</a>';
+          document.getElementById("long").setAttribute("href", href);
+          const Native = URL;
+          window.__parsed = 0;
+          window.URL = new Proxy(Native, { construct(target, args) { window.__parsed = Math.max(window.__parsed, String(args[0]).length + (args[1] === undefined ? 0 : String(args[1]).length)); return Reflect.construct(target, args); } });
+        });`);
+      const r = await run(`await snapshot({ maxChars: Infinity, _maxSize: 1000 });
+        const snap = await page.evaluate(() => window.__parsed);
+        await page.evaluate(() => { window.__parsed = 0; });
+        const md = await page.markdown({ _maxSize: 1000 });
+        const mark = await page.evaluate(() => window.__parsed);
+        console.log("@@" + JSON.stringify({ snap, mark, cut: /too large to read whole/.test(md) }));`);
+      const v = JSON.parse(r.value);
+      assert.ok(v.snap <= 2000, `the snapshot parsed a ${v.snap}-character URL with 1,000 characters of budget`);
+      assert.ok(v.mark <= 2000, `the Markdown read parsed a ${v.mark}-character URL with 1,000 characters of budget`);
+      assert.ok(v.cut, "the Markdown read did not say it was cut");
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("locators: past the page-read budget, labels are not read by a whole-document scan", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      const setup = `document.body.innerHTML = '<input id="a">' + '<label for="b">x</label>'.repeat(250001) + '<label for="a">Beyond the budget</label><input id="b">';`;
+      const r = await run(`await page.evaluate(() => { ${setup} }); console.log("@@" + JSON.stringify(await page.getByRole("textbox", { name: "Beyond the budget" }).count()));`);
+      assert.equal(r.value, "0", "a label past the budget was found by a whole-document scan");
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("label index: <label>s are read one at a time within the budget, never listed whole (document and shadow root)", async () => {
+  // The dev driver's agent world is the page world, so a querySelectorAll
+  // the page installs records the largest <label> list the read asks for
+  // (in the app the agent world is the session's own; this only observes
+  // what the index lists). Each tree holds 5,000 labels; the snapshot's
+  // budget is 1,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<input id="a"><div id="host"></div><div id="hidden" style="display:none"></div>';
+          document.getElementById("hidden").innerHTML = '<label for="a">L</label>'.repeat(5000);
+          document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = '<input id="b"><div style="display:none">' + '<label for="b">S</label>'.repeat(5000) + '</div>';
+          window.__labels = 0;
+          for (const proto of [Document.prototype, DocumentFragment.prototype, Element.prototype]) {
+            const native = proto.querySelectorAll;
+            proto.querySelectorAll = function (selector) {
+              const list = native.call(this, selector);
+              if (String(selector).trim().toLowerCase() === "label") window.__labels = Math.max(window.__labels, list.length);
+              return list;
+            };
+          }
+        });`);
+      const cut = await run(`await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__labels)));`);
+      assert.ok(Number(cut.value) <= 1000, `the label index listed ${cut.value} <label>s at once with a budget of 1,000 nodes`);
+      // Below the budget, labels still name their controls in both trees.
+      const named = await run(`await page.evaluate(() => {
+          document.getElementById("hidden").innerHTML = '<label for="a">Doc label</label>';
+          document.getElementById("host").shadowRoot.innerHTML = '<input id="b"><label for="b">Shadow label</label>';
+        });
+        const s = await snapshot({ maxChars: Infinity });
+        console.log("@@" + JSON.stringify({ doc: s.tree.includes('textbox "Doc label"'), shadow: s.tree.includes('textbox "Shadow label"') }));`);
+      assert.deepEqual(JSON.parse(named.value), { doc: true, shadow: true }, "a label below the budget no longer names its control");
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("composer text: a composer past the page-read budget is refused before its text leaves the page", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<div id="c" contenteditable="true"></div><textarea id="t"></textarea>';
+          document.getElementById("c").textContent = "A".repeat(5000000);
+          document.getElementById("t").value = "B".repeat(5000000);
+        });`);
+      for (const sel of ["#c", "#t"]) {
+        const r = await run(`let err = null; try { await page.locator(${JSON.stringify(sel)})._read("composerText", null, {}, "composer text"); } catch (e) { err = String(e.message); } console.log("@@" + JSON.stringify(err));`);
+        assert.match(JSON.parse(r.value) || "", /more than 2,000,000 characters/, `${sel}: the composer text was read whole`);
+        assert.ok(largestRead(r.log) < 100000, `${sel}: the page agent returned ${largestRead(r.log)} characters`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("dropdownOptions and extract: page-controlled lists stop at the page-read budget with a note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<select id="s"></select><div id="items"></div><div id="bigs"></div>';
+          const s = document.getElementById("s");
+          for (let i = 0; i < 3; i++) s.appendChild(new Option(String(i).repeat(1000000), "v" + i));
+          const items = document.getElementById("items");
+          for (let i = 0; i < 20000; i++) items.appendChild(document.createElement("span")).className = "item";
+          const bigs = document.getElementById("bigs");
+          for (let i = 0; i < 5; i++) bigs.appendChild(document.createElement("p")).textContent = "C".repeat(1000000);
+        });`);
+      const drop = await run(`const o = await page.dropdownOptions("#s"); console.log("@@" + JSON.stringify(o.reduce((n, x) => n + x.label.length, 0)));`);
+      assert.ok(Number(drop.value) <= READ_SIZE + 10, `dropdownOptions returned ${drop.value} characters of labels`);
+      assert.ok(largestRead(drop.log) < READ_SIZE + 100000, `the page agent returned ${largestRead(drop.log)} characters`);
+      assert.match(drop.output, /# page\.dropdownOptions: the page is too large to read whole: it stopped after 2,000,000 characters/);
+
+      const handles = await run(`const before = (await page.mainFrame()._agent("stats")).handles; await page.extract([".item"], { limit: 5 }); console.log("@@" + ((await page.mainFrame()._agent("stats")).handles - before));`);
+      assert.ok(Number(handles.value) < 100, `extract kept ${handles.value} element handles for a list limited to 5`);
+
+      const text = await run(`const e = await page.extract(["#bigs p"]); console.log("@@" + JSON.stringify(e.reduce((n, x) => n + (x ? x.length : 0), 0)));`);
+      assert.ok(Number(text.value) <= READ_SIZE + 10, `extract returned ${text.value} characters`);
+      assert.ok(largestRead(text.log) < READ_SIZE + 100000, `the page agent returned ${largestRead(text.log)} characters`);
+      assert.match(text.output, /# page\.extract: the page is too large to read whole: it stopped after 2,000,000 characters/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("dropdownOptions: ARIA options are read one at a time within the node budget, never listed whole", async () => {
+  // The dev driver's agent world is the page world, so a querySelectorAll
+  // the page installs records the largest option list the read asks for.
+  // The listbox holds one shown option and 260,000 hidden ones (not
+  // returned); the budget is 250,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<div role="listbox" id="l" aria-label="Many"><div role="option">First</div><div style="display:none">' + '<div role="option">o</div>'.repeat(260000) + '</div></div>';
+          window.__options = 0;
+          for (const proto of [Document.prototype, DocumentFragment.prototype, Element.prototype]) {
+            const native = proto.querySelectorAll;
+            proto.querySelectorAll = function (selector) {
+              const list = native.call(this, selector);
+              if (String(selector).includes("role=option")) window.__options = Math.max(window.__options, list.length);
+              return list;
+            };
+          }
+        });`);
+      const r = await run(`const o = await page.dropdownOptions("#l"); console.log("@@" + JSON.stringify({ listed: await page.evaluate(() => window.__options), options: o.length }));`);
+      const v = JSON.parse(r.value);
+      assert.ok(v.listed <= 250000, `dropdownOptions listed ${v.listed} options at once with a budget of 250,000 nodes`);
+      assert.equal(v.options, 1);
+      assert.match(r.output, /# page\.dropdownOptions: the page is too large to read whole: it stopped after 250,000 nodes/);
+      // Below the budget, the options are still read.
+      const small = await run(`await page.evaluate(() => { document.body.innerHTML = '<div role="listbox" id="l" aria-label="Few"><div role="option">One</div><span><div role="option" aria-selected="true">Two</div></span></div>'; });
+        const o = await page.dropdownOptions("#l"); console.log("@@" + JSON.stringify(o.map((x) => [x.label, x.selected])));`);
+      assert.deepEqual(JSON.parse(small.value), [["One", false], ["Two", true]]);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("markdown { main: true }: <main> and <article> candidates are read one at a time within the budget, never listed whole", async () => {
+  // The dev driver's agent world is the page world, so a querySelectorAll
+  // the page installs records the largest candidate list the read asks
+  // for. The page holds 260,000 empty <article>s; the budget is 250,000
+  // nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<p>Outside</p>' + '<article></article>'.repeat(260000);
+          window.__candidates = 0;
+          for (const proto of [Document.prototype, DocumentFragment.prototype, Element.prototype]) {
+            const native = proto.querySelectorAll;
+            proto.querySelectorAll = function (selector) {
+              const list = native.call(this, selector);
+              if (/(main|article)/.test(String(selector))) window.__candidates = Math.max(window.__candidates, list.length);
+              return list;
+            };
+          }
+        });`);
+      const r = await run(`await page.markdown({ main: true }); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__candidates)));`);
+      assert.ok(Number(r.value) <= 250000, `the main-content lookup listed ${r.value} candidates at once with a budget of 250,000 nodes`);
+      // Below the budget it still finds the main content.
+      const pick = async (body) => (await run(`await page.evaluate((b) => { document.body.innerHTML = b; }, ${JSON.stringify(body)}); console.log("@@" + JSON.stringify(await page.markdown({ main: true })));`)).value;
+      const main = JSON.parse(await pick('<nav>Menu</nav><main style="display:none">Hidden</main><div role="main">Shown main</div>'));
+      assert.match(main, /Shown main/);
+      assert.doesNotMatch(main, /Menu/);
+      const one = JSON.parse(await pick("<nav>Menu</nav><article>Only article</article>"));
+      assert.match(one, /Only article/);
+      assert.doesNotMatch(one, /Menu/);
+      const two = JSON.parse(await pick("<p>Intro</p><article>One</article><article>Two</article>"));
+      assert.match(two, /Intro/);
+      assert.match(two, /Two/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("markdown: a slot's assigned nodes are read one at a time within the budget, never listed whole", async () => {
+  // The dev driver's agent world is the page world, so an assignedNodes
+  // the page installs records the largest list the read asks for. The
+  // host holds 260,000 slotted children; the budget is 250,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          window.__assigned = 0;
+          const native = HTMLSlotElement.prototype.assignedNodes;
+          HTMLSlotElement.prototype.assignedNodes = function (o) { const list = native.call(this, o); window.__assigned = Math.max(window.__assigned, list.length); return list; };
+          document.body.innerHTML = '<div id="host"></div>';
+          const host = document.getElementById("host");
+          host.innerHTML = '<i>x</i>'.repeat(260000);
+          host.attachShadow({ mode: "open" }).innerHTML = '<p><slot></slot></p>';
+        });`);
+      const r = await run(`await page.markdown(); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__assigned)));`);
+      assert.ok(Number(r.value) <= 250000, `the Markdown read listed ${r.value} assigned nodes at once with a budget of 250,000 nodes`);
+      // Below the budget, slots still show what is assigned to them, in
+      // order, flattened through a nested slot, with fallback content
+      // where nothing is assigned, in open and closed shadow roots.
+      const md = await run(`await page.evaluate(() => {
+          document.body.innerHTML = '<div id="open"><span slot="b">Bee one</span> Text default <span>Elem default</span><span slot="b">Bee two</span><span slot="zz">Unplaced</span></div><div id="closed"><span slot="c">Closed bee</span></div>';
+          const open = document.getElementById("open").attachShadow({ mode: "open" });
+          open.innerHTML = '<p>A[<slot name="a">Fallback a</slot>]</p><p>B[<slot name="b"></slot>]</p><p>D[<slot></slot>]</p><p>B2[<slot name="b">never</slot>]</p><div id="inner"><span slot="n"><slot name="b2"></slot></span></div>';
+          const inner = open.getElementById("inner").attachShadow({ mode: "open" });
+          inner.innerHTML = '<p>N[<slot name="n"></slot>]</p>';
+          document.getElementById("open").insertAdjacentHTML("beforeend", '<span slot="b2">Nested bee</span>');
+          document.getElementById("closed").attachShadow({ mode: "closed" }).innerHTML = '<p>C[<slot name="c"></slot>]</p>';
+        });
+        console.log("@@" + JSON.stringify(await page.markdown()));`);
+      const text = JSON.parse(md.value).replace(/\s+/g, " ");
+      assert.match(text, /A\[Fallback a\]/);
+      assert.match(text, /B\[Bee one ?Bee two\]/);
+      assert.match(text, /D\[ ?Text default Elem default ?\]/);
+      assert.match(text, /B2\[never\]/);
+      assert.match(text, /N\[Nested bee\]/);
+      assert.match(text, /C\[Closed bee\]/);
+      assert.doesNotMatch(text, /Unplaced/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("snapshot: a slot's assigned nodes are read one at a time within the walk's budget, never listed whole", async () => {
+  // As the Markdown test above, for the snapshot walk: 5,000 slotted
+  // children and a budget of 1,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          window.__assigned = 0;
+          const native = HTMLSlotElement.prototype.assignedNodes;
+          HTMLSlotElement.prototype.assignedNodes = function (o) { const list = native.call(this, o); window.__assigned = Math.max(window.__assigned, list.length); return list; };
+          document.body.innerHTML = '<div id="host"></div>';
+          const host = document.getElementById("host");
+          host.innerHTML = '<button>b</button>'.repeat(5000);
+          host.attachShadow({ mode: "open" }).innerHTML = '<p><slot></slot></p>';
+        });`);
+      const r = await run(`await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__assigned)));`);
+      assert.ok(Number(r.value) <= 1000, `the snapshot listed ${r.value} assigned nodes at once with a budget of 1,000 nodes`);
+      const named = await run(`await page.evaluate(() => {
+          document.body.innerHTML = '<div id="h"><button slot="b">Bee one</button><button>Default one</button><button slot="b">Bee two</button><button slot="zz">Unplaced</button></div>';
+          document.getElementById("h").attachShadow({ mode: "open" }).innerHTML = '<div role="group" aria-label="A"><slot name="a"><button>Fallback a</button></slot></div><div role="group" aria-label="B"><slot name="b"></slot></div><div role="group" aria-label="D"><slot></slot></div>';
+        });
+        const s = await snapshot({ maxChars: Infinity });
+        console.log("@@" + JSON.stringify(s.tree.split("\\n").map((l) => l.trim()).filter((l) => /^- (group|button)/.test(l)).map((l) => l.replace(/ \\[ref=\\w+\\]/, "").replace(/:$/, ""))));`);
+      assert.deepEqual(JSON.parse(named.value), ['- group "A"', '- button "Fallback a"', '- group "B"', '- button "Bee one"', '- button "Bee two"', '- group "D"', '- button "Default one"']);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("tabs.content: each URL and the whole call stop at the page-read budget, and a cut row says so", async () => {
+  const big = "<!doctype html><title>Big</title><p>" + "A".repeat(5000000) + "</p>";
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    res.end(big);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  try {
+    await withLoggedRepl(async (run) => {
+      for (const format of ["text", "html", "markdown", "snapshot"]) {
+        const r = await run(`const rows = await tabs.content([${JSON.stringify(url + "/a")}, ${JSON.stringify(url + "/b")}, ${JSON.stringify(url + "/c")}], { format: ${JSON.stringify(format)} });
+          console.log("@@" + JSON.stringify(rows.map((x) => ({ length: x.content ? x.content.length : 0, truncated: x.truncated || null, error: x.error || null }))));`);
+        const rows = JSON.parse(r.value);
+        const total = rows.reduce((n, x) => n + x.length, 0);
+        assert.ok(total <= READ_SIZE + 1000, `${format}: three 5,000,000-character pages gave ${total} characters`);
+        for (const row of rows) assert.match(row.truncated || "", /the page is too large to read whole/, `${format}: ${JSON.stringify(row)}`);
+        assert.ok(largestRead(r.log) < READ_SIZE + 100000, `${format}: the page agent returned ${largestRead(r.log)} characters at once`);
+      }
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("locator reads, allTextContents and page.content: an oversized element stops at the page-read budget with a note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<div id="big"><p class="p"></p><p class="p"></p></div><textarea id="field"></textarea><div id="wide"></div><p id="small">Small <b>text</b></p>';
+          for (const p of document.querySelectorAll(".p")) p.textContent = "A".repeat(3000000);
+          document.getElementById("field").value = "B".repeat(5000000);
+          document.getElementById("big").setAttribute("data-x", "C".repeat(5000000));
+          const wide = document.getElementById("wide");
+          for (let i = 0; i < 300000; i++) wide.appendChild(document.createElement("i"));
+        });`);
+      const reads = {
+        textContent: 'page.locator("#big").textContent()',
+        innerText: 'page.locator("#big").innerText()',
+        innerHTML: 'page.locator("#big").innerHTML()',
+        getAttribute: 'page.locator("#big").getAttribute("data-x")',
+        inputValue: 'page.locator("#field").inputValue()',
+        allTextContents: 'page.locator(".p").allTextContents().then((a) => a.join(""))',
+        allInnerTexts: 'page.locator(".p").allInnerTexts().then((a) => a.join(""))',
+        content: "page.content()",
+        wideHTML: 'page.locator("#wide").innerHTML()',
+      };
+      for (const [name, expr] of Object.entries(reads)) {
+        const r = await run(`const v = await ${expr}; console.log("@@" + JSON.stringify(v.length));`);
+        assert.ok(Number(r.value) <= READ_SIZE + 10, `${name}: returned ${r.value} characters`);
+        assert.ok(largestRead(r.log) < READ_SIZE + 100000, `${name}: the page agent returned ${largestRead(r.log)} characters at once`);
+        assert.match(r.output, /# (locator|page)\.\w+: the page is too large to read whole: it stopped after (2,000,000 characters|250,000 nodes)/, `${name}: no note`);
+      }
+      // A read within the budget is the getter's own string, with no note.
+      const small = await run(`console.log("@@" + JSON.stringify([await page.locator("#small").textContent(), await page.locator("#small").innerText(), await page.locator("#small").innerHTML()]));`);
+      assert.deepEqual(JSON.parse(small.value), ["Small text", "Small text", "Small <b>text</b>"]);
+      assert.doesNotMatch(small.output, /too large/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// The text and HTML formats read the page node by node under the budget,
+// never through a getter that walks the whole DOM first: a page of more
+// nodes than the budget (each tiny, so the string itself would fit) is cut
+// at the node budget.
+test("tabs.content: text and HTML stop at the node budget, not after serializing the whole DOM", async () => {
+  const page = "<!doctype html><title>Many</title><body>" + "<i>x</i>".repeat(270000) + "</body>";
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    res.end(page);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  try {
+    await withLoggedRepl(async (run) => {
+      for (const format of ["text", "html"]) {
+        const r = await run(`const [row] = await tabs.content(${JSON.stringify(url)}, { format: ${JSON.stringify(format)} }); console.log("@@" + JSON.stringify({ length: row.content.length, truncated: row.truncated || null }));`);
+        const row = JSON.parse(r.value);
+        assert.match(row.truncated || "", /stopped after 250,000 nodes/, `${format}: ${JSON.stringify(row)}`);
+      }
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+// A name reads text the walk may never visit (a hidden aria-labelledby
+// target, a hidden label) and the name computation reads it whole and
+// recursively: those reads count against the snapshot's node budget, and
+// nesting deeper than the stack cannot fail the snapshot.
+test("snapshot: names and values read within the budget, and deep nesting is cut with a ref instead of failing", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      const pages = {
+        labelledby: `document.body.innerHTML = '<button aria-labelledby="h">B</button><div id="h" style="display:none"></div>'; const h = document.getElementById("h"); for (let i = 0; i < 5000; i++) h.appendChild(document.createElement("span")).textContent = "w";`,
+        label: `document.body.innerHTML = '<input id="a"><label for="a" style="display:none" id="l"></label>'; const l = document.getElementById("l"); for (let i = 0; i < 5000; i++) l.appendChild(document.createElement("span")).textContent = "w";`,
+      };
+      for (const [name, setup] of Object.entries(pages)) {
+        const r = await run(`await page.evaluate(() => { ${setup} }); const s = await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(s.tree.split("\\n").slice(-1)[0]));`);
+        assert.match(JSON.parse(r.value), /^# the page is too large to read whole: the snapshot stopped after 1,000 nodes/, `${name}: the name read past the snapshot's budget without saying so`);
+      }
+      // Buttons nested 20,000 deep (each one's name is its content), and
+      // elements nested as deep read with showHidden (the walk itself).
+      for (const [tags, opts] of [[["div", "button"], {}], [["div", "span"], { showHidden: true }]]) {
+        const deep = await run(`await page.evaluate((tags) => {
+            document.body.innerHTML = '<button>First</button><div id="root"></div><button>Last</button>';
+            let e = document.getElementById("root");
+            for (let i = 0; i < 20000; i++) e = e.appendChild(document.createElement(tags[i % 2]));
+            e.textContent = "deepest";
+          }, ${JSON.stringify(tags)});
+          let out;
+          try { out = String(await snapshot({ maxChars: Infinity, ...${JSON.stringify(opts)} })); } catch (e) { out = "error: " + e.message; }
+          console.log("@@" + JSON.stringify({ error: /^error:/.test(out) ? out.slice(0, 300) : null, last: /button "Last"/.test(out), cut: /\\[ref=e\\d+\\] \\[not read: nested deeper than 1000 elements; snapshot this ref to read it\\]/.test(out) }));`);
+        const r = JSON.parse(deep.value);
+        assert.equal(r.error, null, tags.join());
+        assert.ok(r.last, `${tags}: the snapshot lost the page after the nested part`);
+        if (opts.showHidden) assert.ok(r.cut, `${tags}: no note where the nesting was cut`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// r16 runtime#1: iframes nest inside each other, each one's elements
+// nested almost as deep as one frame's walk reads; stitched together the
+// tree was as deep as all of them, and stitching and printing it recursed
+// that deep. The whole tree keeps the walk's 1,000-element bound: a frame
+// past it is cut with the same note, and its ref reads it.
+test("snapshot: iframes nested inside each other are cut at the walk's depth bound with a ref instead of failing", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      const deep = await run(`await page.evaluate(() => {
+          document.body.innerHTML = '<button>First</button><div id="root"></div><button>Last</button>';
+          let doc = document;
+          let e = document.getElementById("root");
+          for (let f = 0; f < 30; f++) {
+            for (let i = 0; i < 900; i++) (e = e.appendChild(doc.createElement("div"))).setAttribute("role", "group"), e.setAttribute("aria-label", "g");
+            const frame = e.appendChild(doc.createElement("iframe"));
+            doc = frame.contentDocument;
+            doc.open(); doc.write("<!doctype html><body><p>frame " + f + "</p></body>"); doc.close();
+            e = doc.body;
+          }
+          e.appendChild(doc.createElement("p")).textContent = "deepest";
+        });
+        let out;
+        try { out = String(await snapshot({ maxChars: Infinity, showHidden: true })); } catch (e) { out = "error: " + e.message; }
+        console.log("@@" + JSON.stringify({ error: /^error:/.test(out) ? out.slice(0, 300) : null, last: /button "Last"/.test(out), first: /frame 0/.test(out), deepest: /deepest/.test(out), cut: /\\[ref=f?\\d*e\\d+\\] \\[not read: nested deeper than 1000 elements; snapshot this ref to read it\\]/.test(out), depth: Math.max(...out.split("\\n").map((l) => l.search(/\\S/))) }));`);
+      const r = JSON.parse(deep.value);
+      assert.equal(r.error, null);
+      assert.ok(r.last, "the snapshot lost the page after the nested frames");
+      assert.ok(r.first, "the first frame was not read");
+      assert.ok(!r.deepest, "a frame past the depth bound was read");
+      assert.ok(r.cut, "no note where the frames were cut");
+      assert.ok(r.depth <= 2 * 1002, `the printed tree is ${r.depth / 2} levels deep`);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// r16 runtime#2: page.markdown walks blocks, inline runs and
+// display:contents boxes by recursion; a page nests them deeper than the
+// stack. Past 1,000 levels the subtree is left out and the Markdown says so.
+test("markdown: deep nesting (blocks, inline runs, display:contents) is cut with a note instead of failing", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      for (const kind of ["div", "span", "contents"]) {
+        const r = await run(`await page.evaluate((kind) => {
+            document.body.innerHTML = '<h1>First</h1><div id="root"></div><p>Last</p>';
+            let e = document.getElementById("root");
+            for (let i = 0; i < 30000; i++) {
+              e = e.appendChild(document.createElement(kind === "span" ? "span" : "div"));
+              if (kind === "contents") e.style.display = "contents";
+            }
+            e.textContent = "deepest";
+          }, ${JSON.stringify(kind)});
+          let md;
+          try { md = await page.markdown(); } catch (e) { md = "error: " + e.message; }
+          console.log("@@" + JSON.stringify({ error: /^error:/.test(md) ? md.slice(0, 300) : null, first: md.includes("# First"), last: md.includes("Last"), deepest: md.includes("deepest"), note: /<!-- not read: parts of the page nested deeper than 1000 elements -->/.test(md) }));`);
+        const v = JSON.parse(r.value);
+        assert.equal(v.error, null, kind);
+        assert.ok(v.first && v.last, `${kind}: the Markdown lost the page around the nested part`);
+        assert.ok(!v.deepest, `${kind}: read past the depth bound`);
+        assert.ok(v.note, `${kind}: no note where the nesting was cut`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("page.searchText: the text it scans and the contexts it returns stop at the page-read budget with a note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<p id="a"></p><p id="b"></p><p>needle at the end</p>';
+          document.getElementById("a").textContent = "A".repeat(3000000);
+          document.getElementById("b").textContent = "B".repeat(3000000);
+        });`);
+      const r = await run(`const s = await page.searchText("A", { context: 100000000, limit: 5 }); console.log("@@" + JSON.stringify({ total: s.total, longest: Math.max(...s.matches.map((m) => m.context.length)), chars: s.matches.reduce((n, m) => n + m.context.length + m.match.length, 0) }));`);
+      const v = JSON.parse(r.value);
+      assert.ok(v.longest <= 2010, `a context ran ${v.longest} characters`);
+      assert.ok(largestRead(r.log) < 100000, `the page agent returned ${largestRead(r.log)} characters`);
+      const end = await run(`const e = await page.searchText("needle"); console.log("@@" + JSON.stringify(e.total));`);
+      assert.equal(end.value, "0", "text past the budget was scanned");
+      assert.match(end.output, /# page\.searchText: the page is too large to read whole: it stopped after 2,000,000 characters/);
+      const regex = await run(`const g = await page.searchText("A+", { regex: true, limit: 2 }); console.log("@@" + JSON.stringify(Math.max(...g.matches.map((m) => m.match.length))));`);
+      assert.ok(Number(regex.value) <= 1010, `a match ran ${regex.value} characters`);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("session.storageState: localStorage is read within the page-read budget, and past it the call fails with the note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      // 2,300,000 characters of one origin's localStorage, within WebKit's
+      // 5 MB quota and past the page-read budget's 2,000,000 characters.
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => { localStorage.clear(); localStorage.setItem("big", "A".repeat(2300000)); localStorage.setItem("small", "s"); });`);
+      const r = await run(`const out = await session.storageState().then((s) => "saved " + JSON.stringify(s).length, (e) => e.message); console.log("@@" + JSON.stringify(out));`);
+      const out = JSON.parse(r.value);
+      assert.match(out, /^session\.storageState: the page is too large to read whole: localStorage stopped after 2,000,000 characters/, out.slice(0, 300));
+      assert.ok(largestRead(r.log) < READ_SIZE + 100000, `the page agent returned ${largestRead(r.log)} characters at once`);
+      // A state within the budget is still read whole.
+      await run(`await page.evaluate(() => { localStorage.clear(); localStorage.setItem("k", "v"); });`);
+      const small = await run(`const st = await session.storageState(); console.log("@@" + JSON.stringify(st.origins));`);
+      assert.deepEqual(JSON.parse(small.value), [{ origin: servers.origins.primary, localStorage: [{ name: "k", value: "v" }] }]);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// r38 runtime#1: a frame with no localStorage costs no items, so before
+// the fix a page of many iframes drove one native frame.evaluate per frame
+// past any budget. The frames read are now capped (100, as Markdown export)
+// and the call fails with the frames note rather than save part of a state.
+test("session.storageState: a page of many iframes is read for at most 100 frames, then the call fails with the note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => { localStorage.clear(); for (let i = 0; i < 150; i++) document.body.appendChild(document.createElement("iframe")); });
+        await page._refreshFrames();
+        console.log("@@" + page.frames().length);`).then((r) => assert.equal(r.value, "151", "the fixture's iframes were not all known to the session"));
+      const r = await run(`const out = await session.storageState().then((s) => "saved " + s.origins.length, (e) => e.message); console.log("@@" + JSON.stringify(out));`);
+      const reads = r.log.filter((e) => e.method === "frame.evaluate").length;
+      assert.ok(reads <= 101, `storageState made ${reads} page-agent reads for a page of 151 frames`);
+      assert.match(JSON.parse(r.value), /^session\.storageState: the page is too large to read whole: localStorage stopped after 100 frames/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("page.exportContent: the default Markdown export stops at the page-read budget with a note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.title = "Export lab";
+          document.body.innerHTML = '<h1>Top</h1><p id="big"></p><p>Last</p>';
+          document.getElementById("big").textContent = "A".repeat(5000000);
+        });`);
+      const r = await run(`const file = await page.exportContent(); const md = fs.readFileSync(file, "utf8"); console.log("@@" + JSON.stringify({ length: md.length, head: md.slice(0, 200), tail: md.slice(-400) }));`);
+      const md = JSON.parse(r.value);
+      assert.ok(md.length < READ_SIZE + 100000, `a 5,000,000-character page exported ${md.length} characters`);
+      assert.match(md.head, /^# Export lab\n\n<http:\/\/[^>]+>\n\n# Top/);
+      assert.match(md.tail, /<!-- the page is too large to read whole: Markdown stopped after 2,000,000 characters/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// Secrets are masked natively, after a reply leaves the page, by matching
+// whole values: a read cut at the budget inside a value (a typed secret in
+// a field or an editor, its text split across nodes) would hand on the
+// value's unmasked prefix. A cut read must end before any value it could
+// have split, whatever the page put in front of it.
+test("a read cut at the page-read budget never ends inside a value the session masks", async () => {
+  const servers = await startFixtureServers();
+  const SECRET = "Zq9Wv7Kj";
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(({ size, secret }) => {
+          document.body.innerHTML = '<h1>Top</h1><textarea id="field"></textarea><p id="split"></p>';
+          // The cut falls three characters into the secret.
+          document.getElementById("field").value = "x".repeat(size - 3) + secret + "y".repeat(10);
+          // Text nodes: the first ends in the secret's start, the cut falls in the second.
+          const p = document.getElementById("split");
+          p.appendChild(document.createTextNode("x".repeat(size - 3) + secret.slice(0, 3)));
+          p.appendChild(document.createTextNode(secret.slice(3) + "y".repeat(10)));
+        }, { size: ${READ_SIZE}, secret: ${JSON.stringify(SECRET)} });`);
+      const reads = {
+        inputValue: 'page.locator("#field").inputValue()',
+        textContent: 'page.locator("#split").textContent()',
+        innerText: 'page.locator("#split").innerText()',
+        innerHTML: 'page.locator("#split").innerHTML()',
+        markdown: "page.markdown()",
+      };
+      for (const [name, expr] of Object.entries(reads)) {
+        const r = await run(`const v = await ${expr}; console.log("@@" + JSON.stringify({ leaked: v.includes(${JSON.stringify(SECRET.slice(0, 1))}) }));`);
+        const v = JSON.parse(r.value);
+        assert.equal(v.leaked, false, `${name}: the cut read ends inside the secret`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// A link's URL is shortened for the snapshot (an off-site link's host
+// summary, a cross-origin URL). Shortening before the reply leaves the page
+// would cut a secret in the URL before native masking sees it whole, and
+// hand on its prefix; it happens after masking instead.
+test("snapshot: a shortened link URL never shows a prefix of a value the session masks", async () => {
+  const servers = await startFixtureServers();
+  const SECRET = "Zq9Wv7KjQ3xP8mLt";
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`secrets.set("k", ${JSON.stringify(SECRET)}, { domains: ["localhost"] });
+        await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate((secret) => {
+          // The off-site summary ("host/first-segment") is cut at 48
+          // characters, 7 into the secret; the cross-origin URL at 300, 8
+          // into it.
+          const summary = "https://e.example/" + "a".repeat(30) + secret + "/more";
+          const long = "https://evil.example/" + "a".repeat(270) + secret + "b".repeat(50);
+          document.body.innerHTML = '<a id="s">Summary</a> <a id="l">Long</a>';
+          document.getElementById("s").href = summary;
+          document.getElementById("l").href = long;
+        }, ${JSON.stringify(SECRET)});`);
+      for (const opts of [{}, { urls: true }]) {
+        const r = await run(`const s = await snapshot(${JSON.stringify(opts)}); console.log("@@" + JSON.stringify(String(s.tree || s)));`);
+        const tree = JSON.parse(r.value);
+        assert.match(tree, /e\.example\/a/, `the link URLs are not in the snapshot: ${tree}`);
+        assert.equal(tree.includes(SECRET.slice(0, 4)), false, `${JSON.stringify(opts)}: the snapshot shows the secret's prefix: ${tree}`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// Every URL summary of a link (the off-site "host/first-segment/…" form, an
+// on-site link's path without its origin) drops part of the URL. Made in the
+// page agent, it drops part of a secret before native masking sees the
+// value whole, and the rest goes out unmasked; the snapshot makes them from
+// the masked URL instead.
+test("snapshot: a link URL summary never shows part of a value the session masks", async () => {
+  const servers = await startFixtureServers();
+  // A secret with a path separator: the off-site summary keeps only its
+  // first segment.
+  const PATH_SECRET = "Zq9Wv7Kj/Q3xP8mLtRb";
+  try {
+    await withLoggedRepl(async (run) => {
+      const origin = servers.origins.primary;
+      // A secret that is a whole URL of the page's own origin (a webhook,
+      // a magic link): the on-site path drops the origin.
+      const URL_SECRET = `${origin}/hook/T0K3NabcdXYZ`;
+      await run(`secrets.set("p", ${JSON.stringify(PATH_SECRET)}, { domains: ["localhost"] });
+        secrets.set("u", ${JSON.stringify(URL_SECRET)}, { domains: ["localhost"] });
+        await page.goto(${JSON.stringify(origin + "/")});
+        await page.evaluate(([pathSecret, urlSecret]) => {
+          document.body.innerHTML = '<a id="o">Off</a> <a id="s">Same</a> <a id="b"><span style="display:inline-block;width:10px;height:10px"></span></a>';
+          document.getElementById("o").href = "https://e.example/" + pathSecret;
+          document.getElementById("s").href = urlSecret;
+          document.getElementById("b").href = urlSecret;
+        }, ${JSON.stringify([PATH_SECRET, URL_SECRET])});`);
+      const leaks = [];
+      for (const opts of [{}, { urls: true }]) {
+        const r = await run(`const s = await snapshot(${JSON.stringify(opts)}); console.log("@@" + JSON.stringify(String(s.tree || s)));`);
+        const tree = JSON.parse(r.value);
+        assert.match(tree, /\[url=e\.example|\[url=https:\/\/e\.example/, `the off-site link URL is not in the snapshot: ${tree}`);
+        for (const part of [...PATH_SECRET.split("/"), "T0K3NabcdXYZ"]) if (tree.includes(part)) leaks.push(`${JSON.stringify(opts)} shows ${part}: ${tree}`);
+      }
+      assert.deepEqual(leaks, []);
+    });
+  } finally {
+    await servers.close();
+  }
+});

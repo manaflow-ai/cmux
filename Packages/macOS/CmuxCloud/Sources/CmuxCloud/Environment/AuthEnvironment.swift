@@ -33,6 +33,7 @@ public enum AuthEnvironment: Sendable {
         "CMUX_IROH_V2_ENVIRONMENT",
         "CMUX_IROH_V2_FORCE_RELAY",
         "CMUX_STACK_BASE_URL",
+        "CMUX_CLOUD_DIAGNOSTICS_BASE_URL",
         "CMUX_STACK_PROJECT_ID",
         "CMUX_STACK_PUBLISHABLE_CLIENT_KEY",
         "CMUX_AUTH_ENVIRONMENT",
@@ -718,6 +719,16 @@ public enum AuthEnvironment: Sendable {
         return "http://localhost:\(cmuxPort)"
         #else
         return "https://api.cmux.sh"
+        #endif
+    }
+
+    /// Debug only: where Cloud diagnostics upload instead of the default
+    /// ingress, for a local ingest during verification. `nil` in Release.
+    public static var debugCloudDiagnosticsBaseURL: URL? {
+        #if DEBUG
+        return environmentURL("CMUX_CLOUD_DIAGNOSTICS_BASE_URL", environment: runtimeEnvironment)
+        #else
+        return nil
         #endif
     }
 

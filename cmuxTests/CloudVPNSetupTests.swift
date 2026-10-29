@@ -145,13 +145,9 @@ struct CloudVPNSetupTests {
         let cloudMarkerKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
         let previousCloudMarker = UserDefaults.standard.object(forKey: cloudMarkerKey)
         UserDefaults.standard.set(true, forKey: cloudMarkerKey)
-        let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
-        let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
-        CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
         defer {
             if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: cloudMarkerKey) }
             else { UserDefaults.standard.removeObject(forKey: cloudMarkerKey) }
-            CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag)
         }
         let previous = AppDelegate.shared
         let previousActive = TerminalController.shared.activeTabManagerForCallerNotification()

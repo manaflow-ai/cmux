@@ -9,15 +9,20 @@
 // persistent condition repeats every run; that is the intended behaviour for
 // `critical` (an outage should stay loud) and the reason `warning` checks
 // use higher thresholds.
+import { cloudDb } from "../../db/client";
 import { captureCoderouterRawBatch } from "../coderouter/analytics";
 import { query as clickHouseQuery, type ClickHouseDependencies } from "../coderouter/clickhouse";
+import { checkClickHouseSchema, type ClickHouseSchemaCheck } from "../coderouter/clickhouseSchema";
 import { classifyCoderouterFault } from "../coderouter/faultClassification";
 import { coderouterHealth, type CoderouterHealth } from "../coderouter/health";
 import { reportCoderouterFailure } from "../coderouter/observability";
 import { sendAlert, type AlertFetch, type AlertInput, type AlertResult } from "./alerts";
+import { reportError } from "./report";
+import { durableVmAlertStateStore, type VmAlertStateStore } from "./vmAlerts";
 
 export const CODEROUTER_ALERT_WINDOW_MINUTES = 5;
 export const CODEROUTER_ALERT_SINK_ACK_ENV = "CMUX_ALERTS_SINK_UNCONFIGURED_ACK";
+export const CODEROUTER_SCHEMA_DRIFT_ALERT_KEY = "coderouter-clickhouse-schema-drift";
 
 /**
  * A cron run must have a Slack sink, or an explicit plain-text operator
@@ -43,6 +48,8 @@ export type CoderouterAlertCheck = {
 export type CoderouterAlertSummary = {
   readonly health: CoderouterHealth["status"];
   readonly ledgerReachable: boolean;
+  /** Result of comparing the ledger's columns with web/db/clickhouse migrations. */
+  readonly clickhouseSchema: ClickHouseSchemaCheck["kind"];
   readonly checks: readonly CoderouterAlertCheck[];
   readonly alertSink: {
     readonly configured: boolean;
@@ -92,6 +99,11 @@ export type CoderouterAlertDependencies = {
   /** Injectable sinks make the unconfigured-alert path observable in tests. */
   readonly captureRawBatch?: typeof captureCoderouterRawBatch;
   readonly reportFailure?: typeof reportCoderouterFailure;
+  readonly schemaCheck?: () => Promise<ClickHouseSchemaCheck>;
+  /** Dedupes the schema-drift alert across cron runs and instances. */
+  readonly alertStateStore?: () => VmAlertStateStore;
+  readonly reportError?: typeof reportError;
+  readonly now?: () => Date;
 };
 
 const ROUTE_EVENTS_SQL = `
@@ -133,16 +145,18 @@ export async function runCoderouterAlertChecks(
   const dropped: AlertInput[] = [];
   let sent = 0;
   let deliveryFailures = 0;
-  const send = async (input: AlertInput) => {
+  const send = async (input: AlertInput): Promise<boolean> => {
     try {
       const result = await rawSend(input);
       if (result.configured === false) dropped.push(input);
       else if (result.sent) sent += 1;
       else deliveryFailures += 1;
+      return result.sent;
     } catch {
       // A custom sender is allowed to throw. Keep the cron result truthful and
       // prevent one failed webhook from suppressing the remaining checks.
       deliveryFailures += 1;
+      return false;
     }
   };
 
@@ -257,6 +271,8 @@ export async function runCoderouterAlertChecks(
     }));
   }
 
+  const clickhouseSchema = await checkSchemaDrift(dependencies, send);
+
   if (dropped.length > 0) {
     reportDroppedCoderouterAlerts(dropped, env, {
       captureRawBatch: dependencies.captureRawBatch,
@@ -267,9 +283,70 @@ export async function runCoderouterAlertChecks(
   return {
     health: health.status,
     ledgerReachable: events.ok,
+    clickhouseSchema,
     checks,
     alertSink: { configured, droppedAlerts: dropped.length, sent, deliveryFailures },
   };
+}
+
+/**
+ * Compares the ledger's columns with the repo's ClickHouse migrations. Nothing
+ * applies those migrations at deploy, and JSONEachRow inserts drop unknown
+ * fields silently, so an unapplied migration loses data until a read fails.
+ * Drift sends one Slack alert and one Sentry event per 24 hours (deduped in
+ * Postgres across instances); a clean check clears the dedupe state so the
+ * next drift alerts at once. ClickHouse being unconfigured or unreachable is
+ * quiet here: the ledger and health checks already own those states.
+ */
+async function checkSchemaDrift(
+  dependencies: CoderouterAlertDependencies,
+  send: (input: AlertInput) => Promise<boolean>,
+): Promise<ClickHouseSchemaCheck["kind"]> {
+  const schema = await (dependencies.schemaCheck ?? checkClickHouseSchema)()
+    .catch((): ClickHouseSchemaCheck => ({ kind: "unavailable", reason: "check_failed" }));
+  if (schema.kind !== "ok" && schema.kind !== "drift") return schema.kind;
+  const now = (dependencies.now ?? (() => new Date()))();
+  const store = schemaAlertStore(dependencies);
+  if (schema.kind === "ok") {
+    await store?.clear(CODEROUTER_SCHEMA_DRIFT_ALERT_KEY, now).catch(() => undefined);
+    return schema.kind;
+  }
+  const alert: AlertInput = {
+    key: CODEROUTER_SCHEMA_DRIFT_ALERT_KEY,
+    title: "coderouter ClickHouse migrations are not applied",
+    body: [
+      `Unapplied: ${schema.migrations.join(", ")}. Missing columns: ${schema.missingColumns.join(", ")}.`,
+      "Inserts silently drop these fields and reads that select them fail.",
+      "Apply with `bun scripts/clickhouse-migrate.ts <database>` from web/ (see web/services/coderouter/README.md).",
+    ].join(" "),
+    severity: "critical",
+  };
+  // Fail open: a Postgres outage must not hide the drift.
+  const leaseId = store ? await store.claim(alert, now).catch(() => undefined) : undefined;
+  if (leaseId === null) return schema.kind;
+  (dependencies.reportError ?? reportError)(
+    new Error(`coderouter.clickhouse_schema_drift: unapplied ${schema.migrations.join(", ")}`),
+    {
+      service: "coderouter",
+      failure: "clickhouse_schema_drift",
+      migrations: schema.migrations.join(","),
+      missing_columns: schema.missingColumns.join(","),
+    },
+    { fingerprint: ["coderouter", "clickhouse_schema_drift"] },
+  );
+  const delivered = await send(alert);
+  if (delivered && leaseId) {
+    await store?.acknowledge(alert.key, leaseId, now).catch(() => undefined);
+  }
+  return schema.kind;
+}
+
+function schemaAlertStore(dependencies: CoderouterAlertDependencies): VmAlertStateStore | null {
+  try {
+    return dependencies.alertStateStore?.() ?? durableVmAlertStateStore(cloudDb());
+  } catch {
+    return null;
+  }
 }
 
 /**

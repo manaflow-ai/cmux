@@ -1764,8 +1764,7 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     private func expectedClaudeProjectDirName(_ path: String) -> String {
-        path.replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ".", with: "-")
+        expectedClaudeProjectSlug(path)
     }
 
     private func writeClaudeTranscript(sessionId: String, transcriptURL: URL) throws {

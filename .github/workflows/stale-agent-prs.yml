@@ -1,0 +1,65 @@
+name: Stale agent PRs
+
+# Nightly list of agent PRs that landed elsewhere or went quiet
+# (scripts/ci/stale_agent_prs.py). Dry run: the schedule only writes the list
+# to the job summary. Closing needs a workflow_dispatch with close=true, or the
+# STALE_AGENT_PRS_CLOSE repository variable set to "1" once Leo turns it on.
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+    inputs:
+      close:
+        description: "Close landed PRs (otherwise list only)"
+        required: true
+        default: false
+        type: boolean
+      stale_days:
+        description: "Days without a push or human comment before a PR is listed"
+        required: true
+        default: "14"
+        type: string
+      max_close:
+        description: "Maximum PRs to close in this run"
+        required: true
+        default: "25"
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: stale-agent-prs
+  cancel-in-progress: false
+
+jobs:
+  stale-agent-prs:
+    if: github.repository == 'manaflow-ai/cmux'
+    permissions:
+      contents: read
+      pull-requests: write
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: pull-requests:write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    # A full pass reads every scored PR's files: about 12 minutes for 300 PRs locally.
+    timeout-minutes: 45
+    steps:
+      - name: Check out trusted workflow code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # A full (not sparse or partial) clone: the landed check reads base
+          # blobs, and a blobless clone would fetch them lazily without credentials.
+          persist-credentials: false
+      - name: Fetch base branches for the landed check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git -c "http.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)" \
+            fetch --no-tags --depth=1 origin \
+            +refs/heads/main:refs/remotes/origin/main \
+            +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
+      - name: List or close stale agent PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CLOSE: ${{ (github.event_name == 'workflow_dispatch' && inputs.close) && '1' || (github.event_name == 'schedule' && vars.STALE_AGENT_PRS_CLOSE == '1') && '1' || '0' }}
+          STALE_DAYS: ${{ inputs.stale_days || '14' }}
+          MAX_CLOSE: ${{ inputs.max_close || '25' }}
+        run: python3 scripts/ci/stale_agent_prs.py

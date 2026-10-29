@@ -50,6 +50,14 @@ fn cloud_dispatch_all_spellings_preserve_arguments_and_exit_status() {
         .output()
         .unwrap();
     assert_eq!(extension.stdout, b"adapter\n<coderouter>\n<models>\n");
+    for (name, prefix) in [("cr", None), ("coderouter", None), ("cmux", Some("cr"))] {
+        let mut c = Command::new(dir.join(name));
+        if let Some(prefix) = prefix {
+            c.arg(prefix);
+        }
+        let switch = c.args(["use", "own"]).env("CMUX_CLOUD_ADAPTER", &adapter).output().unwrap();
+        assert_eq!(switch.stdout, b"adapter\n<coderouter>\n<use>\n<own>\n");
+    }
     let recursive =
         Command::new(dir.join("cr")).env("CMUX_CODEROUTER_BIN", dir.join("cmux")).output().unwrap();
     assert_eq!(recursive.status.code(), Some(127));

@@ -48,7 +48,11 @@ let package = Package(
         ),
         .target(
             name: "CmuxSimulatorUI",
-            dependencies: ["CmuxSimulator", "CmuxSimulatorSystem"],
+            dependencies: [
+                "CmuxSimulator",
+                "CmuxSimulatorSystem",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ],

@@ -28,4 +28,7 @@ public struct CloseWarningKinds: OptionSet, Sendable, Hashable {
 
     /// `app.warnBeforeClosingAgentSession`: an agent session that is mid-turn.
     public static let agentSession = CloseWarningKinds(rawValue: 1 << 5)
+
+    /// `app.alwaysConfirmWorkspaceClose`: every workspace close, idle or not.
+    public static let alwaysConfirmWorkspace = CloseWarningKinds(rawValue: 1 << 6)
 }

@@ -69,7 +69,7 @@ Sidebjælken viser git-branch, tilknyttet PR-status/nummer, arbejdsmappe, lytten
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> opretter et workspace til en fjernmaskine. Browserpaneler rutes gennem fjernnetværket, så localhost bare virker. Træk et billede ind i en fjernsession for at uploade via scp.
+<code>cmux ssh user@remote</code> opretter et workspace til en fjernmaskine. Angiv <code>--command 'omp "investigate auth"'</code> for at køre en indledende kommando én gang i dens første fjernterminal. Browserpaneler rutes gennem fjernnetværket, så localhost bare virker. Træk et billede ind i en fjernsession for at uploade via scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 Ved første start kan macOS bede dig om at bekræfte åbning af en app fra en identificeret udvikler. Klik på **Åbn** for at fortsætte.
 
+### Shell-fuldførelse
+
+Homebrew-casken installerer fuldførelse til zsh, bash og fish. Start en ny shell efter installationen. Hvis den ikke indlæses, så tjek at Homebrews fuldførelsesmapper er koblet til din shell (se [Homebrews dokumentation om shell-fuldførelse](https://docs.brew.sh/Shell-Completion)).
+
+Hvis du installerede cmux på en anden måde, så tilføj den relevante linje til din shells opstartsfil, og start en ny shell:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Hvorfor cmux?
 
 Jeg kører mange Claude Code- og Codex-sessioner parallelt. Jeg brugte Ghostty med en masse delte paneler og stolede på native macOS-notifikationer til at vide, hvornår en agent havde brug for mig. Men Claude Codes notifikationstekst er altid bare "Claude is waiting for your input" uden kontekst, og med nok åbne faner kunne jeg ikke engang læse titlerne længere.
@@ -152,7 +171,9 @@ For mere information om konfiguration af cmux, [se vores dokumentation](https://
 
 | Genvej | Handling |
 |----------|--------|
-| ⌘ N | Nyt workspace |
+| ⌘ N | Nyt lokalt arbejdsområde |
+| ⌘ Y | Nyt Cloud-arbejdsområde på den senest brugbare Cloud-kontekst; åbner New Cloud Machine, hvis ingen findes |
+| ⌘ ⇧ Y | Ny cloud-maskine |
 | ⌘ 1–8 | Hop til workspace 1–8 |
 | ⌘ 9 | Hop til sidste workspace |
 | ⌃ ⌘ ] | Næste workspace |

@@ -431,6 +431,7 @@ struct NewMachineSheet: View {
         }
         .pickerStyle(.menu)
         .modifier(OwnWidthWithinColumn())
+        .anchorPreference(key: NewMachineSheetControlFrames.self, value: .bounds) { [NewMachineSheetControlFrames.baseImage: $0] }
         .accessibilityLabel(baseImageLabel)
         .accessibilityIdentifier("NewMachineSheet.baseImage")
     }
@@ -439,7 +440,9 @@ struct NewMachineSheet: View {
     /// Max" row), which can exceed the sheet. It may narrow to the space the
     /// row labels leave; the selected title is short and still fits.
     private var fittedSizeMenu: some View {
-        sizeMenu.modifier(OwnWidthWithinColumn())
+        sizeMenu
+            .modifier(OwnWidthWithinColumn())
+            .anchorPreference(key: NewMachineSheetControlFrames.self, value: .bounds) { [NewMachineSheetControlFrames.size: $0] }
     }
 
     /// The size pop-up: allowed sizes, then the locked ones with the plan
@@ -759,6 +762,20 @@ struct NewMachineSheet: View {
         return model.isBaseSetup
             ? String(localized: "machines.new.create.base", defaultValue: "Set Up Base")
             : String(localized: "machines.new.create", defaultValue: "Create")
+    }
+}
+
+/// Where the sheet placed its column pop-ups. Nothing in the app reads it:
+/// macOS 27 draws a menu picker without an `NSPopUpButton`, so layout tests
+/// read SwiftUI's own frames instead of AppKit views.
+struct NewMachineSheetControlFrames: PreferenceKey {
+    static let baseImage = "baseImage"
+    static let size = "size"
+
+    static var defaultValue: [String: Anchor<CGRect>] { [:] }
+
+    static func reduce(value: inout [String: Anchor<CGRect>], nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue()) { _, next in next }
     }
 }
 

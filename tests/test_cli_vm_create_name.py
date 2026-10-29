@@ -39,7 +39,7 @@ class VMCreateNameTests(unittest.TestCase):
         with ResizeSocket({"id": "named", "provider": "freestyle", "image": "test"}) as server:
             self.create(server, "Build box")
             self.assertEqual([r["method"] for r in server.requests], ["vm.create", "vm.rename"])
-            self.assertEqual(server.requests[1]["params"], {"id": "named", "display_name": "Build box"})
+            self.assertEqual({key: value for key, value in server.requests[1]["params"].items() if key != "cloud_client_timeout_ms"}, {"id": "named", "display_name": "Build box"})
 
     def test_unnamed_create_does_not_rename(self) -> None:
         with ResizeSocket({"id": "unnamed", "provider": "freestyle", "image": "test"}) as server:

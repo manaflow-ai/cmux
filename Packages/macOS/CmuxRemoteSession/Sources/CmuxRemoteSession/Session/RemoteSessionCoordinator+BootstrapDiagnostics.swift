@@ -10,7 +10,7 @@ extension RemoteSessionCoordinator {
     /// Removes a known versioned install before a repair upload.
     func removeRemoteDaemonInstallLocked(remotePath: String) throws {
         let script = "rm -f -- \(remotePath.shellSingleQuoted)"
-        let command = "sh -c \(script.shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: script).commandLine
         let result: RemoteCommandResult
         do {
             result = try sshExec(
@@ -49,7 +49,7 @@ extension RemoteSessionCoordinator {
             version: version,
             persistentDaemonSlot: configuration.persistentDaemonSlot
         )
-        let command = "sh -c \(script.shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: script).commandLine
         guard let result = try? sshExec(
             arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, command],
             timeout: 8

@@ -159,6 +159,31 @@ struct CloudWireGuardHubTests {
         var pendingCount: Int { waiters.count }
     }
 
+    actor ReadinessGate {
+        private var waiter: CheckedContinuation<Void, Never>?
+        private var opened = false
+
+        func wait() async {
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    if opened {
+                        continuation.resume()
+                    } else {
+                        waiter = continuation
+                    }
+                }
+            } onCancel: {
+                Task { await self.open() }
+            }
+        }
+
+        func open() {
+            opened = true
+            waiter?.resume()
+            waiter = nil
+        }
+    }
+
     private struct Harness {
         let hub: CloudWireGuardHub
         let spawner: FakeSpawner
@@ -313,6 +338,143 @@ struct CloudWireGuardHubTests {
         #expect(ready.socketPath == h.socketPath)
         #expect(await attempts.value == 2)
         #expect(await h.hub.status().leases == 1)
+    }
+
+    @Test("Scoped background preparation starts on a fresh hub")
+    func scopedBackgroundPreparationStartsOnFreshHub() async throws {
+        let scope = AuthenticatedTeamScope(
+            session: AuthenticatedSessionIdentity(generation: 1, accountID: "account"),
+            teamID: "team",
+            generation: 1
+        )
+        let h = makeHarness(
+            enrollWhenCloudDisabled: { receivedScope in
+                #expect(receivedScope == scope)
+                return CloudWireGuardHub.Enrollment(configPath: "/tmp/scoped.conf", routes: ["10.0.0.0/8"])
+            }
+        )
+
+        // A fresh hub has no active scope. The activation-scoped reset must
+        // not cancel the preparation task that is performing this first start.
+        await h.hub.prepareForCloudUse(
+            allowWhenCloudDisabled: true,
+            expectedTeamScope: scope
+        )
+        try await waitForSpawnCount(h.spawner, count: 1)
+        try await waitUntilRunning(h.hub)
+        #expect(h.spawner.last?.arguments.contains("/tmp/scoped.conf") == true)
+        #expect(await h.hub.status().leases == 1)
+
+        await h.hub.cancelPreparation()
+        await h.hub.stop()
+    }
+
+    @Test("Scoped background preparation does not wait for hub readiness")
+    func scopedBackgroundPreparationDoesNotWaitForReadiness() async throws {
+        let scope = AuthenticatedTeamScope(
+            session: AuthenticatedSessionIdentity(generation: 1, accountID: "account"),
+            teamID: "team",
+            generation: 1
+        )
+        let readiness = ReadinessGate()
+        let h = makeHarness(
+            readiness: { _ in await readiness.wait() }
+        )
+
+        await h.hub.prepareForCloudUse(
+            allowWhenCloudDisabled: true,
+            expectedTeamScope: scope
+        )
+        try await waitForSpawnCount(h.spawner, count: 1)
+        #expect(!(await h.hub.status().running))
+
+        // Releasing readiness completes the same shared preparation task; the
+        // caller above already returned while the carrier was still gated.
+        await readiness.open()
+        try await waitUntilRunning(h.hub)
+        await h.hub.cancelPreparation()
+        await h.hub.stop()
+    }
+
+    @Test("Cancelling preparation does not wait for a missing listener")
+    func cancellingPreparationDoesNotWaitForReadiness() async throws {
+        let scope = AuthenticatedTeamScope(
+            session: AuthenticatedSessionIdentity(generation: 1, accountID: "account"),
+            teamID: "team",
+            generation: 1
+        )
+        let readiness = ReadinessGate()
+        let h = makeHarness(
+            readiness: { _ in await readiness.wait() }
+        )
+
+        await h.hub.prepareForCloudUse(
+            allowWhenCloudDisabled: true,
+            expectedTeamScope: scope
+        )
+        try await waitForSpawnCount(h.spawner, count: 1)
+        await h.hub.cancelPreparation()
+
+        let status = await h.hub.status()
+        #expect(!status.running)
+        #expect(status.leases == 0)
+    }
+
+    @Test("A failed automatic preparation leaves restored-link demand retryable")
+    func automaticPreparationFailureDoesNotLoseRestoredLinkRetry() async throws {
+        let attempts = AttemptCounter()
+        let h = makeHarness(
+            enrollment: {
+                let attempt = await attempts.next()
+                if attempt <= 3 {
+                    throw VMClientError.httpStatus(
+                        503,
+                        #"{"error":"vm_cloud_service_unavailable","retryable":true}"#
+                    )
+                }
+                return CloudWireGuardHub.Enrollment(configPath: "/tmp/restored-link.conf", routes: ["10.0.0.0/8"])
+            },
+            backoff: [.seconds(1), .seconds(2)]
+        )
+
+        // Activation's background preparation is deliberately fire-and-forget.
+        // Exhaust that automatic sequence, as a restored provider would when
+        // its first graph refresh finds no usable hub.
+        await h.hub.prepareForCloudUse()
+        try await waitForPendingSleeps(h.gate, count: 1)
+        await h.gate.elapse()
+        try await waitForPendingSleeps(h.gate, count: 1)
+        await h.gate.elapse()
+        let exhausted = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < exhausted, await attempts.value < 3 {
+            await Task.yield()
+        }
+        #expect(await attempts.value == 3)
+        #expect(!(await h.hub.status().running))
+        #expect(await h.hub.status().leases == 1, "The failed preparation retains its retry claim")
+
+        // A restored-link demand is explicit and must be able to retry the
+        // stopped hub immediately, even though automatic preparation failed.
+        // The final automatic failure can be observed by the enrollment
+        // counter just before the shared startup task publishes `.stopped`.
+        // Model restored-link demand as a real retry so it cannot join that
+        // last failing task and mistake the handoff race for lost demand.
+        var restoredLinkResult: (lease: CloudWireGuardHub.Lease, ready: CloudWireGuardHub.Ready)?
+        let retryDeadline = ContinuousClock.now + .seconds(10)
+        while restoredLinkResult == nil, ContinuousClock.now < retryDeadline {
+            do {
+                restoredLinkResult = try await h.hub.acquire()
+            } catch {
+                await Task.yield()
+            }
+        }
+        let restoredLink = try #require(restoredLinkResult)
+        #expect(await attempts.value == 4)
+        #expect(restoredLink.ready.socketPath == h.socketPath)
+        #expect(await h.hub.status().leases == 2)
+        await h.hub.release(restoredLink.lease)
+        await h.hub.releasePrewarm()
+        await h.hub.stop()
     }
 
     @Test

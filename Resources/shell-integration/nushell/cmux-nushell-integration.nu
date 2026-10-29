@@ -232,6 +232,18 @@ def --env _cmux_ports_kick [reason: string] {
     }
 }
 
+# Resets the mouse reporting, focus reports, bracketed paste and alternate
+# screen a killed TUI can leave on (reedline turns its own paste mode back on
+# after this hook). ESC 7 keeps the cursor when no alternate screen is up;
+# tmux and screen keep the 1049 cursor apart from ESC 7, so they skip it.
+def _cmux_reset_terminal_leftover_modes [] {
+    let forced = ($env.CMUX_TEST_FORCE_KEYBOARD_RESET? | default "")
+    if ($forced | is-empty) and not (is-terminal --stdout) { return }
+    print -n "\e[?9l\e[?1000l\e[?1002l\e[?1003l\e[?1005l\e[?1006l\e[?1015l\e[?1016l\e[?1004l\e[?2004l\e[?25h"
+    let multiplexed = ($env.TMUX? | default "") + ($env.STY? | default "")
+    if ($multiplexed | is-empty) { print -n "\e7\e[?1049l" }
+}
+
 # Resets modifyOtherKeys/kitty keyboard protocols a crashed TUI can leave enabled.
 def _cmux_reset_terminal_keyboard_protocols [] {
     let forced = ($env.CMUX_TEST_FORCE_KEYBOARD_RESET? | default "") + ($env.CMUX_TEST_FORCE_KITTY_RESET? | default "")
@@ -305,6 +317,16 @@ def --wrapped claude [...args: string] {
     }
 }
 
+# Routes agy through the bundled cmux wrapper when present.
+def --wrapped agy [...args: string] {
+    let wrapper = (_cmux_wrapper_path "agy")
+    if ($wrapper != "") {
+        ^$wrapper ...$args
+    } else {
+        ^agy ...$args
+    }
+}
+
 # Routes grok through the bundled cmux wrapper when present.
 def --wrapped grok [...args: string] {
     let wrapper = (_cmux_wrapper_path "grok")
@@ -312,6 +334,16 @@ def --wrapped grok [...args: string] {
         ^$wrapper ...$args
     } else {
         ^grok ...$args
+    }
+}
+
+# Routes muse through the bundled cmux wrapper when present.
+def --wrapped muse [...args: string] {
+    let wrapper = (_cmux_wrapper_path "muse")
+    if ($wrapper != "") {
+        ^$wrapper ...$args
+    } else {
+        ^muse ...$args
     }
 }
 
@@ -328,6 +360,7 @@ def --env _cmux_pre_execution [] {
 # refresh at most every 5 seconds.
 def --env _cmux_pre_prompt [] {
     if not (_cmux_integration_enabled) { return }
+    _cmux_reset_terminal_leftover_modes
     _cmux_reset_terminal_keyboard_protocols
     _cmux_report_tty_once
     _cmux_report_shell_activity_state prompt

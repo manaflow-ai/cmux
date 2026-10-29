@@ -19,6 +19,9 @@ struct MachineCreateOperation: Identifiable, Equatable {
     /// the only safe correlation key while the CLI is still opening the machine.
     var createdMachineID: String? = nil
     var phase: Phase = .running
+    /// The server's refusal code for a failed create, carried from the
+    /// launcher apart from the display text. Failure actions key on it alone.
+    var refusalCode: String? = nil
 
     var isRunning: Bool {
         if case .running = phase { return true }
@@ -47,10 +50,18 @@ struct MachineCreateOperation: Identifiable, Equatable {
         return nil
     }
 
+
     /// The create failed because the plan's active-machine limit is reached
     /// (the service's `vm_active_limit_exceeded`), so upgrading would let it through.
     var hitMachineLimit: Bool {
-        failureOutput?.contains("vm_active_limit_exceeded") == true
+        refusalCode == CloudPlanRefusal.activeLimitExceededCode
+    }
+
+    /// The create found the team's shared vCPUs or memory already in use
+    /// (`vm_resource_pool_exceeded`). Pausing or deleting a running machine
+    /// frees it; a larger plan is only the secondary way through.
+    var hitResourcePool: Bool {
+        refusalCode == CloudPlanRefusal.resourcePoolExceededCode
     }
 
     /// The one-line status beside the name: the sheet's progress wording

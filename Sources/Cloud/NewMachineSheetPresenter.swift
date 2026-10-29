@@ -12,6 +12,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     static let shared = NewMachineSheetPresenter()
 
     private var sheetWindow: NSWindow?
+    private var sheetController: CloudSheetWindow?
     private var hostWindow: NSWindow?
     private var model: NewMachineModel?
     private var pendingSelectionID: UUID?
@@ -99,6 +100,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     /// Runs one create or fork invocation for ``MachineCreateCoordinator``.
     private static func launchCreate(
+        operationID: UUID,
         arguments: [String],
         progress: @escaping @MainActor (String) -> Void,
         completion: @escaping @MainActor (CloudVMActionLauncher.Completion) -> Void
@@ -106,6 +108,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         var cancellation: CloudVMActionLauncher.CancellationHandle?
         let didStart = MachineRowActions.openNewMachine(
             arguments: arguments,
+            operationID: operationID,
             onOutput: progress,
             onCompletion: { result in completion(result) },
             onCancellationReady: { cancellation = $0 }
@@ -180,6 +183,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             self?.dismiss()
         }
         self.model = model
+        sheetController = sheet
         sheetWindow = window
         NotificationCenter.default.addObserver(
             self,
@@ -446,6 +450,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             host.endSheet(window)
         }
         window.orderOut(nil)
+        sheetController = nil
         sheetWindow = nil
         hostWindow = nil
         model = nil

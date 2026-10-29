@@ -113,6 +113,49 @@ struct CodexTurnCompletionOwnershipTests {
     }
 
     @Test
+    func internalMemorySessionCannotReplaceForegroundResumeBinding() throws {
+        let harness = try makeHarness(name: "codex-memory-session-admission")
+        defer { harness.context.cleanup() }
+
+        try runHook(
+            harness,
+            subcommand: "session-start",
+            input: sessionStartPayload(harness)
+        )
+
+        let memoryRoot = harness.context.root
+            .appendingPathComponent(".codex", isDirectory: true)
+            .appendingPathComponent("memories", isDirectory: true)
+        try FileManager.default.createDirectory(at: memoryRoot, withIntermediateDirectories: true)
+
+        var memoryEnvironment = harness.environment
+        memoryEnvironment["CODEX_HOME"] = memoryRoot.deletingLastPathComponent().path
+        let memorySessionID = "memory-consolidation-session"
+        let beforeMemoryStart = harness.context.state.snapshot().count
+        let memoryResult = runProcess(
+            harness,
+            subcommand: "session-start",
+            input: #"{"session_id":"\#(memorySessionID)","cwd":"\#(memoryRoot.path)","transcript_path":null,"hook_event_name":"SessionStart"}"#,
+            environment: memoryEnvironment
+        )
+        harness.support.assertSuccessfulHook(memoryResult)
+        #expect(harness.handled.wait(timeout: .now() + 5) == .success)
+
+        let memoryCommands = Array(harness.context.state.snapshot().dropFirst(beforeMemoryStart))
+        let allCommands = harness.context.state.snapshot()
+        let foregroundCheckpoint = "\"checkpoint_id\":\"\(harness.sessionId)\""
+        let memoryCheckpoint = "\"checkpoint_id\":\"\(memorySessionID)\""
+        #expect(
+            allCommands.contains { $0.contains(foregroundCheckpoint) },
+            "The foreground Codex session should keep its resume binding: \(allCommands)"
+        )
+        #expect(
+            !memoryCommands.contains { $0.contains(memoryCheckpoint) },
+            "An internal memory session must not publish a replacement binding: \(memoryCommands)"
+        )
+    }
+
+    @Test
     func nativeChildrenKeepParentRunningUntilAllChildrenDrainThenNotifyOnce() throws {
         let harness = try makeHarness(name: "codex-native-child-settlement")
         defer { harness.context.cleanup() }

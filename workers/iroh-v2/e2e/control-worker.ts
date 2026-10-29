@@ -1,5 +1,6 @@
 import production, { TeamControl as ProductionTeamControl, UserUsage as ProductionUserUsage } from "../src/index";
 import type { Environment } from "../src/environment";
+export { AccountControl } from "../src/index";
 import { TeamStore } from "../src/storage/team-store";
 import { objectName } from "../src/routing";
 import { TEAM_SOCKET_LIMIT } from "../src/team-control";

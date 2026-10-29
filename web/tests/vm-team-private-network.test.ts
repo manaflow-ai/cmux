@@ -92,6 +92,7 @@ function enrollmentRepo(): VmRepositoryShape {
     lastConfigIssuedAt: new Date(),
     revokedAt: null,
   };
+  let inserted = false;
   return {
     findNetwork: () => Effect.succeed(personalNetwork),
     upsertNetwork: () => Effect.succeed(personalNetwork),
@@ -101,8 +102,9 @@ function enrollmentRepo(): VmRepositoryShape {
     upsertAccessGrantSession: () => Effect.void,
     claimAccessGrantMutation: () => Effect.succeed(true),
     releaseAccessGrantMutation: () => Effect.void,
-    findTunnel: () => Effect.succeed(null),
-    insertTunnel: () => Effect.succeed(tunnelRow),
+    // The inserted row is the live one afterwards, as in the table.
+    findTunnel: () => Effect.sync(() => (inserted ? tunnelRow : null)),
+    insertTunnel: () => Effect.sync(() => { inserted = true; return tunnelRow; }),
     updateTunnel: () => Effect.succeed(tunnelRow),
     revokeTunnel: () => Effect.succeed(true),
     listUserTunnels: () => Effect.succeed([tunnelRow]),
@@ -110,7 +112,7 @@ function enrollmentRepo(): VmRepositoryShape {
     listAccessGrantSessionIds: () => Effect.succeed([]),
     renameAccessGrant: () => Effect.succeed(null),
     listUserAccessGrants: () => Effect.succeed([]),
-    revokeAccessGrant: () => Effect.succeed(true),
+    revokeAccessGrant: () => Effect.succeed({ revoked: true, stackSessionIds: [] }),
   } as unknown as VmRepositoryShape;
 }
 

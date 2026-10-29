@@ -73,6 +73,7 @@ export function vmCapabilitiesOf(provider: VMProvider): VmCapabilities {
     fork: declared.fork ?? typeof provider.fork === "function",
     exec: declared.exec ?? true,
     stats: declared.stats ?? typeof provider.getStats === "function",
+    restart: declared.restart ?? typeof provider.restart === "function",
     ports: declared.ports ?? typeof provider.openPort === "function",
     desktop: declared.desktop ?? false,
     sizing: declared.sizing ?? false,

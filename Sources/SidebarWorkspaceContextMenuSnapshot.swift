@@ -22,5 +22,6 @@ struct SidebarWorkspaceContextMenuSnapshot: Equatable {
     let canMarkUnread: Bool
     let hasLatestNotification: Bool
     let allNotificationsMuted: Bool
+    let hasManualCustomColor: Bool
     let notifications: [TerminalNotification]
 }

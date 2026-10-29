@@ -365,6 +365,70 @@ import Testing
         #expect(text == "OUT:/tmp/a.png OUT:/tmp/b.png")
     }
 
+    @Test func realCopyToRemotePathNeedsNoDirectorySetup() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("Screen Shot.PNG")
+        let payload = Data("upload regression".utf8)
+        try payload.write(to: source)
+        var destinations: [String] = []
+        defer {
+            for path in destinations { try? fileManager.removeItem(atPath: path) }
+        }
+
+        // Model a fresh remote home, expanding ~/ as SCP would, and run the actual
+        // shell copy. The command does no mkdir and prints no path; cmux must
+        // supply a usable destination and return it for insertion after copying.
+        let runner = runner { command, environment, timeout, operation in
+            var environment = environment
+            let path = environment["CMUX_UPLOAD_REMOTE_PATH"] ?? ""
+            let destination = path.hasPrefix("~/") ? directory.path + String(path.dropFirst()) : path
+            environment["CMUX_UPLOAD_REMOTE_PATH"] = destination
+            destinations.append(destination)
+            return try TerminalCustomUploadRunner.spawnCommand(
+                command: command, environment: environment, timeout: timeout, operation: operation
+            )
+        }
+        let result = runner.runSync(
+            fileURLs: [source, source],
+            endpoint: endpoint(),
+            command: "cp \"$CMUX_UPLOAD_LOCAL_PATH\" \"$CMUX_UPLOAD_REMOTE_PATH\"",
+            operation: TerminalImageTransferOperation()
+        )
+        let text = try result.get()
+
+        #expect(destinations.count == 2)
+        #expect(Set(destinations).count == 2, "each upload needs its own destination")
+        for path in destinations {
+            #expect(try Data(contentsOf: URL(fileURLWithPath: path)) == payload)
+        }
+        #expect(text == destinations.map(TerminalImageTransferPlanner.escapeForShell).joined(separator: " "))
+    }
+
+    @Test func customRemotePathPreservesLegacyExtensionShape() {
+        let uuid = UUID(uuidString: "12345678-1234-1234-1234-1234567890AB")!
+        #expect(
+            TerminalUploadCommand.customRemotePath(
+                for: URL(fileURLWithPath: "/tmp/file.tar-gz"),
+                uuid: uuid
+            ) == "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.tar-gz"
+        )
+    }
+
+    @Test func customRemotePathBoundsLongExtensionByUTF8Bytes() {
+        let uuid = UUID(uuidString: "12345678-1234-1234-1234-1234567890AB")!
+        let longExtension = String(repeating: "x", count: 300)
+        let path = TerminalUploadCommand.customRemotePath(
+            for: URL(fileURLWithPath: "/tmp/file.\(longExtension)"),
+            uuid: uuid
+        )
+
+        #expect(path == "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.\(String(repeating: "x", count: 16))")
+        #expect(path.utf8.count < 255)
+    }
+
     @Test func nonZeroExitFailsClosed() {
         let result = runner { _, _, _, _ in (1, "", "boom") }.runSync(
             fileURLs: [URL(fileURLWithPath: "/tmp/a.png")],
@@ -389,7 +453,7 @@ import Testing
             return
         }
         // Falls back to the cmux-chosen remote path (escaped).
-        #expect(text.contains("cmux-paste"))
+        #expect(text.contains("cmux-drop"))
     }
 
     @Test func cancelledOperationFailsClosed() {

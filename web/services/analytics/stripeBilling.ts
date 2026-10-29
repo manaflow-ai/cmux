@@ -6,12 +6,14 @@ import {
   POSTHOG_HOST,
   POSTHOG_PROJECT_KEY,
 } from "./iosEventPolicy";
+import { serverAnalyticsEnabled, STACK_TEAM_GROUP } from "./serverEvents";
 import {
   checkoutAttributionFromMetadata,
   checkoutAttributionProperties,
   firstPaidCheckoutPersonProperties,
   type CheckoutAttribution,
 } from "./checkoutAttribution";
+import { planItem } from "../billing/subscriptionItems";
 
 const CAPTURE_TIMEOUT_MS = 2_000;
 
@@ -25,6 +27,12 @@ export type StripeBillingAnalyticsSubject =
   | {
       readonly scope: "team";
       readonly stackTeamId: string;
+      /**
+       * The Stack user who acted for the team (the purchasing admin). Team
+       * events are keyed by this person with the team as a group; without
+       * one they are recorded against the team without creating a person.
+       */
+      readonly actorUserId?: string | null;
       readonly isActive?: boolean;
       readonly status?: string;
     };
@@ -39,13 +47,15 @@ export async function captureStripeBillingEvent(
   subject: StripeBillingAnalyticsSubject,
   postHogFetch?: typeof fetch,
 ): Promise<void> {
-  const mapped = mappedBillingEvent(event, subject);
+  const actorSubject = withEventActor(subject, event);
+  const mapped = mappedBillingEvent(event, actorSubject);
   if (!mapped) return;
 
   await captureBillingPayload({
     name: mapped.name,
     insertId: event.id,
-    subject,
+    subject: actorSubject,
+    livemode: event.livemode,
     properties: mapped.properties,
   }, postHogFetch);
 }
@@ -56,11 +66,14 @@ export async function captureBillingPlanSwitchStarted(input: {
   fromPlan: string | null;
   targetPlan: string;
   attribution: CheckoutAttribution;
+  /** Stripe's `livemode` of the portal session. */
+  livemode?: boolean;
 }, postHogFetch?: typeof fetch): Promise<void> {
   await captureBillingPayload({
     name: "cmux_billing_plan_switch_started",
     insertId: input.sessionId,
     subject: { scope: "user", stackUserId: input.userId },
+    livemode: input.livemode,
     properties: { from_plan: input.fromPlan, target_plan: input.targetPlan, ...checkoutAttributionProperties(input.attribution) },
   }, postHogFetch);
 }
@@ -77,6 +90,8 @@ export async function captureBillingCheckoutStarted(
     readonly signedIn: boolean;
     /** True when the principal already had a Stripe customer (lapsed or canceled). */
     readonly existingStripeCustomer: boolean;
+    /** Stripe's `livemode` of the Checkout Session. */
+    readonly livemode?: boolean;
   },
   postHogFetch?: typeof fetch,
 ): Promise<void> {
@@ -84,6 +99,7 @@ export async function captureBillingCheckoutStarted(
     name: "cmux_billing_checkout_started",
     insertId: `checkout-started:${input.sessionId}`,
     subject: input.subject,
+    livemode: input.livemode,
     properties: {
       source: "checkout_route",
       billing_scope: input.subject.scope,
@@ -142,7 +158,8 @@ function commonBillingProperties(
     common.stack_user_id = subject.stackUserId;
   } else {
     common.stack_team_id = subject.stackTeamId;
-    common.$groups = { stack_team: subject.stackTeamId };
+    common.actor_user_id = normalizedStackId(subject.actorUserId) ?? undefined;
+    common.$groups = { [STACK_TEAM_GROUP]: subject.stackTeamId };
   }
   return common;
 }
@@ -224,7 +241,7 @@ function subscriptionEvent(
     properties: {
       ...common,
       plan: subscription.metadata?.plan === "team" ? "team" : personalPlanIdForSubscription(subscription),
-      billing_interval: subscription.items?.data?.[0]?.price?.recurring?.interval ?? metadataString(subscription.metadata, "billingInterval"),
+      billing_interval: planItem(subscription)?.price?.recurring?.interval ?? metadataString(subscription.metadata, "billingInterval"),
       ...(action === "deleted" ? {} : { $set: { billing_plan: subscription.metadata?.plan === "team" ? "team" : personalPlanIdForSubscription(subscription) } }),
       subscription_status: subscription.status,
       cancel_at_period_end: subscription.cancel_at_period_end,
@@ -276,12 +293,61 @@ function refundEvent(
   };
 }
 
-function subjectDistinctId(subject: StripeBillingAnalyticsSubject): string | null {
-  const principalId = subject.scope === "user"
-    ? subject.stackUserId
-    : subject.stackTeamId;
-  if (typeof principalId !== "string" || principalId.trim().length === 0) return null;
-  return subject.scope === "user" ? principalId : `stack-team:${principalId}`;
+/**
+ * Who a billing event is about. A user-scope event is the user's. A team
+ * event with an actor (checkout) is the acting admin's, with the team as the
+ * `stack_team` group, so it joins that person's funnel. A team event with no
+ * actor (renewals, invoices, refunds, subscription changes) keeps the team
+ * key but must not create a fake person, so it is sent with
+ * `$process_person_profile: false`. PostHog does not link person-less events
+ * to groups, so team rollups of those events break down by the
+ * `stack_team_id` property instead of the group.
+ */
+function subjectIdentity(
+  subject: StripeBillingAnalyticsSubject,
+): { readonly distinctId: string; readonly personless: boolean } | null {
+  if (subject.scope === "user") {
+    const userId = normalizedStackId(subject.stackUserId);
+    return userId ? { distinctId: userId, personless: false } : null;
+  }
+  const teamId = normalizedStackId(subject.stackTeamId);
+  if (!teamId) return null;
+  const actorUserId = normalizedStackId(subject.actorUserId);
+  return actorUserId
+    ? { distinctId: actorUserId, personless: false }
+    : { distinctId: `stack-team:${teamId}`, personless: true };
+}
+
+/** Checkout events happen while the purchasing admin is present. */
+const ACTOR_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.expired",
+]);
+
+/**
+ * The purchasing admin of a team checkout (team checkout writes
+ * `stackUserId` into the session metadata). Only checkout events take it:
+ * renewals and refunds arrive months later, possibly after that admin
+ * deleted their account, and Stripe metadata is never scrubbed, so keying
+ * them to the admin could recreate a deleted PostHog person. An explicit
+ * actor on the subject wins.
+ */
+function withEventActor(
+  subject: StripeBillingAnalyticsSubject,
+  event: Stripe.Event,
+): StripeBillingAnalyticsSubject {
+  if (subject.scope !== "team" || normalizedStackId(subject.actorUserId)) return subject;
+  if (!ACTOR_EVENT_TYPES.has(event.type)) return subject;
+  const metadata = (event.data.object as { readonly metadata?: Record<string, unknown> | null }).metadata;
+  const actor = metadata?.stackUserId;
+  const actorUserId = normalizedStackId(typeof actor === "string" ? actor : null);
+  return actorUserId ? { ...subject, actorUserId } : subject;
+}
+
+function normalizedStackId(value: string | null | undefined): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 async function captureBillingPayload(
@@ -289,29 +355,41 @@ async function captureBillingPayload(
     readonly name: string;
     readonly insertId: string;
     readonly subject: StripeBillingAnalyticsSubject;
+    /** Stripe's `livemode`; test-mode traffic stays in the project, tagged. */
+    readonly livemode?: boolean;
     readonly properties: Record<string, unknown>;
   },
   postHogFetch?: typeof fetch,
 ): Promise<void> {
-  // The production transport is unavailable in test runs. An explicitly
-  // injected fetch remains a deliberate unit-test seam for payload mapping;
-  // normal callers omit it and fail closed here.
-  if (isAnalyticsTestRun() && !postHogFetch) return;
+  // The production transport is unavailable in test runs, and preview or
+  // development deployments never reach the production project unless the
+  // shared force flag is set. An explicitly injected fetch remains a
+  // deliberate unit-test seam for payload mapping.
+  if (!postHogFetch && (isAnalyticsTestRun() || !serverAnalyticsEnabled(process.env))) return;
   const fetchImpl = postHogFetch ?? fetch;
-  const distinctId = subjectDistinctId(input.subject);
-  if (!distinctId) return;
+  const identity = subjectIdentity(input.subject);
+  if (!identity) return;
 
+  const properties: Record<string, unknown> = {
+    distinct_id: identity.distinctId,
+    $insert_id: input.insertId,
+    ...(input.subject.scope === "team"
+      ? { $groups: { [STACK_TEAM_GROUP]: input.subject.stackTeamId } }
+      : {}),
+    ...input.properties,
+    livemode: input.livemode,
+    vercel_env: process.env.VERCEL_ENV ?? "development",
+  };
+  if (identity.personless) {
+    // No person to update: person properties would be dropped anyway.
+    properties.$process_person_profile = false;
+    delete properties.$set;
+    delete properties.$set_once;
+  }
   const body = JSON.stringify({
     api_key: POSTHOG_PROJECT_KEY,
     event: input.name,
-    properties: {
-      distinct_id: distinctId,
-      $insert_id: input.insertId,
-      ...(input.subject.scope === "team"
-        ? { $groups: { stack_team: input.subject.stackTeamId } }
-        : {}),
-      ...input.properties,
-    },
+    properties,
   });
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {

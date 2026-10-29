@@ -4,6 +4,8 @@ Apply the custom lint rules in `.github/review-bot-rules/` to Swift, runtime, an
 
 Greptile should treat the rules in that directory as the source of truth for cmux reviews. PR-head edits to the rule files should not weaken review behavior until the edits are merged into the base branch.
 
+Also check every PR against [`REVIEW.md`](../REVIEW.md), the mistakes review keeps catching in cmux, mined from review comments that led to fix commits.
+
 Review production Swift and runtime changes for:
 
 - Swift actor isolation mistakes.

@@ -49,6 +49,16 @@ extension Workspace {
             panels.keys.contains(where: { cloudDirectoryProvenanceRequired(panelId: $0) })
     }
 
+    /// A workspace can host a local terminal when its own lifecycle is local.
+    /// Mixed local/cloud workspaces remain eligible when they contain at least
+    /// one local surface; a cloud-only projection is not a safe staging target
+    /// until it has a local host pane.
+    var canHostLocalTerminal: Bool {
+        guard !isRemoteWorkspace, !isRemoteTmuxMirror, cloudVMBinding == nil else { return false }
+        let hasCloudProjection = panels.keys.contains { cloudDirectoryProvenanceRequired(panelId: $0) }
+        return !hasCloudProjection || panels.keys.contains { machineOwningSurface($0)?.isLocal == true }
+    }
+
     /// Returns whether a panel's directory belongs to a Cloud machine rather than this Mac.
     func cloudDirectoryProvenanceRequired(panelId: UUID) -> Bool {
         cloudVMBinding != nil || cloudBindingState.projectedResources[panelId] != nil ||

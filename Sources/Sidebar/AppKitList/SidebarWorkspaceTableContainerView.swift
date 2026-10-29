@@ -25,6 +25,7 @@ final class SidebarWorkspaceTableContainerView: NSView {
         addSubview(reorderDropView)
         addSubview(bonsplitDropView)
         addSubview(emptyDropIndicatorView)
+        bonsplitDropView.reorderDestination = reorderDropView
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),

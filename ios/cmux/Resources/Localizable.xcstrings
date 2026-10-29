@@ -1,6 +1,124 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.cloud.action.restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu starten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redémarrer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التشغيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新启动"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시작"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動"
+          }
+        }
+      }
+    },
+    "mobile.cloud.action.restartFailedFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't restart: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neustart nicht möglich: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de redémarrer : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت إعادة التشغيل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo reiniciar: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法重新啟動：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法重新启动：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시작할 수 없음: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動できませんでした: %@"
+          }
+        }
+      }
+    },
     "mobile.workspace.newOnMachine": {
       "extractionState": "manual",
       "localizations": {
@@ -103920,7 +104038,12 @@
     "mobile.billing.awaitingServer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Purchase complete. Your plan updates as soon as cmux confirms it. You don't need to buy again."}},"de":{"stringUnit":{"state":"translated","value":"Kauf abgeschlossen. Dein Tarif wird aktualisiert, sobald cmux ihn bestätigt. Du musst nicht erneut kaufen."}},"fr":{"stringUnit":{"state":"translated","value":"Achat terminé. Votre forfait sera mis à jour dès que cmux l’aura confirmé. Inutile d’acheter à nouveau."}},"ar":{"stringUnit":{"state":"translated","value":"اكتملت عملية الشراء. سيتم تحديث خطتك فور تأكيد cmux لها. لا داعي للشراء مرة أخرى."}},"es":{"stringUnit":{"state":"translated","value":"Compra completada. Tu plan se actualizará en cuanto cmux la confirme. No necesitas comprar de nuevo."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"購買完成。cmux 確認後就會更新你的方案，不需要再次購買。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"购买完成。cmux 确认后会立即更新你的方案，无需再次购买。"}},"ko":{"stringUnit":{"state":"translated","value":"구입이 완료되었습니다. cmux가 확인하는 즉시 플랜이 업데이트됩니다. 다시 구입할 필요가 없습니다."}},"ja":{"stringUnit":{"state":"translated","value":"購入が完了しました。cmux が確認するとすぐにプランが更新されます。再購入は不要です。"}}}},
     "mobile.billing.completed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"You're on %@ now."}},"de":{"stringUnit":{"state":"translated","value":"Du nutzt jetzt %@."}},"fr":{"stringUnit":{"state":"translated","value":"Vous avez maintenant le forfait %@."}},"ar":{"stringUnit":{"state":"translated","value":"أنت الآن على خطة %@."}},"es":{"stringUnit":{"state":"translated","value":"Ya tienes el plan %@."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你現在使用 %@ 方案。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"你现在使用 %@ 方案。"}},"ko":{"stringUnit":{"state":"translated","value":"이제 %@ 플랜을 사용 중입니다."}},"ja":{"stringUnit":{"state":"translated","value":"%@ プランになりました。"}}}},
     "mobile.billing.currentPlan": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Current plan"}},"de":{"stringUnit":{"state":"translated","value":"Aktueller Tarif"}},"fr":{"stringUnit":{"state":"translated","value":"Forfait actuel"}},"ar":{"stringUnit":{"state":"translated","value":"الخطة الحالية"}},"es":{"stringUnit":{"state":"translated","value":"Plan actual"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"目前方案"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"当前方案"}},"ko":{"stringUnit":{"state":"translated","value":"현재 플랜"}},"ja":{"stringUnit":{"state":"translated","value":"現在のプラン"}}}},
-    "mobile.billing.disclosure": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Subscriptions renew automatically each month at the price shown until cancelled. Payment is charged to your Apple Account when you confirm the purchase. Your account is charged for renewal within 24 hours before the current period ends unless auto-renew is turned off at least 24 hours before then. Manage or cancel your subscription in your Apple Account settings."}},"de":{"stringUnit":{"state":"translated","value":"Abos verlängern sich jeden Monat automatisch zum angezeigten Preis, bis sie gekündigt werden. Die Zahlung wird bei Bestätigung des Kaufs deinem Apple Account belastet. Die Verlängerung wird innerhalb von 24 Stunden vor Ende des aktuellen Zeitraums belastet, sofern die automatische Verlängerung nicht mindestens 24 Stunden vorher deaktiviert wird. Verwalte oder kündige dein Abo in den Einstellungen deines Apple Accounts."}},"fr":{"stringUnit":{"state":"translated","value":"Les abonnements se renouvellent automatiquement chaque mois au prix indiqué jusqu’à leur résiliation. Le paiement est débité de votre compte Apple lorsque vous confirmez l’achat. Le renouvellement est facturé dans les 24 heures précédant la fin de la période en cours, sauf si le renouvellement automatique est désactivé au moins 24 heures avant. Gérez ou résiliez votre abonnement dans les réglages de votre compte Apple."}},"ar":{"stringUnit":{"state":"translated","value":"تتجدد الاشتراكات تلقائيًا كل شهر بالسعر المعروض حتى يتم إلغاؤها. يتم تحصيل الدفعة من حساب Apple الخاص بك عند تأكيد الشراء. يتم تحصيل رسوم التجديد خلال 24 ساعة قبل نهاية الفترة الحالية ما لم يتم إيقاف التجديد التلقائي قبل ذلك بـ 24 ساعة على الأقل. يمكنك إدارة اشتراكك أو إلغاؤه من إعدادات حساب Apple."}},"es":{"stringUnit":{"state":"translated","value":"Las suscripciones se renuevan automáticamente cada mes al precio indicado hasta que se cancelen. El pago se carga en tu cuenta de Apple al confirmar la compra. La renovación se cobra en las 24 horas anteriores al final del periodo actual, salvo que desactives la renovación automática al menos 24 horas antes. Gestiona o cancela tu suscripción en los ajustes de tu cuenta de Apple."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"訂閱會以顯示的價格每月自動續訂，直到取消為止。確認購買時，款項將從你的 Apple 帳號扣款。除非在目前期間結束前至少 24 小時關閉自動續訂，否則將在目前期間結束前 24 小時內收取續訂費用。你可以在 Apple 帳號設定中管理或取消訂閱。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"订阅会以显示的价格每月自动续订，直至取消。确认购买时，将从你的 Apple 账户扣款。除非在当前周期结束前至少 24 小时关闭自动续订，否则将在当前周期结束前 24 小时内收取续订费用。你可以在 Apple 账户设置中管理或取消订阅。"}},"ko":{"stringUnit":{"state":"translated","value":"구독은 취소할 때까지 매월 표시된 가격으로 자동 갱신됩니다. 구입을 확인하면 Apple 계정으로 결제됩니다. 현재 기간이 끝나기 최소 24시간 전에 자동 갱신을 끄지 않으면 현재 기간 종료 전 24시간 이내에 갱신 요금이 청구됩니다. Apple 계정 설정에서 구독을 관리하거나 취소할 수 있습니다."}},"ja":{"stringUnit":{"state":"translated","value":"サブスクリプションは解約するまで、表示価格で毎月自動更新されます。購入を確定すると Apple アカウントに請求されます。現在の期間が終了する 24 時間前までに自動更新をオフにしない限り、期間終了前の 24 時間以内に更新料金が請求されます。サブスクリプションの管理や解約は Apple アカウントの設定で行えます。"}}}},
+    "mobile.billing.period": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Billing period"}},"de":{"stringUnit":{"state":"translated","value":"Abrechnungszeitraum"}},"fr":{"stringUnit":{"state":"translated","value":"Période de facturation"}},"ar":{"stringUnit":{"state":"translated","value":"فترة الفوترة"}},"es":{"stringUnit":{"state":"translated","value":"Periodo de facturación"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"計費週期"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"计费周期"}},"ko":{"stringUnit":{"state":"translated","value":"결제 주기"}},"ja":{"stringUnit":{"state":"translated","value":"請求期間"}}}},
+    "mobile.billing.period.monthly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Monthly"}},"de":{"stringUnit":{"state":"translated","value":"Monatlich"}},"fr":{"stringUnit":{"state":"translated","value":"Mensuel"}},"ar":{"stringUnit":{"state":"translated","value":"شهري"}},"es":{"stringUnit":{"state":"translated","value":"Mensual"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每月"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每月"}},"ko":{"stringUnit":{"state":"translated","value":"월간"}},"ja":{"stringUnit":{"state":"translated","value":"月額"}}}},
+    "mobile.billing.period.yearly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Yearly"}},"de":{"stringUnit":{"state":"translated","value":"Jährlich"}},"fr":{"stringUnit":{"state":"translated","value":"Annuel"}},"ar":{"stringUnit":{"state":"translated","value":"سنوي"}},"es":{"stringUnit":{"state":"translated","value":"Anual"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每年"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每年"}},"ko":{"stringUnit":{"state":"translated","value":"연간"}},"ja":{"stringUnit":{"state":"translated","value":"年額"}}}},
+    "mobile.billing.monthlyEquivalent": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ / month, billed yearly"}},"de":{"stringUnit":{"state":"translated","value":"%@ / Monat, jährliche Abrechnung"}},"fr":{"stringUnit":{"state":"translated","value":"%@ / mois, facturé annuellement"}},"ar":{"stringUnit":{"state":"translated","value":"%@ / شهريًا، يُدفع سنويًا"}},"es":{"stringUnit":{"state":"translated","value":"%@ / mes, facturado anualmente"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每月 %@，按年計費"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每月 %@，按年计费"}},"ko":{"stringUnit":{"state":"translated","value":"월 %@, 연간 결제"}},"ja":{"stringUnit":{"state":"translated","value":"月額 %@（年払い）"}}}},
+    "mobile.billing.refund": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Request a Refund"}},"de":{"stringUnit":{"state":"translated","value":"Rückerstattung anfordern"}},"fr":{"stringUnit":{"state":"translated","value":"Demander un remboursement"}},"ar":{"stringUnit":{"state":"translated","value":"طلب استرداد المبلغ"}},"es":{"stringUnit":{"state":"translated","value":"Solicitar un reembolso"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"申請退款"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"申请退款"}},"ko":{"stringUnit":{"state":"translated","value":"환불 요청"}},"ja":{"stringUnit":{"state":"translated","value":"返金をリクエスト"}}}},
+    "mobile.billing.disclosure": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Subscriptions renew automatically at the end of each month or year, as shown, at the price shown until cancelled. Payment is charged to your Apple Account when you confirm the purchase. Your account is charged for renewal within 24 hours before the current period ends unless auto-renew is turned off at least 24 hours before then. Manage or cancel your subscription in your Apple Account settings."}},"de":{"stringUnit":{"state":"translated","value":"Abos verlängern sich am Ende jedes Monats oder Jahres, wie angezeigt, automatisch zum angezeigten Preis, bis sie gekündigt werden. Die Zahlung wird bei Bestätigung des Kaufs deinem Apple Account belastet. Die Verlängerung wird innerhalb von 24 Stunden vor Ende des aktuellen Zeitraums belastet, sofern die automatische Verlängerung nicht mindestens 24 Stunden vorher deaktiviert wird. Verwalte oder kündige dein Abo in den Einstellungen deines Apple Accounts."}},"fr":{"stringUnit":{"state":"translated","value":"Les abonnements se renouvellent automatiquement à la fin de chaque mois ou de chaque année, comme indiqué, au prix indiqué jusqu’à leur résiliation. Le paiement est débité de votre compte Apple lorsque vous confirmez l’achat. Le renouvellement est facturé dans les 24 heures précédant la fin de la période en cours, sauf si le renouvellement automatique est désactivé au moins 24 heures avant. Gérez ou résiliez votre abonnement dans les réglages de votre compte Apple."}},"ar":{"stringUnit":{"state":"translated","value":"تتجدد الاشتراكات تلقائيًا في نهاية كل شهر أو سنة، كما هو معروض، بالسعر المعروض حتى يتم إلغاؤها. يتم تحصيل الدفعة من حساب Apple الخاص بك عند تأكيد الشراء. يتم تحصيل رسوم التجديد خلال 24 ساعة قبل نهاية الفترة الحالية ما لم يتم إيقاف التجديد التلقائي قبل ذلك بـ 24 ساعة على الأقل. يمكنك إدارة اشتراكك أو إلغاؤه من إعدادات حساب Apple."}},"es":{"stringUnit":{"state":"translated","value":"Las suscripciones se renuevan automáticamente al final de cada mes o año, según se indica, al precio indicado hasta que se cancelen. El pago se carga en tu cuenta de Apple al confirmar la compra. La renovación se cobra en las 24 horas anteriores al final del periodo actual, salvo que desactives la renovación automática al menos 24 horas antes. Gestiona o cancela tu suscripción en los ajustes de tu cuenta de Apple."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"訂閱會依顯示的週期在每月或每年結束時，以顯示的價格自動續訂，直到取消為止。確認購買時，款項將從你的 Apple 帳號扣款。除非在目前期間結束前至少 24 小時關閉自動續訂，否則將在目前期間結束前 24 小時內收取續訂費用。你可以在 Apple 帳號設定中管理或取消訂閱。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"订阅会按显示的周期在每月或每年结束时，以显示的价格自动续订，直至取消。确认购买时，款项将从你的 Apple 账户扣除。除非在当前周期结束前至少 24 小时关闭自动续订，否则将在当前周期结束前 24 小时内收取续订费用。你可以在 Apple 账户设置中管理或取消订阅。"}},"ko":{"stringUnit":{"state":"translated","value":"구독은 취소할 때까지 표시된 대로 매월 또는 매년 말에 표시된 가격으로 자동 갱신됩니다. 구매를 확인하면 Apple 계정으로 결제됩니다. 현재 기간이 끝나기 최소 24시간 전에 자동 갱신을 끄지 않으면 현재 기간이 끝나기 전 24시간 이내에 갱신 요금이 청구됩니다. Apple 계정 설정에서 구독을 관리하거나 취소하세요."}},"ja":{"stringUnit":{"state":"translated","value":"サブスクリプションは、解約されるまで、表示どおり毎月末または毎年末に表示価格で自動更新されます。購入を確定すると Apple アカウントに請求されます。現在の期間が終了する 24 時間前までに自動更新をオフにしない限り、現在の期間の終了前 24 時間以内に更新料金が請求されます。サブスクリプションの管理や解約は Apple アカウントの設定で行えます。"}}}},
     "mobile.billing.done": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Done"}},"de":{"stringUnit":{"state":"translated","value":"Fertig"}},"fr":{"stringUnit":{"state":"translated","value":"OK"}},"ar":{"stringUnit":{"state":"translated","value":"تم"}},"es":{"stringUnit":{"state":"translated","value":"OK"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"完成"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"完成"}},"ko":{"stringUnit":{"state":"translated","value":"완료"}},"ja":{"stringUnit":{"state":"translated","value":"完了"}}}},
     "mobile.billing.error.accountMismatch": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"This subscription belongs to another cmux account. Sign in with that account to use it."}},"de":{"stringUnit":{"state":"translated","value":"Dieses Abo gehört zu einem anderen cmux-Konto. Melde dich mit diesem Konto an, um es zu nutzen."}},"fr":{"stringUnit":{"state":"translated","value":"Cet abonnement appartient à un autre compte cmux. Connectez-vous à ce compte pour l’utiliser."}},"ar":{"stringUnit":{"state":"translated","value":"ينتمي هذا الاشتراك إلى حساب cmux آخر. سجّل الدخول باستخدام ذلك الحساب لاستخدامه."}},"es":{"stringUnit":{"state":"translated","value":"Esta suscripción pertenece a otra cuenta de cmux. Inicia sesión con esa cuenta para usarla."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此訂閱屬於另一個 cmux 帳號。請使用該帳號登入以使用此訂閱。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此订阅属于另一个 cmux 账户。请使用该账户登录以使用此订阅。"}},"ko":{"stringUnit":{"state":"translated","value":"이 구독은 다른 cmux 계정에 속해 있습니다. 해당 계정으로 로그인하여 사용하세요."}},"ja":{"stringUnit":{"state":"translated","value":"このサブスクリプションは別の cmux アカウントに属しています。利用するにはそのアカウントでサインインしてください。"}}}},
     "mobile.billing.error.network": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Couldn't reach the App Store or cmux. Check your connection and try again."}},"de":{"stringUnit":{"state":"translated","value":"App Store oder cmux ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut."}},"fr":{"stringUnit":{"state":"translated","value":"Impossible de joindre l’App Store ou cmux. Vérifiez votre connexion et réessayez."}},"ar":{"stringUnit":{"state":"translated","value":"تعذر الوصول إلى App Store أو cmux. تحقق من اتصالك وحاول مرة أخرى."}},"es":{"stringUnit":{"state":"translated","value":"No se pudo conectar con el App Store o cmux. Comprueba tu conexión e inténtalo de nuevo."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無法連線至 App Store 或 cmux。請檢查連線後再試一次。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法连接 App Store 或 cmux。请检查网络连接后重试。"}},"ko":{"stringUnit":{"state":"translated","value":"App Store 또는 cmux에 연결할 수 없습니다. 연결을 확인하고 다시 시도하세요."}},"ja":{"stringUnit":{"state":"translated","value":"App Store または cmux に接続できませんでした。接続を確認して、もう一度お試しください。"}}}},
@@ -103935,7 +104058,7 @@
     "mobile.billing.ineligible.other": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plans can't be bought in the app for this account."}},"de":{"stringUnit":{"state":"translated","value":"Für dieses Konto können keine Tarife in der App gekauft werden."}},"fr":{"stringUnit":{"state":"translated","value":"Les forfaits ne peuvent pas être achetés dans l’app pour ce compte."}},"ar":{"stringUnit":{"state":"translated","value":"لا يمكن شراء الخطط داخل التطبيق لهذا الحساب."}},"es":{"stringUnit":{"state":"translated","value":"No se pueden comprar planes en la app para esta cuenta."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此帳號無法在 App 內購買方案。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此账户无法在 App 内购买方案。"}},"ko":{"stringUnit":{"state":"translated","value":"이 계정은 앱에서 플랜을 구입할 수 없습니다."}},"ja":{"stringUnit":{"state":"translated","value":"このアカウントではアプリ内でプランを購入できません。"}}}},
     "mobile.billing.ineligible.team": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your team admin manages billing for this account."}},"de":{"stringUnit":{"state":"translated","value":"Die Abrechnung für dieses Konto verwaltet dein Team-Admin."}},"fr":{"stringUnit":{"state":"translated","value":"L’administrateur de votre équipe gère la facturation de ce compte."}},"ar":{"stringUnit":{"state":"translated","value":"يدير مسؤول فريقك الفوترة لهذا الحساب."}},"es":{"stringUnit":{"state":"translated","value":"El administrador de tu equipo gestiona la facturación de esta cuenta."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此帳號的帳單由你的團隊管理員管理。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此账户的账单由你的团队管理员管理。"}},"ko":{"stringUnit":{"state":"translated","value":"이 계정의 결제는 팀 관리자가 관리합니다."}},"ja":{"stringUnit":{"state":"translated","value":"このアカウントの請求はチーム管理者が管理しています。"}}}},
     "mobile.billing.ineligible.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Plans can't be bought in this version of the app."}},"de":{"stringUnit":{"state":"translated","value":"In dieser Version der App können keine Tarife gekauft werden."}},"fr":{"stringUnit":{"state":"translated","value":"Les forfaits ne peuvent pas être achetés dans cette version de l’app."}},"ar":{"stringUnit":{"state":"translated","value":"لا يمكن شراء الخطط في هذا الإصدار من التطبيق."}},"es":{"stringUnit":{"state":"translated","value":"No se pueden comprar planes en esta versión de la app."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"此版本的 App 無法購買方案。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"此版本的 App 无法购买方案。"}},"ko":{"stringUnit":{"state":"translated","value":"이 버전의 앱에서는 플랜을 구입할 수 없습니다."}},"ja":{"stringUnit":{"state":"translated","value":"このバージョンのアプリではプランを購入できません。"}}}},
-    "mobile.billing.ineligible.web": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"You subscribe on the web. Manage your plan at cmux.com."}},"de":{"stringUnit":{"state":"translated","value":"Du hast dein Abo im Web abgeschlossen. Verwalte deinen Tarif auf cmux.com."}},"fr":{"stringUnit":{"state":"translated","value":"Vous êtes abonné sur le Web. Gérez votre forfait sur cmux.com."}},"ar":{"stringUnit":{"state":"translated","value":"أنت مشترك عبر الويب. يمكنك إدارة خطتك على cmux.com."}},"es":{"stringUnit":{"state":"translated","value":"Tu suscripción es en la web. Gestiona tu plan en cmux.com."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你是在網頁上訂閱的。請前往 cmux.com 管理你的方案。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"你是在网页上订阅的。请前往 cmux.com 管理你的方案。"}},"ko":{"stringUnit":{"state":"translated","value":"웹에서 구독 중입니다. cmux.com에서 플랜을 관리하세요."}},"ja":{"stringUnit":{"state":"translated","value":"Web でサブスクリプションに登録しています。プランは cmux.com で管理してください。"}}}},
+    "mobile.billing.ineligible.web": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"You subscribe on the web."}},"de":{"stringUnit":{"state":"translated","value":"Du hast dein Abo im Web abgeschlossen."}},"fr":{"stringUnit":{"state":"translated","value":"Vous êtes abonné sur le Web."}},"ar":{"stringUnit":{"state":"translated","value":"أنت مشترك عبر الويب."}},"es":{"stringUnit":{"state":"translated","value":"Tu suscripción es en la web."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你是在網頁上訂閱的。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"你是在网页上订阅的。"}},"ko":{"stringUnit":{"state":"translated","value":"웹에서 구독 중입니다."}},"ja":{"stringUnit":{"state":"translated","value":"Web でサブスクリプションに登録しています。"}}}},
     "mobile.billing.loading": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Loading plans"}},"de":{"stringUnit":{"state":"translated","value":"Tarife werden geladen"}},"fr":{"stringUnit":{"state":"translated","value":"Chargement des forfaits"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ تحميل الخطط"}},"es":{"stringUnit":{"state":"translated","value":"Cargando planes"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在載入方案"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在加载方案"}},"ko":{"stringUnit":{"state":"translated","value":"플랜 불러오는 중"}},"ja":{"stringUnit":{"state":"translated","value":"プランを読み込み中"}}}},
     "mobile.billing.manage": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Manage Subscription"}},"de":{"stringUnit":{"state":"translated","value":"Abo verwalten"}},"fr":{"stringUnit":{"state":"translated","value":"Gérer l’abonnement"}},"ar":{"stringUnit":{"state":"translated","value":"إدارة الاشتراك"}},"es":{"stringUnit":{"state":"translated","value":"Gestionar suscripción"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"管理訂閱"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"管理订阅"}},"ko":{"stringUnit":{"state":"translated","value":"구독 관리"}},"ja":{"stringUnit":{"state":"translated","value":"サブスクリプションを管理"}}}},
     "mobile.billing.offer.current": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Current Plan"}},"de":{"stringUnit":{"state":"translated","value":"Aktueller Tarif"}},"fr":{"stringUnit":{"state":"translated","value":"Forfait actuel"}},"ar":{"stringUnit":{"state":"translated","value":"الخطة الحالية"}},"es":{"stringUnit":{"state":"translated","value":"Plan actual"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"目前方案"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"当前方案"}},"ko":{"stringUnit":{"state":"translated","value":"현재 플랜"}},"ja":{"stringUnit":{"state":"translated","value":"現在のプラン"}}}},

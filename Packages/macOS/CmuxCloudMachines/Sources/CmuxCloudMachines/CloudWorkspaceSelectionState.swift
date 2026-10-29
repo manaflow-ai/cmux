@@ -10,6 +10,11 @@ public final class CloudWorkspaceSelectionState {
     /// Changes on navigation so asynchronous creation cannot replace a newer selection.
     public private(set) var revision: UInt64 = 0
 
+    /// The workspace identity associated with the last committed navigation.
+    /// A provisional machine click intentionally leaves this unchanged until
+    /// its local Cloud workspace projection is selected.
+    public var trackedWorkspaceID: UUID? { selectedWorkspaceID }
+
     /// Creates window-owned selection state using the app's authenticated scope.
     /// - Parameter scopeProvider: The same account/team source used by the machine sidebar.
     public init(scopeProvider: @escaping @MainActor () -> String?) {
@@ -28,5 +33,17 @@ public final class CloudWorkspaceSelectionState {
         guard let workspaceID, let machineID, !machineID.isEmpty,
               let scopeID = scopeProvider(), !scopeID.isEmpty else { return }
         lastCloudSelection = CloudWorkspaceSelection(workspaceID: workspaceID, scopeID: scopeID, machineID: machineID)
+    }
+
+    /// Records a Cloud row click before its local workspace projection exists.
+    /// The machine remains the shortcut target immediately; a later committed
+    /// local selection upgrades this context with its concrete workspace ID.
+    public func selectCloudMachine(machineID: String) {
+        guard !machineID.isEmpty, let scopeID = scopeProvider(), !scopeID.isEmpty else { return }
+        // A row click is a navigation intent even before a local workspace
+        // exists. Advance the same fence used by concrete selections so older
+        // Cloud creates cannot focus over the newly clicked row.
+        revision &+= 1
+        lastCloudSelection = CloudWorkspaceSelection(scopeID: scopeID, machineID: machineID)
     }
 }

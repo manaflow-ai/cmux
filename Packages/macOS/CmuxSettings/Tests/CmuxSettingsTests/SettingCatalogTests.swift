@@ -113,6 +113,22 @@ struct SettingCatalogTests {
         #expect(ids.contains("browser.defaultZoomLevel"))
     }
 
+    @Test func dividerDoubleClickDefaultsOnAndPersistsOverrides() throws {
+        let entry = try #require(SettingCatalog().all.first { $0.id == "app.equalizeSplitsOnDividerDoubleClick" })
+        #expect(entry.userDefaultsDefaultValue as? Bool == true)
+        let suite = "divider-double-click-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        guard case .userDefaults(let key, _, _) = entry.kind else {
+            Issue.record("Expected a defaults setting")
+            return
+        }
+        defaults.set(false, forKey: key)
+        #expect(entry.jsonValueInUserDefaults(defaults) as? Bool == false)
+        defaults.set(true, forKey: key)
+        #expect(entry.jsonValueInUserDefaults(defaults) as? Bool == true)
+    }
+
     @Test func equalizeSplitsOnCreateDefaultsOff() {
         #expect(!SettingCatalog().app.equalizeSplitsOnCreate.defaultValue)
     }

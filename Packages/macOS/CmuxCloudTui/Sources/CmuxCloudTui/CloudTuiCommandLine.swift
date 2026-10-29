@@ -62,9 +62,12 @@ public struct CloudTuiCommandLine: Sendable {
 
     /// Private addresses are browser identities; the daemon opens each requested port on its loopback
     /// after the authenticated CONNECT proxy or Cloud WebSocket bridge accepts the browser connection.
-    public static func browserProxyArguments(route: String, addresses: [String], stateDir: String, wireGuardHubSocket: String, carrier: Bool) -> [String] {
+    public static func browserProxyArguments(route: String, addresses: [String], stateDir: String, wireGuardHubSocket: String, carrier: Bool, remoteNetwork: Bool = false) -> [String] {
         var args = ["remote", "browser-proxy", route, "--workspace-root", "/", "--state-dir", stateDir,
-                    "--wireguard-hub", wireGuardHubSocket, "--exit-with-parent"]
+                    "--wireguard-hub", wireGuardHubSocket, "--exit-with-parent",
+                    "--allow-loopback", "--allowed-host", "127.0.0.1",
+                    "--allowed-host", "localhost", "--allowed-host", "::1"]
+        if remoteNetwork { args.append("--allow-remote-network") }
         for address in addresses { args += ["--allowed-host", address] }
         if carrier { args.append("--carrier") }
         return args

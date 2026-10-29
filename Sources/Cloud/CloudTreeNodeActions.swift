@@ -43,6 +43,9 @@ struct CloudTreeNodeActions {
     let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
     /// End a terminal on its machine (the process and its remote tab).
     let closeTerminal: @MainActor (_ resource: SurfaceResourceID) -> Void
+    /// Close one remote tab placement without ending the terminal process.
+    /// This is the safe close action for workspace-pointer rows.
+    var closeRemoteTab: @MainActor (_ resource: SurfaceResourceID, _ view: SurfaceRemoteView) -> Void = { _, _ in }
     /// Close a workspace on its machine AND kill every terminal in it (austin,
     /// 2026-08-31: a closed workspace never leaves stray terminals behind in the
     /// pool). Confirms first when there is something to kill. The protocol's
@@ -85,20 +88,31 @@ struct CloudTreeNodeActions {
     var removeCoderouterAccount: @MainActor (_ account: CloudTreeNode.CoderouterAccount) -> Void = { _ in }
     /// Re-reads the selected team's CodeRouter accounts now.
     var refreshCoderouter: @MainActor () -> Void = {}
+    /// The Cloud Machines header's refresh: the fleet only. Nil runs `refresh`.
+    var refreshCloudMachines: (@MainActor () -> Void)?
+    /// The My Devices header's refresh: the account's other devices only.
+    /// Nil runs `refresh`.
+    var refreshDevices: (@MainActor () -> Void)?
     /// Explains why a display cannot open in the currently selected workspace.
     var showDisplayOpenHint: @MainActor (_ resource: SurfaceResourceID) -> Bool = { _ in false }
-    /// Opens the New Machine flow through the same action as Cmd-Y.
+    /// Opens the New Machine flow through the same action as Cmd-Shift-Y.
     var newMachine: @MainActor () -> Void = {}
     /// Creates a workspace on the remembered or selected Cloud machine.
     var newWorkspaceOnResolvedMachine: @MainActor () -> Void = {}
+    /// Records a workspace-row click before its local projection is ready.
+    var recordCloudWorkspaceSelection: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     /// Pops up a row's context menu from its trailing "⋯" button. Bound per
     /// cell, so the button and a right-click show the same menu.
     var showRowMenu: @MainActor (_ nodeID: String) -> Void = { _ in }
     /// Opens a header row's guide (the Coderouter "?"), anchored like `showRowMenu`.
     var showRowGuide: @MainActor (_ nodeID: String) -> Void = { _ in }
+    /// Opens the Coderouter guide as a pane in the selected local workspace.
+    var openCoderouterGuidePane: @MainActor () -> Void = {}
     /// Opens a machine's detail tab, or closes it when open. Bound per cell.
     var selectMachineDetailTab: @MainActor (_ machine: SurfaceMachineID, _ tab: CloudTreeMachineDetailTab) -> Void = { _, _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
+    /// Moves an exact Cloud browser tab into another workspace on the same machine.
+    var moveCloudBrowser: @MainActor (_ resource: SurfaceResourceID, _ view: SurfaceRemoteView, _ remoteWorkspaceID: String) -> Void = { _, _, _ in }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
 
@@ -128,7 +142,8 @@ struct CloudTreeNodeActions {
         onHint: (@MainActor (String) -> Void)? = nil,
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil,
-        workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil }
+        workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil },
+        recordCloudWorkspaceSelection: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }
     ) -> CloudTreeNodeActions {
         @MainActor @discardableResult
         func run(
@@ -476,6 +491,14 @@ struct CloudTreeNodeActions {
                     try await provider.closeTerminal(resource)
                 }
             },
+            closeRemoteTab: { resource, view in
+                run(String(format: String(localized: "cloudTree.operation.closeTab", defaultValue: "Closing %@…"), machineName(resource.machine))) { catalog in
+                    guard let provider = catalog.provider(for: resource.machine) as? any SurfacePlacementSyncing else {
+                        throw SurfaceCatalogError.unsupported("closing a remote tab")
+                    }
+                    try await provider.closeRemoteTab(id: view.tabID, inRemoteWorkspace: view.workspace.id)
+                }
+            },
             closeWorkspace: { machine, workspace in
                 // Closing a workspace takes its terminals with it — nothing "detaches"
                 // into the pool. Killing processes is the destructive part, so an
@@ -565,6 +588,7 @@ struct CloudTreeNodeActions {
         )
         let onHint = onHint ?? onFailure
         actions.showHint = onHint
+        actions.recordCloudWorkspaceSelection = recordCloudWorkspaceSelection
         actions.showDisplayOpenHint = { resource in
             guard let workspaceID = selectedWorkspaceID(),
                   let workspace = Workspace.liveWorkspace(id: workspaceID) else {
@@ -631,10 +655,28 @@ struct CloudTreeNodeActions {
                     }
                 )
             }, failureDescription: { error in
-                CloudDiagnosticFailure.classify(error).label
+                CloudVMActionLauncher.displayableFailureMessage(for: error)
             })
         }
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
+        actions.moveCloudBrowser = { resource, view, remoteWorkspaceID in
+            // `run` owns progress, cancellation and failure presentation for every Cloud action.
+            run(openingLabel(resource.machine)) { catalog in
+                guard let provider = catalog.provider(for: resource.machine) else {
+                    throw SurfaceCatalogError.noProvider(resource.machine)
+                }
+                var failure: Error?
+                await catalog.cloudPlacementCoordinator.moveRemoteTab(
+                    resource: resource,
+                    tabID: view.tabID,
+                    intoRemoteWorkspace: remoteWorkspaceID,
+                    catalog: catalog,
+                    provider: provider,
+                    onFailure: { failure = $0 }
+                ).value
+                if let failure { throw failure }
+            }
+        }
         actions.refreshMachine = refreshMachine
         actions.discoverPorts = refreshMachine
         actions.discoverDisplays = { machine, completion in catalog().beginDisplayDiscovery(on: machine, completion: completion) }

@@ -313,8 +313,8 @@ final class MainWindowVisibilityController {
         consumeDismissedWindowRestoreTargets: Bool = true
     ) -> NSWindow? {
         let allWindows = uniqueWindows(allWindows)
-        let visibleOrMiniaturizedTargets = allWindows.filter { window in
-            dependencies.windowOperations.isVisible(window) || dependencies.windowOperations.isMiniaturized(window)
+        let visibleTargets = allWindows.filter { window in
+            dependencies.windowOperations.isVisible(window) && !dependencies.windowOperations.isMiniaturized(window)
         }
         let revealTargets: [NSWindow]
 
@@ -332,16 +332,18 @@ final class MainWindowVisibilityController {
             } else if !dismissedTargets.isEmpty {
                 revealTargets = dismissedTargets
             } else {
-                revealTargets = allWindows.filter { dependencies.windowOperations.isMiniaturized($0) }
+                revealTargets = miniaturizedTargetsOfLastResort(in: allWindows)
             }
-        } else if !visibleOrMiniaturizedTargets.isEmpty {
-            revealTargets = visibleOrMiniaturizedTargets
+        } else if !visibleTargets.isEmpty {
+            revealTargets = visibleTargets
         } else {
             let dismissedTargets = dismissedWindowRestoreTargets.filter { dismissedWindow in
                 allWindows.contains { $0 === dismissedWindow }
             }
             dismissedWindowRestoreTargets.removeAll()
-            revealTargets = dismissedTargets
+            revealTargets = dismissedTargets.isEmpty
+                ? miniaturizedTargetsOfLastResort(in: allWindows)
+                : dismissedTargets
         }
 
         trace("show.begin", reason: reason, windows: revealTargets)
@@ -359,6 +361,17 @@ final class MainWindowVisibilityController {
             }
         }
         return focusWindow
+    }
+
+    /// Minimizing a window is an explicit "put this away" that only the user
+    /// undoes, so revealing the application leaves minimized windows in the Dock
+    /// whenever anything else can be shown.
+    ///
+    /// They become reveal targets only as a last resort. Without that fallback
+    /// the hotkey would do nothing at all while every window is minimized, since
+    /// `reveal` returns early on an empty target list and never activates.
+    private func miniaturizedTargetsOfLastResort(in windows: [NSWindow]) -> [NSWindow] {
+        windows.filter { dependencies.windowOperations.isMiniaturized($0) }
     }
 
     @discardableResult

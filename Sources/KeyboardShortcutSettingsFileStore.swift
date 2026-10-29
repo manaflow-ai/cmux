@@ -493,6 +493,7 @@ final class CmuxSettingsFileStore {
             parseFileExplorerSection(fileExplorerSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let section = root["agentMessages"] as? [String: Any] { parseAgentMessagesSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
+        if let section = root["chief"] as? [String: Any] { parseChiefSection(section, sourcePath: sourcePath, snapshot: &snapshot) }
         if let workspaceGroupsSection = root["workspaceGroups"] as? [String: Any] {
             parseWorkspaceGroupsSection(workspaceGroupsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -796,6 +797,14 @@ final class CmuxSettingsFileStore {
                 snapshot.managedUserDefaults[SettingCatalog().workspaceColors.brightenInDarkMode.userDefaultsKey] = .bool(value)
             } else {
                 logInvalid("workspaceColors.brightenInDarkMode", sourcePath: sourcePath)
+            }
+        }
+        if section.keys.contains("unselectedFillOpacity") {
+            if let value = jsonDouble(section["unselectedFillOpacity"]), value.isFinite {
+                snapshot.managedUserDefaults[SettingCatalog().workspaceColors.unselectedFillOpacity.userDefaultsKey] =
+                    .double(min(max(value, 0), 1))
+            } else {
+                logInvalid("workspaceColors.unselectedFillOpacity", sourcePath: sourcePath)
             }
         }
         if section.keys.contains("notificationBadgeColor") {

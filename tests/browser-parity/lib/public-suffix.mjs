@@ -16,6 +16,14 @@ const SUFFIXES = new Set([
 const isPublicSuffix = (name) => SUFFIXES.has(name) || (/^[^.]+\.ck$/.test(name) && name !== "www.ck");
 const isIP = (host) => host.startsWith("[") || /^(\d+|0x[0-9a-f]+)$/i.test(host.split(".").pop() || "");
 
+// Whether `name` is itself a public suffix (BrowserReplPublicSuffixList.isPublicSuffix).
+export function isPublicSuffixName(name) {
+  let host = String(name || "").trim().replace(/^\.+/, "").replace(/\.+$/, "").toLowerCase();
+  if (!host || host.includes(":") || isIP(host)) return false;
+  host = domainToASCII(host) || host;
+  return isPublicSuffix(host);
+}
+
 export function siteOf(hostname) {
   let host = String(hostname || "").trim().replace(/^\.+/, "").replace(/\.+$/, "").toLowerCase();
   if (host.includes(":") && !host.startsWith("[")) host = `[${host}]`;

@@ -67,6 +67,40 @@ jobs:
       probes: ${{ steps.analyze.outputs.probes }}
       fix: ${{ steps.analyze.outputs.fix }}
     steps:
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
+      # The analysis only reads: on the manaflow-glaeda-route App's own budget, with
+      # GH_TOKEN for what it may not read or is refused (guard_attribution.GitHub).
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
       - name: Checkout main with history
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -74,10 +108,25 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/analyze/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
       - name: Analyze
         id: analyze
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}
           HEAD_INPUT: ${{ inputs.head }}
         run: |
           set -euo pipefail
@@ -88,6 +137,17 @@ jobs:
           fi
           python3 scripts/ci/main_compile_attribution.py "${args[@]}"
           cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/analyze/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
       - name: Upload the report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -101,7 +161,7 @@ jobs:
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
     if: ${{ needs.analyze.outputs.state == 'red' || needs.analyze.outputs.state == 'green' }}
-    runs-on: ubuntu-24.04 # github-hosted-required: attribution must follow a failed compile within a minute
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: attribution must follow a failed compile within a minute; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 10
     permissions:
       actions: write # dispatches main-compile-probe.yml
@@ -109,6 +169,21 @@ jobs:
       issues: write
       pull-requests: write
     steps:
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -125,7 +200,7 @@ jobs:
       - name: Comment on the culprits
         if: ${{ needs.analyze.outputs.state == 'red' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           # A demo against an old commit (inputs.head) never pings anyone.
           DRY_RUN: ${{ (inputs.dry_run || inputs.head) && '--dry-run' || '' }}
         run: python3 scripts/ci/main_compile_attribution.py report --report "$RUNNER_TEMP/compile-report/compile-report.json" $DRY_RUN
@@ -136,7 +211,7 @@ jobs:
       - name: Probe the commits the seeds skipped
         if: ${{ needs.analyze.outputs.probes != '' && !inputs.dry_run && !inputs.head }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           PROBES: ${{ needs.analyze.outputs.probes }}
           # The PR pool's root label (compile admission's), then the Blacksmith
           # pool whose seeds match its width.
@@ -162,7 +237,7 @@ jobs:
     name: Fix forward or revert
     needs: [analyze, report]
     if: ${{ needs.analyze.outputs.state == 'red' && needs.analyze.outputs.fix == 'true' && !inputs.dry_run && !inputs.head }}
-    runs-on: ubuntu-24.04 # github-hosted-required: holds the Claude token and the fix PR App key
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token and the fix PR App key; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     timeout-minutes: 30
     concurrency:
       group: ci-compile-attribution-fix
@@ -172,6 +247,21 @@ jobs:
       issues: write
       pull-requests: write
     steps:
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Checkout main's head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -190,7 +280,7 @@ jobs:
       - name: Check that main's head is the analyzed commit and nothing is open for it
         id: head
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           REPORT: ${{ runner.temp }}/compile-report/compile-report.json
         run: |
           set -euo pipefail
@@ -342,7 +432,7 @@ jobs:
       - name: Link the pull request from the culprit comment
         if: ${{ steps.pr.outputs.fix != '' || steps.pr.outputs.revert != '' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           FIX_PR: ${{ steps.pr.outputs.fix }}
           REVERT_PR: ${{ steps.pr.outputs.revert }}
         run: |

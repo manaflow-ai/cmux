@@ -1238,9 +1238,16 @@ final class WindowTerminalPortal: NSObject {
         _ = synchronizeHostFrameToReference()
         let settled = externalGeometrySignature()
         lastHierarchySyncSignature = settled
-        // Layout that leaves the measured hierarchy unchanged is already at
-        // rest. A pass that moved it must wait for another stable observation.
-        return settled == signature
+        // Pending layout is an entry gate: it must prevent a provisional
+        // frame from being treated as settled before AppKit runs the layout
+        // pass. It is not itself measured geometry, though, and portal-owned
+        // frame writes can leave an ancestor marked for layout. Comparing it
+        // here would turn that bookkeeping flag into a self-echo retry even
+        // after the frames have returned to the last settled values.
+        // Compare the measured geometry before and after this pass so genuine
+        // Cloud materialization changes still get a follow-up pass.
+        return settled.pendingLayoutViews.isEmpty &&
+            settled.withoutPendingLayoutViews == signature.withoutPendingLayoutViews
     }
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
@@ -1376,11 +1383,25 @@ final class WindowTerminalPortal: NSObject {
         let containerFrame: NSRect?
         let referenceFrame: NSRect?
         let entries: [ObjectIdentifier: HostedGeometrySignature]
+        let pendingLayoutViews: Set<ObjectIdentifier>
+
+        var withoutPendingLayoutViews: ExternalGeometrySignature {
+            ExternalGeometrySignature(
+                windowSize: windowSize,
+                backingScale: backingScale,
+                hostFrame: hostFrame,
+                containerFrame: containerFrame,
+                referenceFrame: referenceFrame,
+                entries: entries,
+                pendingLayoutViews: []
+            )
+        }
     }
 
     /// Raw-rect snapshot of everything a sync pass reads or writes.
     private func externalGeometrySignature() -> ExternalGeometrySignature {
         var entries: [ObjectIdentifier: HostedGeometrySignature] = [:]
+        var pendingLayoutViews: Set<ObjectIdentifier> = []
         entries.reserveCapacity(entriesByHostedId.count)
         for (id, entry) in entriesByHostedId {
             let expected = entry.anchorView.flatMap { anchor in
@@ -1390,6 +1411,21 @@ final class WindowTerminalPortal: NSObject {
                 hostedFrame: entry.hostedView?.frame,
                 expectedFrame: expected
             )
+            // A reveal/materialization can invalidate a pane's layout before
+            // any frame changes. The old small frame is not settled geometry
+            // until that pending container layout has run. Include only the
+            // visible anchor hierarchy, not the portal's own layout work, so
+            // self-generated notifications still terminate in the cache.
+            if entry.visibleInUI {
+                var current = entry.anchorView
+                while let view = current {
+                    if view.needsLayout || view.needsUpdateConstraints {
+                        pendingLayoutViews.insert(ObjectIdentifier(view))
+                    }
+                    if view === installedContainerView { break }
+                    current = view.superview
+                }
+            }
         }
         return ExternalGeometrySignature(
             windowSize: window?.frame.size,
@@ -1397,7 +1433,8 @@ final class WindowTerminalPortal: NSObject {
             hostFrame: hostView.frame,
             containerFrame: installedContainerView?.frame,
             referenceFrame: installedReferenceView?.frame,
-            entries: entries
+            entries: entries,
+            pendingLayoutViews: pendingLayoutViews
         )
     }
 

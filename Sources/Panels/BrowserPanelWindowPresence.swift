@@ -53,11 +53,13 @@ struct BrowserPanelWindowPresenceProbe: NSViewRepresentable {
     }
 }
 
+// SwiftUI/AppKit owns this probe on the main thread, but its lifecycle and
+// hit-test callbacks can arrive without Swift's MainActor executor token.
 final class BrowserPanelWindowPresenceView: NSView {
     var onEnterWindow: (() -> Void)?
     var onLeaveWindow: (() -> Void)?
 
-    override func viewDidMoveToWindow() {
+    nonisolated override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil else {
             onLeaveWindow?()
@@ -71,7 +73,7 @@ final class BrowserPanelWindowPresenceView: NSView {
         }
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 }

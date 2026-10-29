@@ -1,6 +1,7 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
 import CmuxBrowser
+import CmuxCloud
 import Foundation
 import Testing
 import WebKit
@@ -15,6 +16,20 @@ import WebKit
 @Suite(.serialized)
 struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
+
+    /// Polls a main-actor predicate until it holds or the deadline passes, so a
+    /// missing exchange fails the test instead of hanging the run.
+    private func eventually(
+        timeout: Duration = .seconds(5),
+        _ predicate: () -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !predicate() {
+            guard ContinuousClock.now < deadline else { return false }
+            await Task.yield()
+        }
+        return true
+    }
 
     @Test
     func authCallbackNavigationPolicyIsPureAndFailClosed() {
@@ -312,6 +327,206 @@ struct BrowserWebContentProcessTests {
 
         #expect(cleanupAttemptCount == 3)
         #expect(registry.hasOwnership)
+    }
+
+    @Test
+    func directAppPricingNavigationLoadsInTheNativeSessionStore() async {
+        let sessionStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let profileStore = panel.websiteDataStore
+        var requestedURLs: [URL] = []
+        panel.appSessionRequestProvider = { url in
+            requestedURLs.append(url)
+            return .navigation(BrowserAppSessionNavigation(
+                request: URLRequest(url: url),
+                websiteDataStore: sessionStore,
+                generation: 1,
+                authSessionGeneration: 1
+            ))
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+
+        panel.navigate(to: pricingURL)
+        await panel.appSessionBootstrapTask?.value
+
+        #expect(requestedURLs == [pricingURL])
+        #expect(panel.websiteDataStore === sessionStore)
+        #expect(panel.webView.configuration.websiteDataStore === sessionStore)
+        #expect(panel.websiteDataStore !== profileStore)
+        #expect(panel.currentURL == pricingURL)
+    }
+
+    @Test
+    func failedAppPricingSessionExchangeStillLoadsThePage() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let profileStore = panel.websiteDataStore
+        var requestCount = 0
+        panel.appSessionRequestProvider = { _ in
+            requestCount += 1
+            return .notAuthenticated
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+        var startedNavigations: [WKNavigation?] = []
+
+        panel.navigate(to: pricingURL) { startedNavigations.append($0) }
+        #expect(startedNavigations.isEmpty)
+        await panel.appSessionBootstrapTask?.value
+
+        #expect(requestCount == 1)
+        #expect(panel.websiteDataStore === profileStore)
+        #expect(startedNavigations.count == 1)
+        #expect(startedNavigations.first.flatMap { $0 } != nil)
+    }
+
+    @Test
+    func newerNavigationCancelsAPendingAppSessionExchange() async {
+        let sessionStore = WKWebsiteDataStore.nonPersistent()
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let profileStore = panel.websiteDataStore
+        var releaseExchange: CheckedContinuation<Void, Never>?
+        panel.appSessionRequestProvider = { url in
+            await withCheckedContinuation { releaseExchange = $0 }
+            return .navigation(BrowserAppSessionNavigation(
+                request: URLRequest(url: url),
+                websiteDataStore: sessionStore,
+                generation: 1,
+                authSessionGeneration: 1
+            ))
+        }
+        var startedNavigations: [WKNavigation?] = []
+        panel.navigate(
+            to: AuthEnvironment.appSessionHandoffOrigin.appendingPathComponent("app-pricing")
+        ) { startedNavigations.append($0) }
+        let exchange = panel.appSessionBootstrapTask
+        guard await eventually({ releaseExchange != nil }) else {
+            Issue.record("The app-session exchange never started")
+            return
+        }
+
+        // Heal, restore and automation see the exchange as a pending navigation.
+        #expect(panel.hasPendingRemoteNavigation)
+
+        panel.navigate(to: recoveryURL)
+        releaseExchange?.resume()
+        await exchange?.value
+
+        #expect(startedNavigations.count == 1)
+        #expect(startedNavigations.first.flatMap { $0 } == nil)
+        #expect(!panel.hasPendingRemoteNavigation)
+        #expect(panel.websiteDataStore === profileStore)
+        #expect(panel.webView.configuration.websiteDataStore === profileStore)
+    }
+
+    @Test
+    func workspaceReattachRestartsAPendingAppSessionExchange() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        var pendingExchanges: [CheckedContinuation<Void, Never>] = []
+        panel.appSessionRequestProvider = { _ in
+            await withCheckedContinuation { pendingExchanges.append($0) }
+            return .notAuthenticated
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+        panel.navigate(to: pricingURL)
+        let firstExchange = panel.appSessionBootstrapTask
+        guard await eventually({ pendingExchanges.count == 1 }) else {
+            Issue.record("The app-session exchange never started")
+            return
+        }
+
+        panel.reattachToWorkspace(
+            UUID(),
+            isRemoteWorkspace: false,
+            proxyEndpoint: nil,
+            remoteStatus: nil
+        )
+        let secondExchange = panel.appSessionBootstrapTask
+        guard await eventually({ pendingExchanges.count >= 2 }) else {
+            pendingExchanges.forEach { $0.resume() }
+            Issue.record("Reattach did not restart the app-session exchange")
+            return
+        }
+        pendingExchanges.forEach { $0.resume() }
+        await firstExchange?.value
+        await secondExchange?.value
+
+        #expect(pendingExchanges.count == 2)
+
+        #expect(firstExchange?.isCancelled == true)
+        #expect(secondExchange != nil)
+        #expect(secondExchange?.isCancelled == false)
+        #expect(panel.currentURL == pricingURL)
+    }
+
+    @Test
+    func profileSwitchRestartsAPendingAppSessionExchange() async throws {
+        let profile = try #require(
+            BrowserProfileStore.shared.createProfile(
+                named: "App Session Switch \(UUID().uuidString)"
+            )
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID
+        )
+        defer { panel.close() }
+        var pendingExchanges: [CheckedContinuation<Void, Never>] = []
+        panel.appSessionRequestProvider = { _ in
+            await withCheckedContinuation { pendingExchanges.append($0) }
+            return .notAuthenticated
+        }
+        let pricingURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+        panel.navigate(to: pricingURL)
+        let firstExchange = panel.appSessionBootstrapTask
+        guard await eventually({ pendingExchanges.count == 1 }) else {
+            Issue.record("The app-session exchange never started")
+            return
+        }
+
+        // Re-selecting the current profile is rejected and keeps the exchange.
+        #expect(!panel.switchToProfile(panel.profileID))
+        #expect(panel.appSessionBootstrapTask != nil)
+        #expect(firstExchange?.isCancelled == false)
+
+        #expect(panel.switchToProfile(profile.id))
+        let secondExchange = panel.appSessionBootstrapTask
+        guard await eventually({ pendingExchanges.count >= 2 }) else {
+            pendingExchanges.forEach { $0.resume() }
+            Issue.record("The profile switch dropped the pending app page")
+            return
+        }
+        pendingExchanges.forEach { $0.resume() }
+        await firstExchange?.value
+        await secondExchange?.value
+
+        // The switch requests the page once, not once per restore path.
+        #expect(pendingExchanges.count == 2)
+        #expect(firstExchange?.isCancelled == true)
+        #expect(secondExchange?.isCancelled == false)
+        #expect(panel.currentURL == pricingURL)
+    }
+
+    @Test
+    func ordinaryNavigationSkipsTheNativeSessionExchange() async {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        var requestCount = 0
+        panel.appSessionRequestProvider = { _ in
+            requestCount += 1
+            return .notAuthenticated
+        }
+
+        panel.navigate(to: AuthEnvironment.appSessionHandoffOrigin.appendingPathComponent("pricing"))
+
+        #expect(panel.appSessionBootstrapTask == nil)
+        #expect(requestCount == 0)
     }
 
     @Test
@@ -1030,6 +1245,47 @@ struct BrowserWebContentProcessTests {
         #expect((result?["rawIDLength"] as? NSNumber)?.intValue == 3)
         #expect((result?["signatureLength"] as? NSNumber)?.intValue == 2)
         #expect(probe.receivedKinds == ["getCredential"])
+    }
+
+    @Test
+    func webAuthnCapabilityQueriesDoNotCrash() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let webView = panel.webView
+        let loadDelegate = BrowserWebContentProcessLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        defer { webView.navigationDelegate = nil }
+
+        try await loadDelegate.load(
+            """
+            <!doctype html>
+            <html><body>passkey capability probe</body></html>
+            """,
+            in: webView,
+            baseURL: URL(string: "https://example.com/")!
+        )
+
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const platform =
+              await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+            const conditionalMethodAvailable =
+              typeof PublicKeyCredential.isConditionalMediationAvailable === "function";
+            const conditional = conditionalMethodAvailable
+              ? await PublicKeyCredential.isConditionalMediationAvailable()
+              : null;
+            return {
+              platformType: typeof platform,
+              conditionalType: conditionalMethodAvailable ? typeof conditional : "unsupported"
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? [String: String]
+
+        #expect(result?["platformType"] == "boolean")
+        #expect(result?["conditionalType"] == "boolean" || result?["conditionalType"] == "unsupported")
     }
 
     @Test(arguments: [nil, Data()] as [Data?])

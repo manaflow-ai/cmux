@@ -20,8 +20,14 @@ import {
   makeVmPublicationProvider,
   type VmPublicationFreestyleClient,
 } from "../services/vm-publications/provider";
+import { ingressRule, publicationRuleStore } from "./fixtures/publicationRuleStore";
 
 const CREATED_AT = "2026-09-02T12:00:00.000Z";
+
+/** Claimed publications on one VM with no stored rule id: cleanup comes only from the hostname match. */
+function claimedOn(providerVmId: string, ...hostnames: string[]) {
+  return hostnames.map((hostname) => ({ hostname, providerVmId, providerTlsRuleId: null, hostnameClaimed: true }));
+}
 const UPDATED_AT = "2026-09-02T12:01:00.000Z";
 
 function forwardAuthData(
@@ -334,7 +340,7 @@ describe("VM publication Freestyle provider", () => {
     expect(updates).toEqual([{ id: "tls-rule-1", options: desired }]);
   });
 
-  test("reconciliation recovers the oldest effective rule and removes retry duplicates", async () => {
+  test("reconciliation recovers this VM's oldest rule, removes its retry duplicates, and ignores another VM's", async () => {
     const desired: CreateTlsRuleOptions = {
       action: "allow",
       domain: "app.example.com",
@@ -345,8 +351,13 @@ describe("VM publication Freestyle provider", () => {
     };
     const oldest = tlsRuleData(
       "tls-rule-oldest",
-      { ...desired, destination: { vmId: "vm-wrong", port: 9_000 } },
+      { ...desired, destination: { vmId: "vm-1", port: 9_000 } },
       { createdAt: "2026-09-02T11:00:00.000Z" },
+    );
+    const foreign = tlsRuleData(
+      "tls-rule-foreign",
+      { ...desired, destination: { vmId: "vm-other", port: 3_000 } },
+      { createdAt: "2026-09-02T10:00:00.000Z" },
     );
     const retryDuplicate = tlsRuleData(
       "tls-rule-retry",
@@ -357,7 +368,7 @@ describe("VM publication Freestyle provider", () => {
     const deleted: string[] = [];
     const client = fakeClient({
       // Freestyle lists newest first, while equal ingress matches oldest first.
-      tlsList: async () => ({ rules: [retryDuplicate, oldest], totalCount: 2 }),
+      tlsList: async () => ({ rules: [retryDuplicate, oldest, foreign], totalCount: 3 }),
       tlsUpdate: async (id, options) => {
         updated.push(id);
         return tlsRuleData(id, options, { createdAt: oldest.createdAt });
@@ -450,7 +461,7 @@ describe("VM publication Freestyle provider", () => {
     const provider = makeVmPublicationProvider(() => client);
 
     await expect(
-      Effect.runPromise(provider.deleteTlsRulesForHostname("App.Example.com.")),
+      Effect.runPromise(provider.deletePublicationTlsRules(claimedOn("vm-1", "App.Example.com."))),
     ).resolves.toBe(2);
     expect(deleted).toEqual(["tls-rule-persisted", "tls-rule-crash-duplicate"]);
   });
@@ -487,7 +498,7 @@ describe("VM publication Freestyle provider", () => {
 
     await expect(
       Effect.runPromise(
-        provider.deleteTlsRulesForHostnames(["app.example.com", "Sibling.Example.com."]),
+        provider.deletePublicationTlsRules(claimedOn("vm-1", "app.example.com", "Sibling.Example.com.")),
       ),
     ).resolves.toBe(2);
     expect(deleted).toEqual(["tls-rule-target", "tls-rule-sibling"]);
@@ -501,7 +512,7 @@ describe("VM publication Freestyle provider", () => {
     }));
     expect(reconciled.rule.tlsRuleId).toBe("tls-rule-target");
     expect(pages).toHaveLength(2);
-    expect(await Effect.runPromise(provider.deleteTlsRulesForHostnames([]))).toBe(0);
+    expect(await Effect.runPromise(provider.deletePublicationTlsRules([]))).toBe(0);
   });
 
   test("repeats an unstable rule scan and fails closed when it never settles", async () => {
@@ -537,7 +548,7 @@ describe("VM publication Freestyle provider", () => {
     const provider = makeVmPublicationProvider(() => client);
 
     await expect(
-      Effect.runPromise(provider.deleteTlsRulesForHostnames(["app.example.com"])),
+      Effect.runPromise(provider.deletePublicationTlsRules(claimedOn("vm-1", "app.example.com"))),
     ).resolves.toBe(1);
     expect(deleted).toEqual(["tls-rule-target"]);
     expect(calls).toBe(4);
@@ -549,7 +560,7 @@ describe("VM publication Freestyle provider", () => {
       },
     }));
     const error = await Effect.runPromise(
-      Effect.flip(neverSettles.deleteTlsRulesForHostnames(["app.example.com"])),
+      Effect.flip(neverSettles.deletePublicationTlsRules(claimedOn("vm-1", "app.example.com"))),
     );
     expect(error).toBeInstanceOf(VmPublicationProviderError);
     expect(String((error.cause as Error).message)).toContain("kept changing");
@@ -833,5 +844,19 @@ describe("VM publication Freestyle provider", () => {
       certificate: null,
     });
     expect(listCalls).toBe(5);
+  });
+
+  test("reconcile never adopts, rewrites, or deletes another VM's rule for the same hostname", async () => {
+    const store = publicationRuleStore([
+      ingressRule("tls-foreign-oldest", "app.example.com", "vm-foreign", "2026-09-01T00:00:00.000Z"),
+      ingressRule("tls-own-newer", "app.example.com", "vm-1", "2026-09-02T00:00:00.000Z"),
+    ]);
+    const reconciled = await Effect.runPromise(store.provider.reconcileTlsRule(null, {
+      hostname: "app.example.com", providerVmId: "vm-1", port: 3_000,
+    }));
+    expect(reconciled.rule.tlsRuleId).toBe("tls-own-newer");
+    expect(store.deleted).toEqual([]);
+    expect(store.updated).not.toContain("tls-foreign-oldest");
+    expect(store.rules.map((rule) => rule.id)).toEqual(["tls-foreign-oldest", "tls-own-newer"]);
   });
 });

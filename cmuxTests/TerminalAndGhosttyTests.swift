@@ -1551,6 +1551,18 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertTrue(methods.contains("mobile.browser.stream.start"))
         XCTAssertTrue(methods.contains("mobile.simulator.stream.start"))
         XCTAssertTrue(methods.contains("mobile.chat.sessions"))
+        XCTAssertTrue(Set(methods).isSuperset(of: [
+            "chief.open",
+            "chief.send",
+            "chief.status",
+            "chief.conversations",
+            "chief.read",
+            "chief.mark_read",
+            "chief.stop",
+            "chief.approve",
+            "chief.answer",
+            "chief.debug",
+        ]))
     }
 #endif
 
@@ -2984,6 +2996,12 @@ final class GhosttyResponderResolutionTests: XCTestCase {
                 super.delegate = newValue
             }
         }
+
+        /// macOS 27's NSTextView initializer reads its own `delegate`. Only
+        /// reads after construction belong to the code under test.
+        func resetDelegateReadCount() {
+            delegateReadCount = 0
+        }
     }
 
     func testResolvesGhosttyViewFromDescendantResponder() {
@@ -3044,6 +3062,7 @@ final class GhosttyResponderResolutionTests: XCTestCase {
 
     func testDoesNotReadTextViewDelegateForGhosttyResponderResolution() {
         let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        textView.resetDelegateReadCount()
 
         XCTAssertNil(textView.cmuxStrictOwningGhosttyView())
         XCTAssertEqual(
@@ -3120,6 +3139,11 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
     }
 
+    func testForkDetected() {
+        let env = environment(existingPaths: ["/Applications/Fork.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.fork.isAvailable(in: env))
+    }
+
     func testAvailableTargetsFallbackToApplicationLookupForVSCodeAliasOutsideApplications() {
         let vscodePath = "/Volumes/Tools/Code.app"
         let env = environment(
@@ -3147,6 +3171,18 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         )
 
         XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
+    }
+
+    func testForkDetectedViaApplicationLookupOutsideApplications() {
+        let forkPath = "/Volumes/Tools/Fork.app"
+        let env = environment(
+            existingPaths: [forkPath],
+            applicationPathsByName: [
+                "Fork": forkPath,
+            ]
+        )
+
+        XCTAssertTrue(TerminalDirectoryOpenTarget.fork.isAvailable(in: env))
     }
 
     func testCommandPaletteShortcutsExcludeGenericIDEEntry() {
@@ -5618,6 +5654,55 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 
     func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
+        assertEscapeDismissesFindOverlayWithoutLeakingKeyUp()
+    }
+
+    /// The app's Escape route runs before the find field's own handler. It
+    /// used to close the find of the main window's selected terminal whenever
+    /// any terminal find field had focus, so a find left open there by an
+    /// earlier test swallowed this window's Escape (the test above flaked).
+    func testEscapeInFindFieldClosesItsOwnFindWhileMainWindowFindIsOpen() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected the app delegate")
+            return
+        }
+        var manager: TabManager?
+        var originalSelectedTabId: UUID?
+        var workspace: Workspace?
+        var mainWindowPanel: TerminalPanel?
+        defer {
+            mainWindowPanel?.searchState = nil
+            if let manager, let workspace, manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            if let manager, let originalSelectedTabId,
+               manager.tabs.contains(where: { $0.id == originalSelectedTabId }) {
+                manager.selectedTabId = originalSelectedTabId
+            }
+        }
+
+        assertEscapeDismissesFindOverlayWithoutLeakingKeyUp(beforeEscape: {
+            // The tab manager the app's Escape route resolves for a window
+            // that is not a main window.
+            manager = appDelegate.synchronizeActiveMainWindowContext() ?? appDelegate.tabManager
+            originalSelectedTabId = manager?.selectedTabId
+            workspace = manager?.addWorkspace(select: true)
+            mainWindowPanel = manager?.selectedTerminalPanel
+            mainWindowPanel?.searchState = TerminalSurface.SearchState(needle: "")
+        })
+
+        XCTAssertNotNil(mainWindowPanel, "Expected the main window's new terminal to be selected")
+        XCTAssertNotNil(
+            mainWindowPanel?.searchState,
+            "Escape in another window's find field must leave the main window's find open"
+        )
+    }
+
+    private func assertEscapeDismissesFindOverlayWithoutLeakingKeyUp(
+        beforeEscape: () -> Void = {},
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         _ = NSApplication.shared
 
         let surface = makeTrackedTerminalSurface()
@@ -5694,15 +5779,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return
         }
 
+        beforeEscape()
         NSApp.sendEvent(escapeKeyDown)
         NSApp.sendEvent(escapeKeyUp)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        XCTAssertNil(surface.searchState, "Escape should dismiss find overlay when search text is empty")
+        XCTAssertNil(surface.searchState, "Escape should dismiss find overlay when search text is empty", file: file, line: line)
         XCTAssertEqual(
             escapeKeyUpCount,
             0,
-            "Escape used to dismiss find overlay must not pass through to the terminal key-up path"
+            "Escape used to dismiss find overlay must not pass through to the terminal key-up path",
+            file: file,
+            line: line
         )
     }
 
@@ -6749,7 +6837,14 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
         let panel = TerminalPanel(workspaceId: store.workspaceId)
         store.panels[panel.id] = panel
-        defer { store.closeAllPanels() }
+        defer {
+            // This fixture owns a panel outside the lifecycle suite's tracked
+            // surface list. Release its native runtime before the normal close
+            // path can enqueue an asynchronous teardown, so the suite leak
+            // check observes a deterministic zero-surface baseline.
+            panel.surface.releaseHostedSurfaceForTesting()
+            store.closeAllPanels()
+        }
         let anchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
         contentView.addSubview(anchor)
         TerminalWindowPortalRegistry.bind(

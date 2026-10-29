@@ -433,5 +433,5 @@ private actor UnreachableLinks: RemoteTuiLinkManaging {
     func status(machineID: String) async -> CloudMachineLinkManager.LinkStatus? { nil }
     func privateAddresses(for machineID: String) async -> [String] { [] }
     func setPrivateAddresses(_ addresses: [String], for machineID: String) async {}
-    func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint { throw URLError(.cannotConnectToHost) }
+    func browserProxy(machineID: String, remoteNetwork: Bool) async throws -> CloudBrowserProxyEndpoint { throw URLError(.cannotConnectToHost) }
 }

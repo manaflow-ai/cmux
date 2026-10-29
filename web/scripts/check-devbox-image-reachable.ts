@@ -29,6 +29,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { cmuxTuiWebsocketSmokeCommand, devboxWaitForDaemonCommand, readImageManifest } from "./devbox-image-common";
 import { resolveCmuxTuiSource } from "../services/vms/drivers/cmuxTuiDaemon";
+import { cleanupOnSignal, throwawayVmOptions } from "./cloud-vm/ci-leftovers";
 
 const argValue = (name: string): string | undefined => {
   const index = process.argv.indexOf(name);
@@ -82,8 +83,24 @@ async function main(): Promise<void> {
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
 
   console.log(`reaching ${kind}/${size} ${target} with client ${live.commit.slice(0, 10)} (${live.sha256.slice(0, 12)}…)`);
-  const { vm, vmId } = await fs.vms.create({ snapshotId: target, displayName: "cmux devbox reachability", firewall: FIREWALL });
+  // A throwaway machine: paused when idle, deleted at a deadline, and tagged
+  // with the CI run so the workflow's always() step deletes it after a cancel
+  // (cloud-vm/ci-leftovers.ts). --keep is for a person debugging by hand.
+  const { vm, vmId } = await fs.vms.create({
+    snapshotId: target,
+    displayName: "cmux devbox reachability",
+    firewall: FIREWALL,
+    ...(hasFlag("--keep") ? {} : throwawayVmOptions()),
+  });
   console.log(`${elapsed()} booted ${vmId}`);
+  let deleted = false;
+  const deleteVm = async () => {
+    if (deleted || hasFlag("--keep")) return;
+    deleted = true;
+    await vm.delete().catch(() => {});
+    console.log(`${elapsed()} deleted ${vmId}`);
+  };
+  const stopSignalCleanup = cleanupOnSignal(deleteVm);
   let failure: string | null = null;
   try {
     const sh = async (command: string, timeoutMs = 300_000) => {
@@ -129,11 +146,11 @@ async function main(): Promise<void> {
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
   } finally {
+    stopSignalCleanup();
     if (hasFlag("--keep")) {
       console.log(`${elapsed()} keeping ${vmId} (--keep)`);
     } else {
-      await vm.delete().catch(() => {});
-      console.log(`${elapsed()} deleted ${vmId}`);
+      await deleteVm();
     }
   }
 

@@ -1,4 +1,4 @@
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readLines } from "../adapters/lines";
 
@@ -14,7 +14,10 @@ const keepAlive = setInterval(() => {}, 1_000);
 await readLines(Bun.stdin.stream(), (line) => {
   const request = JSON.parse(line);
   if (request.id === undefined) return;
-  if (request.method === "initialize" && mode === "hang") return;
+  if (request.method === "initialize" && mode === "hang") {
+    writeFileSync(join(directory, "initialize-ready"), "");
+    return;
+  }
   let result: unknown = {};
   if (request.method === "initialize" && mode === "reject") {
     console.log(JSON.stringify({ jsonrpc: "2.0", id: request.id,

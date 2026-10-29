@@ -45,7 +45,7 @@ jobs:
     # repaired. Re-enable with CI_UI_TESTS_ENABLED=1; await-request also keeps
     # non-UI diffs out of the downstream test runner.
     if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_UI_TESTS_ENABLED == '1' }}
-    runs-on: ubuntu-24.04 # github-hosted-required: holds actions write and mostly waits; keeps CI's Linux pool free
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds actions write and mostly waits; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     # A request can follow a long compile admission; the dispatch then waits up
     # to 50 minutes for the compile it adopts, then runs the tests.
     timeout-minutes: 360
@@ -67,6 +67,7 @@ jobs:
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-actions: read
           permission-pull-requests: read
+          skip-token-revoke: true
 
       - name: Checkout the request reader from the default branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

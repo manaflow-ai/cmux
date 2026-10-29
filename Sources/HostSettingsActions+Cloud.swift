@@ -88,8 +88,14 @@ extension HostSettingsActions {
         guard !Task.isCancelled,
               flow.currentIdentity?.id == accountID,
               flow.confirmedTeamID == requestedTeamID else { return nil }
-        // Same answer the Cloud tab uses, so both show Upgrade for Free plans.
-        return flow.hasLoadedBillingPlan ? flow.isProActive : nil
+        // A member can use the selected team's Cloud scope without a personal
+        // Pro subscription. Personal VM access remains server-scoped to the
+        // user's own plan.
+        return flow.hasLoadedBillingPlan
+            ? flow.isProActive || CloudWelcomeNextStep.hasSharedTeamAccess(
+                availableTeamCount: flow.availableTeams.count
+            )
+            : nil
     }
 
     func openCloudMachinesPanel() {

@@ -9,11 +9,26 @@ import fs from "node:fs";
 import path from "node:path";
 
 const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
-const SOCKET_PATH = process.env.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
 const REPLY_TIMEOUT_MS = 120_000;
 const MAX_PLAN_BYTES = 128 * 1024;
 
-const createCMUXFeed = async (ctx) => {
+// OpenCode publishes these through session.error without ending the turn: a
+// user interrupt (Esc) then goes idle, and a context overflow compacts and
+// continues. The idle stop that follows is the turn's outcome.
+const NON_TERMINAL_SESSION_ERRORS = new Set(["MessageAbortedError", "ContextOverflowError"]);
+
+const isNonTerminalSessionError = (event) => {
+  if (event?.type !== "session.error") return false;
+  const props = event.properties || event.data || {};
+  return NON_TERMINAL_SESSION_ERRORS.has(props.error?.name);
+};
+
+const createCMUXFeed = async (ctx, options = {}) => {
+  const environment = { ...process.env, ...options.environment };
+  const socketPath = environment.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
+  const ownsSession = options.ownsSession || (() => true);
+  const locationForSession = options.locationForSession || (() => ctx?.location);
+  let disposed = false;
   let client = null;
   let buffered = "";
   let telemetrySequence = 0;
@@ -41,6 +56,7 @@ const createCMUXFeed = async (ctx) => {
   // properties. Keep the feed bridge tolerant of those wire-shape changes so
   // completion notifications do not depend on one particular OpenCode build.
   const sessionIdFromProperties = (props = {}) => firstString(
+    props.info && props.info.sessionID,
     props.info && props.info.id,
     props.sessionID,
     props.sessionId,
@@ -48,10 +64,81 @@ const createCMUXFeed = async (ctx) => {
     props.session && props.session.id
   );
 
+  const sessionIdFromEvent = (event) => {
+    const props = eventProperties(event);
+    const info = props.info || props.message || {};
+    const part = props.part || {};
+    const permission = props.permission || {};
+    const sessionEventID = event?.type?.startsWith("session.") ? info.id : null;
+    return firstString(
+      props.sessionID,
+      props.sessionId,
+      props.session_id,
+      props.form && props.form.sessionID,
+      props.form && props.form.sessionId,
+      props.form && props.form.session_id,
+      info.sessionID,
+      info.sessionId,
+      part.sessionID,
+      part.sessionId,
+      permission.sessionID,
+      permission.sessionId,
+      sessionEventID,
+      event?.sessionID,
+      event?.sessionId,
+    );
+  };
+
   const sessionStatusIsIdle = (status) => {
     if (typeof status === "string") return status.toLowerCase() === "idle";
     if (!isObject(status)) return false;
     return firstString(status.type, status.status, status.state)?.toLowerCase() === "idle";
+  };
+
+  const sessionStatusType = (status) => {
+    if (typeof status === "string") return status.trim().toLowerCase();
+    if (!isObject(status)) return null;
+    return firstString(status.type, status.status, status.state)?.toLowerCase() || null;
+  };
+
+  // Mirrors AgentHookNotificationPolicy.redactSensitiveErrorDetail: Feed
+  // receives this text directly, so credentials are redacted here. Paths and
+  // model names stay readable because they are the useful part of the error.
+  const redactErrorDetail = (value) => {
+    if (!value) return value;
+    const redacted = [
+      [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "<email>"],
+      [/\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b/gi, "<token>"],
+      [/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, "Bearer <token>"],
+      [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/gi, "<token>"],
+      [/\b(?:x[-_])?(?:api[-_]?key|password|secret|token|authorization|cookie)\s*[:=]\s*(?:Bearer\s+)?(?:'[^']*'|"[^"]*"|[^\s'";&|,]+)/gi, "<credential>:<token>"],
+      [/\b(?:sk|rk|sess)-[A-Za-z0-9._:-]{8,}\b/gi, "<token>"],
+    ].reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value);
+    return redacted.replace(/<[a-z]+>|[\s\p{P}]/gu, "") ? redacted : null;
+  };
+
+  const failureMessage = (event) => redactErrorDetail(rawFailureMessage(event));
+
+  const rawFailureMessage = (event) => {
+    const props = eventProperties(event);
+    const raw = props.error || props.failure || props.reason;
+    if (typeof raw === "string") return normalizeText(raw, 500);
+    if (isObject(raw)) {
+      const nestedData = isObject(raw.data) ? raw.data : {};
+      const nested = firstString(
+        raw.message,
+        raw.error,
+        raw.reason,
+        raw.description,
+        nestedData.message,
+        nestedData.error,
+        nestedData.reason,
+        nestedData.description,
+        raw.name
+      );
+      if (nested) return normalizeText(nested, 500);
+    }
+    return normalizeText(firstString(props.message, props.description), 500);
   };
 
   const normalizeText = (value, max = 1000) => {
@@ -68,10 +155,24 @@ const createCMUXFeed = async (ctx) => {
         lastUserMessage: null,
         assistantPreamble: null,
         cwd: null,
+        lastStopKind: null,
       });
     }
     return sessions.get(key);
   };
+
+  // A turn publishes exactly one terminal stop. Only a run signal (session
+  // creation, busy status, a promoted prompt or an execution start) opens the
+  // next turn. Message updates and queued prompts do not: a queued prompt's
+  // message arrives while the previous turn is still running, and a repeated
+  // update after a stop must not reopen a finished turn.
+  const beginTurn = (sessionId) => {
+    sessionState(sessionId).lastStopKind = null;
+  };
+
+  // OpenCode keeps an execution interrupted by shutdown and resumes it.
+  const isResumableInterruption = (event) =>
+    event?.type === "session.execution.interrupted" && eventProperties(event).reason === "shutdown";
 
   const contextForSession = (sessionId) => {
     const state = sessionState(sessionId);
@@ -118,7 +219,21 @@ const createCMUXFeed = async (ctx) => {
     remember: reply === "always",
   });
 
-  const replyPermission = async ({ sessionId, requestId, reply, message }) => {
+  const ownsSessionForEvent = async (sessionId, ownerSessionId = null) => {
+    if (ownerSessionId && sessionId === ownerSessionId) return true;
+    return await ownsSession(sessionId);
+  };
+
+  const replyPermission = async ({ sessionId, requestId, reply, message, ownerSessionId = null }) => {
+    if (disposed || !(await ownsSessionForEvent(sessionId, ownerSessionId))) return;
+    if (options.tui) {
+      await ctx.client.permission.reply({
+        requestID: requestId,
+        reply,
+        ...(message ? { message } : {}),
+      });
+      return;
+    }
     // OpenCode v2 exposes permission operations on the plugin context and
     // scopes the request by session. Keep the HTTP fallback for SDK builds
     // that do not expose the domain helper yet.
@@ -155,7 +270,30 @@ const createCMUXFeed = async (ctx) => {
     }
   };
 
-  const replyForm = async (sessionId, formId, answer, legacyAnswers = null) => {
+  const replyForm = async (sessionId, formId, answer, legacyAnswers = null, ownerSessionId = null) => {
+    if (disposed || !(await ownsSessionForEvent(sessionId, ownerSessionId))) return;
+    if (options.tui) {
+      if (legacyAnswers) {
+        if (
+          await tryRawClientRequest("post", {
+            url: "/question/{requestID}/reply",
+            path: { requestID: formId },
+            body: { answers: legacyAnswers },
+          })
+        ) return;
+        const reply = ctx?.client?.question?.reply;
+        if (typeof reply === "function") {
+          await reply.call(ctx.client.question, { requestID: formId, answers: legacyAnswers });
+          return;
+        }
+      }
+      await ctx.data.session.form.reply({
+        sessionID: sessionId,
+        formID: formId,
+        answer,
+      }, locationForSession(sessionId));
+      return;
+    }
     try {
       if (await callClientMethod(ctx?.form, "reply", { sessionID: sessionId, formID: formId, answer })) return;
     } catch (_) {}
@@ -189,13 +327,22 @@ const createCMUXFeed = async (ctx) => {
     await callClientMethod(ctx?.client?.question, "reject", { requestID: requestId });
   };
 
-  const updateSessionPermission = async (sessionId, permission) => {
+  const updateSessionPermission = async (sessionId, permission, ownerSessionId = null) => {
+    if (disposed || !(await ownsSessionForEvent(sessionId, ownerSessionId))) return false;
     if (!sessionId || !permission.length) return true;
     const permissions = permission.map((rule) => ({
       action: rule.permission,
       resource: rule.pattern,
       effect: rule.action === "allow" ? "allow" : rule.action === "deny" ? "deny" : "ask",
     }));
+    if (options.tui) {
+      try {
+        await ctx.client.session.update({ sessionID: sessionId, permissions });
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
     try {
       if (await callClientMethod(ctx?.permission, "rules", { sessionID: sessionId, permissions })) return true;
     } catch (_) {}
@@ -217,9 +364,17 @@ const createCMUXFeed = async (ctx) => {
     return await callClientMethod(ctx?.client?.session, "update", { path: { id: sessionId }, body: { permission } });
   };
 
-  const sendPlanFeedback = async (sessionId, text) => {
+  const sendPlanFeedback = async (sessionId, text, ownerSessionId = null) => {
     const message = normalizeText(text, 2000);
-    if (!sessionId || !message) return;
+    if (!sessionId || !message || disposed || !(await ownsSessionForEvent(sessionId, ownerSessionId))) return;
+    if (options.tui) {
+      try {
+        const result = await ctx.client.session.prompt({ sessionID: sessionId, text: message, resume: false });
+        if (!result?.error) return;
+      } catch (_) {}
+      await ctx.client.session.synthetic({ sessionID: sessionId, text: message, resume: false });
+      return;
+    }
     try {
       if (await callClientMethod(ctx?.session, "prompt", { sessionID: sessionId, text: message })) return;
     } catch (_) {}
@@ -386,6 +541,15 @@ const createCMUXFeed = async (ctx) => {
   });
 
   const answerForForm = (form, selections) => {
+    const optionValue = (field, value) => {
+      const selected = String(value ?? "");
+      const option = (Array.isArray(field.options) ? field.options : []).find((candidate) => (
+        String(candidate.value ?? "") === selected ||
+        String(candidate.id ?? "") === selected ||
+        String(candidate.label ?? candidate.title ?? candidate.name ?? "") === selected
+      ));
+      return option?.value ?? option?.id ?? option?.label ?? option?.title ?? option?.name ?? selected;
+    };
     const answer = {};
     const values = Array.isArray(selections) ? selections : [];
     form.fields.forEach((field, index) => {
@@ -393,46 +557,60 @@ const createCMUXFeed = async (ctx) => {
       const multiSelect = field.multiple === true || field.multiSelect === true || field.type === "array" || field.type === "multiselect";
       const fieldValue = multiSelect && form.fields.length === 1 ? values : (values[index] ?? values[0]);
       if (multiSelect) {
-        answer[key] = Array.isArray(fieldValue) ? fieldValue.map(String) : fieldValue == null ? [] : [String(fieldValue)];
+        const rawValues = Array.isArray(fieldValue)
+          ? fieldValue
+          : fieldValue == null || fieldValue === ""
+            ? []
+            : String(fieldValue).split(/,\s*/);
+        answer[key] = rawValues.map((value) => optionValue(field, value));
       } else if (field.type === "number" || field.type === "integer") {
         answer[key] = fieldValue == null || fieldValue === "" ? 0 : Number(fieldValue);
       } else if (field.type === "boolean") {
         answer[key] = fieldValue === true || fieldValue === "true" || fieldValue === "Yes";
       } else {
-        answer[key] = fieldValue == null ? "" : String(fieldValue);
+        answer[key] = fieldValue == null ? "" : optionValue(field, fieldValue);
       }
     });
     return answer;
   };
 
-  const replyInteractive = async (sid, requestId, answer, legacyAnswers) => {
-    await replyForm(sid, requestId, answer, legacyAnswers);
+  const replyInteractive = async (sid, requestId, answer, legacyAnswers, ownerSessionId = null) => {
+    await replyForm(sid, requestId, answer, legacyAnswers, ownerSessionId);
   };
 
-  const handleExitPlanDecision = async (sid, requestId, decision, form = null) => {
+  const handleExitPlanDecision = async (sid, requestId, decision, form = null, ownerSessionId = null) => {
     const mode = decision?.mode || "manual";
     const planDecisionAnswer = (value) => form ? answerForForm(form, [value]) : { answer: value };
+    const replyPlanAnswer = async (value) => {
+      if (form) {
+        await replyInteractive(sid, requestId, planDecisionAnswer(value), null, ownerSessionId);
+      } else {
+        await replyInteractive(sid, requestId, planDecisionAnswer(value), [[value]], ownerSessionId);
+      }
+    };
     const feedback = normalizeText(decision?.feedback, 1800);
 
     if (feedback) {
-      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
+      await replyPlanAnswer("No");
       await sendPlanFeedback(
         sid,
-        `User rejected the plan via cmux Feed and wants this change: ${feedback}\n\nUpdate the plan file, then call plan_exit again.`
+        `User rejected the plan via cmux Feed and wants this change: ${feedback}\n\nUpdate the plan file, then call plan_exit again.`,
+        ownerSessionId
       );
       return;
     }
 
     if (mode === "deny") {
-      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
+      await replyPlanAnswer("No");
       return;
     }
 
     if (mode === "ultraplan") {
-      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
+      await replyPlanAnswer("No");
       await sendPlanFeedback(
         sid,
-        "User chose Ultraplan via cmux Feed. Refine the plan more deeply, update the plan file, then call plan_exit again."
+        "User chose Ultraplan via cmux Feed. Refine the plan more deeply, update the plan file, then call plan_exit again.",
+        ownerSessionId
       );
       return;
     }
@@ -440,25 +618,25 @@ const createCMUXFeed = async (ctx) => {
     const rules = permissionRulesForExitPlanMode(mode);
     let permissionsApplied = true;
     try {
-      permissionsApplied = await updateSessionPermission(sid, rules);
+      permissionsApplied = await updateSessionPermission(sid, rules, ownerSessionId);
     } catch (_) {
       permissionsApplied = false;
     }
     if (!permissionsApplied) {
-      await replyInteractive(sid, requestId, planDecisionAnswer("No"), [["No"]]);
+      await replyPlanAnswer("No");
       await sendPlanFeedback(
         sid,
-        "cmux could not apply the selected permission mode. Ask the user to approve the plan again before switching to build mode."
+        "cmux could not apply the selected permission mode. Ask the user to approve the plan again before switching to build mode.",
+        ownerSessionId
       );
       return;
     }
-    await replyInteractive(sid, requestId, planDecisionAnswer("Yes"), [["Yes"]]);
+    await replyPlanAnswer("Yes");
   };
 
   const resolvePending = (requestId, value) => {
     if (!requestId || !pending.has(requestId)) return;
     const resolver = pending.get(requestId);
-    pending.delete(requestId);
     resolver(value);
   };
 
@@ -471,7 +649,7 @@ const createCMUXFeed = async (ctx) => {
 
   const connect = () => {
     try {
-      const conn = net.createConnection(SOCKET_PATH);
+      const conn = net.createConnection(socketPath);
       conn.setEncoding("utf8");
       conn.on("data", (chunk) => {
         buffered += chunk;
@@ -527,12 +705,12 @@ const createCMUXFeed = async (ctx) => {
     const state = sessionState(sessionId);
     const context = extra?.context || contextForSession(sessionId);
     const workspaceId =
-      typeof process.env.CMUX_WORKSPACE_ID === "string" && process.env.CMUX_WORKSPACE_ID.trim()
-        ? process.env.CMUX_WORKSPACE_ID.trim()
+      typeof environment.CMUX_WORKSPACE_ID === "string" && environment.CMUX_WORKSPACE_ID.trim()
+        ? environment.CMUX_WORKSPACE_ID.trim()
         : null;
     const surfaceId =
-      typeof process.env.CMUX_SURFACE_ID === "string" && process.env.CMUX_SURFACE_ID.trim()
-        ? process.env.CMUX_SURFACE_ID.trim()
+      typeof environment.CMUX_SURFACE_ID === "string" && environment.CMUX_SURFACE_ID.trim()
+        ? environment.CMUX_SURFACE_ID.trim()
         : null;
     const event = {
       session_id: `opencode-${sessionId}`,
@@ -549,6 +727,25 @@ const createCMUXFeed = async (ctx) => {
 
   const trackMessage = (event) => {
     const props = eventProperties(event);
+    if (event.type === "session.inbox.enqueued") {
+      const sid = firstString(props.sessionID);
+      const item = props.item || {};
+      const text = normalizeText(item.type === "user" ? item.payload?.text : null);
+      if (!sid || !text) return null;
+      const state = sessionState(sid);
+      state.lastUserMessage = text;
+      return base(sid, {
+        hook_event_name: "UserPromptSubmit",
+        tool_input: { prompt: text },
+        context: { lastUserMessage: text },
+      });
+    }
+    if (event.type === "session.text.ended") {
+      const sid = firstString(props.sessionID);
+      const text = normalizeText(props.text);
+      if (sid && text) sessionState(sid).assistantPreamble = text;
+      return null;
+    }
     if (event.type === "message.updated") {
       const info = props.info || props.message || {};
       const messageId = info.id || props.messageID;
@@ -585,15 +782,32 @@ const createCMUXFeed = async (ctx) => {
     return null;
   };
 
+  const shouldEmitStop = (sessionId, kind) => {
+    // The first terminal event settles the turn. A published stop cannot be
+    // reclassified, so a later failure or idle for the same turn is dropped.
+    const state = sessionState(sessionId);
+    if (state.lastStopKind) return false;
+    state.lastStopKind = kind;
+    return true;
+  };
+
   const pushBlocking = (event, requestId) => {
     const reply = new Promise((resolve) => {
-      pending.set(requestId, resolve);
-      setTimeout(() => {
+      let timeout;
+      const finish = (value) => {
+        if (!pending.has(requestId)) return;
+        pending.delete(requestId);
+        if (timeout) clearTimeout(timeout);
+        resolve(value);
+      };
+      pending.set(requestId, finish);
+      timeout = setTimeout(() => {
         if (pending.has(requestId)) {
           pending.delete(requestId);
           resolve({ status: "timed_out" });
         }
       }, REPLY_TIMEOUT_MS);
+      timeout.unref?.();
     });
     const wrote = write({
       id: `opencode-${requestId}`,
@@ -618,7 +832,11 @@ const createCMUXFeed = async (ctx) => {
     });
   };
 
-  const handleEvent = async (event) => {
+  const handleEvent = async (event, ownedSessionId = null) => {
+      if (options.tui) {
+        const sid = sessionIdFromEvent(event);
+        if (!sid || (sid !== ownedSessionId && !(await ownsSession(sid)))) return;
+      }
       const tracked = trackMessage(event);
       if (tracked) {
         pushTelemetry(tracked);
@@ -629,8 +847,9 @@ const createCMUXFeed = async (ctx) => {
           const props = eventProperties(event);
           const info = props.info || {};
           const sid = sessionIdFromProperties(props) || "unknown";
+          beginTurn(sid);
           const state = sessionState(sid);
-          state.cwd = info.directory || ctx?.directory || state.cwd;
+          state.cwd = info.directory || props.location?.directory || event.location?.directory || ctx?.location?.directory || ctx?.directory || state.cwd;
           pushTelemetry(base(sid, {
             hook_event_name: "SessionStart",
             cwd: state.cwd,
@@ -639,20 +858,63 @@ const createCMUXFeed = async (ctx) => {
         }
         case "session.status": {
           const props = eventProperties(event);
-          if (!sessionStatusIsIdle(props.status)) break;
           const sid = sessionIdFromProperties(props);
-          if (!sid) break;
+          if (sid && sessionStatusType(props.status) === "busy") {
+            beginTurn(sid);
+            break;
+          }
+          if (!sessionStatusIsIdle(props.status)) break;
+          if (!sid || !shouldEmitStop(sid, "success")) break;
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
           }));
           break;
         }
+        case "session.execution.succeeded":
+        case "session.execution.interrupted": {
+          const sid = sessionIdFromEvent(event);
+          if (isResumableInterruption(event)) break;
+          if (sid && shouldEmitStop(sid, "success")) pushTelemetry(base(sid, { hook_event_name: "Stop" }));
+          break;
+        }
+        case "session.execution.failed":
+        case "session.next.step.failed":
+        case "session.error": {
+          if (isNonTerminalSessionError(event)) break;
+          const sid = sessionIdFromEvent(event);
+          if (sid && shouldEmitStop(sid, "failure")) {
+            const error = failureMessage(event);
+            pushTelemetry(base(sid, {
+              hook_event_name: "Stop",
+              is_error: true,
+              ...(error ? { error } : {}),
+            }));
+          }
+          break;
+        }
+        case "session.updated": {
+          const sid = sessionIdFromEvent(event);
+          if (!sid) break;
+          if (eventProperties(event).info?.time?.archived) {
+            pushTelemetry(base(sid, { hook_event_name: "SessionEnd" }));
+            sessions.delete(sid);
+          }
+          break;
+        }
         case "session.idle": {
           const sid = sessionIdFromProperties(eventProperties(event));
-          if (!sid) break;
+          if (!sid || !shouldEmitStop(sid, "success")) break;
           pushTelemetry(base(sid, {
             hook_event_name: "Stop",
           }));
+          break;
+        }
+        // Admission queues a prompt behind the running turn; promotion and
+        // execution start are when it actually runs.
+        case "session.next.prompted":
+        case "session.execution.started": {
+          const sid = sessionIdFromEvent(event);
+          if (sid) beginTurn(sid);
           break;
         }
         case "session.deleted": {
@@ -675,26 +937,35 @@ const createCMUXFeed = async (ctx) => {
         }
         case "permission.asked": {
           const props = eventProperties(event);
-          const request = props.permission && isObject(props.permission) ? props.permission : props;
-          const requestId = firstString(request.id, request.requestID, request.requestId, props.id);
+          const nestedPermission = isObject(props.permission) ? props.permission : {};
+          // V2 normally puts request fields in `data`; older event envelopes
+          // may put them under `data.permission`. Merge both so nested
+          // metadata and reply details survive without allowing nested values
+          // to override explicit top-level V2 fields.
+          const request = { ...nestedPermission, ...props };
+          const requestId = firstString(request.id, request.requestID, request.requestId, nestedPermission.id, nestedPermission.requestID);
           if (!requestId) break;
-          const sid = firstString(request.sessionID, request.sessionId, props.sessionID, props.sessionId) || "unknown";
-          const permission = firstString(request.action, request.permission, request.tool?.name, props.permission, props.tool?.name) || "permission";
-          const resources = Array.isArray(request.resources) ? request.resources : [];
+          const sid = firstString(request.sessionID, request.sessionId, nestedPermission.sessionID, nestedPermission.sessionId) || "unknown";
+          const permission = firstString(request.action, request.permission, nestedPermission.action, nestedPermission.permission, request.tool?.name, nestedPermission.tool?.name) || "permission";
+          const resources = Array.isArray(request.resources)
+            ? request.resources
+            : (Array.isArray(nestedPermission.resources) ? nestedPermission.resources : []);
           const metadata = isObject(request.metadata) ? request.metadata : {};
           const frame = base(sid, {
             hook_event_name: "PermissionRequest",
             _opencode_request_id: requestId,
             tool_name: permission,
             tool_input: {
+              action: request.action,
+              resources,
               permission,
-              patterns: resources.length > 0 ? resources : (Array.isArray(props.patterns) ? props.patterns : []),
-              always: Array.isArray(request.always) ? request.always : (Array.isArray(props.always) ? props.always : []),
+              patterns: resources.length > 0 ? resources : (Array.isArray(request.patterns) ? request.patterns : []),
+              always: Array.isArray(request.always) ? request.always : [],
               save: request.save,
               source: request.source,
               message: request.message,
               metadata,
-              tool: request.tool || props.tool,
+              tool: request.tool,
             },
             context: {
               ...(contextForSession(sid) || {}),
@@ -705,7 +976,7 @@ const createCMUXFeed = async (ctx) => {
           if (result?.status === "resolved" && result.decision?.kind === "permission") {
             const mode = result.decision.mode;
             try {
-              await updateSessionPermission(sid, permissionSessionRulesForMode(permission, mode));
+              await updateSessionPermission(sid, permissionSessionRulesForMode(permission, mode), ownedSessionId);
             } catch (_) {}
             try {
               await replyPermission({
@@ -713,6 +984,7 @@ const createCMUXFeed = async (ctx) => {
                 requestId,
                 reply: permissionReplyForMode(mode),
                 message: mode === "deny" ? "User denied permission via cmux Feed." : undefined,
+                ownerSessionId: ownedSessionId,
               });
             } catch (e) { /* ignore - opencode already moved on */ }
           }
@@ -746,9 +1018,9 @@ const createCMUXFeed = async (ctx) => {
           if (result?.status !== "resolved") break;
           try {
             if (planExit && result.decision?.kind === "exit_plan") {
-              await handleExitPlanDecision(form.sessionId, requestId, result.decision, form);
+              await handleExitPlanDecision(form.sessionId, requestId, result.decision, form, ownedSessionId);
             } else if (!planExit && result.decision?.kind === "question") {
-              await replyForm(form.sessionId, requestId, answerForForm(form, result.decision.selections));
+              await replyForm(form.sessionId, requestId, answerForForm(form, result.decision.selections), null, ownedSessionId);
             }
           } catch (_) {}
           break;
@@ -788,7 +1060,7 @@ const createCMUXFeed = async (ctx) => {
             const result = await pushBlocking(frame, requestId);
             if (result?.status === "resolved" && result.decision?.kind === "exit_plan") {
               try {
-                await handleExitPlanDecision(sid, requestId, result.decision);
+                await handleExitPlanDecision(sid, requestId, result.decision, null, ownedSessionId);
               } catch (_) {}
             }
             break;
@@ -803,7 +1075,7 @@ const createCMUXFeed = async (ctx) => {
           const result = await pushBlocking(frame, requestId);
           if (result?.status === "resolved" && result.decision?.kind === "question") {
             try {
-              await replyForm(sid, requestId, {}, questionAnswers(result.decision.selections));
+              await replyForm(sid, requestId, {}, questionAnswers(result.decision.selections), ownedSessionId);
             } catch (_) {
               try { await rejectQuestion(requestId); } catch (_) {}
             }
@@ -816,25 +1088,40 @@ const createCMUXFeed = async (ctx) => {
       }
   };
 
-  return { event: async ({ event }) => handleEvent(event?.event || event) };
+  return {
+    event: async ({ event, ownedSessionId }) => {
+      if (!disposed) await handleEvent(event?.event || event, ownedSessionId || null);
+    },
+    dispose() {
+      disposed = true;
+      client?.destroy();
+      client = null;
+      for (const requestId of pending.keys()) resolvePending(requestId, { status: "timed_out" });
+      messageRoles.clear();
+      sessions.clear();
+    },
+  };
 };
 
 export const CMUXFeed = createCMUXFeed;
 
+const CMUX_FEED_SERVER_SCOPES_KEY = Symbol.for("cmux.feed.server.scopes");
+
+const isTUIProcessServerContext = (ctx) =>
+  Boolean(ctx && typeof ctx === "object" && ctx.client && ctx.serverUrl && ctx.directory);
+
 export default {
   id: "cmux.feed",
-  async setup(ctx) {
-    const controller = new AbortController();
-    const hooks = await createCMUXFeed(ctx);
-    void (async () => {
-      try {
-        for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
-          await hooks.event({ event });
-        }
-      } catch (_) {
-        // Abort is the normal plugin shutdown path.
-      }
-    })();
-    return () => controller.abort();
+  async server(ctx) {
+    if (!isTUIProcessServerContext(ctx)) return {};
+    // cmux-feed.js and plugins/cmux/index.js both load this source, and every
+    // loader in one plugin scope receives the same ctx. OpenCode keeps one
+    // scope per directory, and disposes a scope's hooks when it tears it down.
+    const scopes = globalThis[CMUX_FEED_SERVER_SCOPES_KEY] ||= new WeakSet();
+    if (scopes.has(ctx)) return {};
+    scopes.add(ctx);
+    return createCMUXFeed(ctx);
   },
+  // Compatibility alias for older V2 snapshots that called setup().
+  setup() { return () => {}; },
 };

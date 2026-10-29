@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CmuxBrowser
 import Bonsplit
 import CmuxCommandPalette
@@ -309,9 +310,10 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     guard firstResponderIsBrowser else { return false }
     guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
-    // Keep browser Return forwarding narrow: only plain/Shift Return is submit;
-    // Command-modified Return is reserved for app shortcuts like Toggle Pane Zoom.
-    return browserOmnibarShouldSubmitOnReturn(flags: flags)
+    // Unclaimed Cmd+Return also belongs to the page. Keep Cmd+Shift+Return
+    // (pane zoom) and other modified shortcuts on the app's normal route.
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    return normalizedFlags.isEmpty || normalizedFlags == [.shift] || normalizedFlags == [.command]
 }
 
 func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
@@ -351,14 +353,16 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
-/// Returns true when a terminal arrow key-equivalent should be sent through keyDown.
-func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+/// Returns true when a terminal navigation key-equivalent should be sent through keyDown.
+func shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsTerminal: Bool,
     firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
-    guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
+    let isArrow = (123...126).contains(keyCode)
+    let isHomeOrEnd = keyCode == UInt16(kVK_Home) || keyCode == UInt16(kVK_End)
+    guard firstResponderIsTerminal, !firstResponderHasMarkedText, isArrow || isHomeOrEnd else { return false }
     return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 
@@ -387,6 +391,23 @@ func shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(
     return context.suppressesWebViewFocus || context.liveOmnibarFieldExists
 }
 
+/// Whether a command palette text field, rather than an app shortcut, owns a
+/// Left or Right arrow press: caret, word (Option) and line-boundary
+/// (Command) movement, each with its selection-extending Shift form.
+func commandPaletteTextFieldOwnsHorizontalArrow(
+    keyCode: UInt16,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard keyCode == 123 || keyCode == 124 else { return false }
+
+    switch browserOmnibarNormalizedModifierFlags(flags) {
+    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
+        return true
+    default:
+        return false
+    }
+}
+
 func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsCommandPaletteFieldEditor: Bool,
@@ -395,15 +416,7 @@ func shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
 ) -> Bool {
     guard firstResponderIsCommandPaletteFieldEditor else { return false }
     guard !firstResponderHasMarkedText else { return false }
-    guard keyCode == 123 || keyCode == 124 else { return false }
-
-    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-    switch normalizedFlags {
-    case [], [.shift], [.option], [.option, .shift], [.command], [.command, .shift]:
-        return true
-    default:
-        return false
-    }
+    return commandPaletteTextFieldOwnsHorizontalArrow(keyCode: keyCode, flags: flags)
 }
 
 /// Whether an arrow keyDown belongs to a focused standalone editable text
@@ -548,6 +561,10 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
 
     guard normalizedFlags.contains(.command) else { return false }
 
+    if commandPaletteTextFieldOwnsHorizontalArrow(keyCode: keyCode, flags: normalizedFlags) {
+        return false
+    }
+
     let normalizedChars = chars.lowercased()
 
     if normalizedFlags == [.command] {
@@ -561,7 +578,7 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
         }
 
         switch keyCode {
-        case 49, 51, 117, 123, 124:
+        case 49, 51, 117:
             return false
         default:
             break

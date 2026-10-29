@@ -5,12 +5,19 @@ import Testing
 struct ShortcutActionNumberedDigitTests {
     @Test func onlyNumberedSelectionActionsUseDigitMatching() {
         for action in ShortcutAction.allCases {
-            let expected = action == .selectSurfaceByNumber || action == .selectWorkspaceByNumber
+            let expected = [.selectSurfaceByNumber, .selectWorkspaceByNumber, .focusPaneByNumber].contains(action)
             #expect(
                 action.usesNumberedDigitMatching == expected,
                 "\(action) usesNumberedDigitMatching should be \(expected)"
             )
         }
+    }
+
+    /// Classic keys added without a call (#19324, #19263) are unbound by
+    /// default; people bind them in Settings > Shortcuts.
+    @Test func focusSidebarAndFocusPaneByNumberAreUnboundByDefault() {
+        #expect(ShortcutAction.focusSidebar.defaultShortcut == nil)
+        #expect(ShortcutAction.focusPaneByNumber.defaultShortcut == nil)
     }
 
     @Test func diffViewerScrollToTopDefaultIsChord() {

@@ -30,11 +30,22 @@ public struct MobileBrowserDialogQueue: Equatable, Sendable {
         return dialogs.remove(at: index)
     }
 
-    /// Claims every unresolved dialog during panel teardown.
+    /// Claims matching dialogs in one pass before any completion can run.
+    /// - Parameter predicate: Selects dialogs to claim; defaults to all dialogs.
     /// - Returns: Dialogs claimed in presentation order.
-    public mutating func claimAll() -> [MobileBrowserDialogEvent] {
-        let claimed = dialogs
-        dialogs.removeAll()
+    public mutating func claimAll(
+        where predicate: (MobileBrowserDialogEvent) -> Bool = { _ in true }
+    ) -> [MobileBrowserDialogEvent] {
+        var claimed: [MobileBrowserDialogEvent] = []
+        var remaining: [MobileBrowserDialogEvent] = []
+        for dialog in dialogs {
+            if predicate(dialog) {
+                claimed.append(dialog)
+            } else {
+                remaining.append(dialog)
+            }
+        }
+        dialogs = remaining
         return claimed
     }
 }

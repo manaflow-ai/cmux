@@ -78,17 +78,12 @@ function stackApiV1BaseURL(): string {
 function stackClientHeaders(projectId: string, publishableKey: string, accessToken: string): Record<string, string> {
   return {
     "content-type": "application/json",
-    // Current Hexclave names plus the Stack aliases, as in app/lib/stack.ts.
+    // Hexclave names only, as in app/lib/stack.ts.
     "x-hexclave-access-type": "client",
     "x-hexclave-project-id": projectId,
     "x-hexclave-publishable-client-key": publishableKey,
     "x-hexclave-access-token": accessToken,
     "x-hexclave-override-error-status": "true",
-    "x-stack-access-type": "client",
-    "x-stack-project-id": projectId,
-    "x-stack-publishable-client-key": publishableKey,
-    "x-stack-access-token": accessToken,
-    "x-stack-override-error-status": "true",
   };
 }
 

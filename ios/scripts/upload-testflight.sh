@@ -95,7 +95,7 @@ verify_ipa_aps_environment_production() {
 
 verify_ipa_cloud_vpn_extension() {
   local ipa="$1"
-  local workdir app extension ent profile
+  local workdir app extension ent profile host_ent
   local bundle_id expected_bundle_id expected_app_id app_id team_id network_extension
   local profile_app_id profile_network_extension
   workdir="$(mktemp -d)"
@@ -133,6 +133,26 @@ verify_ipa_cloud_vpn_extension() {
   network_extension="$($PLISTBUDDY -c 'Print :com.apple.developer.networking.networkextension:0' "$ent" 2>/dev/null || true)"
   expected_bundle_id="$CLOUD_VPN_BUNDLE_IDENTIFIER"
   expected_app_id="$DEVELOPMENT_TEAM.$expected_bundle_id"
+  host_ent="$workdir/host-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$app" > "$host_ent" 2>/dev/null ||
+    ! python3 - "$host_ent" "$ent" "$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" <<'PY'
+import plistlib
+import sys
+
+host_path, extension_path, host_group = sys.argv[1:]
+for label, path in (("host", host_path), ("CloudVPN", extension_path)):
+    with open(path, "rb") as handle:
+        entitlements = plistlib.load(handle)
+    if "packet-tunnel-provider" not in entitlements.get("com.apple.developer.networking.networkextension", []):
+        raise SystemExit(f"signed {label} is missing packet-tunnel-provider")
+    if entitlements.get("keychain-access-groups") != [host_group]:
+        raise SystemExit(f"signed {label} must claim exactly the host keychain group {host_group}")
+PY
+  then
+    echo "error: signed host and CloudVPN do not share the required VPN permissions; refusing to upload" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
   if [[ "$bundle_id" != "$expected_bundle_id" || "$app_id" != "$expected_app_id" || "$team_id" != "$DEVELOPMENT_TEAM" ]] ||
     ! python3 - "$ent" <<'PY'
 import plistlib
@@ -159,7 +179,7 @@ PY
   profile_app_id="$($PLISTBUDDY -c 'Print :Entitlements:application-identifier' "$profile" 2>/dev/null || true)"
   profile_network_extension="$($PLISTBUDDY -c 'Print :Entitlements:com.apple.developer.networking.networkextension:0' "$profile" 2>/dev/null || true)"
   if [[ "$profile_app_id" != "$expected_app_id" ]] ||
-    ! python3 - "$profile" <<'PY'
+    ! python3 - "$profile" "$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" <<'PY'
 import plistlib
 import sys
 
@@ -168,6 +188,13 @@ with open(sys.argv[1], "rb") as handle:
 values = entitlements.get("com.apple.developer.networking.networkextension", [])
 if "packet-tunnel-provider" not in values:
     raise SystemExit(1)
+expected_group = sys.argv[2]
+if not any(
+    group == expected_group
+    or (isinstance(group, str) and group.endswith(".*") and expected_group.startswith(group[:-1]))
+    for group in entitlements.get("keychain-access-groups", [])
+):
+    raise SystemExit("CloudVPN profile does not authorize the host keychain group")
 PY
   then
     echo "error: embedded CloudVPN profile does not authorize the signed packet tunnel (application-identifier='${profile_app_id:-<absent>}', network-extension='${profile_network_extension:-<absent>}'): $extension" >&2
@@ -200,7 +227,21 @@ verify_ipa_app_store_main_entitlements() {
     rm -rf "$workdir"
     return 1
   fi
-  if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" --check "$ent"; then
+  if [[ "${CLOUD_VPN_REQUIRED:-0}" -eq 0 ]]; then
+    if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      --check --remove-network-extension "$ent"; then
+      rm -rf "$workdir"
+      return 1
+    fi
+  else
+    if ! python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      --check "$ent"; then
+      rm -rf "$workdir"
+      return 1
+    fi
+  fi
+  if [[ "${CLOUD_VPN_REQUIRED:-0}" -eq 0 && -d "$app/PlugIns/CloudVPN.appex" ]]; then
+    echo "error: App Store IPA embeds CloudVPN.appex even though the App Store lane disables the system VPN: $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -370,6 +411,16 @@ network_extension = profile.get("com.apple.developer.networking.networkextension
 if "packet-tunnel-provider" not in network_extension:
     raise SystemExit("CloudVPN provisioning profile does not authorize packet-tunnel-provider")
 
+# The checked-in keychain value contains Xcode substitutions. Resolve the host
+# identity before applying the profile's exact or wildcard authorization.
+host_group = f"{team_id}.{host_bundle_id}"
+if not any(
+    group == host_group
+    or (isinstance(group, str) and group.endswith(".*") and host_group.startswith(group[:-1]))
+    for group in profile.get("keychain-access-groups", [])
+):
+    raise SystemExit("CloudVPN provisioning profile does not authorize the host keychain group")
+
 # Keep profile metadata as the source of truth, adding only values explicitly
 # requested by the checked-in contract and already authorized by the profile.
 for key, value in source.items():
@@ -380,6 +431,8 @@ for key, value in source.items():
         profile[key] = [item for item in value if item in profile_value]
     else:
         profile[key] = value
+
+profile["keychain-access-groups"] = [host_group]
 
 with open(merged_path, "wb") as handle:
     plistlib.dump(profile, handle)
@@ -1002,6 +1055,19 @@ WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
 CLOUD_VPN_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.CloudVPN"
+# The beta app has a provisioned packet-tunnel extension. The official App
+# Store app is permanently VPN-free: do not let a stale or manually inherited
+# IOS_APPSTORE_ENABLE_CLOUD_VPN value re-enable Apple's rejected capability.
+# Internal/demo app identities are separate Apple registrations and do not opt
+# in implicitly.
+CLOUD_VPN_REQUIRED=0
+if [[ "$LANE" == "beta" && "$PRODUCT_BUNDLE_IDENTIFIER" == "dev.cmux.app.beta" ]]; then
+  CLOUD_VPN_REQUIRED=1
+fi
+APPSTORE_SYSTEM_VPN_DISABLED=0
+if [[ "$LANE" == "appstore" ]]; then
+  APPSTORE_SYSTEM_VPN_DISABLED=1
+fi
 SHARED_XCCONFIG="$IOS_DIR/Config/Shared.xcconfig"
 CHECKED_IN_BETA_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_BETA_MARKETING_VERSION "$SHARED_XCCONFIG")"
 CHECKED_IN_APPSTORE_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_APPSTORE_MARKETING_VERSION "$SHARED_XCCONFIG")"
@@ -1027,6 +1093,22 @@ PRODUCTION_RUNTIME_BUILD_ARGS=(
   CMUX_IROH_BROKER_BASE_URL=https://cmux.com
   CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev
 )
+
+# Apple review rejected the system VPN API in the public App Store binary.
+# Keep the feature available to beta/internal builds, but compile it out of the
+# official App Store lane and use an entitlement contract without Network
+# Extension permissions. The command-line condition is inherited by the local
+# Swift packages that make up cmuxFeature.
+BUILD_FEATURE_ARGS=()
+if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
+  BUILD_FEATURE_ARGS+=(
+    'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_APPSTORE'
+    CMUX_APPSTORE_BUILD=YES
+    CMUX_APP_CODE_SIGN_ENTITLEMENTS=Config/cmux-appstore-release.entitlements
+    CODE_SIGN_ENTITLEMENTS=Config/cmux-appstore-release.entitlements
+    CMUX_CLOUD_VPN_PROVIDER_BUNDLE_IDENTIFIER=
+  )
+fi
 
 # Notes audience is driven by the testing lane (External block for --external).
 NOTES_AUDIENCE="internal"
@@ -1319,6 +1401,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
+      ${BUILD_FEATURE_ARGS[@]+"${BUILD_FEATURE_ARGS[@]}"} \
       CODE_SIGN_STYLE=Automatic \
       CODE_SIGNING_ALLOWED=YES \
       CODE_SIGNING_REQUIRED=YES \
@@ -1345,6 +1428,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
       "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
+      ${BUILD_FEATURE_ARGS[@]+"${BUILD_FEATURE_ARGS[@]}"} \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \
@@ -1380,6 +1464,24 @@ if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
       exit 1
     fi
   fi
+fi
+
+if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
+  if [[ "$SIGNING" != "manual" ]]; then
+    echo "error: App Store builds without the system VPN must use manual signing so the archive can be stripped and re-signed without Network Extension permissions" >&2
+    exit 2
+  fi
+  ARCHIVE_APPSTORE_BUILD="$($PLISTBUDDY -c 'Print :CMUXAppStoreBuild' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
+  if [[ "$ARCHIVE_APPSTORE_BUILD" != "YES" ]]; then
+    echo "error: App Store VPN-free export requires an archive built with CMUX_APPSTORE; the reused archive is missing CMUXAppStoreBuild=YES" >&2
+    exit 2
+  fi
+  if [[ -d "$ARCHIVE_APP/PlugIns/CloudVPN.appex" ]]; then
+    rm -rf "$ARCHIVE_APP/PlugIns/CloudVPN.appex"
+    echo "removed CloudVPN.appex from the App Store archive"
+  fi
+  "$PLISTBUDDY" -c 'Delete :CMUXCloudVPNProviderBundleIdentifier' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true
+  echo "removed the App Store archive's CloudVPN provider declaration"
 fi
 
 if ! "$REPO_ROOT/scripts/lib/verify-ios-release-origins.sh" --app "$ARCHIVE_APP"; then
@@ -1487,8 +1589,12 @@ else
       exit 1
     fi
     "$PLISTBUDDY" -c "Add :provisioningProfiles:$EXTENSION_BUNDLE_IDENTIFIER string $EXTENSION_PROFILE_NAME" "$EXPORT_OPTIONS"
-    if [[ "$LANE" == "appstore" ]]; then
-      CLOUD_VPN_PROFILE_NAME="${IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME:-}"
+    if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
+      if [[ "$LANE" == "appstore" ]]; then
+        CLOUD_VPN_PROFILE_NAME="${IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME:-}"
+      else
+        CLOUD_VPN_PROFILE_NAME="${IOS_BETA_CLOUD_VPN_PROVISIONING_PROFILE_NAME:-}"
+      fi
       if [[ -z "$CLOUD_VPN_PROFILE_NAME" ]]; then
         echo "error: manual App Store export needs a provisioning profile name for $CLOUD_VPN_BUNDLE_IDENTIFIER" >&2
         exit 1
@@ -1510,6 +1616,38 @@ IPA_PATH="$EXPORT_PATH/cmux.ipa"
 if [[ ! -f "$IPA_PATH" ]]; then
   echo "error: IPA was not exported at $IPA_PATH" >&2
   exit 1
+fi
+# The VPN strip runs from a temporary unpack directory; keep the output path
+# absolute so a caller-provided relative CMUX_IOS_UPLOAD_DIR still works.
+IPA_PATH="$(cd "$(dirname "$IPA_PATH")" && pwd)/$(basename "$IPA_PATH")"
+
+if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 ]]; then
+  VPN_STRIP_DIR="$(mktemp -d)"
+  if ! ( cd "$VPN_STRIP_DIR" && unzip -q "$IPA_PATH" ); then
+    echo "error: could not unpack App Store IPA while stripping the disabled system VPN" >&2
+    rm -rf "$VPN_STRIP_DIR"
+    exit 1
+  fi
+  IPA_APP="$(find "$VPN_STRIP_DIR/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$IPA_APP" || ! -d "$IPA_APP" ]]; then
+    echo "error: exported App Store IPA has no Payload/*.app to strip the disabled system VPN from" >&2
+    rm -rf "$VPN_STRIP_DIR"
+    exit 1
+  fi
+  if [[ -d "$IPA_APP/PlugIns/CloudVPN.appex" ]]; then
+    rm -rf "$IPA_APP/PlugIns/CloudVPN.appex"
+    echo "removed CloudVPN.appex from the App Store IPA"
+  fi
+  "$PLISTBUDDY" -c 'Delete :CMUXCloudVPNProviderBundleIdentifier' "$IPA_APP/Info.plist" 2>/dev/null || true
+  rm -f "$IPA_PATH"
+  IPA_MEMBERS=(Payload)
+  for ipa_member in Symbols SwiftSupport BCSymbolMaps; do
+    if [[ -d "$VPN_STRIP_DIR/$ipa_member" ]]; then
+      IPA_MEMBERS+=("$ipa_member")
+    fi
+  done
+  ( cd "$VPN_STRIP_DIR" && zip -qrX "$IPA_PATH" "${IPA_MEMBERS[@]}" )
+  rm -rf "$VPN_STRIP_DIR"
 fi
 
 # Re-sign the exported app with the FULL entitlements (production aps-environment
@@ -1557,6 +1695,9 @@ if [[ "$SIGNING" == "manual" ]]; then
   # CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements, so default to that
   # path rather than parsing xcodebuild -showBuildSettings (slower, more brittle).
   RELEASE_ENTITLEMENTS="${IOS_RELEASE_ENTITLEMENTS:-$IOS_DIR/Config/cmux-release.entitlements}"
+  if [[ "$APPSTORE_SYSTEM_VPN_DISABLED" -eq 1 && -z "${IOS_RELEASE_ENTITLEMENTS:-}" ]]; then
+    RELEASE_ENTITLEMENTS="$IOS_DIR/Config/cmux-appstore-release.entitlements"
+  fi
   RESIGN_IDENTITY="${IOS_DISTRIBUTION_IDENTITY:-Apple Distribution: Manaflow, Inc. (7WLXT3NR37)}"
 
   if [[ ! -f "$RELEASE_ENTITLEMENTS" ]]; then
@@ -1659,7 +1800,7 @@ if [[ "$SIGNING" == "manual" ]]; then
     echo "error: could not re-sign NotificationService.appex with the host keychain group" >&2
     exit 1
   fi
-  if [[ "$LANE" == "appstore" ]]; then
+  if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
     if ! resign_cloud_vpn_extension \
       "$RESIGN_APP" \
       "$RESIGN_DIR" \
@@ -1727,12 +1868,15 @@ PY
   plutil -replace keychain-access-groups \
     -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
     "$MERGED_ENTITLEMENTS"
-  if [[ "$LANE" == "appstore" ]]; then
-    # The production profile also carries the newer hotspot-provider value,
-    # which Apple rejects for this app's current iOS package. Remove only that
-    # value; packet-tunnel-provider and Personal VPN allow-vpn remain available
-    # for the upcoming VPN feature.
-    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" "$MERGED_ENTITLEMENTS"
+  # Distribution profiles can authorize hotspot-provider even though Apple
+  # rejects it in iOS uploads, including TestFlight. Preserve packet-tunnel
+  # and Personal VPN permissions while filtering unsupported host values.
+  if [[ "$CLOUD_VPN_REQUIRED" -eq 0 ]]; then
+    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      --remove-network-extension "$MERGED_ENTITLEMENTS"
+  else
+    python3 "$SCRIPT_DIR/filter-ios-appstore-entitlements.py" \
+      "$MERGED_ENTITLEMENTS"
   fi
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
@@ -1850,16 +1994,18 @@ if [[ "$LANE" == "appstore" ]]; then
     exit 1
   fi
   echo "App Store IPA verified to omit external purchase/enrollment links: $IPA_PATH"
-  if ! verify_ipa_app_store_main_entitlements "$IPA_PATH"; then
-    echo "error: App Store IPA contains unsupported iOS main-app entitlements; refusing to upload" >&2
-    exit 1
-  fi
-  echo "App Store IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
+fi
+if ! verify_ipa_app_store_main_entitlements "$IPA_PATH"; then
+  echo "error: IPA contains unsupported iOS main-app entitlements; refusing to upload" >&2
+  exit 1
+fi
+echo "IPA verified to omit unsupported iOS main-app entitlements: $IPA_PATH"
+if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
   if ! verify_ipa_cloud_vpn_extension "$IPA_PATH"; then
-    echo "error: App Store IPA CloudVPN extension is not signed with its packet-tunnel profile; refusing to upload" >&2
+    echo "error: IPA CloudVPN extension is not signed with its packet-tunnel profile and host keychain group; refusing to upload" >&2
     exit 1
   fi
-  echo "App Store IPA verified to carry a signed CloudVPN packet-tunnel extension: $IPA_PATH"
+  echo "IPA verified to carry a signed CloudVPN packet-tunnel extension sharing the host keychain group: $IPA_PATH"
 fi
 
 if [[ "$EXPORT_ONLY" -eq 1 ]]; then

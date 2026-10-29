@@ -4,7 +4,10 @@
 //
 // Usage: swift scripts/generate-computer-use-helper-icon.swift
 
+import CoreGraphics
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 private struct Rendition {
     let filename: String
@@ -28,6 +31,7 @@ private let renditions = [
 private enum ExportError: LocalizedError {
     case missingFile(URL)
     case commandFailed(URL, Int32, String)
+    case imageConversionFailed(URL)
 
     var errorDescription: String? {
         switch self {
@@ -35,6 +39,8 @@ private enum ExportError: LocalizedError {
             "Required file is missing: \(url.path)"
         case .commandFailed(let executable, let status, let output):
             "\(executable.lastPathComponent) failed with status \(status): \(output)"
+        case .imageConversionFailed(let url):
+            "Could not convert \(url.lastPathComponent) to 8 bits per channel"
         }
     }
 }
@@ -64,6 +70,41 @@ private struct ComputerUseHelperIconExporter {
             )
         }
         return output
+    }
+
+    /// Icon Composer exports 16 bits per channel. Redraws the image in its own
+    /// color space at 8 bits, which is about a third of the size.
+    private func convertTo8Bit(_ url: URL) throws {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let colorSpace = image.colorSpace,
+              let context = CGContext(
+                  data: nil,
+                  width: image.width,
+                  height: image.height,
+                  bitsPerComponent: 8,
+                  bytesPerRow: 0,
+                  space: colorSpace,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              )
+        else {
+            throw ExportError.imageConversionFailed(url)
+        }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard let converted = context.makeImage(),
+              let destination = CGImageDestinationCreateWithURL(
+                  url as CFURL,
+                  UTType.png.identifier as CFString,
+                  1,
+                  nil
+              )
+        else {
+            throw ExportError.imageConversionFailed(url)
+        }
+        CGImageDestinationAddImage(destination, converted, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            throw ExportError.imageConversionFailed(url)
+        }
     }
 
     func export() throws {
@@ -118,6 +159,7 @@ private struct ComputerUseHelperIconExporter {
                 "--height", String(rendition.points),
                 "--scale", String(rendition.scale),
             ])
+            try convertTo8Bit(imageURL)
         }
 
         _ = try run(URL(fileURLWithPath: "/usr/bin/iconutil"), arguments: [

@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxCloudResizeCore
 import CmuxSettings
 import Foundation
 import Testing
@@ -19,15 +20,47 @@ struct CloudSidebarPolishTests {
         )
         #expect(!operation.hitMachineLimit)
         operation.phase = .failed(output: "Error: Cloud VM limit reached (HTTP 402: vm_active_limit_exceeded)")
+        operation.refusalCode = "vm_active_limit_exceeded"
         #expect(operation.hitMachineLimit)
-        operation.phase = .failed(output: "Error: The Cloud VM service is temporarily unavailable.")
+        // Actions follow the carried code, never the display text.
+        operation.refusalCode = nil
         #expect(!operation.hitMachineLimit)
-        for plan in ["free", "go", "pro", "unknown"] {
+        for plan in ["free", "go", "unknown"] {
             #expect(MachinePlanSnapshot(activeCount: 5, planId: plan).hasHigherPlan, "\(plan)")
         }
-        for plan in ["max", "Team", " founders "] {
+        // Pro already has the most machines any plan sells: Max raises the
+        // machine sizes and shared pool, not the machine count, and the
+        // service sends no upgrade for a paid plan at its machine limit.
+        for plan in ["pro", "max", "Team", " founders "] {
             #expect(!MachinePlanSnapshot(activeCount: 5, planId: plan).hasHigherPlan, "\(plan)")
         }
+    }
+
+    @Test("A create refused by a full shared pool says what is in use, not that the plan is missing")
+    func resourcePoolFailureExplainsThePool() {
+        let body = """
+            {"error":"vm_resource_pool_exceeded","resource":"vcpus","pool":{"vcpus":20,"memoryMb":40960},
+             "used":{"vcpus":20,"memoryMb":40960},"requested":{"vcpus":4,"memoryMb":8192},"upgradePlanId":"max"}
+            """
+        let text = InProcessMachineCreateLauncher.failureText(for: VMClientError.httpStatus(402, body))
+        #expect(!text.contains(CloudDiagnosticFailure.plan.label))
+        #expect(text.hasPrefix(CloudVMResourcePool.shortfallText(.vcpus(requested: 4, free: 0, pool: 20), offersUpgrade: true)))
+        let shown = MachineCreateCoordinator.displayableFailureOutput(text)
+        #expect(shown == text.trimmingCharacters(in: .whitespacesAndNewlines))
+        var operation = MachineCreateOperation(
+            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(), startedAt: Date()
+        )
+        operation.phase = .failed(output: shown)
+        operation.refusalCode = "vm_resource_pool_exceeded"
+        #expect(operation.hitResourcePool)
+        #expect(!operation.hitMachineLimit)
+        #expect(InProcessMachineCreateLauncher.failureText(for: VMClientError.httpStatus(402, "")) == CloudDiagnosticFailure.plan.label + "\n")
+        // A server message naming another code changes nothing: only the carried code counts.
+        operation.phase = .failed(output: "See (HTTP 402: vm_resource_pool_exceeded)\n(HTTP 402: vm_new_gate)")
+        operation.refusalCode = "vm_new_gate"
+        #expect(!operation.hitResourcePool)
+        operation.refusalCode = "vm_resource_pool_exceeded_v2"
+        #expect(!operation.hitResourcePool)
     }
 
     @Test("The mode bar's minimum fits the widest tab's name with every other tab as its icon")
@@ -48,6 +81,28 @@ struct CloudSidebarPolishTests {
         ) == 500)
         // A content minimum below the built-in one never lowers it.
         #expect(ContentView.clampedRightSidebarWidth(100, availableWidth: 1600, contentMinimumWidth: 120) == builtIn)
+    }
+
+    @Test("A configured right sidebar minimum replaces the built-in floor")
+    func rightSidebarClampHonorsConfiguredMinimum() {
+        #expect(ContentView.clampedRightSidebarWidth(
+            100, availableWidth: 1600, configuredMinimumWidth: 200
+        ) == 200)
+        #expect(ContentView.clampedRightSidebarWidth(
+            220, availableWidth: 1600, configuredMinimumWidth: 200
+        ) == 220)
+        // The mode bar still keeps the room it needs.
+        #expect(ContentView.clampedRightSidebarWidth(
+            100, availableWidth: 1600, configuredMinimumWidth: 200, contentMinimumWidth: 240
+        ) == 240)
+        // A configured minimum never raises the floor, so a narrow window
+        // keeps the same terminal room it has without the setting.
+        #expect(ContentView.clampedRightSidebarWidth(
+            100, availableWidth: 800, configuredMinimumWidth: 600
+        ) == ContentView.clampedRightSidebarWidth(100, availableWidth: 800))
+        #expect(ContentView.clampedRightSidebarWidth(
+            10_000, availableWidth: 800, configuredMinimumWidth: 600
+        ) == ContentView.clampedRightSidebarWidth(10_000, availableWidth: 800))
     }
 
     @Test("The right sidebar content minimum stays below its effective maximum")

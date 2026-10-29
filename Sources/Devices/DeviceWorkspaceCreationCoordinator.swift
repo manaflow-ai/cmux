@@ -1,3 +1,4 @@
+import CmuxProductAnalytics
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -22,6 +23,7 @@ final class DeviceWorkspaceCreationCoordinator {
             guard let manager else { return }
             do {
                 try await create(machine, manager)
+                ProductAnalytics.app.featureUsed(.devices)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {

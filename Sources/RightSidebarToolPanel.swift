@@ -12,6 +12,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     let mode: RightSidebarMode
     let sourcePanelID: UUID?
     let rootDirectory: String?
+    /// The panel keeps this store for its full lifetime. A panel can move to a
+    /// different window while a removal is running; swapping to that window's
+    /// store would lose the tombstone before the authoritative read confirms it.
+    let coderouterStore: CoderouterAccountStore
 
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -42,6 +46,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         if mode == .herd {
             self.herdModelStorage = HerdPanelModel()
         }
+        self.coderouterStore = workspace.owningTabManager?.coderouterAccountStore
+            ?? CoderouterAccountStore()
         reattach(to: workspace)
     }
 
@@ -423,7 +429,8 @@ struct RightSidebarToolPanelView: View {
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                     tabManager: tabManager,
                     activationCoordinator: AppDelegate.shared?.cloudActivationCoordinator
-                        ?? CloudActivationCoordinator.unconfigured()
+                        ?? CloudActivationCoordinator.unconfigured(),
+                    coderouterStore: panel.coderouterStore
                 )
             }
         case .feed, .dock, .customSidebar:

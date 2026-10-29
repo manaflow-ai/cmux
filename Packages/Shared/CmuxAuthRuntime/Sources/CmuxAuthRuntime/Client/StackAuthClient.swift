@@ -88,8 +88,11 @@ public struct StackAuthClient: AuthClient {
     }
 
     public func listTeams() async throws -> [CMUXAuthTeam] {
-        guard let user = try await stack.getUser(or: .returnNull) else {
-            return []
+        // Stack answers nil for every failure, including a dropped or timed-out
+        // `/users/me`. Throw so the coordinator retries instead of recording a
+        // signed-in account as having no teams.
+        guard let user = try await stack.getUser(or: .throw) else {
+            throw AuthClientError.userUnavailable
         }
         let teams = try await user.listTeams()
         var summaries: [CMUXAuthTeam] = []
