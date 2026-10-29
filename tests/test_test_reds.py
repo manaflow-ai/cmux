@@ -511,6 +511,13 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         extra = shared.replace("--- first run: FAIL ---", "--- first run: FAIL ---\nerror: unhandled failure\n(pass) unrelated test")
         self.assertTrue(reds.classify_web([extra], [shared]).own)
 
+    def test_replay_compares_unnamed_errors_in_its_charged_files(self):
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        extra = shared.replace("--- first run: FAIL ---", "--- first run: FAIL ---\nerror: unhandled failure\n(pass) unrelated test")
+        verdict = reds.classify_web([replay(charged=[f"{CAPSULES} > {CAPSULE_TEST}"]), extra], [shared])
+        self.assertTrue(verdict.own)
+        self.assertIn(CAPSULES, verdict.reasons[0])
+
     def test_missing_auxiliary_head_evidence_is_own(self):
         shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
         self.assertTrue(reds.classify_web([shared, None], [shared]).own)
