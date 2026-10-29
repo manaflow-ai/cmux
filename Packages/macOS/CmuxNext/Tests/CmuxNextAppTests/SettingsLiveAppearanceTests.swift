@@ -120,19 +120,21 @@ import Testing
             let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 600))
             panel.starters.setPrompts(["Start a task"])
             let button = try #require(panel.starters.buttons.first)
-            let controls: [NSControl] = [button, panel.hero.title, panel.hero.body,
-                                         panel.switchCard.header, panel.switchCard.note]
-            let originals = try controls.map { try #require($0.font).pointSize }
+            let originalButton = try #require(button.font).pointSize
+            let labels = [panel.hero.title, panel.hero.body, panel.switchCard.header, panel.switchCard.note]
+            let originals = try labels.map { try #require($0.font).pointSize }
             try await call(page, "set", "appearance.metrics.chromeFontSize", .number(16))
             // The transcript passes the live interface scale to its first-run panel.
             panel.applyScale(Typography.userScale)
-            for (control, original) in zip(controls, originals) {
-                #expect(abs(try #require(control.font).pointSize - original * Typography.userScale) < 0.01)
+            #expect(abs(try #require(button.font).pointSize - originalButton * Typography.userScale) < 0.01)
+            for (label, original) in zip(labels, originals) {
+                #expect(abs(try #require(label.font).pointSize - original * Typography.userScale) < 0.01)
             }
             try await call(page, "reset", "appearance.metrics.chromeFontSize")
             panel.applyScale(Typography.userScale)
-            for (control, original) in zip(controls, originals) {
-                #expect(abs(try #require(control.font).pointSize - original) < 0.01)
+            #expect(abs(try #require(button.font).pointSize - originalButton) < 0.01)
+            for (label, original) in zip(labels, originals) {
+                #expect(abs(try #require(label.font).pointSize - original) < 0.01)
             }
         }
     }
