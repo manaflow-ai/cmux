@@ -6,7 +6,8 @@ import { Combobox } from "../src/ui/Combobox";
 import { UiProvider } from "../src/ui/UiProvider";
 import { Menu, MenuButton, MenuPopup } from "../src/ui/Menu";
 import { Popover } from "../src/ui/Popover";
-import { comboboxDescription } from "../src/ui/popupDescriptors";
+import { Select } from "../src/ui/Select";
+import { comboboxDescription, selectDescription } from "../src/ui/popupDescriptors";
 import type { PopupHost } from "../src/ui/popupHost";
 import type { NativePopupEvent, NativePopupModel } from "../src/ui/nativePopup";
 
@@ -139,6 +140,38 @@ test("native combobox presents once its own input anchor mounts", async () => {
   expect(container.querySelector('[role="option"]')).toBeNull();
 });
 
+test("native combobox ignores picks absent from its enabled suggestions", async () => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const submitted: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Combobox
+          inline
+          label="Projects"
+          suggestions={["alpha", "beta"]}
+          isItemDisabled={(value) => value === "beta"}
+          onQuery={() => {}}
+          onSubmit={(value) => submitted.push(value)}
+          onCancel={() => {}}
+          native={{
+            model: comboboxDescription({ suggestions: ["alpha", "beta"], disabled: (value) => value === "beta" }),
+            anchor: () => container,
+          }}
+        />
+      </UiProvider>,
+    );
+  });
+  const model = shown[0]!;
+  await act(async () => {
+    for (const id of ["missing", "beta", "alpha"])
+      for (const listener of listeners) listener({ type: "pick", popupId: model.id, revision: model.revision, id });
+  });
+  expect(submitted).toEqual(["alpha"]);
+});
+
 test("controlled native menu closes on terminal picks and reopens without a dismiss event", async () => {
   const container = installDom();
   const { host, shown, listeners } = nativeHost();
@@ -147,8 +180,17 @@ test("controlled native menu closes on terminal picks and reopens without a dism
     const [open, setOpen] = useState(true);
     return (
       <>
-        <button type="button" data-reopen onClick={() => setOpen(true)}>Reopen</button>
-        <Menu open={open} onOpenChange={(next) => { changes.push(next); setOpen(next); }} native={{ model: menuModel }}>
+        <button type="button" data-reopen onClick={() => setOpen(true)}>
+          Reopen
+        </button>
+        <Menu
+          open={open}
+          onOpenChange={(next) => {
+            changes.push(next);
+            setOpen(next);
+          }}
+          native={{ model: menuModel }}
+        >
           <MenuButton label="Actions">Actions</MenuButton>
           <MenuPopup>Page rows must not mount</MenuPopup>
         </Menu>
@@ -157,17 +199,23 @@ test("controlled native menu closes on terminal picks and reopens without a dism
   }
   await act(async () => {
     root = createRoot(container);
-    root.render(<UiProvider container={container} popupHost={host}><Fixture /></UiProvider>);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Fixture />
+      </UiProvider>,
+    );
   });
   expect(shown).toHaveLength(1);
   const model = shown[0]!;
   await act(async () => {
-    for (const listener of listeners) listener({ type: "pick", popupId: model.id, revision: model.revision, id: "hold" });
+    for (const listener of listeners)
+      listener({ type: "pick", popupId: model.id, revision: model.revision, id: "hold" });
   });
   expect(changes).toEqual([]);
   expect(listeners.size).toBe(1);
   await act(async () => {
-    for (const listener of listeners) listener({ type: "pick", popupId: model.id, revision: model.revision, id: "done" });
+    for (const listener of listeners)
+      listener({ type: "pick", popupId: model.id, revision: model.revision, id: "done" });
   });
   expect(changes).toEqual([false]);
   expect(listeners.size).toBe(0);
@@ -175,7 +223,7 @@ test("controlled native menu closes on terminal picks and reopens without a dism
   expect(shown).toHaveLength(2);
 });
 
-test("native popover preserves Escape cancellation details", async () => {
+test.each(["escape", "outside"])("native popover preserves %s cancellation details", async (reason) => {
   const container = installDom();
   const { host, shown, listeners } = nativeHost();
   const changes: { open: boolean; escape: boolean | undefined }[] = [];
@@ -183,8 +231,13 @@ test("native popover preserves Escape cancellation details", async () => {
     root = createRoot(container);
     root.render(
       <UiProvider container={container} popupHost={host}>
-        <Popover open label="Details" anchor={container} native={{ model: menuModel, anchor: () => container }}
-          onOpenChange={(open, details) => changes.push({ open, escape: details?.escape })}>
+        <Popover
+          open
+          label="Details"
+          anchor={container}
+          native={{ model: menuModel, anchor: () => container }}
+          onOpenChange={(open, details) => changes.push({ open, escape: details?.escape })}
+        >
           Page rows must not mount
         </Popover>
       </UiProvider>,
@@ -192,7 +245,71 @@ test("native popover preserves Escape cancellation details", async () => {
   });
   const model = shown[0]!;
   await act(async () => {
-    for (const listener of listeners) listener({ type: "dismiss", popupId: model.id, revision: model.revision, reason: "escape" });
+    for (const listener of listeners)
+      listener({ type: "dismiss", popupId: model.id, revision: model.revision, reason });
   });
-  expect(changes).toEqual([{ open: false, escape: true }]);
+  expect(changes).toEqual([{ open: false, escape: reason === "escape" }]);
+});
+
+test("uncontrolled native menu closes on a pick and opens on the next trigger click", async () => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Menu native={{ model: menuModel }}>
+          <MenuButton label="Actions">Actions</MenuButton>
+          <MenuPopup>Page rows must not mount</MenuPopup>
+        </Menu>
+      </UiProvider>,
+    );
+  });
+  const button = container.querySelector<HTMLButtonElement>("button")!;
+  await act(async () => button.click());
+  expect(shown).toHaveLength(1);
+  const model = shown[0]!;
+  await act(async () => {
+    for (const listener of listeners)
+      listener({ type: "pick", popupId: model.id, revision: model.revision, id: "done" });
+  });
+  expect(button.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => button.click());
+  expect(shown).toHaveLength(2);
+});
+
+test.each([false, true])("native select preserves closeOnPick=%s and enabled option dispatch", async (closeOnPick) => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const changed: string[] = [];
+  const options = [
+    { value: "system", label: "System" },
+    { value: "dark", label: "Dark" },
+    { value: "disabled", label: "Disabled", disabled: true },
+  ];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Select
+          value="system"
+          options={options}
+          label="Theme"
+          onChange={(value) => changed.push(value)}
+          closeOnPick={closeOnPick}
+          native={{ model: selectDescription({ options, value: "system" }) }}
+        />
+      </UiProvider>,
+    );
+  });
+  const button = container.querySelector<HTMLButtonElement>("button")!;
+  await act(async () => button.click());
+  const model = shown[0]!;
+  expect(model.rows.find((row) => row.id === "dark")?.keepOpen).toBe(!closeOnPick);
+  await act(async () => {
+    for (const id of ["disabled", "dark"])
+      for (const listener of listeners) listener({ type: "pick", popupId: model.id, revision: model.revision, id });
+  });
+  expect(changed).toEqual(["dark"]);
+  expect(button.getAttribute("aria-expanded")).toBe(String(!closeOnPick));
 });

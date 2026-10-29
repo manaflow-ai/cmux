@@ -10,6 +10,7 @@ import { cx } from "./cx";
 import { ScrollArea } from "./ScrollArea";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./generated/popupProtocol";
+import { popupAction } from "./popupDescriptors";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
 
@@ -104,13 +105,14 @@ export function Combobox({
   const [field, setField] = useState<HTMLInputElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   const nativePopup = useNativePopup({
-    open: native !== undefined && (inline || suggestions.length > 0),
+    open: native !== undefined && (inline || suggestions.length > 0) && (native.anchor !== undefined || field !== null),
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: native?.anchor ?? (() => field),
     onEvent: (event) => {
       native?.onEvent?.(event);
+      const picked = event.type === "pick" && native && popupAction(native.model, event.id) ? event.id : undefined;
       if ((event.type === "search" || event.type === "change") && event.value !== undefined) onQuery(event.value);
-      else if (event.type === "pick" && event.value !== undefined) onSubmit(event.value);
+      else if (picked !== undefined && suggestions.includes(picked) && !isItemDisabled?.(picked)) onSubmit(picked);
       else if (event.type === "highlight") onHighlight?.(event.id, "pointer");
     },
     onDismiss: () => {

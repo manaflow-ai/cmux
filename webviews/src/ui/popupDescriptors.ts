@@ -1,10 +1,27 @@
 /** Declarative row descriptions for the native WebPopupHost. These helpers accept data only. */
-import type { NativePopupRow, NativePopupRowKind } from "./generated/popupProtocol";
+import type { NativePopupAction, NativePopupRow, NativePopupRowKind } from "./generated/popupProtocol";
 import type { NativePopupDescription } from "./nativePopup";
 
 export type PopupRowKind = NativePopupRowKind;
 export type PopupRow = NativePopupRow;
 export type PopupDescription = NativePopupDescription;
+
+/** Resolve a current pick through enabled ancestors, using the native host's action rules. */
+export function popupAction(model: PopupDescription, id: string | undefined): NativePopupAction | undefined {
+  if (id === undefined) return undefined;
+  function find(rows: readonly PopupRow[]): NativePopupAction | undefined {
+    for (const row of rows) {
+      if (row.disabled) continue;
+      if (row.id === id && row.kind === "action") return row;
+      const action = row.actions?.find((candidate) => candidate.id === id && !candidate.disabled);
+      if (action) return action;
+      const child = row.children && find(row.children);
+      if (child) return child;
+    }
+    return undefined;
+  }
+  return find([...(model.rail ?? []), ...model.rows, ...(model.footer ?? [])]);
+}
 
 export interface PopupActionInput {
   id: string;
@@ -21,8 +38,9 @@ export function actionRow(input: PopupActionInput): PopupRow {
 export function toggleRow(input: PopupActionInput & { checked: boolean }): PopupRow {
   return { kind: "toggle", ...input };
 }
+/** A checked menu option emits `pick`; native `choice` rows are segmented controls. */
 export function choiceRow(input: PopupActionInput & { checked?: boolean; value?: string }): PopupRow {
-  return { kind: "choice", ...input };
+  return { kind: "action", ...input };
 }
 export function sectionRow(id: string, label: string): PopupRow {
   return { id, kind: "section", label };
@@ -116,7 +134,7 @@ export function contextDescription(
   for (const item of items) {
     if (item.separatorBefore) rows.push(separatorRow(separatorId(item.id)));
     const { separatorBefore: _separatorBefore, ...row } = item;
-    rows.push(item.checked === undefined ? actionRow(row) : toggleRow({ ...row, checked: item.checked }));
+    rows.push(actionRow(row));
   }
   return {
     side: "bottom",

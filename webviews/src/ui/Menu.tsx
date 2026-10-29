@@ -18,6 +18,7 @@ import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
+import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { isMousePress, trackPressRelease } from "./pressRelease";
@@ -71,7 +72,11 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
     open: isOpen && native !== undefined,
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: () => trigger.current,
-    onEvent: (event) => native?.onEvent?.(event),
+    onEvent: (event) => {
+      const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
+      native?.onEvent?.(event);
+      if (action && !action.keepOpen) setMenuOpen(false);
+    },
     onDismiss: () => {
       if (open === undefined) setInternalOpen(false);
       onOpenChange?.(false);

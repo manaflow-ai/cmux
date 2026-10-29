@@ -190,7 +190,9 @@ test("a native context menu anchors at the pointer over nested SVG and routes pi
   expect(listeners.size).toBe(0);
   expect(dismissed).toBe(0);
   await act(async () => {
-    container.querySelector("[data-target]")!.dispatchEvent(event);
+    container
+      .querySelector("[data-target]")!
+      .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 86, clientY: 64 }));
   });
   expect(shown).toHaveLength(2);
   const reopened = shown[1]!;

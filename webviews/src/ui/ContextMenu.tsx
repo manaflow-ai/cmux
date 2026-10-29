@@ -2,10 +2,11 @@ import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, typ
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
 import { nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
-import { useEscapingPopup } from "./popupHost";
+import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { usePopupHost } from "./UiProvider";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./generated/popupProtocol";
+import { popupAction } from "./popupDescriptors";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
@@ -113,7 +114,7 @@ export function ContextMenu({
   native,
 }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
-  const [nativeTarget, setNativeTarget] = useState<HTMLElement | null>(null);
+  const [nativeAnchor, setNativeAnchor] = useState<AnchorBox | null>(null);
   const [nativeOpen, setNativeOpen] = useState(false);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -122,13 +123,15 @@ export function ContextMenu({
   const nativePopup = useNativePopup({
     open: nativeOpen && native !== undefined,
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
-    anchor: () => nativeTarget,
+    anchor: () => nativeAnchor,
     onEvent: (event) => {
+      const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
       const item = event.id ? items.find((candidate) => candidate.id === event.id) : undefined;
       native?.onEvent?.(event, item);
-      if (event.type === "pick" && item && !item.disabled) {
+      if (action && item && !item.disabled) {
         item.onSelect();
       }
+      if (action && !action.keepOpen) setNativeOpen(false);
     },
     onDismiss: () => {
       setNativeOpen(false);
@@ -244,8 +247,8 @@ export function ContextMenu({
         if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
         if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
         const target = event.target instanceof Element ? event.target : null;
-        // The native host needs an HTMLElement anchor. SVG descendants use their nearest HTML
-        // parent; with no such anchor, leave the browser's context menu untouched.
+        // Find the invoking HTML surface even when the pointer is over a nested SVG. The
+        // popup itself anchors at the pointer, preserving the context-menu gesture.
         let nativeAnchor = target;
         while (nativeAnchor && !(nativeAnchor instanceof HTMLElement)) nativeAnchor = nativeAnchor.parentElement;
         const nativeTarget = nativeAnchor instanceof HTMLElement ? nativeAnchor : null;
@@ -256,7 +259,9 @@ export function ContextMenu({
         returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
         const at = { x: event.clientX, y: event.clientY };
         if (native && nativePopup.available) {
-          setNativeTarget(nativeTarget);
+          setNativeAnchor({
+            getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),
+          });
           setNativeOpen(true);
           return;
         }
