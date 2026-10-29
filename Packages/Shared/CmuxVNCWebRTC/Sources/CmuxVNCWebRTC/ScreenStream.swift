@@ -10,6 +10,9 @@ import WebRTC
 /// coordinates are normalized (0...1) within the display being streamed.
 /// `fps` (with `i`) is the most frames per second the viewer's display
 /// shows; a host that predates it ignores it and streams at 60.
+/// `scroll` counts wheel lines; with `u: "px"` (only to a host that
+/// advertised ``ScreenStreamViewer/pixelScrollCapability``) it counts pixels
+/// of the streamed video frame, for smooth scrolling.
 public struct ScreenInput: Codable, Sendable {
     /// move, scroll, key, chord, text, display, refresh, quality, fps
     public var t: String
@@ -26,11 +29,13 @@ public struct ScreenInput: Codable, Sendable {
     public var i: Int?
     /// Modifier keysyms for `chord`.
     public var m: [UInt32]?
+    /// The unit of a `scroll`'s `dx`/`dy`: nil for wheel lines, "px" for pixels.
+    public var u: String?
 
     public init(t: String, x: Double? = nil, y: Double? = nil, b: UInt8? = nil, dx: Int? = nil, dy: Int? = nil,
-                k: UInt32? = nil, d: Bool? = nil, s: String? = nil, i: Int? = nil, m: [UInt32]? = nil) {
+                k: UInt32? = nil, d: Bool? = nil, s: String? = nil, i: Int? = nil, m: [UInt32]? = nil, u: String? = nil) {
         self.t = t; self.x = x; self.y = y; self.b = b; self.dx = dx; self.dy = dy
-        self.k = k; self.d = d; self.s = s; self.i = i; self.m = m
+        self.k = k; self.d = d; self.s = s; self.i = i; self.m = m; self.u = u
     }
 }
 
@@ -122,7 +127,9 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
 
 /// Host → viewer: the displays and which one is streaming, and the frame
 /// rate the host streams at (`fps`; an older host sends none, an older
-/// viewer ignores it).
+/// viewer ignores it). A newer host also sends `caps` once the input channel
+/// opens: `s` is a comma list of what it accepts beyond the first protocol
+/// (``ScreenStreamViewer/pixelScrollCapability``).
 public struct ScreenHostMessage: Codable, Sendable {
     public struct Display: Codable, Sendable, Equatable {
         public var w: Int
@@ -135,6 +142,8 @@ public struct ScreenHostMessage: Codable, Sendable {
     public var name: String?
     /// The frames per second the stream is set to (the agreed rate, not the measured one).
     public var fps: Int?
+    /// `caps`: the host's capabilities, comma separated.
+    public var s: String?
 }
 
 /// Where a screen stream's pictures come from and where its input goes.
@@ -649,6 +658,9 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     // @unchecked: mutable state is behind `lock`.
     public var onVideo: (@Sendable (VideoTrackBox) -> Void)?
     public var onDisplays: (@Sendable (ScreenHostMessage) -> Void)?
+    /// The host's `caps` message (an older host sends none: nothing beyond
+    /// the first protocol).
+    public var onCapabilities: (@Sendable (Set<String>) -> Void)?
     public var onState: (@Sendable (String?) -> Void)?
     public var onPath: (@Sendable (String) -> Void)?
     /// A STUN or TURN server gave no candidate (`icecandidateerror`), for saying why a relay path failed.
@@ -715,7 +727,12 @@ public final class ScreenStreamViewer: @unchecked Sendable {
                     self?.lock.withLock { self?.track = track }
                     self?.onVideo?(track)
                 case let .message(data):
-                    if let message = try? JSONDecoder().decode(ScreenHostMessage.self, from: data) { self?.onDisplays?(message) }
+                    guard let message = try? JSONDecoder().decode(ScreenHostMessage.self, from: data) else { break }
+                    if let capabilities = Self.capabilities(in: message) {
+                        self?.onCapabilities?(capabilities)
+                    } else {
+                        self?.onDisplays?(message)
+                    }
                 case let .path(local, remote):
                     let relay = local == "relay" || remote == "relay"
                     self?.onPath?(relay ? "Relay" : "Direct")
@@ -797,6 +814,21 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         case .hello, .offer, .path:
             break
         }
+    }
+
+    /// The host → viewer message type that lists the host's capabilities.
+    public static let capabilitiesMessage = "caps"
+    /// The host accepts pixel scrolling: `scroll` with `u` = ``pixelScrollUnit``.
+    public static let pixelScrollCapability = "scroll-px"
+    /// `ScreenInput.u` for a `scroll` counted in pixels.
+    public static let pixelScrollUnit = "px"
+
+    /// The capabilities a `caps` message lists (trimmed, empty entries
+    /// dropped); nil for any other message.
+    public static func capabilities(in message: ScreenHostMessage) -> Set<String>? {
+        guard message.t == capabilitiesMessage else { return nil }
+        let names = (message.s ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        return Set(names.filter { !$0.isEmpty })
     }
 
     /// The input message type that reports the viewer's display rate.
