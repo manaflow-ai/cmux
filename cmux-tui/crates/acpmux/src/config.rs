@@ -341,10 +341,17 @@ pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
 #[cfg(unix)]
 pub fn socket_path() -> PathBuf {
     let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
+    socket_path_for(&home(), configured.as_deref())
+}
+
+/// Resolve a daemon socket using the same short-path rules as [`socket_path`],
+/// for a home and optional configured path supplied by a managed unit.
+#[cfg(unix)]
+pub(crate) fn socket_path_for(home: &Path, configured: Option<&str>) -> PathBuf {
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
     let cwd = std::env::current_dir().ok();
-    let (configured, home) = socket_inputs(configured.as_deref(), &home(), cwd.as_deref());
+    let (configured, home) = socket_inputs(configured, home, cwd.as_deref());
     let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
         configured.as_deref(),
         &home,
@@ -813,6 +820,26 @@ pub struct TitlesConfig {
     pub model: Option<String>,
 }
 
+/// Host-wide limits applied to every Linux session scope. These are daemon
+/// settings, rather than spawn environment, so a CLI can set them without
+/// crossing the app-only spawn-env gate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResourceConfig {
+    /// Per-session memory ceiling in MiB. Unset uses half of host memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_mb: Option<u64>,
+    /// Per-session swap ceiling in MiB. Unset uses one quarter of host swap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swap_mb: Option<u64>,
+}
+
+impl SessionResourceConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// Experimental transports. Labs switches are deliberately opt-in and keep
 /// the normal peer route unchanged until a caller explicitly enables them.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -856,6 +883,9 @@ pub struct Config {
     /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub defaults: BTreeMap<String, SessionDefaults>,
+    /// Host-wide resource limits for new Linux session scopes.
+    #[serde(default, skip_serializing_if = "SessionResourceConfig::is_default")]
+    pub session: SessionResourceConfig,
     /// Named bundles for `-p NAME`: `{"deepseek": {"harness": "opencode",
     /// "model": "opencode-go/deepseek-v4-pro", "effort": "low"}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -970,7 +1000,7 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<crate::cli::send_relay::SendRelay>,
-    /// `meshRelay`: `{"url", "tokenCommand"}`, the team hub this daemon heartbeats its sessions to,
+    /// `meshRelay`: `{"url", "tokenCommand", "controlFrom"}`, the team hub this daemon heartbeats its sessions to,
     /// takes messages for them from, and sends a message to a name nobody here resolves through
     /// (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the default): no relay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1044,6 +1074,31 @@ pub struct MachineWakeConfig {
 }
 
 impl Config {
+    /// Set a host-wide session resource setting from the CLI. `default`,
+    /// `none`, and `clear` remove an override and restore the computed default.
+    pub fn set_session_resource(&mut self, key: &str, value: &str) -> Result<()> {
+        let key = key.trim().replace('-', "_").to_ascii_lowercase();
+        let slot = match key.as_str() {
+            "session.memory_mb" | "session.memorymb" | "memory_mb" | "memorymb" => {
+                &mut self.session.memory_mb
+            }
+            "session.swap_mb" | "session.swapmb" | "swap_mb" | "swapmb" => {
+                &mut self.session.swap_mb
+            }
+            _ => anyhow::bail!(
+                "unknown session resource setting `{key}` (use session.memory_mb or session.swap_mb)"
+            ),
+        };
+        let value = value.trim();
+        *slot = match value.to_ascii_lowercase().as_str() {
+            "" | "default" | "none" | "clear" => None,
+            _ => Some(value.parse::<u64>().with_context(|| {
+                format!("{key} must be a non-negative integer MiB or `default`")
+            })?),
+        };
+        Ok(())
+    }
+
     /// `agentStartTimeoutMs`, or its 90 s default.
     pub fn agent_start_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
@@ -1332,6 +1387,15 @@ impl Config {
 
     /// Write back to the file this config came from. No-op for in-code configs.
     pub fn save(&self) -> Result<()> {
+        self.save_with_writer(write_atomic)
+    }
+
+    /// Preserve discovered/shadowed profile filtering when a caller needs a
+    /// stronger durability contract than ordinary config writes.
+    pub(crate) fn save_with_writer(
+        &self,
+        write: impl FnOnce(&Path, &[u8]) -> Result<()>,
+    ) -> Result<()> {
         let Some(path) = &self.path else {
             tracing::debug!("config has no file; not saved");
             return Ok(());
@@ -1364,7 +1428,7 @@ impl Config {
                 on_disk.defaults.remove("claude");
             }
         }
-        write_atomic(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
+        write(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
     }
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {

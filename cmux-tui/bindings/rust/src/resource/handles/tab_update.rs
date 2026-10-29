@@ -34,9 +34,6 @@ pub struct TabUpdateOptions {
     /// the tab's navigation to another page or its close clears it.
     /// `Update::Clear` sends `null` (the agent's clear).
     pub attention: Update<String>,
-    /// When clearing, only clear the request whose `extra.attention.at_ms`
-    /// matches this value (`tab-attention-clear-revision-v1`).
-    pub attention_at_ms: Option<u64>,
 }
 
 impl Tab {
@@ -80,7 +77,7 @@ impl Tab {
 }
 
 fn tab_update_params(params: Params, options: TabUpdateOptions) -> Result<Params> {
-    let TabUpdateOptions { zoom, back, forward, owner, icon, attention, attention_at_ms } = options;
+    let TabUpdateOptions { zoom, back, forward, owner, icon, attention } = options;
     if matches!(zoom, Update::Unchanged)
         && matches!(icon, Update::Unchanged)
         && matches!(attention, Update::Unchanged)
@@ -90,11 +87,6 @@ fn tab_update_params(params: Params, options: TabUpdateOptions) -> Result<Params
     {
         return Err(Error::InvalidArgument(
             "tab update must set zoom, back, forward, owner, icon, or attention".to_string(),
-        ));
-    }
-    if attention_at_ms.is_some() && !matches!(attention, Update::Clear) {
-        return Err(Error::InvalidArgument(
-            "attention_at_ms only applies when clearing attention".to_string(),
         ));
     }
     let mut params = match zoom {
@@ -138,12 +130,7 @@ fn tab_update_params(params: Params, options: TabUpdateOptions) -> Result<Params
     }
     match attention {
         Update::Unchanged => {}
-        Update::Clear => {
-            params = params.value("attention", Value::Null);
-            if let Some(at_ms) = attention_at_ms {
-                params = params.u64("attention_at_ms", at_ms);
-            }
-        }
+        Update::Clear => params = params.value("attention", Value::Null),
         // The daemon's rule: one readable line (no control character, no
         // U+2028 or U+2029) of at most TAB_ATTENTION_REASON_MAX_BYTES.
         Update::Set(reason)

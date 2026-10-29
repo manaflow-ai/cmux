@@ -71,11 +71,17 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    // Server-side local/non-closed session-list filters used by native quit
+    // census callers. Older daemons keep serving the unfiltered list.
+    Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     Capability {
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
+    // older daemons treat that field as legacy side-session input, so this id gates the shape.
+    Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
     // Owner-VM Codex app-server bridge: access-only external tokens are read
     // from the private broker file and never exposed through ACP frames.
     Capability {
@@ -167,6 +173,18 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
     // Reconnect a Claude Code chat's MCP server (`hub/tools.rs`).
     Capability { id: "mcp-reconnect-v1", wire: &[method::MUX_MCP_RECONNECT] },
+    // Labs team-scoped agent messaging over the mesh relay. The daemon keeps
+    // this capability visible even when the flag is off so clients can explain
+    // the opt-in instead of treating it as an unknown method.
+    Capability {
+        id: "team-messaging-v1",
+        wire: &[
+            method::MUX_TEAM_SEND,
+            method::MUX_TEAM_INBOX,
+            method::MUX_TEAM_READ,
+            method::MUX_TEAM_ACK,
+        ],
+    },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
 ];

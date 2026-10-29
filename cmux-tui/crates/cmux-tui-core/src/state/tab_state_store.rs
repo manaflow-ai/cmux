@@ -5,6 +5,10 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
+#[cfg(test)]
+#[path = "tab_attention_request_tests.rs"]
+mod attention_request_tests;
+
 use crate::workspace_registry::presentation_store::{
     SavedTabGroupRecord, SavedTabMember, TabGroupState, delete_saved_tab_group_in,
     put_saved_tab_group_in, read_saved_tab_groups, write_tab_group_state,
@@ -105,24 +109,44 @@ pub(crate) fn add_tab_attention_column(transaction: &Transaction<'_>) -> anyhow:
     if !has_column {
         transaction.execute_batch("ALTER TABLE tab_state ADD COLUMN attention_json TEXT;")?;
     }
-    transaction.execute_batch(
-        "CREATE TABLE IF NOT EXISTS tab_attention_revisions (
-            tab_id TEXT PRIMARY KEY NOT NULL,
-            at_ms INTEGER NOT NULL
-        );",
-    )?;
-    // Preserve identities already stored by the tab-attention-v1 daemon. Only
-    // signed SQLite integers are usable by the revision ledger; malformed or
-    // out-of-range legacy values are replaced by the next mark below.
-    transaction.execute_batch(
-        "INSERT OR IGNORE INTO tab_attention_revisions(tab_id, at_ms)
-         SELECT tab_id, CAST(json_extract(attention_json, '$.at_ms') AS INTEGER)
-         FROM tab_state
-         WHERE attention_json IS NOT NULL
-           AND json_type(attention_json, '$.at_ms') = 'integer'
-           AND json_extract(attention_json, '$.at_ms') BETWEEN 0 AND 9223372036854775807;",
-    )?;
+    // Upgrade pre-token marks once. The identity lives in the same JSON as
+    // the mark, so a restart preserves it; legacy writers may replace the
+    // JSON, in which case the next upgrade issues a new identity.
+    let legacy = transaction
+        .prepare("SELECT tab_id, attention_json FROM tab_state WHERE attention_json IS NOT NULL")?
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (tab, stored) in legacy {
+        let Ok(mut value) = serde_json::from_str::<Value>(&stored) else { continue };
+        let Some(object) = value.as_object_mut() else { continue };
+        if object.get("reason").and_then(Value::as_str).is_none()
+            || object.get("at_ms").and_then(Value::as_u64).is_none()
+            || object
+                .get("request_id")
+                .and_then(Value::as_str)
+                .is_some_and(valid_attention_request_id)
+        {
+            continue;
+        }
+        object.insert("request_id".into(), Value::String(new_attention_request_id()?));
+        transaction.execute(
+            "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
+            params![tab, value.to_string()],
+        )?;
+    }
     Ok(())
+}
+
+fn valid_attention_request_id(id: &str) -> bool {
+    id.len() == 32 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Owner-issued 128-bit identity, independent of the clock and row lifetime.
+/// Entropy failure aborts the transaction; there is no time-based fallback.
+fn new_attention_request_id() -> anyhow::Result<String> {
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| anyhow::anyhow!("random attention id: {error}"))?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// UTF-8 bytes an attention reason holds at most (the catalog's max_length unit).
@@ -134,14 +158,17 @@ pub(crate) const MAX_ATTENTION_REASON_BYTES: usize = 200;
 /// clears once the tab is on another page, decided in the clearing
 /// transaction ([`clear_attention_off_page`]), so a mark set on the new page
 /// survives a navigation event that arrives after it.
-pub(crate) fn attention_value(reason: &str, at_ms: u64, page: Option<&str>) -> Value {
-    match page {
-        Some(page) => json!({"reason": reason, "at_ms": at_ms, "page": page}),
-        None => json!({"reason": reason, "at_ms": at_ms}),
-    }
+fn attention_value(reason: &str, at_ms: u64, page: Option<&str>) -> anyhow::Result<Value> {
+    let request_id = new_attention_request_id()?;
+    Ok(match page {
+        Some(page) => {
+            json!({"reason": reason, "at_ms": at_ms, "request_id": request_id, "page": page})
+        }
+        None => json!({"reason": reason, "at_ms": at_ms, "request_id": request_id}),
+    })
 }
 
-/// The mark as `extra.attention` shows it: `{reason, at_ms}`, without the
+/// The mark as `extra.attention` shows it: `{reason, at_ms, request_id}`, without the
 /// page it was set on.
 pub(crate) fn shown_attention(stored: &str) -> anyhow::Result<Value> {
     let mut value: Value = serde_json::from_str(stored)?;
@@ -177,9 +204,9 @@ pub(crate) struct TabStateUpdate {
     /// the tab keeps it; the agent's clear, a browser tab's navigation to
     /// another page, or the tab's close clears it.
     pub(crate) attention: Option<Option<String>>,
-    /// When clearing, only clear the request with this `at_ms`. This prevents
-    /// a delayed read from erasing a newer request that arrived meanwhile.
-    pub(crate) attention_clear_at_ms: Option<u64>,
+    /// With attention:null, clear only the request with this identity.
+    /// Omission preserves the legacy unconditional clear API.
+    pub(crate) attention_request_id: Option<String>,
     /// The page a browser tab shows when a new attention mark is set, stored
     /// with it. Filled by `state_update_tab` from the tab's surface, never
     /// from the request.
@@ -216,14 +243,12 @@ impl TabStateUpdate {
                 "bad request: an attention reason is one line of text"
             );
         }
-        anyhow::ensure!(
-            self.attention_clear_at_ms.is_none() || self.attention == Some(None),
-            "bad request: attention_clear_at_ms only applies when clearing attention"
-        );
-        anyhow::ensure!(
-            self.attention_clear_at_ms.is_none_or(|value| value <= i64::MAX as u64),
-            "bad request: attention_clear_at_ms exceeds SQLite integer range"
-        );
+        if let Some(id) = &self.attention_request_id {
+            anyhow::ensure!(
+                matches!(self.attention, Some(None)) && valid_attention_request_id(id),
+                "bad request: attention_request_id requires attention:null and 32 lowercase hex bytes"
+            );
+        }
         for list in [&self.back, &self.forward].into_iter().flatten() {
             anyhow::ensure!(
                 list.len() <= MAX_HISTORY_URLS,
@@ -245,15 +270,16 @@ pub(crate) fn update_tab_state(
     tab_id: &str,
     update: &TabStateUpdate,
 ) -> anyhow::Result<()> {
+    update_tab_state_at_time(transaction, tab_id, update, crate::mux::now_ms())
+}
+
+fn update_tab_state_at_time(
+    transaction: &Transaction<'_>,
+    tab_id: &str,
+    update: &TabStateUpdate,
+    at_ms: u64,
+) -> anyhow::Result<()> {
     transaction.execute("INSERT OR IGNORE INTO tab_state(tab_id) VALUES(?1)", [tab_id])?;
-    // Keep the last request identity after the active tab_state row is cleared or the tab closes.
-    // This prevents a delayed clear from matching a later request after a clock rollback.
-    transaction.execute_batch(
-        "CREATE TABLE IF NOT EXISTS tab_attention_revisions (
-            tab_id TEXT PRIMARY KEY NOT NULL,
-            at_ms INTEGER NOT NULL
-        );",
-    )?;
     if let Some(zoom) = update.zoom {
         transaction
             .execute("UPDATE tab_state SET zoom = ?2 WHERE tab_id = ?1", params![tab_id, zoom])?;
@@ -282,68 +308,20 @@ pub(crate) fn update_tab_state(
         )?;
     }
     if let Some(attention) = &update.attention {
-        if attention.is_none() {
-            if let Some(at_ms) = update.attention_clear_at_ms {
-                transaction.execute(
-                    "UPDATE tab_state SET attention_json = NULL
-                     WHERE tab_id = ?1
-                       AND json_type(attention_json, '$.at_ms') = 'integer'
-                       AND json_extract(attention_json, '$.at_ms') = ?2",
-                    params![tab_id, at_ms as i64],
-                )?;
-            } else {
-                transaction.execute(
-                    "UPDATE tab_state SET attention_json = NULL WHERE tab_id = ?1",
-                    params![tab_id],
-                )?;
-            }
-        } else {
-            let now_ms = crate::mux::now_ms();
-            let previous_at_ms: Option<i64> = transaction
-                .query_row(
-                    "SELECT CASE
-                                WHEN json_type(attention_json, '$.at_ms') = 'integer'
-                                 AND json_extract(attention_json, '$.at_ms') BETWEEN 0 AND 9223372036854775807
-                                THEN CAST(json_extract(attention_json, '$.at_ms') AS INTEGER)
-                                ELSE NULL
-                            END
-                       FROM tab_state WHERE tab_id = ?1",
-                    [tab_id],
-                    |row| row.get::<_, Option<i64>>(0),
-                )
-                ?;
-            let last_at_ms: Option<i64> = transaction
-                .query_row(
-                    "SELECT at_ms FROM tab_attention_revisions WHERE tab_id = ?1",
-                    [tab_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            // Keep the request identity monotonic per tab even when the wall clock moves
-            // backwards or two requests arrive in one millisecond.
-            let previous = previous_at_ms
-                .into_iter()
-                .chain(last_at_ms)
-                .filter_map(|value| u64::try_from(value).ok())
-                .max();
-            let at_ms = previous.map_or(now_ms, |previous| now_ms.max(previous.saturating_add(1)));
-            anyhow::ensure!(
-                at_ms <= i64::MAX as u64,
-                "attention timestamp exceeds SQLite integer range"
-            );
-            let stored = attention.as_deref().map(|reason| {
-                attention_value(reason.trim(), at_ms, update.attention_page.as_deref()).to_string()
-            });
-            transaction.execute(
-                "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
-                params![tab_id, stored],
-            )?;
-            transaction.execute(
-                "INSERT INTO tab_attention_revisions(tab_id, at_ms) VALUES(?1, ?2)
-                 ON CONFLICT(tab_id) DO UPDATE SET at_ms = excluded.at_ms",
-                params![tab_id, at_ms as i64],
-            )?;
-        }
+        let stored = attention
+            .as_deref()
+            .map(|reason| {
+                attention_value(reason.trim(), at_ms, update.attention_page.as_deref())
+                    .map(|value| value.to_string())
+            })
+            .transpose()?;
+        // Compare in the writing transaction, never against an earlier snapshot.
+        // A stale identity is a no-op; other requested fields still update.
+        transaction.execute(
+            "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1
+             AND (?3 IS NULL OR json_extract(attention_json, '$.request_id') = ?3)",
+            params![tab_id, stored, update.attention_request_id],
+        )?;
     }
     for (column, list) in [("back_json", &update.back), ("forward_json", &update.forward)] {
         if let Some(list) = list {
@@ -707,17 +685,7 @@ mod attention_tests {
             .unwrap();
         let stored: Value = serde_json::from_str(&stored).unwrap();
         assert_eq!(stored["reason"], "Confirm GitHub access");
-        let first_at = stored["at_ms"].as_u64().unwrap();
-        let transaction = connection.transaction().unwrap();
-        update_tab_state(&transaction, "tab_a", &mark).unwrap();
-        transaction.commit().unwrap();
-        let second_at: i64 = connection
-            .query_row("SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get(0))
-            .unwrap();
-        assert!(
-            u64::try_from(second_at).unwrap() > first_at,
-            "repeated requests have a unique monotonic identity"
-        );
+        assert!(stored["at_ms"].as_u64().is_some());
         let transaction = connection.transaction().unwrap();
         let clear = TabStateUpdate { attention: Some(None), ..Default::default() };
         update_tab_state(&transaction, "tab_a", &clear).unwrap();
@@ -727,136 +695,6 @@ mod attention_tests {
         assert!(!tab_has_attention(&connection, "tab_a").unwrap());
         assert!(!tab_has_attention(&connection, "tab_b").unwrap());
         assert_eq!(rows(&connection), 0);
-    }
-
-    #[test]
-    fn a_delayed_attention_clear_keeps_a_newer_request() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
-                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
-                   marked_unread INTEGER, attention_json TEXT);",
-            )
-            .unwrap();
-        let mark = TabStateUpdate {
-            attention: Some(Some("Confirm GitHub access".into())),
-            ..Default::default()
-        };
-        let transaction = connection.transaction().unwrap();
-        update_tab_state(&transaction, "tab_a", &mark).unwrap();
-        transaction.commit().unwrap();
-        let old_at: i64 = connection
-            .query_row("SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get(0))
-            .unwrap();
-        let transaction = connection.transaction().unwrap();
-        let clear = TabStateUpdate {
-            attention: Some(None),
-            attention_clear_at_ms: Some(u64::try_from(old_at).unwrap()),
-            ..Default::default()
-        };
-        update_tab_state(&transaction, "tab_a", &clear).unwrap();
-        transaction.commit().unwrap();
-        let transaction = connection.transaction().unwrap();
-        update_tab_state(
-            &transaction,
-            "tab_a",
-            &TabStateUpdate {
-                attention: Some(Some("Approve the scopes".into())),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        transaction.commit().unwrap();
-        let newer_at: i64 = connection
-            .query_row("SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get(0))
-            .unwrap();
-        assert!(newer_at > old_at, "a re-mark after clear gets a fresh identity");
-        let transaction = connection.transaction().unwrap();
-        update_tab_state(&transaction, "tab_a", &clear).unwrap();
-        transaction.commit().unwrap();
-        assert_eq!(
-            connection.query_row("SELECT json_extract(attention_json, '$.reason') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get::<_, String>(0)).unwrap(),
-            "Approve the scopes"
-        );
-    }
-
-    #[test]
-    fn a_guarded_clear_rejects_non_integer_timestamp_shapes() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
-                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
-                   marked_unread INTEGER, attention_json TEXT);
-                 INSERT INTO tab_state(tab_id, attention_json) VALUES
-                   ('tab_fraction', '{\"reason\":\"fraction\",\"at_ms\":1.5}'),
-                   ('tab_string', '{\"reason\":\"string\",\"at_ms\":\"1\"}');",
-            )
-            .unwrap();
-        let transaction = connection.transaction().unwrap();
-        let clear = TabStateUpdate {
-            attention: Some(None),
-            attention_clear_at_ms: Some(1),
-            ..Default::default()
-        };
-        update_tab_state(&transaction, "tab_fraction", &clear).unwrap();
-        update_tab_state(&transaction, "tab_string", &clear).unwrap();
-        transaction.commit().unwrap();
-        assert!(tab_has_attention(&connection, "tab_fraction").unwrap());
-        assert!(tab_has_attention(&connection, "tab_string").unwrap());
-    }
-
-    #[test]
-    fn migration_preserves_legacy_request_identity_after_clear() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
-             back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
-             marked_unread INTEGER, attention_json TEXT);
-             INSERT INTO tab_state(tab_id, attention_json) VALUES
-             ('tab_a', '{\"reason\":\"Legacy request\",\"at_ms\":8000000000000000}');",
-            )
-            .unwrap();
-        let transaction = connection.transaction().unwrap();
-        add_tab_attention_column(&transaction).unwrap();
-        update_tab_state(
-            &transaction,
-            "tab_a",
-            &TabStateUpdate { attention: Some(None), ..Default::default() },
-        )
-        .unwrap();
-        update_tab_state(
-            &transaction,
-            "tab_a",
-            &TabStateUpdate { attention: Some(Some("New request".into())), ..Default::default() },
-        )
-        .unwrap();
-        update_tab_state(
-            &transaction,
-            "tab_a",
-            &TabStateUpdate {
-                attention: Some(None),
-                attention_clear_at_ms: Some(8_000_000_000_000_000),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let at_ms: i64 = transaction.query_row(
-            "SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'",
-            [], |row| row.get(0)
-        ).unwrap();
-        assert_eq!(at_ms, 8_000_000_000_000_001);
-        assert!(
-            TabStateUpdate {
-                attention: Some(None),
-                attention_clear_at_ms: Some(u64::MAX),
-                ..Default::default()
-            }
-            .validate()
-            .is_err()
-        );
     }
 
     #[test]

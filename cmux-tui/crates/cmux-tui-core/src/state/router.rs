@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value, json};
 
 use crate::mux::{PersonalChange, ScreenChange, StripRequest, WorkspaceStatusChange};
-use crate::resource::{ResourceError, ResourceOperation, WireDecimal};
+use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::{
     ParsedResourceRequest, expected_revision, mutation_result, operation_name,
     resource_operation_error, validation_error,
@@ -204,22 +204,6 @@ fn optional_bool(fields: &Map<String, Value>, name: &str) -> Result<Option<bool>
     }
 }
 
-/// `None` when absent; a present field must be a nonnegative integer.
-fn optional_u64(fields: &Map<String, Value>, name: &str) -> Result<Option<u64>, ResourceError> {
-    match fields.get(name) {
-        None => Ok(None),
-        Some(value) => serde_json::from_value::<WireDecimal>(value.clone())
-            .map(WireDecimal::get)
-            .map(Some)
-            .map_err(|error| {
-                validation_error(
-                    &format!("{name} must be an unsigned decimal string"),
-                    json!({"field": name, "error": error.to_string()}),
-                )
-            }),
-    }
-}
-
 /// `None` when absent, `Some(None)` for null; a present value must be a string.
 fn nullable_reason(
     fields: &Map<String, Value>,
@@ -362,8 +346,17 @@ pub(crate) fn dispatch(
                 emulation: None,
                 marked_unread: optional_bool(fields, "marked_unread")?,
                 attention: nullable_reason(fields, "attention")?,
-                attention_clear_at_ms: optional_u64(fields, "attention_at_ms")?,
                 attention_page: None,
+                attention_request_id: match fields.get("attention_request_id") {
+                    None => None,
+                    Some(Value::String(id)) => Some(id.clone()),
+                    Some(_) => {
+                        return Err(validation_error(
+                            "attention_request_id must be a string",
+                            json!({"field": "attention_request_id"}),
+                        ));
+                    }
+                },
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)
