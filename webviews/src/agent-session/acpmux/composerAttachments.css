@@ -189,7 +189,7 @@
 }
 /* With its Retry (attachmentIntake.tsx BrokenImageChip): the glyph, the note and Retry fit the tile. */
 .acpmux-attachment-image-failed {
-  gap: 2px;
+  gap: 4px;
 }
 .acpmux-attachment-image-failed .acpmux-attachment-failed-text {
   display: -webkit-box;
