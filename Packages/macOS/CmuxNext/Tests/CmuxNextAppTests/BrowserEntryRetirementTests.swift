@@ -35,12 +35,18 @@ import Testing
 
     @Test func releasingAnEntryOffMainRetiresItsPageOnMain() async {
         let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-        let owner = EntryOwner(BrowserEntry(tab: page))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close(); page.close() }
-        window.contentView = owner.entry.withLock { $0?.chrome }
+        // The chrome goes into the window here, on main: read out of the Mutex it would be a main
+        // actor-isolated value sent out of its lock (a Swift 6 `sending` error).
+        let owner: EntryOwner
+        do {
+            let entry = BrowserEntry(tab: page)
+            window.contentView = entry.chrome
+            owner = EntryOwner(entry)
+        }
         let probe = PageDetachmentProbe()
         page.contentView.addSubview(probe)
         #expect(probe.window === window)
