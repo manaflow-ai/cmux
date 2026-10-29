@@ -98,7 +98,7 @@ def path_without_timeout(temp):
 
 
 class PerFileRunner(unittest.TestCase):
-    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None):
+    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None, args=()):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -140,7 +140,7 @@ class PerFileRunner(unittest.TestCase):
             env["CMUX_WEB_TEST_SHARD_COUNT"] = str(shard_count)
         env.update(extra_env or {})
         started = time.monotonic()
-        result = subprocess.run(["bash", str(RUNNER)], cwd=web, env=env, capture_output=True, text=True, timeout=40)
+        result = subprocess.run(["bash", str(RUNNER), *args], cwd=web, env=env, capture_output=True, text=True, timeout=40)
         return result, time.monotonic() - started, sorted(calls.read_text(encoding="utf-8").split())
 
     def test_a_stuck_file_is_named_and_fails_without_hanging(self):
@@ -341,6 +341,48 @@ class PerFileRunner(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("test/gone.test.ts", result.stderr)
         self.assertEqual(calls, [])
+
+    def test_arguments_pick_files_dirs_and_name_filters(self):
+        """`bun run test FILES` (webviews' test script) runs only the named files, one process each."""
+        files = ["test/a.test.ts", "test/fail.test.ts", "src/b.test.tsx", "src/chips/c.test.tsx"]
+        result, _, calls = self.run_runner(files, args=["./test/a.test.ts", "src/chips", "b.test"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./src/b.test.tsx", "./src/chips/c.test.tsx", "./test/a.test.ts"])
+
+    def test_an_argument_matching_no_test_file_fails(self):
+        result, _, calls = self.run_runner(["test/a.test.ts"], args=["test/a.test.ts", "gone"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("gone", result.stderr)
+        self.assertEqual(calls, [])
+
+    def test_a_bun_option_is_refused_with_the_single_file_command(self):
+        result, _, calls = self.run_runner(["test/a.test.ts"], args=["--watch"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("bun test FILE --watch", result.stderr)
+        self.assertEqual(calls, [])
+
+    def test_an_untracked_test_runs_outside_github_actions(self):
+        """A new test runs under `bun run test` before it is staged, named or not, as bare `bun test` ran it;
+        GitHub Actions keeps the git index list."""
+        def add_untracked(web):
+            (web / "test" / "new.test.ts").write_text("", encoding="utf-8")
+            (web / ".gitignore").write_text("ignored.test.ts\n", encoding="utf-8")
+            (web / "test" / "ignored.test.ts").write_text("", encoding="utf-8")
+        self.web_hook = add_untracked
+        result, _, calls = self.run_runner(["test/a.test.ts"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./test/a.test.ts", "./test/new.test.ts"])
+        result, _, calls = self.run_runner(["test/a.test.ts"], args=["test/new.test.ts"])
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./test/new.test.ts"])
+        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={"GITHUB_ACTIONS": "true"})
+        self.assertEqual(calls, ["./test/a.test.ts"])
+
+    def test_webviews_test_script_is_the_per_file_runner(self):
+        """A single `bun test` over many files leaks globals between them: diff-viewer-git before
+        access-chip-refused-mode fails 13 tests that pass alone and in CI."""
+        scripts = json.loads((ROOT / "webviews" / "package.json").read_text(encoding="utf-8"))["scripts"]
+        self.assertEqual(scripts["test"], "bash ../scripts/ci/run-webviews-tests.sh")
 
     def test_shards_cover_each_file_once(self):
         files = ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "src/d.test.tsx", "src/e.test.tsx"]

@@ -64,6 +64,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).duplicateTab(tab, in: workspace)
     }
+    public func openLink(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).openLink(url, besides: tab, in: workspace)
+    }
     public func moveTab(_ tab: WorkspaceTab, to target: WorkspaceTab, in workspace: Workspace) async throws {
         try await backend(workspace.macID).moveTab(tab, to: target, in: workspace)
     }
@@ -130,6 +133,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         try await backend(workspace.macID).setIcon(workspace, icon)
     }
     public func clearName(_ workspace: Workspace) async throws { try await backend(workspace.macID).clearName(workspace) }
+    public func place(_ workspace: Workspace, next anchor: Workspace, after: Bool) async throws {
+        try await backend(workspace.macID).place(workspace, next: anchor, after: after)
+    }
 
     // MARK: NotificationClearing
 

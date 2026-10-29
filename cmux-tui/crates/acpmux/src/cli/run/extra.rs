@@ -31,7 +31,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::Cancel { session } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             // As a request, the reply says the daemon handled the cancel.
             client.request(method::SESSION_CANCEL, json!({"sessionId": id})).await?;
             if json_out {
@@ -43,7 +43,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::Kill { session, purge } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             let v =
                 client.request(method::MUX_KILL, json!({"sessionId": id, "purge": purge})).await?;
             if json_out {
@@ -78,7 +78,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
             // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
             let held = info["queue"]
