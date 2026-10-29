@@ -26,7 +26,7 @@ on:
         default: ""
         type: string
       acpmux_ref:
-        description: Full SHA of a feat-cmux-next commit to build acpmux from (default the run's commit)
+        description: The commit acpmux is built from; only the run's commit (the feat-cmux-next tip) is accepted
         required: false
         default: ""
         type: string
@@ -68,8 +68,6 @@ jobs:
         env:
           NAME_INPUT: ${{ inputs.name }}
           ACPMUX_REF_INPUT: ${{ inputs.acpmux_ref }}
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           name="${NAME_INPUT:-ci-join-$GITHUB_RUN_ID}"
@@ -77,32 +75,13 @@ jobs:
             echo "::error::name must be 1-63 letters, digits, dot, underscore or dash"
             exit 1
           fi
-          ref="${ACPMUX_REF_INPUT:-$GITHUB_SHA}"
-          if ! printf '%s' "$ref" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::acpmux_ref must be a full 40-character commit SHA"
+          # acpmux is built from the run's own commit only: the build runs as the runner user, which
+          # later holds the stack secrets, so no other (older) code may build here.
+          if [ -n "$ACPMUX_REF_INPUT" ] && [ "$ACPMUX_REF_INPUT" != "$GITHUB_SHA" ]; then
+            echo "::error::acpmux_ref must be the run's commit ($GITHUB_SHA); dispatch on feat-cmux-next builds its tip"
             exit 1
           fi
-          # Only reviewed code builds in a job that later holds secrets: the commit must be on feat-cmux-next.
-          state="$(gh api "repos/$REPO/compare/$ref...feat-cmux-next" --jq .status)"
-          if [ "$state" != ahead ] && [ "$state" != identical ]; then
-            echo "::error::acpmux_ref $ref is not a commit of feat-cmux-next ($state)"
-            exit 1
-          fi
-          src=.
-          [ "$ref" = "$GITHUB_SHA" ] || src=acpmux-src
-          {
-            echo "name=$name"
-            echo "acpmux_ref=$ref"
-            echo "acpmux_src=$src"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Checkout acpmux source
-        if: steps.inputs.outputs.acpmux_src != '.'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ steps.inputs.outputs.acpmux_ref }}
-          path: acpmux-src
+          echo "name=$name" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux build dependencies
         run: |
@@ -122,27 +101,26 @@ jobs:
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
 
       - name: Build acpmux
-        working-directory: ${{ steps.inputs.outputs.acpmux_src }}/cmux-tui
+        working-directory: cmux-tui
         run: cargo build --locked -p acpmux --bin acpmux
 
+      # The user and base path go to the outputs before useradd, so cleanup runs even if a later line fails.
       - name: Create the disposable user
         id: user
-        env:
-          ACPMUX_SRC: ${{ steps.inputs.outputs.acpmux_src }}
         run: |
           set -euo pipefail
           base="$(mktemp -d /tmp/machine-join-e2e.XXXXXX)"
-          chmod 755 "$base"
           user="cmuxjoin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          sudo useradd --create-home --home-dir "$base/home" --shell /usr/sbin/nologin --user-group "$user"
-          sudo install -d -o root -g root -m 0755 "$base/bin"
-          sudo install -o root -g root -m 0755 "$ACPMUX_SRC/cmux-tui/target/debug/acpmux" "$base/bin/acpmux"
           {
             echo "user=$user"
-            echo "uid=$(id -u "$user")"
             echo "base=$base"
             echo "home=$base/home"
           } >> "$GITHUB_OUTPUT"
+          chmod 755 "$base"
+          sudo useradd --create-home --home-dir "$base/home" --shell /usr/sbin/nologin --user-group "$user"
+          echo "uid=$(id -u "$user")" >> "$GITHUB_OUTPUT"
+          sudo install -d -o root -g root -m 0755 "$base/bin"
+          sudo install -o root -g root -m 0755 cmux-tui/target/debug/acpmux "$base/bin/acpmux"
 
       # The only step that sees the stack secrets, through env. No `set -x`: the script prints its own lines.
       - name: Mint, join, verify and revoke
@@ -216,7 +194,8 @@ jobs:
           sudo -n -u "$JOIN_USER" -- /bin/kill -KILL -1 2>/dev/null || true
           sleep 1
           sudo userdel --remove "$JOIN_USER" 2>/dev/null || true
-          sudo rm -rf -- "$JOIN_BASE" "/tmp/acpmux-$JOIN_UID"
+          sudo rm -rf -- "$JOIN_BASE"
+          if [ -n "$JOIN_UID" ]; then sudo rm -rf -- "/tmp/acpmux-$JOIN_UID"; fi
           if id "$JOIN_USER" >/dev/null 2>&1; then
             echo "::error::the disposable user $JOIN_USER is still present"
             exit 1

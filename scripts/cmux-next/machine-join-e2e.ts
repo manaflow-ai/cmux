@@ -230,6 +230,9 @@ export async function runE2E(
   let daemon: Daemon | undefined
   let credentialPath: string | undefined
   let machineRevoked = false
+  // The join child while it runs; cleanup waits for it, since it may redeem the token at any moment.
+  let joining: Promise<ChildResult> | undefined
+  let joinStarted = false
 
   const op = async (name: string, params: unknown) => {
     const r = await call(`${DEV_API}/v1/ops`, {
@@ -270,10 +273,16 @@ export async function runE2E(
   }
 
   const revokeMachine = async () => {
-    if (machineRevoked || !evidence.joinTokenId) return
-    // A join that failed after the redeem still left a machine: find it by its join token.
-    const machineId = evidence.machineId ?? (await listEntry())?.machineId
-    if (typeof machineId !== "string") return
+    if (machineRevoked || !evidence.joinTokenId || !joinStarted) return
+    // A join that failed or was interrupted after the redeem still left a machine: find it by its join
+    // token, a few times, since the list may not show it at once (bounded: 6 reads over about 10 s).
+    let machineId = evidence.machineId ?? undefined
+    for (let attempt = 0; !machineId && attempt < 6; attempt++) {
+      if (attempt > 0) await deps.sleep(2_000)
+      const found = (await listEntry())?.machineId
+      if (typeof found === "string" && found) machineId = found
+    }
+    if (!machineId) return
     evidence.machineId = machineId
     const r = await platform("POST", `/v1/machines/credentials/${encodeURIComponent(machineId)}/revoke`)
     if (r.status < 200 || r.status >= 300) throw refusedBy("revoke", r)
@@ -284,6 +293,10 @@ export async function runE2E(
   let cleaning: Promise<void> | undefined
   const cleanup = () =>
     (cleaning ??= (async () => {
+      // Order: let an in-flight join finish (at most 5 s), signal the daemon, revoke, then wait for the daemon.
+      if (joining) await Promise.race([joining, deps.sleep(5_000)])
+      const stopping = daemon?.stop()
+      daemon = undefined
       try {
         await revokeMachine()
         // A run that failed before its own revoke check still proves the revoke here.
@@ -291,9 +304,8 @@ export async function runE2E(
       } catch (e) {
         problems.push(e instanceof Failed ? e.message : "revoke failed")
       }
-      if (daemon) {
-        const r = await daemon.stop()
-        daemon = undefined
+      if (stopping) {
+        const r = await stopping
         childText.push(r.stdout, r.stderr)
       }
       if (install && stack) {
@@ -318,7 +330,8 @@ export async function runE2E(
     const email = env.CMUX_UITEST_STACK_EMAIL ?? ""
     const password = env.CMUX_UITEST_STACK_PASSWORD ?? ""
     if (!email || !password) throw new Refused("CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD must be set")
-    secrets.push(email, password)
+    hold(email)
+    hold(password)
 
     // 1. Stack sign-in (development project), cmux user, a throwaway install and its access token.
     const signIn = await call(`${STACK_API}/auth/password/sign-in`, { method: "POST", headers: stackHeaders(), body: { email, password } })
@@ -346,19 +359,26 @@ export async function runE2E(
     if (typeof mint.json?.token === "string") hold(mint.json.token)
     if (mint.status !== 200 || typeof mint.json?.token !== "string" || !/^cmj_[A-Za-z0-9_-]{16,4096}$/.test(mint.json.token)) throw refusedBy("mint", mint)
     token = mint.json.token as string
-    evidence.joinTokenId = String(mint.json.joinTokenId ?? "") || null
-    evidence.teamId = String(mint.json.teamId ?? "") || null
+    const id = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9._:-]{1,256}$/.test(v) ? v : null)
+    evidence.joinTokenId = id(mint.json.joinTokenId)
+    evidence.teamId = id(mint.json.teamId)
+    // Without its id, a joined machine could not be found to revoke: never join then.
+    if (!evidence.joinTokenId || !evidence.teamId) throw new Failed("mint: no joinTokenId or teamId")
     say(`minted join token ${evidence.joinTokenId} for team ${evidence.teamId}`)
 
     // 3. Join: the token goes to stdin only, then this process drops it.
-    const joined = await acpmux(["host", "join", "--hub", opts.origin, "--name", opts.name, "--json"], `${token}\n`)
+    joinStarted = true
+    joining = acpmux(["host", "join", "--hub", opts.origin, "--name", opts.name, "--json"], `${token}\n`)
     token = undefined
+    const joined = await joining
+    joining = undefined
     const j = lastJson(joined.stdout)
     if (joined.code !== 0 || j?.joined !== true) {
       const meaning: Record<number, string> = { 2: "malformed", 3: "expired or used", 4: "hub unreachable", 5: "store failed" }
       throw new Failed(`join: exit ${joined.code}${joined.code !== null && meaning[joined.code] ? ` (${meaning[joined.code]})` : ""}`)
     }
-    evidence.machineId = String(j.machineId ?? "") || null
+    evidence.machineId = typeof j.machineId === "string" && j.machineId ? j.machineId : null
+    if (!evidence.machineId) throw new Failed("join: no machineId")
     expect(j.teamId === evidence.teamId, "join team differs from the mint's team")
     say(`joined as machine ${evidence.machineId}`)
 
@@ -367,12 +387,15 @@ export async function runE2E(
     credentialPath = String(pre.credentialPath ?? "")
     if (!credentialPath.startsWith(`${opts.home}/`)) throw new Failed("status: credential path is outside the disposable home")
     const file = await deps.run(asRoot(["cat", "--", credentialPath]), { env: childEnv, timeoutMs: 10_000 })
+    let record: any
     try {
-      const credential = JSON.parse(file.stdout)?.credential
-      if (typeof credential === "string") hold(credential)
+      record = JSON.parse(file.stdout)
     } catch {
       throw new Failed("credential file is not JSON")
     }
+    if (typeof record?.credential === "string") hold(record.credential)
+    if (typeof record?.credential !== "string" || !/^cmm_[A-Za-z0-9_-]{16,4096}$/.test(record.credential)) throw new Failed("credential file holds no credential")
+    if (record.machine_id !== evidence.machineId) throw new Failed("credential file names another machine")
 
     // 4. Daemon in the foreground until a heartbeat under the limit.
     daemon = deps.start(asUser(["daemon", "run"]), { env: childEnv })
@@ -447,6 +470,7 @@ export async function runE2E(
   const logText = [...transcript, ...childText].join("\n")
   evidence.secretScan.log = { cmj: count(logText, "cmj_"), cmm: count(logText, "cmm_") }
   expect(evidence.secretScan.home.cmj === 0, "the home holds a join token")
+  if (credentialPath) expect(evidence.secretScan.home.credentialFileCmm === 1, "the credential file does not hold exactly one credential")
   expect(evidence.secretScan.home.cmm === 0, "the home holds a credential outside the credential file")
   expect(evidence.secretScan.log.cmj === 0 && evidence.secretScan.log.cmm === 0, "output holds a token or credential")
   if (secrets.some((s) => s.length >= 4 && logText.includes(s))) problems.push("output holds a secret value")

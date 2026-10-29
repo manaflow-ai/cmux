@@ -43,6 +43,16 @@ interface Knobs {
   revokeStatus?: number
   joinStderr?: string
   homeFiles?: Record<string, string>
+  /** The mint answers without a joinTokenId. */
+  noJoinTokenId?: boolean
+  /** The join redeems (the platform lists the machine) but then exits with this code. */
+  redeemThenExit?: number
+  /** List reads before a redeemed machine shows up. */
+  listVisibleAfter?: number
+  /** The credential file's text, instead of a valid record. */
+  credentialFile?: string
+  /** Runs while the join child is in flight (a cancel arriving then). */
+  duringJoin?: () => void
 }
 
 /** One fake world: the stack, cmux-api, the platform, sudo and acpmux. Records every call. */
@@ -57,6 +67,8 @@ function world(k: Knobs = {}) {
   let lastHeartbeat: number | null = null
   let revoked = false
   let revokeCalls = 0
+  let redeemed = false
+  let listReads = 0
 
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
   const fetch = async (url: string, init: RequestInit) => {
@@ -79,10 +91,12 @@ function world(k: Knobs = {}) {
     if (path === "/v1/machines/join-tokens") {
       if (k.mintStatus === 400) return json(400, { code: `bad ${TOKEN}`, message: `echo ${TOKEN}` })
       if (k.mintStatus && k.mintStatus !== 200) return json(k.mintStatus, { code: "join.rate_limited", message: `echo ${TOKEN}` })
-      return json(200, { token: TOKEN, joinTokenId: "jt_1", expiresAt: "2026-10-29T12:10:00Z", teamId: "team_1", label: parsed.label })
+      return json(200, { token: TOKEN, ...(k.noJoinTokenId ? {} : { joinTokenId: "jt_1" }), expiresAt: "2026-10-29T12:10:00Z", teamId: "team_1", label: parsed.label })
     }
     if (path === "/v1/machines/credentials") {
-      const machines = joined ? [{ machineId: "m_1", joinTokenId: "jt_1", teamId: "team_1", label: "ci-join-1", lastHeartbeat: lastHeartbeat ? "2026-10-29T12:01:00Z" : null, revoked }] : []
+      listReads += 1
+      const visible = (joined || redeemed) && (redeemed ? listReads > (k.listVisibleAfter ?? 0) : true)
+      const machines = visible ? [{ machineId: "m_1", joinTokenId: "jt_1", teamId: "team_1", label: "ci-join-1", lastHeartbeat: lastHeartbeat ? "2026-10-29T12:01:00Z" : null, revoked }] : []
       return json(200, { machines })
     }
     if (path === "/v1/machines/credentials/m_1/revoke") {
@@ -113,9 +127,15 @@ function world(k: Knobs = {}) {
     }
     if (args[0] === "host" && args[1] === "join") {
       if (stdin !== `${TOKEN}\n`) return { code: 2, stdout: "", stderr: "join token is malformed\n" }
+      k.duringJoin?.()
+      if (k.redeemThenExit) {
+        redeemed = true
+        listReads = 0
+        return { code: k.redeemThenExit, stdout: "", stderr: "could not store the machine credential\n" }
+      }
       if (k.joinExit) return { code: k.joinExit, stdout: "", stderr: k.joinStderr ?? "this line was used or expired\n" }
       joined = true
-      files[CRED_PATH] = JSON.stringify({ credential: CREDENTIAL, machine_id: "m_1" })
+      files[CRED_PATH] = k.credentialFile ?? JSON.stringify({ credential: CREDENTIAL, machine_id: "m_1" })
       return { code: 0, stdout: `${JSON.stringify({ joined: true, alreadyJoined: false, machineId: "m_1", teamId: "team_1", name: "ci-join-1", hubOrigin: DEV_PLATFORM }, null, 2)}\n`, stderr: k.joinStderr ?? "" }
     }
     return { code: 64, stdout: "", stderr: "unknown\n" }
@@ -266,7 +286,7 @@ describe("the full run", () => {
   test("every value is masked before anything else is printed", async () => {
     const w = world()
     await runE2E(opts, env, w.deps)
-    for (const s of [STACK_ACCESS, STACK_REFRESH, ACCESS, TOKEN, CREDENTIAL]) expect(w.lines).toContain(`::add-mask::${s}`)
+    for (const s of [EMAIL, PASSWORD, STACK_ACCESS, STACK_REFRESH, ACCESS, TOKEN, CREDENTIAL]) expect(w.lines).toContain(`::add-mask::${s}`)
     // The join token is masked before the join process starts.
     const maskedAt = w.lines.indexOf(`::add-mask::${TOKEN}`)
     expect(maskedAt).toBeGreaterThanOrEqual(0)
@@ -347,6 +367,55 @@ describe("failure paths", () => {
     expect(e.secretScan.home.cmm).toBe(1)
     expect(e.reason).toContain("the home holds a credential outside the credential file")
     assertNoSecretEscaped(w)
+  })
+})
+
+describe("revoke on every path", () => {
+  test("a mint without a joinTokenId never joins", async () => {
+    const w = world({ noJoinTokenId: true })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("mint: no joinTokenId")
+    expect(w.runs.filter((r) => r.argv.includes(opts.acpmux))).toEqual([])
+    assertNoSecretEscaped(w)
+  })
+
+  test("a join that redeemed and then failed is found by its join token and revoked, even when listed late", async () => {
+    const w = world({ redeemThenExit: 5, listVisibleAfter: 2 })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("join: exit 5 (store failed)")
+    expect(w.revokeCalls()).toBe(1)
+    expect(e.machineId).toBe("m_1")
+    expect(e.revoke.revokedListed).toBe(true)
+    assertNoSecretEscaped(w)
+  })
+
+  test("a cancel during the join waits for it, then revokes the machine it made", async () => {
+    let cleanup: (() => Promise<void>) | undefined
+    let cancelled: Promise<void> | undefined
+    // The cancel lands once the join child is in flight (after this tick), as a signal would.
+    const w = world({ duringJoin: () => queueMicrotask(() => (cancelled = cleanup!())) })
+    const e = await runE2E(opts, env, w.deps, (c) => (cleanup = c))
+    await cancelled
+    expect(w.revokeCalls()).toBe(1)
+    expect(e.revoke.revokedListed).toBe(true)
+    assertNoSecretEscaped(w)
+  })
+
+  test("a credential file without a credential fails the run and still revokes", async () => {
+    const w = world({ credentialFile: JSON.stringify({ machine_id: "m_1" }) })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("credential file holds no credential")
+    expect(w.revokeCalls()).toBe(1)
+    assertNoSecretEscaped(w)
+  })
+
+  test("the stack email and password are masked before the sign-in", async () => {
+    const w = world()
+    await runE2E(opts, env, w.deps)
+    expect(w.lines.slice(0, 2)).toEqual([`::add-mask::${EMAIL}`, `::add-mask::${PASSWORD}`])
   })
 })
 
