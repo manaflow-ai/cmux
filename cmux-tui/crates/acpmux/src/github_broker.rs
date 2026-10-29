@@ -24,7 +24,7 @@ use std::sync::Arc;
 use tokio::process::Command;
 
 const REPO_MAX: usize = 140;
-const TEXT_MAX: usize = 64 * 1024;
+pub(crate) const TEXT_MAX: usize = 64 * 1024;
 const OUTPUT_MAX: usize = 64 * 1024;
 /// How much of a stream is read before the rest is dropped, so a `gh` that will not stop
 /// talking cannot grow the Mac's daemon for as long as `GH_TIMEOUT` allows.
