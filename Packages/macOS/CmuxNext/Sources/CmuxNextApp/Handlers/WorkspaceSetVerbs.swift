@@ -18,6 +18,10 @@ enum WorkspaceSetVerbs {
                 if let window = controller.window { WindowTargeting.close(window) }
             }
         })
+        // Every other normal window's workspaces move here (each keeps its space); those windows close.
+        registry.bind("window.mergeAll", run: { invocation in
+            try context.services.windows.mergeWindows(into: context.window(invocation).state)
+        })
         registry.bind("workspaceGroup.duplicate", run: { try duplicateGroup($0, context) })
         registry.bind("sidebar.section.newWorkspace", run: { try newWorkspace(inSection: $0, context) })
         // A pure lookup (no refusal): the pane a pane or tab target names, if it shows an agent chat or sits on a canvas.
