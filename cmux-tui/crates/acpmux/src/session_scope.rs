@@ -161,7 +161,7 @@ fn knob_reader(
     env: &BTreeMap<String, String>,
     limits: SessionLimits,
 ) -> impl Fn(&str) -> Option<String> + '_ {
-    |key| {
+    move |key| {
         env.get(key)
             .cloned()
             .or_else(|| match key {
