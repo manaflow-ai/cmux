@@ -132,6 +132,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::CodexAuthBroker { home, codex }) => {
             crate::cli::codex_auth_broker::run(home, codex).await
         }
+        Some(Command::Gh { args }) => crate::cli::gh_shim::run(args).await,
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await

@@ -53,9 +53,12 @@ pub enum PeerCmd {
     #[command(subcommand)]
     Ticket(TicketCmd),
     /// Redeem a pairing ticket from another machine and pair in its role
-    /// (the install script runs this with the pasted ticket).
+    /// (the install script runs this with the pasted ticket). The ticket
+    /// comes on stdin, one line: `printf '%s\n' TICKET | acpmux host join`.
     Join {
-        ticket: String,
+        /// Deprecated: other users of this machine read argv (ps). Omit it
+        /// and pass the ticket on stdin; given here, it warns.
+        ticket: Option<String>,
         /// This machine's name on the other one (default: the host name's first label).
         #[arg(long)]
         name: Option<String>,

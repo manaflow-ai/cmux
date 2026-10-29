@@ -30,6 +30,13 @@ pub enum Command {
         #[arg(long)]
         codex: PathBuf,
     },
+    /// `gh` for an agent on a machine the person added: the GitHub broker's actions, run by the
+    /// Mac that lends this machine its login (`cli/gh_shim.rs`).
+    #[command(hide = true, disable_help_flag = true)]
+    Gh {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Send a local brief to another harness on a peer (or the least-loaded
     /// allowed host with `--host auto`) and record its identity.
     Dispatch(DispatchArgs),
@@ -245,6 +252,9 @@ pub enum Command {
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
     Ls {
+        /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
+        #[arg(long)]
+        with_tools: bool,
         /// Only sessions in this state: running, ready, idle, closed, waiting.
         #[arg(long)]
         status: Option<String>,
@@ -254,6 +264,15 @@ pub enum Command {
         /// Only sessions carrying this tag (key or key=value).
         #[arg(long)]
         tag: Option<String>,
+        /// Return at most N sessions, newest first.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        limit: Option<u64>,
+        /// Select comma-separated fields from each session record.
+        #[arg(long, value_name = "FIELD[,FIELD…]")]
+        fields: Option<String>,
+        /// Only sessions updated within this duration (for example `24h` or `30m`).
+        #[arg(long, value_name = "DURATION")]
+        since: Option<String>,
     },
     /// Open the TUI on a session, or on the session list.
     #[command(alias = "a")]
@@ -501,6 +520,9 @@ pub enum Command {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
         #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
+        /// Signal service restart to clients while stopping for an external updater.
+        #[arg(long, conflicts_with = "end_agents")]
+        restart: bool,
         /// End every agent process too, hosted agents and their hosts included.
         #[arg(long)]
         end_agents: bool,
@@ -913,6 +935,9 @@ pub enum DaemonCmd {
         /// the agents; hosted agents keep running anyway.
         #[arg(long, hide = true, conflicts_with = "end_agents")]
         keep_agents: bool,
+        /// Signal service restart to clients while stopping for an external updater.
+        #[arg(long, conflicts_with = "end_agents")]
+        restart: bool,
         /// End every agent process too, hosted agents and their hosts included.
         #[arg(long)]
         end_agents: bool,
@@ -1112,8 +1137,8 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Start { person_key_fd, show_token } => {
                 Command::DaemonStart { person_key_fd, show_token }
             }
-            DaemonCmd::Shutdown { keep_agents, end_agents } => {
-                Command::Shutdown { keep_agents, end_agents }
+            DaemonCmd::Shutdown { keep_agents, end_agents, restart } => {
+                Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Config { show_token } => Command::Config { show_token },
