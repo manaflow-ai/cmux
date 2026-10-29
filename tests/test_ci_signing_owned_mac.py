@@ -16,12 +16,21 @@ Blacksmith macOS last. On an owned Mac a signing job must:
    CLAIM_GATE, inline and unconditional, before the checkout (which holds the
    job token) and every other step. glaeda's hook gives the job's (workflow,
    job) the exclusive class (glaeda SIGNING_JOBS, the same list as
-   SIGNING_JOBS here) and writes GLAEDA_JOB_CLAIM=exclusive; the gate fails
-   on an owned Mac without it. A step that runs
+   SIGNING_JOBS here) and writes GLAEDA_JOB_CLAIM=exclusive and
+   GLAEDA_HOOK_SHA256 (its own sha256); the gate fails on an owned Mac without
+   the claim or with a hook scripts/ci/glaeda-signing-hooks.txt does not list
+   (every listed sha is one glaeda-disk pins), and sets the job's `claim`
+   output to owned when it passes there. A step that runs
    scripts/ci/signing-runner-claim.sh (the same check, and it removes a
    signing keychain a killed job left) comes before every step that names a
    secret, and neither the job's nor the workflow's env names a secret;
-3. make its keychain with scripts/ci/signing-keychain.sh create (the
+3. have a Blacksmith twin, <job>-blacksmith, with the same steps, env,
+   outputs and permissions, that signs in the same run when the owned attempt
+   never passed its claim gate (glaeda refused the job, or an unlisted hook
+   admitted it), and that every job reading the signing job's result or
+   outputs also needs and reads, so no run fails or goes stale on a refused
+   owned Mac;
+4. make its keychain with scripts/ci/signing-keychain.sh create (the
    certificate is decoded to a private temporary file that create itself
    removes, and delete removes again) and delete it in an `if: always()` step.
 
@@ -37,6 +46,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -61,15 +71,35 @@ OWNED_PICKER = "scripts/ci/signing_runner.py"
 BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
 CLAIM = "scripts/ci/signing-runner-claim.sh"
 CLAIM_GATE_NAME = "Hold the whole Mac before any credential"
+CLAIM_GATE_ID = "claim-gate"
+# The glaeda hooks whose claim the signing jobs accept: one sha256 per line, then a note.
+SIGNING_HOOKS_FILE = ROOT / "scripts/ci/glaeda-signing-hooks.txt"
+SIGNING_HOOKS = [line.split()[0] for line in SIGNING_HOOKS_FILE.read_text().splitlines()
+                 if line.strip() and not line.startswith("#")]
+# glaeda's drain allowlist, every hook sha it ever pinned, oldest first; FIRST_SIGNING_HOOK is the first hook that waits
+# out an earlier job's leftover processes (glaeda #1738), so nothing older may be listed.
+GLAEDA_DISK_URL = "https://raw.githubusercontent.com/teamleaderleo/glaeda/main/scripts/glaeda-disk"
+FIRST_SIGNING_HOOK = "2695209c13db5fe7514daf76d3e8e547b9569ad9a545225e52f7e07dd83d69e4"
 # The first step of an owned-routed signing job, word for word: it needs no checkout.
-CLAIM_GATE = """owned=""
-case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+CLAIM_GATE = f"""owned=""
+case "${{RUNNER_NAME:-}}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
 if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
-if [ -n "$owned" ] && [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
-  echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; its re-run takes Blacksmith."
-  exit 1
+if [ -n "$owned" ]; then
+  if [ "${{GLAEDA_JOB_CLAIM:-}}" != exclusive ]; then
+    echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
+    exit 1
+  fi
+  case "${{GLAEDA_HOOK_SHA256:-}}" in
+    {"|".join(SIGNING_HOOKS)}) ;;
+    *) echo "::error title=Signing runner::glaeda hook ${{GLAEDA_HOOK_SHA256:-unnamed}} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+       exit 1 ;;
+  esac
+  echo "claim=owned" >> "$GITHUB_OUTPUT"
 fi
 """
+TWIN_SUFFIX = "-blacksmith"
+# The hook from before the leftover-process check (glaeda before #1738): the gate refuses it.
+OLD_HOOK = "fb0442d31e23f01326118b7d6be2effd0ba91bff9a0b59c62016c39bc23116da"
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
 STEP_OUTPUT = re.compile(r"steps\.([\w-]+)\.outputs\.")
 KEYCHAIN_DELETE = re.compile(r"signing-keychain\.sh\s+delete\b")
@@ -147,6 +177,54 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     return found or [f"needs.{needed}.outputs.{output} (no step output)"]
 
 
+def twin_failures(jobs: dict, name: str, owned_reads: list[str]) -> list[str]:
+    """Why the owned-routed signing job `name` lacks a same-run Blacksmith twin that every reader of it also reads."""
+    twin_name = name + TWIN_SUFFIX
+    job, twin = jobs[name], jobs.get(twin_name)
+    if str((job.get("outputs") or {}).get("claim", "")).strip() != f"${{{{ steps.{CLAIM_GATE_ID}.outputs.claim }}}}":
+        return [f"its outputs must carry claim: ${{{{ steps.{CLAIM_GATE_ID}.outputs.claim }}}}, which its twin reads"]
+    if not isinstance(twin, dict):
+        return [f"no Blacksmith twin {twin_name}, so a refused owned attempt would leave the run unsigned"]
+    failures = []
+    for key in ("steps", "env", "outputs", "permissions", "environment", "concurrency", "continue-on-error"):
+        if twin.get(key) != job.get(key):
+            failures.append(f"{twin_name} must have the same {key} as {name} (a YAML alias of it)")
+    runs_on = str(twin.get("runs-on", ""))
+    if any(read.split(".outputs.")[0] + ".outputs." + read.split(".outputs.")[1] in runs_on for read in owned_reads):
+        failures.append(f"{twin_name} runs-on reads the owned pick; it must take Blacksmith only")
+    needs = twin.get("needs") or []
+    needs = [needs] if isinstance(needs, str) else list(needs)
+    own = needs[:-1] if needs and needs[-1] == name else None
+    first = job.get("needs") or []
+    if own != ([first] if isinstance(first, str) else list(first)):
+        failures.append(f"{twin_name} needs must be {name}'s needs, then {name}")
+    condition = re.sub(r"\s+", " ", str(twin.get("if", "")))
+    for read in owned_reads:
+        want = (f"!cancelled() && github.run_attempt == 1 && {read} != '' && needs.{name}.result != 'skipped' && "
+                f"needs.{name}.result != 'cancelled' && needs.{name}.outputs.claim != 'owned'")
+        if condition != want:
+            failures.append(f"{twin_name} if must be exactly: {want}")
+    for other, reader in jobs.items():
+        if other in (name, twin_name) or not isinstance(reader, dict):
+            continue
+        text = json.dumps(reader)
+        reader_needs = reader.get("needs") or []
+        reader_needs = [reader_needs] if isinstance(reader_needs, str) else list(reader_needs)
+        if name not in reader_needs and f"needs.{name}." not in text:
+            continue
+        if twin_name not in reader_needs:
+            failures.append(f"{other} needs {name} but not {twin_name}, so it never sees the twin's sign")
+        for ref in re.findall(rf"needs\.{re.escape(name)}\.(outputs\.[\w-]+|result)", text):
+            pair = (f"(needs.{twin_name}.{ref} || needs.{name}.{ref})" if ref.startswith("outputs.")
+                    else f"(needs.{twin_name}.result == 'skipped' && needs.{name}.result || needs.{twin_name}.result)")
+            if text.count(f"needs.{name}.{ref}") != text.count(pair):
+                failures.append(f"{other} reads needs.{name}.{ref} without the twin first: write it as {pair}")
+        condition = str(reader.get("if", ""))
+        if not re.search(r"\b(always|cancelled|failure|success)\s*\(", condition):
+            failures.append(f"{other} if has no status check, so the twin it needs, skipped, skips it too")
+    return failures
+
+
 def check(documents: dict[str, dict]) -> tuple[list[str], int]:
     failures: list[str] = []
     owned_jobs = 0
@@ -187,10 +265,12 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
                      if isinstance(step, dict)]
             gate = steps[0] if steps else {}
-            if (str(gate.get("run", "")).strip() != CLAIM_GATE.strip() or set(gate) - {"name", "run", "shell"}
-                    or str(gate.get("shell", "bash")) != "bash"):
+            if (str(gate.get("run", "")).strip() != CLAIM_GATE.strip() or set(gate) - {"name", "run", "shell", "id"}
+                    or str(gate.get("shell", "bash")) != "bash" or gate.get("id") != CLAIM_GATE_ID):
                 failures.append(f"{label}: the first step must be the claim gate ({CLAIM_GATE_NAME}): CLAIM_GATE word "
-                                "for word, with no if, uses, env or continue-on-error, before the checkout's token")
+                                f"for word, id {CLAIM_GATE_ID}, with no if, uses, env or continue-on-error, before the "
+                                "checkout's token")
+            failures.extend(f"{label}: {why}" for why in twin_failures(jobs, name, owned_reads))
             claim = next((index for index, step in enumerate(steps) if CLAIM in str(step.get("run", ""))), None)
             first_secret = next((index for index, step in enumerate(steps) if "secrets." in json.dumps(step)), None)
             if claim is None:
@@ -220,6 +300,14 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
     return failures, owned_jobs
 
 
+def paired(picker: dict, name: str, job: dict) -> dict:
+    """The jobs of a workflow with picker `pick`, the owned-routed signing job `name` and its Blacksmith twin."""
+    twin = {**job, "runs-on": "blacksmith-6vcpu-macos-26", "needs": [*job.get("needs", []), name],
+            "if": f"!cancelled() && github.run_attempt == 1 && needs.pick.outputs.owned != '' && needs.{name}.result != "
+                  f"'skipped' && needs.{name}.result != 'cancelled' && needs.{name}.outputs.claim != 'owned'"}
+    return {"pick": picker, name: job, name + TWIN_SUFFIX: twin}
+
+
 def runner(name: str, labels: list[str], busy: bool = False, status: str = "online") -> dict:
     return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
 
@@ -238,11 +326,12 @@ class SigningOwnedMacTests(unittest.TestCase):
                   "steps": [{"id": "pick", "run": f"python3 {OWNED_PICKER} owned"}]}
         good = {"runs-on": "${{ github.run_attempt == 1 && needs.pick.outputs.owned && "
                            "fromJSON(needs.pick.outputs.owned) || 'blacksmith-6vcpu-macos-26' }}",
-                "steps": [{"name": CLAIM_GATE_NAME, "run": CLAIM_GATE}, {"run": CLAIM},
+                "needs": ["pick"], "outputs": {"claim": "${{ steps.claim-gate.outputs.claim }}"},
+                "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": CLAIM_GATE}, {"run": CLAIM},
                           {"env": {"APPLE_CERTIFICATE_BASE64": "${{ secrets.APPLE_CERTIFICATE_BASE64 }}"},
                            "run": "scripts/ci/signing-keychain.sh create"},
                           {"if": "always()", "run": "scripts/ci/signing-keychain.sh delete"}]}
-        self.assertEqual(check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": good}}}), ([], 1))
+        self.assertEqual(check({"release.yml": {"jobs": paired(picker, "build-sign-notarize", good)}}), ([], 1))
         cases = {
             "not in SIGNING_JOBS": ("other.yml", "sign", good),
             "without a step that runs": ("release.yml", "build-sign-notarize",
@@ -268,37 +357,60 @@ class SigningOwnedMacTests(unittest.TestCase):
         }
         for needle, (workflow, name, job) in cases.items():
             with self.subTest(needle):
-                failures, _ = check({workflow: {"jobs": {"pick": picker, name: job}}})
+                failures, _ = check({workflow: {"jobs": paired(picker, name, job)}})
+                self.assertTrue(any(needle in failure for failure in failures), failures)
+        twin_name = "build-sign-notarize" + TWIN_SUFFIX
+        both = paired(picker, "build-sign-notarize", good)
+        reader = {"needs": ["build-sign-notarize", twin_name],
+                  "if": "!cancelled() && (needs.build-sign-notarize-blacksmith.outputs.claim || "
+                        "needs.build-sign-notarize.outputs.claim) != ''"}
+        self.assertEqual(check({"release.yml": {"jobs": {**both, "publish": reader}}}), ([], 1))
+        twin_cases = {
+            "no Blacksmith twin": {k: v for k, v in both.items() if k != twin_name},
+            "must carry claim": {**both, "build-sign-notarize": {**good, "outputs": {}}},
+            "must have the same steps": {**both, twin_name: {**both[twin_name], "steps": good["steps"][1:]}},
+            "must take Blacksmith only": {**both, twin_name: {**both[twin_name], "runs-on": good["runs-on"]}},
+            "if must be exactly": {**both, twin_name: {**both[twin_name], "if": "always()"}},
+            "needs must be": {**both, twin_name: {**both[twin_name], "needs": ["pick"]}},
+            "but not build-sign-notarize-blacksmith": {**both, "publish": {**reader, "needs": ["build-sign-notarize"]}},
+            "without the twin first": {**both, "publish": {**reader, "if": "!cancelled() && "
+                                                           "needs.build-sign-notarize.outputs.claim != ''"}},
+            "has no status check": {**both, "publish": {**reader, "if": "(needs.build-sign-notarize-blacksmith.outputs."
+                                                        "claim || needs.build-sign-notarize.outputs.claim) != ''"}},
+        }
+        for needle, jobs in twin_cases.items():
+            with self.subTest(needle):
+                failures, _ = check({"release.yml": {"jobs": jobs}})
                 self.assertTrue(any(needle in failure for failure in failures), failures)
         failures, _ = check({"release.yml": {"env": {"K": "${{ secrets.K }}"},
-                                             "jobs": {"pick": picker, "build-sign-notarize": good}}})
+                                             "jobs": paired(picker, "build-sign-notarize", good)}})
         self.assertTrue(any("workflow-level env names a secret" in failure for failure in failures), failures)
         brackets = {**good, "runs-on": "${{ github.run_attempt == 1 && needs['pick'].outputs['owned'] && "
                                        "fromJSON(needs[\"pick\"].outputs.owned) || 'blacksmith-6vcpu-macos-26' }}",
                     "steps": [good["steps"][0], {"env": {"K": "${{ secrets['APPLE_CERTIFICATE_BASE64'] }}"},
                                                  "run": "true"}, *good["steps"][1:]]}
-        failures, owned = check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": brackets}}})
+        failures, owned = check({"release.yml": {"jobs": paired(picker, "build-sign-notarize", brackets)}})
         self.assertEqual(owned, 1, "bracket notation still reads as the owned pick")
         self.assertTrue(any("names a secret before the claim" in failure for failure in failures), failures)
         dynamic = {**good, "steps": [*good["steps"][:2], {"env": {"K": "${{ secrets[format('A{0}', 'X')] }}"},
                                                            "run": "true"}, *good["steps"][2:]]}
-        failures, _ = check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": dynamic}}})
+        failures, _ = check({"release.yml": {"jobs": paired(picker, "build-sign-notarize", dynamic)}})
         self.assertTrue(any("cannot read" in failure for failure in failures), failures)
-        failures, _ = check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": {
-            **good, "runs-on": "${{ fromJSON(needs[format('pi{0}', 'ck')].outputs.owned) }}"}}}})
+        failures, _ = check({"release.yml": {"jobs": paired(picker, "build-sign-notarize", {
+            **good, "runs-on": "${{ fromJSON(needs[format('pi{0}', 'ck')].outputs.owned) }}"})}})
         self.assertTrue(any("cannot read" in failure for failure in failures), failures)
         open_picker = {**picker, "steps": [{"id": "mint", "if": "vars.X == '1'", "with": {"k": "${{ secrets.K }}"}},
                                            *picker["steps"]]}
-        failures, _ = check({"release.yml": {"jobs": {"pick": open_picker, "build-sign-notarize": good}}})
+        failures, _ = check({"release.yml": {"jobs": paired(open_picker, "build-sign-notarize", good)}})
         self.assertTrue(any("names a secret on any ref" in failure for failure in failures), failures)
         pinned = {**picker, "steps": [{"id": "mint", "if": "vars.X == '1' && github.ref == 'refs/heads/main'",
                                        "with": {"k": "${{ secrets.K }}"}},
                                       {"id": "again", "if": "steps.mint.outcome == 'failure'",
                                        "with": {"k": "${{ secrets.K }}"}}, *picker["steps"]]}
-        self.assertEqual(check({"release.yml": {"jobs": {"pick": pinned, "build-sign-notarize": good}}}), ([], 1))
+        self.assertEqual(check({"release.yml": {"jobs": paired(pinned, "build-sign-notarize", good)}}), ([], 1))
         other = {"outputs": {"owned": "${{ steps.pick.outputs.owned }}"},
                  "steps": [{"id": "pick", "run": "python3 scripts/ci/nightly_build_runner.py verify"}]}
-        failures, _ = check({"release.yml": {"jobs": {"pick": other, "build-sign-notarize": good}}})
+        failures, _ = check({"release.yml": {"jobs": paired(other, "build-sign-notarize", good)}})
         self.assertTrue(any("signing job's runner comes from" in failure for failure in failures), failures)
 
     def test_drained_runner_takes_only_a_mini_running_nothing(self) -> None:
@@ -449,8 +561,15 @@ class ClaimScriptTests(unittest.TestCase):
                     refused = self.run_claim(tmp, **env)
                     self.assertEqual(refused.returncode, 1, refused.stdout)
                     self.assertIn("did not give the job the whole mini", refused.stdout)
+            for sha in ("", OLD_HOOK, SIGNING_HOOKS[0][:12], "x" * 64):
+                with self.subTest(sha=sha):
+                    refused = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
+                                             GLAEDA_HOOK_SHA256=sha)
+                    self.assertEqual(refused.returncode, 1, refused.stdout)
+                    self.assertIn("is not one", refused.stdout)
             (tmp / "keychains" / "build.keychain-db").write_text("left by a killed job")
-            claimed = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive")
+            claimed = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
+                                     GLAEDA_HOOK_SHA256=FIRST_SIGNING_HOOK)
             self.assertEqual(claimed.returncode, 0, claimed.stdout + claimed.stderr)
             self.assertIn("holds the whole mini", claimed.stdout)
             self.assertIn("removed the signing keychain build.keychain", claimed.stdout)
@@ -498,19 +617,73 @@ class SearchListTests(unittest.TestCase):
 
 class ClaimGateTests(unittest.TestCase):
     def test_gate(self) -> None:
-        def gate(**env: str) -> subprocess.CompletedProcess:
-            return subprocess.run(["bash", "-e", "-c", CLAIM_GATE], env={"PATH": "/usr/bin:/bin", **env},
-                                  capture_output=True, text=True, timeout=30, check=False)
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw) / "output"
 
-        fleet = Path("/Users/Shared/cmux-build-fleet").is_dir()
-        if not fleet:
-            self.assertEqual(gate(RUNNER_NAME="blacksmith-6vcpu-macos-26-abc").returncode, 0)
-        for env in ({"RUNNER_NAME": "cmux12-glaeda-3"}, {"RUNNER_NAME": "cmux12-glaeda", "GLAEDA_JOB_CLAIM": "light"}):
-            with self.subTest(env):
-                refused = gate(**env)
-                self.assertEqual(refused.returncode, 1, refused.stdout)
-                self.assertIn("did not give the job the whole mini", refused.stdout)
-        self.assertEqual(gate(RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive").returncode, 0)
+            def gate(**env: str) -> subprocess.CompletedProcess:
+                output.write_text("")
+                return subprocess.run(["bash", "-e", "-c", CLAIM_GATE],
+                                      env={"PATH": "/usr/bin:/bin", "GITHUB_OUTPUT": os.fspath(output), **env},
+                                      capture_output=True, text=True, timeout=30, check=False)
+
+            fleet = Path("/Users/Shared/cmux-build-fleet").is_dir()
+            if not fleet:
+                self.assertEqual(gate(RUNNER_NAME="blacksmith-6vcpu-macos-26-abc").returncode, 0)
+                self.assertEqual(output.read_text(), "", "an ephemeral runner claims nothing: its twin never runs")
+            for env in ({"RUNNER_NAME": "cmux12-glaeda-3"},
+                        {"RUNNER_NAME": "cmux12-glaeda", "GLAEDA_JOB_CLAIM": "light", "GLAEDA_HOOK_SHA256": FIRST_SIGNING_HOOK}):
+                with self.subTest(env):
+                    refused = gate(**env)
+                    self.assertEqual(refused.returncode, 1, refused.stdout)
+                    self.assertIn("did not give the job the whole mini", refused.stdout)
+                    self.assertEqual(output.read_text(), "")
+            owned = {"RUNNER_NAME": "cmux12-glaeda-3", "GLAEDA_JOB_CLAIM": "exclusive"}
+            for sha in (None, "", OLD_HOOK, FIRST_SIGNING_HOOK[:12], FIRST_SIGNING_HOOK + "0", "x" * 64):
+                with self.subTest(sha=sha):
+                    refused = gate(**owned, **({} if sha is None else {"GLAEDA_HOOK_SHA256": sha}))
+                    self.assertEqual(refused.returncode, 1, refused.stdout)
+                    self.assertIn("is not one scripts/ci/glaeda-signing-hooks.txt lists", refused.stdout)
+                    self.assertEqual(output.read_text(), "", "a refused owned attempt leaves claim empty: the twin signs")
+            for sha in SIGNING_HOOKS:
+                with self.subTest(sha=sha):
+                    passed = gate(**owned, GLAEDA_HOOK_SHA256=sha)
+                    self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+                    self.assertEqual(output.read_text(), "claim=owned\n")
+            self.assertIn(FIRST_SIGNING_HOOK, SIGNING_HOOKS, "the hook with the leftover-process check passes")
+            self.assertNotIn(OLD_HOOK, SIGNING_HOOKS, "the hook from before it is refused")
+
+
+class SigningHooksInStepWithGlaedaTests(unittest.TestCase):
+    """scripts/ci/glaeda-signing-hooks.txt names only hooks glaeda released with the leftover-process check: each sha
+    is one glaeda-disk pins in CMUX_NEXT_DRAIN_HOOK_SHA256, at or after FIRST_SIGNING_HOOK in its order."""
+
+    def glaeda_pins(self) -> list[str]:
+        last: Exception | None = None
+        for _ in range(3):
+            try:
+                with urllib.request.urlopen(GLAEDA_DISK_URL, timeout=20) as response:
+                    text = response.read().decode()
+                break
+            except OSError as error:
+                last = error
+        else:
+            self.fail(f"could not read glaeda's pins from {GLAEDA_DISK_URL}: {last}")
+        block = re.search(r"CMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset\(\{(.*?)\}\)", text, re.S)
+        self.assertIsNotNone(block, "glaeda-disk no longer declares CMUX_NEXT_DRAIN_HOOK_SHA256")
+        return re.findall(r'"([0-9a-f]{64})"', block.group(1))
+
+    def test_every_listed_hook_is_one_glaeda_released_with_the_check(self) -> None:
+        self.assertEqual(len(SIGNING_HOOKS), len(set(SIGNING_HOOKS)), "a sha is listed twice")
+        for sha in SIGNING_HOOKS:
+            self.assertRegex(sha, r"^[0-9a-f]{64}$")
+        pins = self.glaeda_pins()
+        self.assertIn(FIRST_SIGNING_HOOK, pins)
+        released = pins[pins.index(FIRST_SIGNING_HOOK):]
+        for sha in SIGNING_HOOKS:
+            self.assertIn(sha, released, f"{sha} is not a hook glaeda pinned at or after {FIRST_SIGNING_HOOK[:8]}")
+        if pins[-1] not in SIGNING_HOOKS:
+            print(f"warning: glaeda's newest hook {pins[-1]} is not in {SIGNING_HOOKS_FILE.name}; minis on it sign "
+                  "on Blacksmith until it is added", file=sys.stderr)
 
 
 if __name__ == "__main__":

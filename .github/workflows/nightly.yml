@@ -6884,7 +6884,7 @@ jobs:
     # same build to Apple; the "Skip a build the old feed already has" step
     # here and the publish job's order check keep the old feed right, and the
     # extra submission only costs Apple time (cx-vws1x).
-    concurrency:
+    concurrency: &sign-nightly-identity-legacy-concurrency
       group: nightly-next-legacy-identity-${{ github.run_id }}
       cancel-in-progress: false
     # Signs and notarizes only. It holds signing and notarization secrets, so
@@ -6892,12 +6892,14 @@ jobs:
     # the stapled DMG on a fresh secret-free runner, and
     # publish-nightly-identity-legacy publishes only the DMG whose sha256 that
     # job verified (cx-vws1x).
-    permissions:
+    permissions: &sign-nightly-identity-legacy-permissions
       contents: read
       # Read the pending-submission artifacts of earlier runs, and retire
       # metadata whose bundle is gone (nightly-next-legacy-orphan-meta.sh).
       actions: write
-    outputs:
+    outputs: &sign-nightly-identity-legacy-outputs
+      # owned when the claim gate passed on an owned Mac; the Blacksmith twin signs when it did not.
+      claim: ${{ steps.claim-gate.outputs.claim }}
       # The old feed already has this build (or a newer one): nothing ran.
       skip: ${{ steps.order.outputs.skip }}
       pending: ${{ steps.notarize.outputs.submission_pending }}
@@ -6921,7 +6923,7 @@ jobs:
     # never counted as a failure. The DMG around the stapled app adds one more
     # submission with the same 20 min wait (CMUX_STAPLE_APP_IN_DMG).
     timeout-minutes: 160
-    env:
+    env: &sign-nightly-identity-legacy-env
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
@@ -6946,18 +6948,27 @@ jobs:
       # prunes them itself.
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
       LEGACY_APPCAST: appcast-arm64.xml
-    steps:
+    steps: &sign-nightly-identity-legacy-steps
       # First, before the checkout's token or any secret: on an owned Mac this job holds the whole
       # mini (glaeda's exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
       - name: Hold the whole Mac before any credential
+        id: claim-gate
         shell: bash
         run: |
           owned=""
           case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
           if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
-          if [ -n "$owned" ] && [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
-            echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; its re-run takes Blacksmith."
-            exit 1
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
+              exit 1
+            fi
+            case "${GLAEDA_HOOK_SHA256:-}" in
+              2695209c13db5fe7514daf76d3e8e547b9569ad9a545225e52f7e07dd83d69e4|41e29cd9dca8cdee88ce069b61956674bb79c2c3da90af5520e3e397bfbedeef) ;;
+              *) echo "::error title=Signing runner::glaeda hook ${GLAEDA_HOOK_SHA256:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
+                 exit 1 ;;
+            esac
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout
@@ -7174,13 +7185,29 @@ jobs:
           ./scripts/ci/signing-keychain.sh delete --keychain build.keychain \
             || security delete-keychain build.keychain >/dev/null 2>&1 || true
 
+  sign-nightly-identity-legacy-blacksmith:
+    needs: [decide, build-nightly-app, legacy-identity-target, pick-nightly-sign-runner, sign-nightly-identity-legacy]
+    # The same run signs on Blacksmith when the owned Mac took sign-nightly-identity-legacy but its claim gate never passed
+    # (glaeda refused the job, or a hook scripts/ci/glaeda-signing-hooks.txt does not list admitted it).
+    if: "!cancelled() && github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.sign_owned != '' && needs.sign-nightly-identity-legacy.result != 'skipped' && needs.sign-nightly-identity-legacy.result != 'cancelled' && needs.sign-nightly-identity-legacy.outputs.claim != 'owned'"
+    continue-on-error: true
+    environment: release-next
+    concurrency: *sign-nightly-identity-legacy-concurrency
+    permissions: *sign-nightly-identity-legacy-permissions
+    outputs: *sign-nightly-identity-legacy-outputs
+    # Blacksmith only: this run's sign when the owned Mac refused the job (its claim gate).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 160
+    env: *sign-nightly-identity-legacy-env
+    steps: *sign-nightly-identity-legacy-steps
+
 
   # cx-vws1x: static verification of the exact stapled cmux NIGHTLY DMG, on a
   # fresh secret-free pooled runner (no environment or secret). Its verified sha256 is the only DMG publish-nightly-identity-legacy
   # publishes.
   verify-nightly-identity-legacy:
-    needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner]
-    if: "!cancelled() && needs.sign-nightly-identity-legacy.outputs.signed_ok == 'true' && needs.sign-nightly-identity-legacy.outputs.dmg_sha256 != ''"
+    needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner, sign-nightly-identity-legacy-blacksmith]
+    if: "!cancelled() && (needs.sign-nightly-identity-legacy-blacksmith.outputs.signed_ok || needs.sign-nightly-identity-legacy.outputs.signed_ok) == 'true' && (needs.sign-nightly-identity-legacy-blacksmith.outputs.dmg_sha256 || needs.sign-nightly-identity-legacy.outputs.dmg_sha256) != ''"
     continue-on-error: true
     permissions:
       contents: read
@@ -7198,10 +7225,10 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
-      SIGNED_SHA256: ${{ needs.sign-nightly-identity-legacy.outputs.dmg_sha256 }}
-      BUILD_SHA: ${{ needs.sign-nightly-identity-legacy.outputs.build_sha }}
+      SIGNED_SHA256: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.dmg_sha256 || needs.sign-nightly-identity-legacy.outputs.dmg_sha256) }}
+      BUILD_SHA: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.build_sha || needs.sign-nightly-identity-legacy.outputs.build_sha) }}
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
-      STAPLED_APP_FALLBACK_ID: ${{ needs.sign-nightly-identity-legacy.outputs.stapled_app_fallback_id }}
+      STAPLED_APP_FALLBACK_ID: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.stapled_app_fallback_id || needs.sign-nightly-identity-legacy.outputs.stapled_app_fallback_id) }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -7250,7 +7277,7 @@ jobs:
           retention-days: 3
 
   publish-nightly-identity-legacy:
-    needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]
+    needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, sign-nightly-identity-legacy-blacksmith]
     # A signing job that a newer run's concurrency slot cancelled tried
     # nothing: no resolve, no failure count.
     # The target job may select this run's prepared candidate before the main
@@ -7260,7 +7287,7 @@ jobs:
     # nightly_next_continue_only run intentionally skips publish-nightly; its
     # target came from the live NEXT feed and may continue the accepted Apple
     # submission without another NEXT write.
-    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && ((needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build) || (needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue')) && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off' && needs.sign-nightly-identity-legacy.result != 'cancelled'"
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && ((needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build) || (needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue')) && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off' && (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.result || needs.sign-nightly-identity-legacy-blacksmith.result) != 'cancelled'"
     continue-on-error: true
     environment: release-next
     # One old-feed writer at a time across runs. A feed writer, not a build:
@@ -7309,11 +7336,11 @@ jobs:
       # prunes them itself.
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
       LEGACY_APPCAST: appcast-arm64.xml
-      SIGN_RESULT: ${{ needs.sign-nightly-identity-legacy.result }}
-      SIGN_SKIP: ${{ needs.sign-nightly-identity-legacy.outputs.skip }}
-      SIGN_OK: ${{ needs.sign-nightly-identity-legacy.outputs.signed_ok }}
-      SIGN_PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending }}
-      SIGNED_SHA256: ${{ needs.sign-nightly-identity-legacy.outputs.dmg_sha256 }}
+      SIGN_RESULT: ${{ (needs.sign-nightly-identity-legacy-blacksmith.result == 'skipped' && needs.sign-nightly-identity-legacy.result || needs.sign-nightly-identity-legacy-blacksmith.result) }}
+      SIGN_SKIP: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.skip || needs.sign-nightly-identity-legacy.outputs.skip) }}
+      SIGN_OK: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.signed_ok || needs.sign-nightly-identity-legacy.outputs.signed_ok) }}
+      SIGN_PENDING: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.pending || needs.sign-nightly-identity-legacy.outputs.pending) }}
+      SIGNED_SHA256: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.dmg_sha256 || needs.sign-nightly-identity-legacy.outputs.dmg_sha256) }}
       TESTED_SHA256: ${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}
     steps:
       - name: Checkout
@@ -7387,7 +7414,7 @@ jobs:
           # Rewritten from the verdicts below (nightly_next_ring.py legacy).
           SPARKLE_CHANNEL: cmux-next
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
-          SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ needs.sign-nightly-identity-legacy.outputs.minimum_system_version }}
+          SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.minimum_system_version || needs.sign-nightly-identity-legacy.outputs.minimum_system_version) }}
         run: bash scripts/ci/nightly-steps/legacy-identity-appcast.sh
 
       - name: Publish the cmux NIGHTLY DMG, release notes and the old feed
@@ -7423,12 +7450,12 @@ jobs:
         if: always() && env.SIGN_SKIP == 'false' && steps.order.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending == 'true' }}
-          NOTARIZE: ${{ needs.sign-nightly-identity-legacy.outputs.notarize || 'failure' }}
+          PENDING: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.pending || needs.sign-nightly-identity-legacy.outputs.pending) == 'true' }}
+          NOTARIZE: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.notarize || needs.sign-nightly-identity-legacy.outputs.notarize) || 'failure' }}
           PUBLISHED: ${{ steps.publish.outcome == 'success' }}
           # Apple's answer as the signing job saw it (a notary log or a stapled ticket).
-          APPLE: ${{ needs.sign-nightly-identity-legacy.outputs.apple || 'unknown' }}
-          REQUIREMENT_REFUSED: ${{ needs.sign-nightly-identity-legacy.outputs.requirement_refused || 'false' }}
+          APPLE: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.apple || needs.sign-nightly-identity-legacy.outputs.apple) || 'unknown' }}
+          REQUIREMENT_REFUSED: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.requirement_refused || needs.sign-nightly-identity-legacy.outputs.requirement_refused) || 'false' }}
         run: bash scripts/ci/nightly-steps/legacy-identity-resolve.sh
 
       - name: Store the accepted submission's metadata
@@ -7518,7 +7545,7 @@ jobs:
   # was nothing to publish (current, refused, or still in Apple's queue), or
   # this job turns the run red. No job needs it.
   nightly-identity-legacy-published:
-    needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, publish-nightly-identity-legacy]
+    needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy, publish-nightly-identity-legacy, sign-nightly-identity-legacy-blacksmith]
     if: "always() && !cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -7529,9 +7556,9 @@ jobs:
       ACTION: ${{ needs.legacy-identity-target.outputs.action }}
       BUILD: ${{ needs.legacy-identity-target.outputs.build }}
       NEXT_BUILD: ${{ needs.publish-nightly.outputs.build }}
-      SIGN_SKIP: ${{ needs.sign-nightly-identity-legacy.outputs.skip }}
-      SIGN_PENDING: ${{ needs.sign-nightly-identity-legacy.outputs.pending }}
-      SIGN_OK: ${{ needs.sign-nightly-identity-legacy.outputs.signed_ok }}
+      SIGN_SKIP: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.skip || needs.sign-nightly-identity-legacy.outputs.skip) }}
+      SIGN_PENDING: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.pending || needs.sign-nightly-identity-legacy.outputs.pending) }}
+      SIGN_OK: ${{ (needs.sign-nightly-identity-legacy-blacksmith.outputs.signed_ok || needs.sign-nightly-identity-legacy.outputs.signed_ok) }}
       TESTED: ${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}
       ALREADY: ${{ needs.publish-nightly-identity-legacy.outputs.already }}
       PUBLISHED: ${{ needs.publish-nightly-identity-legacy.outputs.published }}
