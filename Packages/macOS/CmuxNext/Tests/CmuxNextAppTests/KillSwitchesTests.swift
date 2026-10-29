@@ -191,6 +191,10 @@ import Testing
         _ = try #require(reader.read())
         updater.follow(ring: "nightly")
         let latest = try #require(reader.read())
+        // The first read fetches the document and its signature at once; both must be held at
+        // firstGate before the gate is swapped, or a late signature fetch parks at queuedGate,
+        // which opens only after the first read ends, and the test never finishes.
+        await firstGate.reached(2)
         let queuedGate = Gate()
         await network.hold(queuedGate)
         await network.set(try fixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-3"]}}"#))
