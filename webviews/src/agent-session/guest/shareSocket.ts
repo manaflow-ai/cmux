@@ -62,6 +62,61 @@ const END_REASONS = new Set(["revoked", "expired", "closed"]);
 const isObject = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === "object" && !Array.isArray(value);
 
+/**
+ * Room frames are untrusted JSON.  A record's payload is eventually handed to the transcript
+ * reducer, where an object in an array is assumed to have its ACP shape.  Keep the decoder as the
+ * one trust boundary: optional scalar nulls are fine, but null or an empty object in an array (or
+ * an object-valued field) is never a usable ACP value.  This also covers new update kinds until
+ * their generated protocol type gains a narrower decoder.
+ */
+function noMalformedContainers(value: unknown, root = false, key?: string): boolean {
+  if (value === null || value === undefined) return true;
+  if (Array.isArray(value))
+    return value.every(
+      (entry) => entry !== null && (!isObject(entry) || Object.keys(entry).length > 0) && noMalformedContainers(entry),
+    );
+  if (!isObject(value)) return true;
+  if (!root && Object.keys(value).length === 0 && key !== "_meta") return false;
+  return Object.entries(value).every(([name, entry]) => noMalformedContainers(entry, false, name));
+}
+
+function configOptionOf(value: unknown): boolean {
+  if (!isObject(value) || typeof value.id !== "string" || !value.id || !Array.isArray(value.options)) return false;
+  if (value.name !== undefined && typeof value.name !== "string") return false;
+  if (value.category !== undefined && typeof value.category !== "string") return false;
+  if (value.currentValue !== undefined && typeof value.currentValue !== "string") return false;
+  return value.options.every(
+    (choice) =>
+      isObject(choice) &&
+      typeof choice.value === "string" &&
+      (choice.name === undefined || typeof choice.name === "string") &&
+      (choice.description === undefined || typeof choice.description === "string") &&
+      noMalformedContainers(choice),
+  );
+}
+
+function sessionUpdateOf(value: unknown): boolean {
+  if (!isObject(value) || typeof value.sessionUpdate !== "string" || !value.sessionUpdate) return false;
+  if (!noMalformedContainers(value, true)) return false;
+  if (value.sessionUpdate === "config_option_update")
+    return Array.isArray(value.configOptions) && value.configOptions.every(configOptionOf);
+  if (value.sessionUpdate === "available_commands_update") {
+    return (
+      Array.isArray(value.availableCommands) &&
+      value.availableCommands.every(
+        (command) =>
+          isObject(command) &&
+          typeof command.name === "string" &&
+          !!command.name &&
+          (command.description === undefined || typeof command.description === "string") &&
+          (command.input === undefined || isObject(command.input)) &&
+          noMalformedContainers(command),
+      )
+    );
+  }
+  return true;
+}
+
 /** The reducer reads a permission's options as objects. A malformed ask must not end the chat. */
 function readablePermission(msg: Record<string, unknown>): boolean {
   if (msg.request !== undefined && !isObject(msg.request)) return false;
@@ -100,8 +155,9 @@ function recordOf(value: unknown): EventRecord | undefined {
   }
   if (typeof value.at !== "number" || !Number.isFinite(value.at) || !isObject(value.msg)) return undefined;
   const msg = value.msg;
-  if (msg.method === "session/update" && (!isObject(msg.params) || !isObject(msg.params.update)))
-    return undefined;
+  if (msg.method === "session/update") {
+    if (!isObject(msg.params) || !sessionUpdateOf(msg.params.update)) return undefined;
+  }
   if (value.kind === "permission_request" && !readablePermission(msg)) return undefined;
   return {
     seq: value.seq,
@@ -149,6 +205,15 @@ const participantsOf = (value: unknown): GuestParticipant[] =>
         }];
       })
     : [];
+
+const chatOf = (value: unknown): GuestChat => {
+  if (!isObject(value)) return {};
+  return {
+    ...(typeof value.title === "string" ? { title: value.title } : {}),
+    ...(typeof value.harness === "string" ? { harness: value.harness } : {}),
+    ...(typeof value.status === "string" ? { status: value.status } : {}),
+  };
+};
 
 /** The wait before reconnect number `attempt` (0 first): doubling to 30 s, with up to half of jitter. */
 export function backoffMs(attempt: number, random = Math.random): number {
@@ -285,7 +350,7 @@ export class ShareSocket {
         })
       : [];
     this.listener.snapshot({
-      chat: (frame.chat as GuestChat) ?? {},
+      chat: chatOf(frame.chat),
       records,
       hasMore: frame.has_more === true,
       prompts,
