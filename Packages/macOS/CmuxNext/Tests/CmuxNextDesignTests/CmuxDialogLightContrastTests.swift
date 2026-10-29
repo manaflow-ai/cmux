@@ -134,6 +134,27 @@ import CmuxNextDesignTokens
         }
     }
 
+    /// The keyboard focus shows on a solid default button too: the ring sits just outside the fill,
+    /// in its window, and nothing clips it (a ring drawn inside a solid fill, or clipped away, left
+    /// the focused button looking like any other).
+    @Test func theFocusedButtonDrawsAnUnclippedRingOutsideItsFill() throws {
+        let scope = try Self.scope(Self.dark, "Focus Ring")
+        let window = try Self.window(in: scope)
+        defer { window.close() }
+        let dialog = Self.dialog()
+        try Self.show(dialog, in: window)
+        let save = try #require(dialog.buttonViews.first { $0.button.role == .default })
+        #expect(window.makeFirstResponder(save))
+        save.layoutSubtreeIfNeeded()
+        let layer = try #require(save.layer)
+        #expect(!save.clipsToBounds && !layer.masksToBounds, "the ring is clipped away")
+        let rings = (layer.sublayers ?? []).filter { !$0.isHidden && $0.borderWidth > 0 }
+        let ring = try #require(rings.first, "a focused button draws no ring")
+        #expect(ring.frame.width > layer.bounds.width && ring.frame.height > layer.bounds.height, "the ring is inside the fill")
+        #expect(window.makeFirstResponder(nil))
+        #expect((layer.sublayers ?? []).allSatisfy { $0.isHidden || $0.borderWidth == 0 }, "an unfocused button keeps its ring")
+    }
+
     // MARK: Checks
 
     /// Every label is at least 4.5:1 on the resolved surface, and the surface is the scope's popup
