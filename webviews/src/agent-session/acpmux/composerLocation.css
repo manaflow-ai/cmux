@@ -353,7 +353,7 @@
   align-items: center;
   column-gap: 8px;
   min-height: var(--ui-row-height);
-  padding: 2px 0 2px var(--acpmux-grant-lead);
+  padding: 0 0 0 var(--acpmux-grant-lead);
 }
 .acpmux-access-grant-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--agent-soft); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 .acpmux-access-grant-remove {
