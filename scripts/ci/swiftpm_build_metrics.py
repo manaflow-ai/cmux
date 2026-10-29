@@ -37,7 +37,7 @@ SYMBOL_MODULE = re.compile(r"(?<![\w.])([A-Za-z_]\w*)\.")
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 # A compiler or linker that crashed: its failure is never a stale object's, and a retry could hide it.
 CRASH = re.compile(r"Stack dump:|PLEASE submit a bug report|failed due to signal|Fatal error:|"
-                   r"terminated by signal|Segmentation fault|Illegal instruction|Abort trap|Bus error")
+                   r"terminated by signal|Segmentation fault|Illegal instruction|Abort trap|Bus error|Assertion failed:")
 # What clear_stale_link removes from a module's directory: its objects and the driver's incremental state
 # (dependency graph, per-file dependencies, diagnostics). The planning files SwiftPM wrote for the module
 # (output-file-map.json, sources, module maps, DerivedSources) stay, so a cached build plan still runs;
@@ -183,7 +183,8 @@ def stale_link_modules(build: Path, lines: list[str]) -> list[Path]:
     name in its demangled form: `static CmuxNextAgentPane.AcpmuxStatusClient.call(...)`
     belongs to CmuxNextAgentPane), and those holding an object that references one. When no
     missing symbol belongs to a module of this build (a C symbol, a library the link lacks),
-    none: that is not a stale object.
+    none: that is not a stale object. An explicit <Module>.build object path scopes that
+    reference to its module; a bare object name can identify any module holding that object.
 
     A kept build directory (owned_spm_scratch.py) can hold objects from a job that was
     cancelled mid-compile. The Swift driver records a module's dependency graph only when
@@ -191,8 +192,8 @@ def stale_link_modules(build: Path, lines: list[str]) -> list[Path]:
     but not the files that call it: their objects still reference the cancelled branch's
     signatures, and the link fails on symbols no source in the checkout declares
     (cmux#27302, 2026-10-29: `AcpmuxStatusClient.call(..., requiredCapability:)`, left by a
-    cancelled cmux#27017 job on the same runner). Removing those modules' directories makes
-    SwiftPM compile them whole again.
+    cancelled cmux#27017 job on the same runner). Removing those modules' objects and
+    incremental state makes SwiftPM compile them whole again.
     """
     module_directories = sorted(path for path in build.glob("*/*/*.build") if path.is_dir())
     modules, objects = set(), set()
@@ -206,12 +207,18 @@ def stale_link_modules(build: Path, lines: list[str]) -> list[Path]:
             continue
         referencing = REFERENCING_OBJECT.search(text)
         if referencing:
-            objects.add(Path(referencing[1]).name)
+            path = Path(referencing[1])
+            owner = next((part for part in reversed(path.parts[:-1])
+                          if part != ".build" and part.endswith(".build")), None)
+            objects.add((owner, path.name))
     if not any(directory.name[: -len(".build")] in modules for directory in module_directories):
         return []
     return [
         directory for directory in module_directories
-        if directory.name[: -len(".build")] in modules or any((directory / name).is_file() for name in objects)
+        if directory.name[: -len(".build")] in modules or any(
+            (owner is None or owner == directory.name) and (directory / name).is_file()
+            for owner, name in objects
+        )
     ]
 
 
