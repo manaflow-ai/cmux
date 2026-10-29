@@ -56,6 +56,18 @@ fn child_process() {
     }
 }
 
+/// Starts this process's black box in `dir` and waits until its ring file is
+/// the active ring. Until then the heap ring is active, and the
+/// `cmux-trace-open` thread copies it into the file and swaps: a record a
+/// thread adds to a heap chunk after that chunk was copied and before the
+/// swap is not in the file (trace.md "Heap, then file"), so a test that
+/// writes during the copy would read a ring without it.
+fn black_box_in_file(dir: &Path) {
+    let open =
+        cmux_trace::init_blackbox(dir.join("rings"), Role::Daemon).expect("a fresh black box");
+    open.wait().expect("the black box moved into its file");
+}
+
 /// The records of the active ring named `name`.
 fn records_named<'a>(decoded: &'a cmux_trace::Decoded, name: &str) -> Vec<&'a DecodedRecord> {
     decoded.records.iter().filter(|record| decoded.name(record.name) == Some(name)).collect()
@@ -71,7 +83,7 @@ const TERMINAL: &str = "00000000000040008000000000000058";
 /// A create that hops threads and follows its terminal, then one dropped
 /// unfinished, with both sinks on.
 fn child_ring(dir: &Path) {
-    let _open = cmux_trace::init_blackbox(dir.join("rings"), Role::Daemon);
+    black_box_in_file(dir);
     let trace = debug_spans::Trace::start("new-tab", Instant::now()).expect("marks are on");
     debug_spans::install(Some(trace));
     debug_spans::mark("job.start");
@@ -176,7 +188,7 @@ fn child_ring(dir: &Path) {
 
 /// The ring alone: a trace starts, writes no file and runs no computed name.
 fn child_ring_only(dir: &Path) {
-    let _open = cmux_trace::init_blackbox(dir.join("rings"), Role::Daemon);
+    black_box_in_file(dir);
     debug_spans::install(debug_spans::Trace::start("create", Instant::now()));
     debug_spans::mark("job.start");
     debug_spans::mark_with(|| panic!("a computed name ran with no marks file"));
