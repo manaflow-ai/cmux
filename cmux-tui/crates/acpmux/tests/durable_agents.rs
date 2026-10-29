@@ -1940,9 +1940,13 @@ async fn an_answered_mark_unread_survives_a_crash_before_the_session_record_is_s
     daemon.start();
 
     // Attach reads the session once its logs are read (`wait_logs`): the session list answers at
-    // once after a restart, from the saved records, until the logs are read.
+    // once after a restart, from the saved records, until the logs are read. It attaches without
+    // showing the chat (`visible: false`): showing it is seeing it, which would clear the mark
+    // before the reply is built (`seen.rs`).
     let mut rpc = daemon.rpc().await;
-    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let attached = rpc
+        .call("_acpmux/attach", json!({"sessionId": session, "limit": 0, "visible": false}))
+        .await;
     let entry = &attached["session"];
     assert_eq!(entry["unread"], json!(true), "an answered mark unread was lost: {entry:#}");
 }
