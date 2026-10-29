@@ -334,11 +334,17 @@ impl Translator {
                     }
                 }
             }
-            Message::Notification { method: m, .. } => {
+            Message::Notification { method: m, params, .. } => {
                 if m == method::SESSION_CANCEL {
                     self.cancelled.store(true, Ordering::SeqCst);
-                    if self.is_compacting() {
+                    if self.is_compacting()
+                        || params
+                            .as_ref()
+                            .and_then(|p| p.pointer("/_meta/acpmux/compactionCancelled"))
+                            == Some(&Value::Bool(true))
+                    {
                         self.cancelled_compaction.store(true, Ordering::SeqCst);
+                        self.fence_compaction_metadata();
                     }
                     let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                     Outbound::Lines(vec![

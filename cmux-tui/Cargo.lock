@@ -21,6 +21,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-unix-socket",
  "cmux-worktree-care",
+ "cmux-wg",
  "crossterm",
  "dirs",
  "futures",
