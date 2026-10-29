@@ -133,7 +133,7 @@ async fn exercise_selection_then_creation(
                                                 write.lock().await.write_all(format!("{waiting}\n").as_bytes()).await.unwrap();
                                             }
                                         }
-                                        Some("send" | "send-key") => {
+                                        Some("send" | "send-key" | "clear-history") => {
                                             key_tx.send((request["id"].clone(), Instant::now())).unwrap();
                                         }
                                         Some("list-workspaces") => {
@@ -236,13 +236,16 @@ async fn exercise_selection_then_creation(
     let began = Instant::now();
     if let Some(mutator) = &mutation_channel {
         mutator.send(Bytes::from_static(
-            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"input\",\"cmd\":\"send\",\"terminal_id\":\"term-4\",\"text\":\"x\"}\n{\"id\":\"input-key\",\"cmd\":\"send-key\",\"surface\":4,\"keys\":[\"enter\"]}\n",
+            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"input-clear\",\"cmd\":\"clear-history\",\"surface\":4,\"fallback_key\":{\"key\":\"l\",\"mods\":{\"shift\":false,\"control\":true,\"alt\":false,\"super\":false,\"caps_lock\":false,\"num_lock\":false},\"consumed_mods\":{\"shift\":false,\"control\":false,\"alt\":false,\"super\":false,\"caps_lock\":false,\"num_lock\":false},\"utf8\":\"\",\"unshifted_codepoint\":\"l\",\"action\":\"press\",\"macos_option_as_alt\":false}}\n{\"id\":\"input\",\"cmd\":\"send\",\"terminal_id\":\"term-4\",\"text\":\"x\"}\n{\"id\":\"input-key\",\"cmd\":\"send-key\",\"surface\":4,\"keys\":[\"enter\"]}\n",
         )).await.unwrap();
     } else {
         channel.send(Bytes::from_static(
-            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"create\",\"cmd\":\"new-tab\",\"pane\":3}\n{\"id\":\"input\",\"cmd\":\"send\",\"terminal_id\":\"term-4\",\"text\":\"x\"}\n{\"id\":\"input-key\",\"cmd\":\"send-key\",\"surface\":4,\"keys\":[\"enter\"]}\n",
+            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"create\",\"cmd\":\"new-tab\",\"pane\":3}\n{\"id\":\"input-clear\",\"cmd\":\"clear-history\",\"surface\":4,\"fallback_key\":{\"key\":\"l\",\"mods\":{\"shift\":false,\"control\":true,\"alt\":false,\"super\":false,\"caps_lock\":false,\"num_lock\":false},\"consumed_mods\":{\"shift\":false,\"control\":false,\"alt\":false,\"super\":false,\"caps_lock\":false,\"num_lock\":false},\"utf8\":\"\",\"unshifted_codepoint\":\"l\",\"action\":\"press\",\"macos_option_as_alt\":false}}\n{\"id\":\"input\",\"cmd\":\"send\",\"terminal_id\":\"term-4\",\"text\":\"x\"}\n{\"id\":\"input-key\",\"cmd\":\"send-key\",\"surface\":4,\"keys\":[\"enter\"]}\n",
         )).await.unwrap();
     }
+    let (clear_input, clear_at) =
+        tokio::time::timeout(Duration::from_secs(3), key_rx.recv()).await.expect("clear forwarded").unwrap();
+    assert_eq!(clear_input, "input-clear", "text overtook the clear-history fallback key");
     let (first_input, first_at) =
         tokio::time::timeout(Duration::from_secs(3), key_rx.recv()).await.expect("text forwarded").unwrap();
     let (second_input, second_at) =
@@ -251,7 +254,7 @@ async fn exercise_selection_then_creation(
     assert_eq!(second_input, "input-key");
     let mut answers = HashMap::new();
     if let Some(mutator) = &mut mutation_channel {
-        while answers.len() < if disconnect_before_reply { 2 } else { 3 } {
+        while answers.len() < if disconnect_before_reply { 3 } else { 4 } {
             let answer = reply(mutator, &mut mutation_buffered).await;
             answers.insert(answer["id"].as_str().unwrap().to_owned(), answer);
         }
@@ -299,7 +302,7 @@ async fn exercise_selection_then_creation(
         .expect("creation forwarded")
         .unwrap();
     assert_eq!(creation, (json!(cwd_b), 1), "creation ran before selection was applied");
-    let input_latency = first_at.max(second_at).duration_since(began);
+    let input_latency = clear_at.max(first_at).max(second_at).duration_since(began);
 
     channel.close("eof", "test complete").await;
     if let Some(mutator) = mutation_channel {
