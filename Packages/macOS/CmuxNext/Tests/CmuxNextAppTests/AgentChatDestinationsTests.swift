@@ -135,22 +135,44 @@ struct AgentChatDestinationsTests {
 /// fixture data; no remote account or peer process is needed to check routing and refusals.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct AgentChatDestinationActionTests {
+    /// Released before the task group drains, including on timeout. A provider reached after
+    /// cleanup returns immediately, so sequential inventory reads cannot suspend cleanup again.
+    @MainActor private final class InventoryGate {
+        private var released = false
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+        private(set) var calls = 0
+
+        func wait() async {
+            calls += 1
+            guard !released else { return }
+            await withCheckedContinuation { waiting.append($0) }
+        }
+
+        func release() {
+            released = true
+            let pending = waiting
+            waiting.removeAll()
+            for continuation in pending { continuation.resume() }
+        }
+    }
+
     @Test func aLocalDestinationDoesNotWaitForPeerOrCloudInventory() async throws {
         try await AgentChatActionFixture.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "local-fast-path-fixture")
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
-            let neverPeers: () async throws -> [AgentChatPeer] = {
-                try await withCheckedThrowingContinuation { (_: CheckedContinuation<[AgentChatPeer], Error>) in }
-            }
-            let neverCloud: () async -> AgentPaneCloudMachines.Inventory = {
-                await withCheckedContinuation { (_: CheckedContinuation<AgentPaneCloudMachines.Inventory, Never>) in }
-            }
-            let source = AgentChatDestinations(localTitle: "This Mac", peers: neverPeers, cloud: neverCloud)
-            let pane = try #require(services.windows.active?.focusedPane)
+            let peers = InventoryGate()
+            let cloud = InventoryGate()
+            let source = AgentChatDestinations(localTitle: "This Mac", peers: {
+                await peers.wait()
+                return []
+            }, cloud: {
+                await cloud.wait()
+                return .init(signedIn: false, loaded: false, machines: [])
+            })
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
             let invocation = ActionInvocation(arguments: ["host": .string("local"), "cwd": .string(AgentChatActionFixture.localCwd)], origin: .cli)
             let result = try await withThrowingTaskGroup(of: Result<[String: ActionResultValue], ActionWorkFailure>.self) { group in
-                group.addTask {
+                group.addTask { @MainActor in
                     await AgentHandlers.createOnHost("local", invocation: invocation,
                         destinations: source, context: AppActionContext(services: services))
                 }
@@ -158,12 +180,39 @@ struct AgentChatDestinationActionTests {
                     try await Task.sleep(for: .seconds(2))
                     throw CancellationError()
                 }
-                defer { group.cancelAll() }
+                defer {
+                    group.cancelAll()
+                    peers.release()
+                    cloud.release()
+                }
                 return try await #require(group.next())
             }
-            _ = pane
+            #expect(peers.calls == 0)
+            #expect(cloud.calls == 0)
             let created = try await AgentChatActionFixture.created(in: services, after: before, fields: result.get())
             #expect(services.agentTabs.view(for: created.id) != nil)
+        }
+    }
+
+    @Test func aPeerNamedLikeTheLocalTitleStillCreatesOnThePeer() async throws {
+        try await AgentChatActionFixture.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "local-title-collision-fixture")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let name = "This Mac"
+            let source = AgentChatDestinations(localTitle: name, peers: {
+                [AgentChatPeer(name: name, isSSH: true, connected: true, state: "connected")]
+            }, cloud: { .init(signedIn: false, loaded: true, machines: []) })
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            let invocation = ActionInvocation(arguments: ["host": .string(name), "cwd": .string("/tmp")], origin: .cli)
+            let result = await AgentHandlers.createOnHost(name, invocation: invocation,
+                destinations: source, context: AppActionContext(services: services))
+            let created = try await AgentChatActionFixture.created(in: services, after: before, fields: result.get())
+            let view = try #require(services.agentTabs.view(for: created.id))
+            let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+            let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
+            #expect(handshake["peer"] as? String == name)
+            #expect(handshake["cwd"] as? String == "/tmp")
+            #expect(view.model.remoteChat)
         }
     }
 
