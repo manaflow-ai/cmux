@@ -25,6 +25,8 @@ public actor AcpmuxConnection {
     private var nextID = 1
     private var pending: [Int: CheckedContinuation<JSONValue, any Error>] = [:]
     private var readTask: Task<Void, Never>?
+    private var terminalError: (any Error)?
+    var isClosed: Bool { terminalError != nil }
     public nonisolated let notifications: AsyncStream<Notification>
     private let continuation: AsyncStream<Notification>.Continuation
 
@@ -34,11 +36,12 @@ public actor AcpmuxConnection {
     }
 
     public func start() {
-        guard readTask == nil else { return }
+        guard readTask == nil, terminalError == nil else { return }
         readTask = Task { await self.readLoop() }
     }
 
     public func request(_ method: String, _ params: JSONValue = .object([:])) async throws -> JSONValue {
+        if let terminalError { throw terminalError }
         start()
         let id = nextID
         nextID += 1
@@ -68,6 +71,7 @@ public actor AcpmuxConnection {
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
     public func notify(_ method: String, _ params: JSONValue) async throws {
+        if let terminalError { throw terminalError }
         start()
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "method": .string(method), "params": params])
         try await channel.send(try JSONEncoder().encode(message))
@@ -172,6 +176,8 @@ public actor AcpmuxConnection {
     }
 
     private func finish(_ error: any Error) {
+        guard terminalError == nil else { return }
+        terminalError = error
         for (_, continuation) in pending { continuation.resume(throwing: error) }
         pending.removeAll()
         continuation.finish()

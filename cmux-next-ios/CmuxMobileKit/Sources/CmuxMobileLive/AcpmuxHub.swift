@@ -94,6 +94,7 @@ public final class AcpmuxHub {
         if let old = connection { Task { await old.close() } }
         connection = nil
         isReady = false
+        lastError = nil
         fullAccess = false
         for entry in sources.values { entry.source?.linkDown() }
         guard let channel else { return }
@@ -103,8 +104,15 @@ public final class AcpmuxHub {
         let notifications = connection.notifications
         pumpTask = Task { [weak self] in
             for await notification in notifications {
+                guard self?.connection === connection else { return }
                 self?.handle(notification)
             }
+            guard !Task.isCancelled, let self, self.connection === connection else { return }
+            self.connection = nil
+            self.isReady = false
+            self.fullAccess = false
+            self.lastError = "acpmux channel closed"
+            for entry in self.sources.values { entry.source?.linkDown() }
         }
         do {
             let initialized = try await connection.request("initialize", .object([
@@ -115,6 +123,7 @@ public final class AcpmuxHub {
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             let watched = try await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+            guard !(await connection.isClosed), self.connection === connection else { return }
             var next: [String: AcpmuxSession] = [:]
             for value in watched["sessions"]?.arrayValue ?? [] {
                 if let session = AcpmuxSession(value) { next[session.id] = session }
@@ -130,6 +139,7 @@ public final class AcpmuxHub {
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
             await seedPending(connection)
         } catch {
+            guard self.connection === connection else { return }
             lastError = LinkController.reason(error)
             log.error("acpmux bind failed: \(String(describing: error), privacy: .public)")
         }

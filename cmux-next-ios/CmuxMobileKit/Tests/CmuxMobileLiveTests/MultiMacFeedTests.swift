@@ -115,8 +115,14 @@ import Testing
         let session = try #require(live.sessions["m1"])
         let link = try #require(session.currentLink)
         let dials = dialer.dialCount("m1")
-        await session.acpmux.bind(nil)
-        session.chatsError = "channel closed"
+        let channel = try await link.openChannel(service: "acpmux", args: [:])
+        await session.acpmux.bind(channel)
+        #expect(session.acpmux.isReady)
+        // End the channel's receive stream while its Mac link stays connected.
+        // Do not reset the hub or inject a diagnostic: teardown must do that.
+        await channel.close(code: "eof", reason: "remote closed")
+        #expect(await live.waitUntil(within: .seconds(3)) { !session.acpmux.isReady })
+        #expect(session.acpmux.lastError != nil)
         await feed.refresh()
         #expect(feed.refreshError != nil)
 

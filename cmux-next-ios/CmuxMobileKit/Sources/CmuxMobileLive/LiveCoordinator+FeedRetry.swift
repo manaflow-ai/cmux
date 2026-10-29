@@ -16,12 +16,12 @@ extension LiveCoordinator {
             // Probe it before deciding that `isReady` means it can still be read.
             if session.acpmux.isReady {
                 do {
-                    try await session.feed.refresh()
+                    _ = try await session.acpmux.request("_acpmux/watch", .object(["enabled": .bool(true)]), timeout: .seconds(5))
                     return
                 } catch is CancellationError {
                     return
                 } catch {}
-            } else if session.chatsError == nil {
+            } else if session.chatsError == nil, session.acpmux.lastError == nil {
                 // Initial serving already owns the bind. Do not race it with a second one.
                 _ = await session.acpmux.waitUntilReady(timeout: .seconds(20), clock: clock)
                 return

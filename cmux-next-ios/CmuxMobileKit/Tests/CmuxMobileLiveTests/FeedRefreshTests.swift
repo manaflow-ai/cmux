@@ -113,6 +113,21 @@ final class WatchReply: @unchecked Sendable {
         #expect(store.refreshError == nil)
     }
 
+    @Test func requestAfterRemoteCloseFailsWithoutWaitingForTimeout() async throws {
+        let channel = try await Self.mac(WatchReply(Self.idle)).openChannel(service: "acpmux", args: [:])
+        let connection = AcpmuxConnection(channel: channel)
+        await connection.start()
+        await channel.close(code: "eof", reason: "remote closed")
+        // Notification completion is the connection's real receive-loop teardown.
+        for await _ in connection.notifications {}
+        do {
+            _ = try await connection.request("_acpmux/watch", .object([:]), timeout: .seconds(1))
+            Issue.record("A closed connection accepted a request")
+        } catch let error as LinkError {
+            #expect(error.code == "closed")
+        }
+    }
+
     @Test func answersWithNoMacAreNotAppliedLocally() throws {
         let request = ACPPermissionRequest(id: "p", toolCall: .init(id: "c", title: "rm", kind: .execute),
                                            options: [ACPPermissionOption(id: "allow", name: "Allow", kind: .allowOnce)])
