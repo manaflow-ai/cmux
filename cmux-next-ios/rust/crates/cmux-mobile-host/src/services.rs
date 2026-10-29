@@ -317,6 +317,9 @@ async fn splice(
     let pending = Arc::new(crate::size_release::PendingReleases::default());
 
     let side_completion = Arc::new(crate::side_completion::SideCompletion::default());
+    // Clear pending mutation authority before the service closes, even if its
+    // child tasks have only been scheduled for cancellation.
+    let _completion_scope = side_completion.scope();
     let completed = Arc::clone(&side_completion);
 
     // Daemon → phone, whole lines.
@@ -378,8 +381,11 @@ async fn splice(
                     }
                     let changes_state = changes_cached_state(&line);
                     let line = with_pane_folder(cache.tree().as_deref(), line);
-                    let (line, completion) =
-                        side_completion.prepare(line, changes_state.then(|| cache.clone()));
+                    let Some((line, completion)) =
+                        side_completion.prepare(line, changes_state.then(|| cache.clone()))
+                    else {
+                        return;
+                    };
                     if ready_tx.send(Verdict::Rewrite(line)).await.is_err() {
                         return;
                     }

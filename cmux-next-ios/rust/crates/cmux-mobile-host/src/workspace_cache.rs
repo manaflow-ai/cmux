@@ -526,6 +526,39 @@ mod tests {
         assert_eq!(cache.tree().unwrap()["data"]["workspace_revision"], 99);
     }
 
+    #[tokio::test]
+    async fn dropping_an_unanswered_mutation_invalidates_other_channels() {
+        let published = Arc::new(Published::new());
+        let cache = WorkspaceCache {
+            inner: Arc::new(CacheWorker {
+                published: Arc::clone(&published),
+                task: tokio::spawn(std::future::pending()),
+            }),
+        };
+        let other_channel = cache.clone();
+        let initial = [Some(Arc::new(tree())), Some(Arc::new(json!({}))), Some(Arc::new(json!({})))];
+        publish(&published, &initial, 0);
+        let completion = Arc::new(crate::side_completion::SideCompletion::default());
+        let scope = completion.scope();
+        let task_handle = Arc::clone(&completion);
+        let (_, mut waiting) = completion
+            .prepare(br#"{"id":"select","cmd":"select-tab","surface":5}"#.to_vec(), Some(cache))
+            .unwrap();
+        assert!(other_channel.tree().is_some());
+
+        // Model teardown after the daemon applied select-tab but before its
+        // reply was read. The other channel keeps the shared cache alive.
+        drop(scope);
+        assert!(matches!(waiting.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Closed)));
+        assert!(other_channel.tree().is_none());
+        assert!(other_channel.personal().is_none());
+        assert!(other_channel.layout().is_none());
+        // A snapshot started before teardown cannot republish the old view.
+        publish(&published, &initial, 0);
+        assert!(other_channel.tree().is_none());
+        assert!(task_handle.prepare(br#"{"cmd":"identify"}"#.to_vec(), None).is_none());
+    }
+
     fn tree() -> Value {
         json!({"ok":true,"data":{"registry_id":"r", "generation":1, "workspace_revision":3,
             "workspaces":[{"id":1,"key":"one","screens":[{"id":2,"panes":[{"id":3,"tabs":[

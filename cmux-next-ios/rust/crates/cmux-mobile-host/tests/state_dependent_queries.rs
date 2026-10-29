@@ -34,20 +34,29 @@ async fn reply(channel: &mut Channel, buffered: &mut Vec<u8>) -> Value {
 
 #[tokio::test]
 async fn new_tab_uses_the_selection_acknowledged_before_it() {
-    exercise_selection_then_creation(true, false).await;
+    exercise_selection_then_creation(true, false, false).await;
 }
 
 #[tokio::test]
 async fn new_tab_on_another_channel_sees_the_acknowledged_selection() {
-    exercise_selection_then_creation(false, false).await;
+    exercise_selection_then_creation(false, false, false).await;
 }
 
 #[tokio::test]
 async fn a_pending_terminal_wait_does_not_block_mutations_or_input() {
-    exercise_selection_then_creation(true, true).await;
+    exercise_selection_then_creation(true, true, false).await;
 }
 
-async fn exercise_selection_then_creation(same_channel: bool, terminal_wait: bool) {
+#[tokio::test]
+async fn a_disconnect_before_mutation_reply_invalidates_other_channels() {
+    exercise_selection_then_creation(false, false, true).await;
+}
+
+async fn exercise_selection_then_creation(
+    same_channel: bool,
+    terminal_wait: bool,
+    disconnect_before_reply: bool,
+) {
     let sockets = tempfile::tempdir().unwrap();
     let folder_a = tempfile::tempdir().unwrap();
     let folder_b = tempfile::tempdir().unwrap();
@@ -108,7 +117,13 @@ async fn exercise_selection_then_creation(same_channel: bool, terminal_wait: boo
                                                 // input can still be received during this wait.
                                                 tokio::time::sleep(Duration::from_millis(250)).await;
                                                 selected.store(1, Ordering::SeqCst);
-                                                let _ = write.lock().await.write_all(format!("{answer}\n").as_bytes()).await;
+                                                if disconnect_before_reply {
+                                                    // Mutation took effect, but the host never
+                                                    // receives its acknowledgement or a delta.
+                                                    let _ = write.lock().await.shutdown().await;
+                                                } else {
+                                                    let _ = write.lock().await.write_all(format!("{answer}\n").as_bytes()).await;
+                                                }
                                             });
                                             continue;
                                         }
@@ -236,20 +251,35 @@ async fn exercise_selection_then_creation(same_channel: bool, terminal_wait: boo
     assert_eq!(second_input, "input");
     let mut answers = HashMap::new();
     if let Some(mutator) = &mut mutation_channel {
-        while answers.len() < 3 {
+        while answers.len() < if disconnect_before_reply { 2 } else { 3 } {
             let answer = reply(mutator, &mut mutation_buffered).await;
             answers.insert(answer["id"].as_str().unwrap().to_owned(), answer);
         }
         // The phone has seen A's mutation acknowledgement. B already had a
         // cached cwdA before the selection, and no subscription event updates
         // it. A must invalidate that shared view before exposing this ack.
-        assert_eq!(answers["select"]["ok"], true);
+        if disconnect_before_reply {
+            tokio::time::timeout(Duration::from_secs(3), async {
+                assert!(matches!(mutator.recv().await, Some(ChannelEvent::Closed(_))));
+            })
+            .await
+            .expect("mutator channel closes after losing the reply");
+        } else {
+            assert_eq!(answers["select"]["ok"], true);
+        }
         channel
             .send(Bytes::from_static(b"{\"id\":\"create\",\"cmd\":\"new-tab\",\"pane\":3}\n"))
             .await
             .unwrap();
     }
-    while answers.len() < if terminal_wait { 5 } else { 4 } {
+    let expected_answers = if terminal_wait {
+        5
+    } else if disconnect_before_reply {
+        3
+    } else {
+        4
+    };
+    while answers.len() < expected_answers {
         let answer = reply(&mut channel, &mut buffered).await;
         answers.insert(answer["id"].as_str().unwrap().to_owned(), answer);
     }
@@ -258,7 +288,9 @@ async fn exercise_selection_then_creation(same_channel: bool, terminal_wait: boo
         assert_eq!(answers["waiting"]["ok"], true);
         assert_eq!(answers["waiting"]["data"]["timeout_ms"], 60_000);
     }
-    assert_eq!(answers["select"]["ok"], true);
+    if !disconnect_before_reply {
+        assert_eq!(answers["select"]["ok"], true);
+    }
     assert_eq!(answers["create"]["data"]["cwd"], cwd_b);
     assert_eq!(answers["input-key"]["data"]["keys"], json!(["enter"]));
     assert_eq!(answers["input"]["data"]["text"], "x");
