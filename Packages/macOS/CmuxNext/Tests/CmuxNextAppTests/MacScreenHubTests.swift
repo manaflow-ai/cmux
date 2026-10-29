@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
+import CmuxNextServer
 import CmuxNextWakeups
 import CmuxScreenKit
 import CryptoKit
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 // Mac Screen with the device hub (docs/device-hub/PROTOCOL.md): device
 // records, the viewer's cards per hub state and error code, View Only
@@ -506,7 +508,7 @@ struct MacScreenHubViewerTests {
 struct MacScreenHubPushTests {
     private func makePages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file))
+        return MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
     }
 
     @Test func pushesReachTheTabOfTheirSession() throws {
@@ -660,7 +662,7 @@ struct MacScreenDevicesSettingsTests {
     /// The state never carries a secret, even with relays this Mac can open.
     @Test func theStateHoldsNoSecrets() async throws {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file))
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
         let settings = MacScreenDevicesSettings(pages: pages)
         pages.hubConfigured = true
         #expect(settings.state.available && settings.state.thisDevice == nil)
@@ -695,13 +697,135 @@ struct MacScreenHubHostOrderTests {
 
     private func serving() -> (MacScreenHubHost, DeviceHub) {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file))
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
         let hub = testHub()
         let host = pages.hubHost
         host.hub = { hub }
         host.makeSignaling = { _, _ in OpenSignaling() }
         host.serve(ticket("s1", role: .host, scope: .full, peer: "v1"))
         return (host, hub)
+    }
+
+    /// The one-line join's consent (app-owned Mac Screen, so acpmux cannot gate it): with the Labs switch
+    /// on and an acpmux without `machine-consent-v1`, a ticket is ended unserved and the one-time sheet shows.
+    @Test func aDaemonWithoutConsentSupportRefusesMacScreenAndShowsTheSheet() async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        let made = CallLog(), ends = CallLog()
+        host.makeSignaling = { _, _ in
+            made.items.append("signaling")
+            return OpenSignaling()
+        }
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let fake = JoinConsentTests.Fake()
+        fake.capable = false
+        let consent = JoinConsentModel(services: fake.services())
+        await consent.refresh()
+        host.consentGate = { await consent.allowsMacScreen(control: $0.scope == .full, requester: $0.peer.name) }
+        consent.changed = { [weak consent, weak host] in host?.consentChanged { consent?.permitsMacScreen(control: $0 == .full) ?? false } }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
+        #expect(host.session == nil && made.items.isEmpty, "nothing served")
+        #expect(ends.items == ["s1 failed"])
+        #expect(consent.ask == JoinConsentRefusal(requester: "Studio", surface: .screen))
+        // The same Mac with consent support and Screen sharing on serves the view (read when it arrives).
+        fake.capable = true
+        fake.record.screen = true
+        host.serve(ticket("s2", role: .host, scope: .view, peer: "v1"))
+        for _ in 0..<1000 where host.session == nil { await Task.yield() }
+        #expect(host.session?.id == "s2" && made.items == ["signaling"])
+        // Turning Screen sharing off stops the running session here at once, before the hub answers.
+        let hubAnswers = JoinConsentTests.Gate()
+        host.endSession = { _, id, reason in
+            ends.items.append("\(id) \(reason)")
+            await hubAnswers.wait()
+        }
+        #expect(await consent.set(.screen, on: false) == nil)
+        #expect(host.session == nil)
+        for _ in 0..<1000 where ends.items.count < 2 { await Task.yield() }
+        #expect(ends.items == ["s1 failed", "s2 host_stopped"])
+        hubAnswers.open()
+    }
+
+    /// Consent reads that answer out of order: the newer ticket serves and the older one is replaced,
+    /// never the other way around.
+    @Test func anOlderTicketWhoseReadAnswersLaterNeverReplacesANewerOne() async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        host.makeSignaling = { _, _ in OpenSignaling() }
+        let ends = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let first = JoinConsentTests.Gate(), second = JoinConsentTests.Gate()
+        host.consentGate = { ticket in
+            await (ticket.sessionId == "s1" ? first : second).wait()
+            return true
+        }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        host.serve(ticket("s2", role: .host, scope: .view, peer: "v2"))
+        second.open()
+        for _ in 0..<1000 where host.session == nil { await Task.yield() }
+        #expect(host.session?.id == "s2")
+        first.open()
+        for _ in 0..<1000 where ends.items.isEmpty { await Task.yield() }
+        #expect(host.session?.id == "s2", "the newer session keeps serving")
+        #expect(ends.items == ["s1 replaced"])
+        host.sessionOver("s2")
+    }
+
+    /// Two deliveries of one session, their consent reads answering in either order: the newer delivery
+    /// decides it, and the older one never ends or serves it.
+    @Test(arguments: [true, false])
+    func twoDeliveriesOfOneSessionAreDecidedByTheNewer(newerFirst: Bool) async {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file), work: BackgroundWork())
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        host.makeSignaling = { _, _ in OpenSignaling() }
+        let ends = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        var gates: [JoinConsentTests.Gate] = []
+        host.consentGate = { _ in
+            let gate = JoinConsentTests.Gate()
+            gates.append(gate)
+            await gate.wait()
+            return gates.count == 2 && gate === gates[1] // only the newer delivery's read allows
+        }
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        host.serve(ticket("s1", role: .host, scope: .view, peer: "v1"))
+        for _ in 0..<1000 where gates.count < 2 { await Task.yield() }
+        let order = newerFirst ? [gates[1], gates[0]] : [gates[0], gates[1]]
+        for gate in order {
+            gate.open()
+            for _ in 0..<50 { await Task.yield() }
+        }
+        #expect(host.session?.id == "s1", "served once, by the newer delivery")
+        #expect(ends.items.isEmpty, "the older delivery ends nothing")
+        host.sessionOver("s1")
+    }
+
+    @Test func stopSharingEndsATicketStillWaitingForConsent() async {
+        let (host, _) = serving()
+        let ends = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let read = JoinConsentTests.Gate()
+        host.consentGate = { _ in
+            await read.wait()
+            return true
+        }
+        host.serve(ticket("s2", role: .host, scope: .view, peer: "v2"))
+        await host.stopSession()?.value
+        read.open()
+        for _ in 0..<1000 where ends.items.count < 2 { await Task.yield() }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(host.session == nil, "the waiting ticket never serves")
+        #expect(Set(ends.items) == ["s1 host_stopped", "s2 host_stopped"])
     }
 
     @Test func revokeSetsNoneAndWaitsForTheHubsRevocation() async {

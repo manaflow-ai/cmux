@@ -30,13 +30,13 @@ enum DebugPaneFocus {
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
         if params["action"]?.stringValue == "start" {
             workBeforeCommit = [:]
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             DebugChromiumRestorableState.reset()
             #endif
         }
         guard case .object(var object) = timer.handle(params, key: "moves") else { return .null }
         object["work_before_commit"] = .object(workBeforeCommit.mapValues { .number(Double($0)) })
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // Chromium page windows' restorable-state encodes since `start` (WindowServer round trips).
         object["chromium_restorable_encodes"] = .number(Double(DebugChromiumRestorableState.encodes))
         #endif

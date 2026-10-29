@@ -573,10 +573,16 @@ impl Gate {
         now: std::time::Instant,
     ) -> Admit {
         let newest = self.newest_ts.iter().position(|(t, _)| *t == tag);
-        let newer = newest
-            .and_then(|at| self.newest_ts.get(at))
-            .is_none_or(|(_, newest)| (ts.wrapping_sub(*newest) as i32) > 0);
-        let pass = self.current.is_none() || (self.current == Some(id)) || (keyframe && newer);
+        let behind =
+            newest.and_then(|at| self.newest_ts.get(at)).map(|(_, newest)| ts.wrapping_sub(*newest) as i32);
+        let newer = behind.is_none_or(|d| d > 0);
+        let stuck = self.last_pass.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
+        // A still page's keyframes are re-encodes of one picture, with one
+        // capture time: on the route the Mac moved to, a keyframe as new as
+        // the newest passes once the route it left went quiet. (Right after
+        // a switch an equal one is a late copy on the left route.)
+        let as_new = behind == Some(0) && stuck;
+        let pass = self.current.is_none() || (self.current == Some(id)) || (keyframe && (newer || as_new));
         if pass {
             self.current = Some(id);
             if newer {
@@ -591,7 +597,6 @@ impl Gate {
             self.last_pass = Some(now);
             return Admit::Pass;
         }
-        let stuck = self.last_pass.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
         let due = self.last_ask.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
         if stuck && due {
             self.last_ask = Some(now);
@@ -627,13 +632,40 @@ impl InInner {
     /// a newer keyframe from another source makes that one current. A source
     /// stuck behind the gate (the current one went quiet) asks for a keyframe.
     pub(crate) fn admit(&self, id: u64, frame: &ReceivedFrame) -> bool {
-        let verdict = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).admit(
-            id,
-            frame.keyframe,
-            tag::peek(&frame.access_unit),
-            frame.rtp_timestamp,
-            std::time::Instant::now(),
-        );
+        let tag = tag::peek(&frame.access_unit);
+        let mut gate = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let verdict = gate.admit(id, frame.keyframe, tag, frame.rtp_timestamp, std::time::Instant::now());
+        if verdict != Admit::Pass {
+            // Rejections are normal for a moment after a route switch; one
+            // that asks means nothing passed for 250 ms (at most 4 a second).
+            let newest = gate.newest_ts.iter().find(|(t, _)| *t == tag).map(|(_, ts)| *ts);
+            let level_ask = verdict == Admit::RejectAndAsk;
+            let current = gate.current;
+            drop(gate);
+            if level_ask {
+                tracing::info!(
+                    source = id,
+                    ?current,
+                    keyframe = frame.keyframe,
+                    tag = ?tag.map(|t| format!("{t:08x}")),
+                    ts = frame.rtp_timestamp,
+                    ?newest,
+                    carrier = ?frame.carrier.map(CarrierKind::name),
+                    "media gate: nothing passed for 250 ms; asking for a keyframe"
+                );
+            } else {
+                tracing::debug!(
+                    source = id,
+                    ?current,
+                    keyframe = frame.keyframe,
+                    ts = frame.rtp_timestamp,
+                    ?newest,
+                    "media gate: rejected a frame"
+                );
+            }
+        } else {
+            drop(gate);
+        }
         if verdict == Admit::RejectAndAsk {
             self.request_keyframe();
         }
@@ -904,6 +936,28 @@ mod tests {
         assert_eq!(gate.admit(tunnel, false, new_tab, 5500, ms(316)), Admit::Pass);
         // A late keyframe of the same tab on the route it left still does not pass.
         assert_eq!(gate.admit(session, true, new_tab, 3000, ms(320)), Admit::Reject);
+    }
+
+    /// The single-tab freeze (verify/browser-freeze/results-2.md): on a still
+    /// page the host paints nothing new, so every keyframe a request gets is
+    /// a re-encode with the same capture time. The first went out on the
+    /// route the Mac left; the copies on the new route have the same
+    /// timestamp, and the gate rejected them all and asked again forever.
+    #[test]
+    fn a_still_pages_keyframe_with_the_same_timestamp_on_the_next_route_passes() {
+        let t0 = std::time::Instant::now();
+        let ms = |n| t0 + std::time::Duration::from_millis(n);
+        let (tunnel, track) = (1, 2);
+        let tab = Some(0x7a3d_70b3);
+        let mut gate = Gate::default();
+        assert_eq!(gate.admit(tunnel, true, tab, 58_241_389, ms(0)), Admit::Pass);
+        // The Mac switches at a keyframe of the same still picture.
+        assert_eq!(gate.admit(track, true, tab, 58_241_389, ms(10)), Admit::Reject);
+        // Asked again: another copy, same timestamp, once the tunnel went quiet.
+        assert_eq!(gate.admit(track, true, tab, 58_241_389, ms(270)), Admit::Pass);
+        assert_eq!(gate.admit(track, false, tab, 58_241_400, ms(290)), Admit::Pass);
+        // A late copy on the route it left, right after, does not take it back.
+        assert_eq!(gate.admit(tunnel, true, tab, 58_241_400, ms(300)), Admit::Reject);
     }
 
     #[test]

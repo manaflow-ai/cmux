@@ -33,9 +33,12 @@ public final class RemoteViewPageTab: BrowserTab {
     @ObservationIgnored public var onNavigate: ((URL) -> Void)?
     @ObservationIgnored private let session: RemoteViewPageSession?
 
-    /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`.
+    /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`; `cloudTransport`
+    /// reaches a Cloud machine's desktop over the app's Cloud tunnel.
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
-         closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void) {
+         closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void,
+         cloudTransport: RemoteViewPageSession.CloudDesktopTransport? = nil,
+         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -44,12 +47,14 @@ public final class RemoteViewPageTab: BrowserTab {
         case .unavailable: RemoteViewTabRecord(url: url)
         }
         record = parsed
-        var state = BrowserTabState(url: url, title: RemoteViewTabRecord.tabTitle(parsed))
+        // A Cloud machine's tab and pane read its name, not its id.
+        var state = BrowserTabState(url: url, title: displayName ?? RemoteViewTabRecord.tabTitle(parsed))
         state.phase = .finished
         self.state = state
         switch decision {
         case let .connect(record):
-            let session = RemoteViewPageSession.make(record: record, closeTab: closeTab)
+            let session = RemoteViewPageSession.make(record: record, closeTab: closeTab, cloudTransport: cloudTransport, cloudRd: cloudRd,
+                                                     displayName: displayName)
             self.session = session
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):
@@ -108,11 +113,11 @@ public final class RemoteViewPageTab: BrowserTab {
         return image
     }
 
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.closed }
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue { throw BrowserTabError.closed }
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult { .none }
     public func clearFind() {}
     public func setZoom(_ zoom: Double) {}
     public func exitContentFullscreen() {}
     public func showDevTools() {}
-    public func close() { session?.pause() }
+    public func close() { session?.end() }
 }

@@ -22,6 +22,11 @@ Per mode:
   ping     helper only: N round trips cmux -> host UI thread -> cmux over the wire (`ping_us`).
   kill     helper only, last: SIGKILL to the host. Pass when the cmux app's pid is unchanged and answers, a new host
            starts by itself (restart policy) and loads the saved page, and the in-process tab still answers.
+  pump     the baseline the move removes: the share of cmux's main thread spent inside Chromium's pump passes
+           (CefDoMessageLoopWork and every CEF callback it runs, `debug.cef` pump.work_ms over wall time), in process
+           only: `pump_share` idle (page shown, nothing happens) and while the page scrolls (one wheel event per frame),
+           light and, with --stress, in the STRESS session (perf-stress-session.py, its Chromium pages selected).
+           Key callbacks Chromium makes from cmux's own event dispatch are not in it (they run outside a pass).
 
 Debug build (reload.sh), not Release: the numbers compare the two paths, they are not shipping latencies.
 Not a gate: exit 1 only when a mode could not run (no host app, refused fork API, launch failure).
@@ -41,6 +46,8 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--count", type=int, default=60)
 parser.add_argument("--modes", default="inproc,helper")
 parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
+parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
+parser.add_argument("--pump-seconds", type=float, default=10.0)
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -125,7 +132,7 @@ def main():
     app = BenchApp(opts.app, out=opts.out, env={"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables})
     ok = True
     try:
-        app.launch(settle=3)
+        app.launch()
         rpc = app.rpc
         RESULT["refresh_hz"] = main_display_hz()
         cef = rpc("debug.cef") or {}
@@ -138,6 +145,8 @@ def main():
             ok = ok and inproc_tab is not None
         if "helper" in modes:
             ok = run_helper(rpc, url, inproc_tab) and ok
+        if opts.stress:
+            run_stress_pump(rpc)
     except LaunchError as error:
         RESULT["error"] = error.reason
         ok = False
@@ -201,9 +210,42 @@ def run_inproc(rpc, url):
         return {"x": rect[0], "y": rect[1]} if rect else {}
     row = drive(rpc, "inproc", lambda: page("document.title"), {"target": "page"}, {"target": "page"}, click_point)
     row["hosted_pages"] = hosted
-    row["pump"] = (rpc("debug.cef") or {}).get("pump")
+    row["pump_share"] = {"light": pump_share(rpc, page)}
     RESULT["modes"]["inproc"] = row
     return True
+
+
+def pump_work_ms(rpc):
+    return float(((rpc("debug.cef") or {}).get("pump") or {}).get("work_ms") or 0)
+
+
+def pump_share(rpc, page):
+    """Main-thread share inside Chromium pump passes, idle and while the shown page scrolls."""
+    shares = {}
+    for phase in ("idle", "scroll"):
+        if page:
+            page("window.scrollTo(0, 0); document.body.style.height = '40000px'")
+        start_ms, start = pump_work_ms(rpc), time.monotonic()
+        deadline = start + opts.pump_seconds
+        while time.monotonic() < deadline:
+            if phase == "scroll":
+                rpc("debug.mouse", {"target": "page", "action": "scroll", "dy": -12})
+            time.sleep(1 / 60)  # test harness: one wheel event per 60 Hz frame (idle: just the wait)
+        wall_ms = (time.monotonic() - start) * 1000
+        shares[phase] = {"share": round((pump_work_ms(rpc) - start_ms) / wall_ms, 4), "wall_ms": round(wall_ms)}
+    shares["pump"] = (rpc("debug.cef") or {}).get("pump")
+    return shares
+
+
+def run_stress_pump(rpc):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(HERE, "perf-stress-session.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    summary = module.Stress(rpc, selected="chromium").build()
+    RESULT["stress_session"] = summary
+    # Scroll goes to the focused pane's page: a Chromium page in STRESS (selected chromium).
+    RESULT["modes"].setdefault("inproc", {}).setdefault("pump_share", {})["stress"] = pump_share(rpc, None)
 
 
 def run_helper(rpc, url, inproc_tab):

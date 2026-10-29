@@ -552,10 +552,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   a new file and answers one data frame `{"path","size"}`, then `eof`. With
   `cwd`, which must be a folder of one of the Mac's tabs or inside a workspace
   root, the file goes to `<cwd>/.cmux/attachments/phone-<session>/`.
-  Otherwise it goes to the host's uploads folder. A refusal (`too_large`,
-  `forbidden`, `not_found`, `bad_request`, `io`) is answered
-  `{"error","message"}` before the channel closes with that code. The name is
-  made safe, and an existing file is never replaced (`name 2.ext`, ...).
+  Otherwise it goes to the host's uploads folder. Any size is accepted; the
+  bytes stream to disk as they arrive. A refusal (`forbidden`, `not_found`,
+  `bad_request`, `io`) is answered `{"error","message"}` before the channel
+  closes with that code. The name is made safe, and an existing file is never
+  replaced (`name 2.ext`, ...).
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)
@@ -691,6 +692,48 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   the phone hides New Browser Tab for that Mac.
   `browser-video-track-v1`: the host honors `browser {"video":"track"}`
   (the media lane above), on WebRTC and, since 2026-10-14, on WireGuard.
+  `surface-stream-v1` (2026-10-22): the host streams the Mac's phone tabs
+  (`surface`, below).
+- `surface`: `{"tab", "video"?, "video_tag"?}` a Mac phone tab showing a
+  booted iOS simulator, streamed like a browser tab
+  (verify/simulator-surface.md). `tab` is the phone tab's key `s<surface>`;
+  hostd opens it only when the daemon's `list-workspaces` lists that surface
+  as a page tab with `conversation.page: "phone"` (else `forbidden`; not a
+  tab key: `bad_request`; a Mac that streams no simulators: `no_surface_host`,
+  an older Mac: `unknown_service`, and the phone says simulators are not
+  available from that Mac). The channel is the `browser` channel's
+  `cmux.rd/1` stream carrier of a `cmux.rb/1` session, and goes through the
+  same splice: `video: "track"` and `video_tag` ride the link's one media
+  lane, and the shown tab owns it among browser and simulator tabs alike
+  (`rb.visibility`). The host answers `rb.open` and `rb.screen` with
+  `rb.opened` and `rb.screen_applied` at the simulator's encoded size (its
+  framebuffer scaled to at most 1920 px on the long side), sends a new
+  `rb.screen_applied` (seq 0) when the simulator rotates, and sends no `rb.page`. The phone sends only rd datagrams, `stop` and
+  `rb.open`, `rb.close`, `rb.visibility`, `rb.screen`, `rb.vsync`; hostd drops
+  every other rb message. Input is `rb` input events in rd `service` input:
+  `pointer` `down`/`move`/`up` at `x`, `y` in 0...1 of the simulator's screen
+  (top-left origin, as shown; clamped), `ime_commit` text (at most 4 KiB, no
+  control characters but newline and tab), `key` for `Backspace`, `Enter`,
+  `Tab`, `Escape`, `Delete` and the arrows, and `{"e":"button","button":
+  "home"|"lock"}`; anything else is dropped. A finger left down when the
+  viewer goes is lifted. At most `CMUX_MOBILE_RB_MAX_TABS` surface hosts run,
+  apart from browser hosts, with the same eviction. Under
+  `CMUX_MOBILE_CONTROL=stdio` (and `CMUX_MOBILE_SURFACE_HOSTS=1`) hostd asks
+  the app `{"type":"need_surface","request","tab"}`, the app answers
+  `{"type":"surface","request","addr":"127.0.0.1:PORT","secret"}` or
+  `{"type":"surface_failed","request","reason"}`, reports
+  `{"type":"surface_gone","tab"}` and is asked `{"type":"surface_stop","tab"}`.
+  hostd and the app's source speak `sf/1` on loopback (`surface.rs`
+  `SourceFrame`): hostd's hello with the source's secret first, then `encode
+  {idr,kbps}`, `visible`, `touch`, `text`, `key`, `button`; the source sends
+  `size`, `damage`, `skip`, `error` and access units (flags, capture time on
+  `CLOCK_UPTIME_RAW`, Annex B H.264). hostd runs the rd media engine (frame
+  gate, congestion control, FEC, recovery keyframes) itself, so the source
+  encodes only when asked.
+  The phone declares `page-tabs-v1` on its `daemon` channel (2026-10-23), so
+  page tabs read as `conversation` with their `page` instead of a blank
+  browser tab: a phone tab shows as a simulator tab, and other page tabs
+  (Settings, the App Store) are not shown on the phone.
 
 A service that ends normally closes its channel with `{code:"eof"}`; a
 refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or

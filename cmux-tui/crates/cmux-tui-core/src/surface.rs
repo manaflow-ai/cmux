@@ -20,6 +20,7 @@ mod holder_spawn;
 mod host_launch;
 mod host_state;
 mod input;
+mod local_output;
 mod metadata;
 mod mouse_input;
 mod options;
@@ -573,6 +574,16 @@ impl Surface {
         }
     }
 
+    /// The hex terminal id key-press flow marks name this terminal by (`cmux_flow_trace`): the host's
+    /// terminal id, which the terminal host and the holder also know. Empty for a browser surface or a
+    /// local PTY with no host identity.
+    pub(crate) fn flow_terminal_id(&self) -> &str {
+        match self {
+            Self::Pty(surface) => surface.flow_terminal_id(),
+            Self::Browser(_) => "",
+        }
+    }
+
     /// Create another view placement for this terminal without creating a
     /// second process or terminal emulator.
     pub(crate) fn project_terminal(
@@ -749,6 +760,8 @@ impl Surface {
                 terminal_public_id: terminal_public_id.map(Arc::new),
                 journal_generation,
                 journal_capture_supported,
+                #[cfg(unix)]
+                local_output: None,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
@@ -966,6 +979,8 @@ impl Surface {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PtyGeometryTestStep {
+    LocalReaderReady,
+    LocalDrainSnapshot,
     ResizeStarted,
     ResizeCommitBoundary,
     CellPixelStarted,

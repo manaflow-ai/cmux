@@ -16,6 +16,8 @@ extension ChatsFeed {
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
         // A deleted chat's uploads go with it; any past their age at launch (``AgentChatUploads``).
         AgentTurnStateFeed.purged = { AgentChatUploads.removeInBackground(session: $0) }
+        // An acpmux peer that connects later in the launch gets the app's build too.
+        AgentTurnStateFeed.peerSessionChanged = { _ = AcpmuxPeerReconnects.shared.note(peer: $0, stale: $1) }
         AgentChatUploads.sweepInBackground()
         let localHost = (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:))
         turns.start(localHost: localHost)
@@ -27,7 +29,6 @@ extension ChatsFeed {
         feed.observe(history) { [weak feed] in if let feed { history.chats = feed.store } }
         history.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
                       open: { [weak services] key in services?.chatsOpener.open(key) })
-        SidebarChatHistoryFeed.bind(into: services.registry)
         return feed
     }
 

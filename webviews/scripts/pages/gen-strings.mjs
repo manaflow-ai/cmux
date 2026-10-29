@@ -254,7 +254,7 @@ export const PAGES = {
         keys: (all) =>
           all.filter(
             (key) =>
-              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel)\./.test(key) ||
+              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel|multiplayer)\./.test(key) ||
               [
                 "changes.noLineChanges",
                 "link.openPath",
@@ -272,6 +272,11 @@ export const PAGES = {
                 "message.sending",
                 "message.sent",
                 "message.delivered",
+                "message.deliveredShort",
+                "message.queued",
+                "message.notDelivered",
+                "message.notDeliveredStopped",
+                "message.notDeliveredNoAgent",
                 // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
                 "message.recipientId",
               ].includes(key),

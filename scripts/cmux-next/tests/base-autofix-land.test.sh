@@ -61,11 +61,10 @@ setup() {
   git init -q --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat \
-    && mkdir -p Packages/macOS/CmuxNext/Sources/CmuxNextSettings schemas/settings schemas/settings-export \
+    && mkdir -p Packages/macOS/CmuxNext/Sources/CmuxNextSettings schemas/settings \
     && echo "manifest v1" > "$manifest" && echo "graph old" > "$graph" \
     && echo "setting v1" > "$setting" && echo "schema old" > "$schema" \
     && if [[ "$with_cap" == cap ]]; then mkdir -p "$(dirname "$cap_source")" "$(dirname "$cap")" && echo "capability source v1" > "$cap_source" && echo "cap old" > "$cap"; fi \
-    && echo "stamp old" > schemas/settings-export/settings-schema.sources.sha256 \
     && echo readme > README.md \
     && git add -A && git commit -q -m base && git push -q origin feat)
   git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"

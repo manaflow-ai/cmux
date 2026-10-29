@@ -302,6 +302,117 @@ export function findOpaqueGlass(srcDir: string = SRC): string[] {
   return found;
 }
 
+// A page the app floats as a menu, picker or popover over the window (Swift
+// `PageEngineOptions(requiresWebKit: .transparentOverlay)`): the host draws Glass.makeOverlayPanel
+// behind the page, so the page's own root (html, body, :root, #root) must let it show. The shared
+// page base paints html with the host's `--cmux-surface-background`, which is the opaque theme
+// surface over an opaque window, so a popup document paints its html transparent itself.
+const ROOT_SUFFIX = /^(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?|[.#][\w-]+)*$/;
+const ROOT_COMPOUND = new RegExp(`^(?:html|body|:root|#root)${ROOT_SUFFIX.source.slice(1)}`);
+
+// `:is(a, b)`, `:where(...)` or `:matches(...)` opening a compound: its list and what follows it.
+function leadingList(compound: string): { list: string; rest: string } | null {
+  const open = /^:(?:is|where|matches)\(/.exec(compound);
+  if (!open) return null;
+  let depth = 1;
+  for (let i = open[0].length; i < compound.length; i++) {
+    if (compound[i] === "(") depth++;
+    else if (compound[i] === ")" && --depth === 0)
+      return { list: compound.slice(open[0].length, i), rest: compound.slice(i + 1) };
+  }
+  return null;
+}
+
+// Split at separators outside (...) and [...], so :is(a, b) and [x="a b"] stay whole.
+function splitTopLevel(text: string, separator: RegExp): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === "(" || char === "[") depth++;
+    else if ((char === ")" || char === "]") && depth > 0) depth--;
+    else if (depth === 0 && separator.test(char)) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+// "html" when one selector of the list is the document's root element alone, "root" when one ends
+// in html, body, :root or #root, else null.
+function rootTarget(selector: string): "html" | "root" | null {
+  let target: "html" | "root" | null = null;
+  for (const part of splitTopLevel(selector, /,/)) {
+    const compounds = splitTopLevel(part.trim(), /[\s>+~]/).filter(Boolean);
+    const last = compounds.at(-1) ?? "";
+    // :is(body, #root) and :where(...) match what their own list matches; classes, attributes and
+    // pseudo-classes after the list narrow the same element.
+    const listed = leadingList(last);
+    if (listed) {
+      const inner = ROOT_SUFFIX.test(listed.rest) ? rootTarget(listed.list) : null;
+      if (inner === "html" && compounds.length === 1) return "html";
+      if (inner) target = "root";
+      continue;
+    }
+    if (!ROOT_COMPOUND.test(last)) continue;
+    if (compounds.length === 1 && /^(?:html|:root)/.test(last)) return "html";
+    target = "root";
+  }
+  return target;
+}
+
+/** A root background value that leaves no fill: `none` (no image, the color's initial transparent)
+ * on the shorthand, and the CSS-wide keywords that reset to it (background is not inherited). */
+function clearsFill(prop: string, value: string): boolean {
+  const lower = value.trim().toLowerCase();
+  if (lower === "initial" || lower === "unset") return true;
+  return prop === "background" && lower === "none";
+}
+
+/**
+ * Every popup page document (`pages`, paths under src/: a stylesheet, or all of one page's) whose
+ * root paints an opaque fill, or whose html never paints itself transparent, as
+ * `file:line: selector { prop: value }` or `file: …` (a page's first stylesheet).
+ */
+export function findOpaquePopupPageRoots(pages: (string | string[])[], srcDir: string = SRC): string[] {
+  const all = cssFiles(srcDir).flatMap((file) => parse(relative(srcDir, file), readFileSync(file, "utf8")));
+  tokens = new Map();
+  for (const block of all) {
+    if (inReduce(block)) continue;
+    for (const d of block.decls) {
+      if (d.prop.startsWith("--")) tokens.set(d.prop, [...(tokens.get(d.prop) ?? []), d.value]);
+    }
+  }
+  const found: string[] = [];
+  for (const page of pages) {
+    const files = typeof page === "string" ? [page] : page;
+    let clearHtml = false;
+    for (const file of files) {
+      const blocks = all.filter((block) => block.file === file && !inReduce(block));
+      if (blocks.length === 0) found.push(`${file}: no such stylesheet under src/`);
+      for (const block of blocks) {
+        const target = rootTarget(block.selector);
+        if (!target) continue;
+        for (const d of block.decls) {
+          if (d.prop !== "background" && d.prop !== "background-color") continue;
+          const kind = classify(d.value);
+          if (kind === "opaque" && !d.allowed)
+            found.push(`${file}:${d.line}: ${block.selector} { ${d.prop}: ${d.value} }`);
+          if (target === "html" && (kind === "translucent" || clearsFill(d.prop, d.value))) clearHtml = true;
+        }
+      }
+    }
+    if (!clearHtml && files.length > 0 && !found.includes(`${files[0]}: no such stylesheet under src/`))
+      found.push(
+        `${files[0]}: the popup document never paints html transparent (the page base paints the host's surface)`,
+      );
+  }
+  return found;
+}
+
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);

@@ -127,15 +127,19 @@ fn the_shipped_skill_installs_once_and_a_user_copy_is_kept() {
         written,
         vec![
             "chief-auth-escalation".to_owned(),
+            "chief-cloud-machines".to_owned(),
             "cmux-adoption".to_owned(),
             "cmux-setup".to_owned(),
-            "github-signin".to_owned(),
-            "paid-plans".to_owned()
+            "paid-plans".to_owned(),
         ]
     );
     // Every Chief signs in to GitHub by default (chief-github-DESIGN.md): the device code, a fresh one when it
     // ends (a self-wake timer), the token kept per Chief, and the granular options.
-    let gh = std::fs::read_to_string(shared.join("github-signin").join("SKILL.md")).unwrap();
+    // The skill ships in the GitHub tool pack (chief-toolpacks-DESIGN.md), not among the shared skills.
+    assert!(!shared.join("github-signin").exists());
+    let packs = optchat_chief::toolpacks::shared_dir(&dir.path().join("default"));
+    optchat_chief::toolpacks::install_builtin(&packs).unwrap();
+    let gh = std::fs::read_to_string(packs.join("github").join("SKILL.md")).unwrap();
     assert_eq!(skills::front_matter(&gh).unwrap().0, "github-signin");
     for word in [
         "chief-github login",

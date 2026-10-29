@@ -36,7 +36,9 @@ extension LayoutRootView {
 
     /// Syncs the overlay when it is stale.
     func flushOverlaySync() {
-        guard overlayIsStale else { return }
+        // A parked or hidden root keeps its overlay stale: nothing shows it, and it syncs once when it goes
+        // live again (`setLive`).
+        guard overlayIsStale, isLive else { return }
         syncOverlay()
     }
 
@@ -60,6 +62,7 @@ extension LayoutRootView {
     /// window frame as they are (no conversion, no strip notice). The hosts that changed are
     /// ``panesMovedInLastOverlaySync`` for the observers (`observeOverlaySync`).
     private func syncOverlay() {
+        overlaySyncs += 1
         overlayIsStale = false
         let plane = overlayPlane
         let inWindow = window == nil ? nil : convert(bounds, to: nil)

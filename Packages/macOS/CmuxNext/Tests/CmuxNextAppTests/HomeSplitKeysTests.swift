@@ -140,8 +140,12 @@ struct HomeSplitKeysTests {
             var opensTerminal = ActionInvocation(origin: .user)
             opensTerminal.opensTerminal = true
             #expect(services.registry.perform("splitRight", invocation: opensTerminal))
-            try await PasswordManagerRouteTests.until({ Self.panes(home).count == 2 && Self.panes(home).last?.tabs.isEmpty == false },
-                                                       report: { "\(Self.panes(home).count) panes" })
+            // The daemon's pane, not the split's stand-in (`ProvisionalPane`), which shows first and
+            // whose handle the daemon does not know ("new-tab failed: unknown pane").
+            try await PasswordManagerRouteTests.until({
+                Self.panes(home).count == 2
+                    && Self.panes(home).last?.tabs.first.map { !ProvisionalTab.isProvisional(surface: $0.surface) } == true
+            }, report: { "\(Self.panes(home).count) panes, right tabs \(Self.panes(home).last?.tabs.map(\.surface) ?? [])" })
             let right = try #require(Self.panes(home).last)
             _ = try await connection.newTab(in: right.handle)
             try await PasswordManagerRouteTests.until({ right.tabs.count == 2 }, report: { "right of Home: \(right.tabs.count) tab(s)" })

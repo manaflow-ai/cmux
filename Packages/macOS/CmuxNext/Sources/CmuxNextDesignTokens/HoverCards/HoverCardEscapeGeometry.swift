@@ -8,17 +8,16 @@ public import CoreGraphics
 /// from row to row. Near the screen's bottom edge the visible frame clamps it up (it still covers
 /// the row's side); near its right edge it goes left of the row.
 ///
-/// Lawrence 2026-10-21: "horizontally only 1 pixel gap". The anchor is the row's band across the
-/// sidebar column (`rowBand(row:column:)`), not the row's pill: the card's near edge is one device
-/// pixel past the column's visible edge (`edgeGap(scale:)`), whatever the row's inset, trim or
-/// nesting depth. Every sidebar card (a workspace row, a group header, a thin rail's mark) builds
-/// its anchor with `rowBand` and places it here, so there is one rule for where the card goes.
+/// Leo 2026-10-28: "the gap between the hover preview and ... the workspace sidebar element".
+/// Workspace cards anchor on the drawn row's fill, before the resize/drag thumb. Group headers
+/// and rail marks retain their column band (`rowBand(row:column:)`). The card touches its anchor.
 ///
 /// ```
-///   +---- sidebar column ----+ +--------------------+
-///   |  +-----------+         |1|                    |   (the card's top on the row's top,
-///   |  |    row    |         |px        card        |    1 device pixel off the column)
-///   |  +-----------+         | +--------------------+
+///   +---- sidebar column ---------------------------+
+///   |  +----------------+--------------------+      |
+///   |  |      row       |        card        |      |   (the card's top on the row's top,
+///   |  +----------------+                    |      |    touching the row's fill)
+///   |                   +--------------------+      |
 /// ```
 ///
 /// The gap keeps the card only for a pointer heading into it (`HoverCardCoordinator`); one
@@ -63,13 +62,14 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
         case middle
     }
 
-    /// The room between a target and a `.beside` card (the update card); a sidebar row's card
-    /// stands `edgeGap(scale:)` off the sidebar's edge instead.
-    public static let rowGap: CGFloat = 10
-
-    /// The room between the sidebar column's visible edge and a row's card: one device pixel of
-    /// `scale` (Lawrence 2026-10-21: "horizontally only 1 pixel gap").
+    /// The room between a target and a `.beside` card (the update card or a pull request badge's
+    /// card): one device pixel of `scale`. Sidebar row cards use ``rowGap`` so they sit
+    /// directly against the row and its resize/drag edge.
     public static func edgeGap(scale: CGFloat) -> CGFloat { 1 / max(scale, 1) }
+
+    /// Sidebar row cards sit directly against their anchor. Keeping this separate from
+    /// ``edgeGap(scale:)`` preserves the small breathing room used by non-sidebar `.beside` cards.
+    public static let rowGap: CGFloat = 0
 
     /// A sidebar row's anchor for its card: the row's height across the whole sidebar column.
     ///
@@ -78,20 +78,23 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// - Parameter row: The row's frame on screen (its pill, a header, a rail mark).
     /// - Parameter column: The sidebar column's visible frame on screen; only its x extent is used.
     /// - Returns: `row`'s vertical extent spanning `column`'s horizontal one.
-    /// The room a row's card rests in: the screen's visible frame less `margin`, and inside its
-    /// window, so the last row's card never hangs below the window (Lawrence 2026-10-22). The window
-    /// takes no margin: the card's near edge stays one device pixel off a sidebar at its edge.
+    public static func rowBand(row: CGRect, column: CGRect) -> CGRect {
+        CGRect(x: column.minX, y: row.minY, width: column.width, height: row.height)
+    }
+
+    /// The room a row's card rests in: the screen's visible frame less `margin`, and between its
+    /// window's bottom and top, so the last row's card never hangs below the window (Lawrence
+    /// 2026-10-22). The window takes no margin. Across, the room is the screen's: the card goes
+    /// beside the sidebar, past the window's edge when the window is no wider than the sidebar,
+    /// and never over the rows it describes.
     /// - Parameter visible: The screen's visible frame (or the whole screen), screen coordinates.
     /// - Parameter window: The parent window's frame; nil out of a window.
     public static func room(visible: CGRect, window: CGRect?, margin: CGFloat) -> CGRect {
         let screen = visible.insetBy(dx: margin, dy: margin)
         guard let window else { return screen }
-        let inside = screen.intersection(window)
-        return inside.isNull || inside.isEmpty ? screen : inside
-    }
-
-    public static func rowBand(row: CGRect, column: CGRect) -> CGRect {
-        CGRect(x: column.minX, y: row.minY, width: column.width, height: row.height)
+        let bottom = max(screen.minY, window.minY), top = min(screen.maxY, window.maxY)
+        guard top > bottom else { return screen }
+        return CGRect(x: screen.minX, y: bottom, width: screen.width, height: top - bottom)
     }
 
     /// Debug Settings: the escape-slot layout (`RowAlignment.middle`) instead of the top-aligned one.
@@ -103,23 +106,23 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// The alignment the sidebar uses now: top, or middle while the Debug Settings switch is on.
     public static var currentAlignment: RowAlignment { escapeSlotTunable.value ? .middle : .top }
 
-    /// The card for `anchor` (a row's band across the sidebar, `rowBand(row:column:)`) at `size`,
+    /// The card for `anchor` (a workspace's fill, or a group/rail band) at `size`,
     /// kept inside `visible` (the screen's visible frame, already inset by any margin) when given,
-    /// its near edge `gap` (one device pixel when nil, `edgeGap(scale:)`) off the anchor's edge on
+    /// its near edge `gap` (zero when nil, ``rowGap``) off the anchor's edge on
     /// device pixels of `scale`, lined up with the row by `alignment`.
     public init(anchor: CGRect, cardSize size: CGSize, visible: CGRect? = nil, scale: CGFloat = 2, gap: CGFloat? = nil,
                 alignment: RowAlignment = .top) {
         let scale = max(scale, 1)
-        let gap = gap ?? Self.edgeGap(scale: scale)
-        func pixel(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+        let gap = gap ?? Self.rowGap
+        func up(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.up) / scale }
         func down(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.down) / scale }
         self.anchor = anchor
         let middle = down(anchor.midY)
-        // Right of the sidebar: its left edge `gap` past the edge's device pixel.
-        var x = pixel(anchor.maxX) + gap
+        // Snap toward the row so a fractional edge never leaves a visible seam.
+        var x = down(anchor.maxX) + gap
         var leading = false
-        if let visible, x + size.width > visible.maxX, pixel(anchor.minX) - gap - size.width >= visible.minX {
-            x = pixel(anchor.minX) - gap - size.width
+        if let visible, x + size.width > visible.maxX, up(anchor.minX) - gap - size.width >= visible.minX {
+            x = up(anchor.minX) - gap - size.width
             leading = true
         }
         var y: CGFloat

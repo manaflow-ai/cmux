@@ -92,6 +92,26 @@ struct TabSelectionActionsTests {
         }
     }
 
+    /// #24913: a right-click on a tab that is not selected selected it while the menu was built, and
+    /// the focus move made a Chromium page window key inside the right-click (a 10 s stall on macOS
+    /// 14 and 15). Building the menu selects nothing and moves no focus; its rows act on that tab.
+    @Test func theTabMenuOfAnotherTabSelectsNothing() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let pane = try await Self.pane(with: 3, services, connection)
+            let selected = try #require(pane.stripModel.selectedID)
+            let other = try #require(pane.stripModel.orderedTabs.map(\.id).first { $0 != selected })
+            let focus = try #require(pane.workspace?.focus)
+            let before = focus.currentState()
+            let menu = try #require(pane.contextMenu(for: .tab(other, selection: pane.stripModel.contextSelection(for: other))))
+            await Task.yield()
+            #expect(pane.stripModel.selectedID == selected, "building the menu selected \(String(describing: pane.stripModel.selectedID))")
+            #expect(focus.currentState().resolved == before.resolved, "building the menu moved focus to \(focus.currentState().resolved)")
+            let runs = Self.rows(menu).compactMap(ActionRegistry.menuRun(of:))
+            #expect(!runs.isEmpty)
+            #expect(runs.allSatisfy { $0.target == ActionTargetRef(kind: .tab, id: other.rawValue) }, "a row does not act on the right-clicked tab")
+        }
+    }
+
     /// The bug class: every row of the tab menu is a bound registered action that targets the
     /// right-clicked tab, and it can run exactly when the palette's run of the same action on the
     /// same (focused) tab can. A row enabled for one and refused or hidden for the other is a

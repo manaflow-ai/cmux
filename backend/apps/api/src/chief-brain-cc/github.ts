@@ -163,9 +163,15 @@ const statusOf = (sql: SqlStorage): GithubStatus => {
   return s
 }
 
-/** The message the Chief posts: the code in backticks (one tap copies it) and the page alone on its line (its link preview is the card). */
+/** The page as a Markdown link named by its address without the scheme (`[github.com/login/device](https://…)`). */
+const pageLink = (uri: string) => `[${uri.replace(/^https?:\/\//, "")}](${uri})`
+
+/**
+ * The message the Chief posts: the code in backticks (one tap copies it) and the page alone on its line as a
+ * Markdown link (Lawrence 2026-10-23: a bare or bold URL did not open in every chat).
+ */
 export const cardOf = (p: { user_code: string; verification_uri: string }) =>
-  `Sign in to GitHub for this Chief: copy the code \`${p.user_code}\`, open the page below and approve.\n${p.verification_uri}`
+  `Sign in to GitHub for this Chief: copy the code \`${p.user_code}\`, open the page below and approve.\n${pageLink(p.verification_uri)}`
 
 /** One line of the turn's system prompt (turn.ts): who the Chief is on GitHub, or the onboarding step. */
 export const githubLine = (s: GithubStatus): string => {
@@ -173,8 +179,8 @@ export const githubLine = (s: GithubStatus): string => {
     const exp = s.expires_at ? `, expires ${new Date(s.expires_at).toISOString().slice(0, 10)}` : ""
     return `GitHub: signed in as ${s.login} (${s.kind}; ${s.scopes?.length ? s.scopes.join(" ") : "fine-grained"}${exp}). \`chief-github status|logout\`; rotate with \`chief-github login\`.`
   }
-  if (s.pending) return `GitHub: sign-in waiting for the person (code ${s.pending.user_code} at ${s.pending.verification_uri}, ends ${new Date(s.pending.expires_at).toISOString().slice(11, 16)} UTC; a fresh code follows until approved, 3 h at most). Post the current code if the person has not seen it; \`chief-wake\` to come back when it ends; skill github-signin.`
-  return "GitHub: this Chief is not signed in to GitHub yet. Offer it once (skill github-signin, Native/OptChat/optchat-chief/skills/github-signin/SKILL.md in ~/work/cmux): run `chief-github login` and post its card (the code and the page) as your reply; it keeps waiting after your turn and wakes you (chief-wake) to post a fresh code when this one ends. Other ways: `chief-github pat FILE` (a fine-grained token), `chief-github mac` (the Mac's gh login), `chief-github app APP_ID INSTALLATION_ID KEY.pem`."
+  if (s.pending) return `GitHub: sign-in waiting for the person (code ${s.pending.user_code} at ${pageLink(s.pending.verification_uri)}, ends ${new Date(s.pending.expires_at).toISOString().slice(11, 16)} UTC; a fresh code follows until approved, 3 h at most). Post the current code if the person has not seen it; \`chief-wake\` to come back when it ends; skill github-signin.`
+  return "GitHub: this Chief is not signed in to GitHub yet. Offer it once (skill github-signin, Native/OptChat/optchat-chief/skills/github-signin/SKILL.md in ~/work/cmux): run `chief-github login` and post its card (the code and the page link) as your reply, as printed; it keeps waiting after your turn and wakes you (chief-wake) to post a fresh code when this one ends. Other ways: `chief-github pat FILE` (a fine-grained token), `chief-github mac` (the Mac's gh login), `chief-github app APP_ID INSTALLATION_ID KEY.pem`."
 }
 
 /** Keeps a login (a new generation: the old seals no longer open). */
@@ -247,7 +253,7 @@ export const githubCall = async (h: GithubHost, agent: string, raw: unknown, mac
       const was = read<Login>(h.sql, "login")
       write(h.sql, "gen", genOf(h.sql) + 1)
       drop(h.sql, "login", "pending", "app_token", "last_error")
-      const note = was?.kind === "device" || was?.kind === "mac" ? `Forgotten here. The token still works until you revoke it at ${REVOKE_PAGE} ("GitHub CLI").` : was?.kind === "pat" ? "Forgotten here. Delete the token at https://github.com/settings/personal-access-tokens if it is no longer used." : "Forgotten here."
+      const note = was?.kind === "device" || was?.kind === "mac" ? `Forgotten here. The token still works until you revoke it at ${pageLink(REVOKE_PAGE)} ("GitHub CLI").` : was?.kind === "pat" ? `Forgotten here. Delete the token at ${pageLink("https://github.com/settings/personal-access-tokens")} if it is no longer used.` : "Forgotten here."
       return { status: 200, json: { ...statusOf(h.sql), note } }
     }
     return { status: 400, json: { error: "action must be github_status, github_login, github_wait, github_pat, github_mac, github_app or github_logout" } }

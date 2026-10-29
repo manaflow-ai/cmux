@@ -5145,7 +5145,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Start ist offline."
+            "value" : "Home ist offline."
           }
         },
         "es" : {
@@ -10516,7 +10516,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Start"
+            "value" : "Home"
           }
         },
         "es" : {

@@ -45,7 +45,7 @@ public final class UpdateWindowHandoff {
             if Self.mode == .hide { entry.window?.alphaValue = 0 }
             entry.window?.ignoresMouseEvents = true
         }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("windows_\(Self.mode == .hide ? "hidden" : "frozen").\(hidden.count)")
         #endif
         return true

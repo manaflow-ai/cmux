@@ -73,12 +73,14 @@ extension ScreenContentView {
     func userScroll(deltaX: CGFloat, timestamp: TimeInterval) {
         scrollState.reduce(.gestureChanged(deltaX: deltaX, time: timestamp))
         scrollbarFlash = true
-        applyPresentation()
+        presentPan()
     }
 
     /// Ends a trackpad gesture: projects the fling and springs to a snap point.
     func endUserScroll(timestamp: TimeInterval) {
         scrollbarFlash = true
+        // The landing presents the strip (now, or on the fling's frames): nothing waits for a tick.
+        panPresentationPending = false
         apply(scrollState.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion)))
     }
 

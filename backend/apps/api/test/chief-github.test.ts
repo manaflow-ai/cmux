@@ -144,9 +144,9 @@ describe("GitHub sign-in per Chief", { timeout: 120_000 }, () => {
     expect(seen.before.body).toMatchObject({ signed_in: false })
     expect(seen.login.status).toBe(200)
     expect(seen.login.body).toMatchObject({ pending: { user_code: "ABCD-1234", verification_uri: "https://github.com/login/device" } })
-    // The card the Chief posts: the code and the page on its own line.
+    // The card the Chief posts: the code and the page as a Markdown link on its own line.
     expect(seen.login.body.card).toContain("`ABCD-1234`")
-    expect(seen.login.body.card).toContain("\nhttps://github.com/login/device")
+    expect(seen.login.body.card).toContain("\n[github.com/login/device](https://github.com/login/device)")
     expect(new URLSearchParams(gh.devicePosts[0]!).get("scope")).toBe("repo read:org gist workflow")
     expect(seen.wait.body).toMatchObject({ signed_in: false, pending: { user_code: "ABCD-1234" } })
 

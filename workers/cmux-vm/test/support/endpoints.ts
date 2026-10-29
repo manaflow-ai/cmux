@@ -86,6 +86,7 @@ export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
     scope: "vm:terminal",
   },
   // Client sessions (agent keys); test/workers/agent-keys.test.ts covers the rest.
+  { name: "listClientSessions", method: "GET", template: "/v1/vms/{vmId}/client-sessions", path: (id) => `/v1/vms/${id}/client-sessions`, scope: "vm:exec" },
   { name: "createClientSession", method: "POST", template: "/v1/vms/{vmId}/client-session", path: (id) => `/v1/vms/${id}/client-session`, scope: "vm:exec", json: {} },
   {
     name: "revokeClientSession",

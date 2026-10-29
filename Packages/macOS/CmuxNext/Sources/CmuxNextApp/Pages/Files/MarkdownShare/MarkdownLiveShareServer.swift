@@ -1,4 +1,6 @@
 import Foundation
+import CmuxNextWakeups
+import CmuxNextCompat
 import Network
 
 /// The local live link (plans/cmux-next/markdown-omnibar-DESIGN.md section 4.1): a small HTTP
@@ -29,12 +31,17 @@ final class MarkdownLiveShareServer {
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private let renderer = MarkdownHTMLRenderer()
     private let clock: any Clock<Duration>
+    /// The blocking-work lanes a page request's file read runs on.
+    private let work: BackgroundWork
 
     /// Largest request head accepted; a longer one is dropped.
     static let headLimit = 16 * 1024
 
-    init(clock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameter work: the app's blocking-work lanes (`AppServices.work`); tests get lanes of their own.
+    init(clock: any Clock<Duration> = ContinuousClock(),
+         work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.live-share")) {
         self.clock = clock
+        self.work = work
     }
 
     /// The live link of `file`: the same link for the same file while the server runs.
@@ -170,8 +177,11 @@ final class MarkdownLiveShareServer {
         case .page(let token):
             guard let share = shares[token] else { break }
             let events = "/md/\(token)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token)/events"
-            Task { [weak self, file = share.file, name = share.name] in // one off-main read per page request
-                let text = await Task.detached { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }.value
+            Task { [weak self, work, file = share.file, name = share.name] in // one off-main read per page request
+                // A browser waits for the page: the read runs on the files lane at userVisible.
+                let text = (try? await work.run(.userVisible, mayBlock: .files) {
+                    (try? String(blockingContentsOf: file, encoding: .utf8)) ?? ""
+                }) ?? ""
                 guard let page = self?.renderer.document(text, title: name, eventsPath: events) else { return connection.cancel() }
                 self?.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
             }

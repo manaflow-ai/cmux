@@ -11,6 +11,8 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 # shellcheck source=lib/cmux-dev-shim-install
 source "$SCRIPT_DIR/lib/cmux-dev-shim-install"
+# shellcheck source=scripts/lib/dev-sign-identity.sh
+source "$SCRIPT_DIR/lib/dev-sign-identity.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -736,7 +738,7 @@ Options:
   --config <debug|release|bench>
                          debug (default) and release as above. bench: the Release
                          configuration (-O, whole module, the shipped flags) plus
-                         -DDEBUG -DCMUX_BENCH_HOOKS, so the debug.* socket commands
+                         -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG), so the debug.* socket commands
                          the benches and the STRESS builder drive exist in an
                          optimized app. Never for a shipped product:
                          scripts/cmux-next/check-no-bench-hooks.sh refuses such an
@@ -1240,7 +1242,8 @@ done
 
 # Release's product is cmux.app, which the tag step stages as the tagged app. It
 # bundles the pinned cmux-tui by default; dogfood the checkout's own instead. Its
-# entitlements need a signing team, and the tagged app is signed ad hoc.
+# entitlements need a signing team, and the tagged app is signed ad hoc (or with
+# CMUX_DEV_SIGN_IDENTITY, still without entitlements).
 if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   PRODUCT_APP_NAME="cmux"
   export CMUX_NEXT_TUI_MODE=tree
@@ -1661,6 +1664,11 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# A dev bundle id never claims http/https at Default rank, Release mode included
+# (Resources/Info.plist; tests/test_web_url_handler_rank.py).
+web_url_handler_rank=Default
+case "$BUNDLE_ID" in com.cmuxterm.app.debug|com.cmuxterm.app.debug.*|com.cmuxterm.app.staging|com.cmuxterm.app.staging.*) web_url_handler_rank=Alternate ;; esac
+XCODEBUILD_ARGS+=(CMUX_WEB_URL_HANDLER_RANK="$web_url_handler_rank")
 # The cmux-next version (cmux-tui/Cargo.toml [workspace.package]) is the app's
 # CFBundleShortVersionString too, so the About window, crash reports and the
 # bundled `cmux --version` agree (check-version-surfaces.sh below). The
@@ -1692,10 +1700,16 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
 fi
 SWIFT_OTHER_FLAGS='$(inherited)'
 if [[ "$BENCH_HOOKS" -eq 1 ]]; then
-  # Optimized as shipped; DEBUG keeps the debug.* control surface and its counters compiled in, and
-  # CMUX_BENCH_HOOKS marks the binary (check-no-bench-hooks.sh) so it can never ship.
-  SWIFT_OTHER_FLAGS+=" -DDEBUG -DCMUX_BENCH_HOOKS"
-  echo "==> bench configuration: Release optimization with -DDEBUG -DCMUX_BENCH_HOOKS"
+  # Optimized as shipped, without DEBUG. CMUX_BENCH_HOOKS compiles in only the debug.* control surface
+  # and the counters it reads (`#if DEBUG || CMUX_BENCH_HOOKS`); every other DEBUG-only block (logging,
+  # fixtures, debug-only features) stays out. It also marks the binary so it can never ship
+  # (check-no-bench-hooks.sh).
+  # CMUX_BLOCKING_CHECKS: the main-thread blocking detector records (never traps) so a bench sees the
+  # blocking it hits (`debug.blocking`, plans/cmux-next/threading-model.md), as a Nightly would.
+  # shellcheck source=cmux-next/lib/bench-swift-defines.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/cmux-next/lib/bench-swift-defines.sh"
+  SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
+  echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
@@ -2114,11 +2128,15 @@ esac
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
-if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
-  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
+# Ad hoc unless CMUX_DEV_SIGN_IDENTITY names an identity (scripts/lib/dev-sign-identity.sh).
+# A set identity this host lacks, or one codesign fails with, fails here; it never falls
+# back to ad hoc or unsigned. No --deep: nested helpers keep their own signatures.
+cmux_dev_sign_identity_ready || exit 1
+if ! /usr/bin/codesign --force --sign "${CMUX_DEV_SIGN_IDENTITY:--}" --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
+  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" && "${CMUX_DEV_SIGN_IDENTITY:--}" == "-" ]]; then
     echo "warning: codesign failed for $APP_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
   else
-    echo "error: codesign failed for $APP_PATH" >&2
+    echo "error: codesign failed for $APP_PATH${CMUX_DEV_SIGN_IDENTITY:+ with CMUX_DEV_SIGN_IDENTITY '$CMUX_DEV_SIGN_IDENTITY'}" >&2
     exit 1
   fi
 fi
@@ -2140,8 +2158,10 @@ fi
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
   TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${PRODUCT_APP_NAME}"
   # A startup process may not service its quit request yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; the helper forces only
-  # this tag's executables after a bounded graceful window.
+  # resource-bearing bundle while it is still mapped: the helper waits for the
+  # clean quit (it saves sessions and agent wake states), sends a second
+  # SIGTERM (the app's force exit) after a bounded window, never SIGKILLs, and
+  # fails (stopping this script under set -e) when the app is still running.
   cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
     "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal
