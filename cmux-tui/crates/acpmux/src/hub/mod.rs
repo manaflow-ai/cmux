@@ -11,6 +11,7 @@ pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
 mod btw;
+mod event_bus;
 mod exit_reason;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
@@ -142,6 +143,8 @@ pub(crate) mod outbox;
 #[cfg(test)]
 mod panic_free_tests;
 pub mod rules;
+#[cfg(test)]
+mod status_close_tests;
 mod transcript;
 mod transfer;
 mod transfer_guard;
@@ -351,7 +354,7 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
-    pub(super) events: broadcast::Sender<HubEvent>,
+    pub(super) events: event_bus::EventBus,
     /// `_acpmux/models` replies now asking peers for theirs (`server/models_fanout.rs`): a remote
     /// asker meanwhile gets this daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
@@ -510,7 +513,7 @@ impl Hub {
         deferred: bool,
         supervisor: crate::supervised::Supervisor,
     ) -> Arc<Self> {
-        let (events, _) = broadcast::channel(8192);
+        let events = event_bus::EventBus::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
@@ -652,6 +655,16 @@ impl Hub {
         self.events.subscribe()
     }
 
+    /// A receiver and the number of events sent before it (`event_bus.rs`).
+    pub(crate) fn subscribe_counted(&self) -> (broadcast::Receiver<HubEvent>, u64) {
+        self.events.subscribe_counted()
+    }
+
+    /// The number of events published so far (`event_bus.rs`).
+    pub(crate) fn events_sent(&self) -> u64 {
+        self.events.sent()
+    }
+
     pub fn mailbox(&self) -> &Mailbox {
         &self.mailbox
     }
@@ -768,9 +781,11 @@ impl Hub {
             let mut meta = session.meta.lock_or_recover();
             meta.event_count += extra;
             meta.last_seq = last;
-            // The log ran ahead of the saved session (a hard stop): a newer command list may be
-            // in that tail, so a client reads the log for it instead of trusting the saved one.
+            // The log ran ahead of the saved session (a hard stop): a newer command list or `git`
+            // record may be in that tail, so they are read from the log instead of trusting the
+            // saved ones.
             meta.available_commands = None;
+            meta.git_told = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
     }
@@ -1253,9 +1268,31 @@ impl Hub {
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
+        self.set_status_if(session, status, |_| true);
+    }
+
+    /// `status`, unless the session is closed: a turn's end or an agent that went away never
+    /// reopens a session its close already ended. Decided under the meta lock the close writes
+    /// under, so a close between a caller's read and this write is never overwritten (a read of
+    /// `status()` then `set_status` was a check-then-act race).
+    pub(super) fn set_status_unless_closed(&self, session: &Session, status: SessionStatus) {
+        self.set_status_if(session, status, |was| was != SessionStatus::Closed)
+    }
+
+    /// `set_status` when `allowed(current status)`, read and written under one hold of the
+    /// meta lock.
+    fn set_status_if(
+        &self,
+        session: &Session,
+        status: SessionStatus,
+        allowed: impl FnOnce(SessionStatus) -> bool,
+    ) {
         let (was, link) = {
             let mut m = session.meta.lock_or_recover();
             let was = m.status;
+            if !allowed(was) {
+                return;
+            }
             m.status = status;
             m.updated_at = now_ms();
             // The parent's slot follows the status under the same lock, so

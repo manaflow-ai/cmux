@@ -1226,8 +1226,12 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
 #[cfg(unix)]
 #[test]
 fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
-    fn fake_server(listener: UnixListener, identified_session: &'static str, expect_stop: bool) {
-        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
+    /// Answers the `identify` on the next connection; its reader and writer.
+    fn answer_identify(
+        listener: &UnixListener,
+        identified_session: &str,
+    ) -> (BufReader<UnixStream>, UnixStream) {
+        let stream = accept_with_timeout(listener, Duration::from_secs(5)).unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut writer = stream;
         let mut request = String::new();
@@ -1250,10 +1254,19 @@ fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
             })
         )
         .unwrap();
+        (reader, writer)
+    }
+
+    fn fake_server(listener: UnixListener, identified_session: &'static str, expect_stop: bool) {
+        // The stop's restore wait asks first on a connection of its own
+        // (`StopWait`, e64eb4d6735); a ready owner ends it there. Then the
+        // lifecycle exchange identifies again on a new connection.
+        drop(answer_identify(&listener, identified_session));
+        let (mut reader, mut writer) = answer_identify(&listener, identified_session);
         if !expect_stop {
             return;
         }
-        request.clear();
+        let mut request = String::new();
         reader.read_line(&mut request).unwrap();
         let request: serde_json::Value = serde_json::from_str(&request).unwrap();
         assert_eq!(request["cmd"], "shutdown-daemon");

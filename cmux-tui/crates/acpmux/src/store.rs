@@ -100,6 +100,28 @@ pub struct WatchedTurn {
     pub answered: bool,
 }
 
+/// The branch a chat's `git` records told its watchers (`SessionMeta::git_told`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitTold {
+    /// Whether the log holds a `git` record. Without one the watchers know the branch the chat
+    /// started on (`SessionMeta::git_branch`).
+    pub recorded: bool,
+    /// The branch the last `git` record told; None for a detached HEAD or no repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+}
+
+impl GitTold {
+    /// A chat whose log holds no `git` record (a new chat).
+    pub const NONE: Self = Self { recorded: false, branch: None };
+
+    /// What `told` returns for the watch: the last record's branch, None without a record.
+    pub fn told(&self) -> Option<Option<String>> {
+        self.recorded.then(|| self.branch.clone())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -281,6 +303,12 @@ pub struct SessionMeta {
     /// Initial git commit and linked-worktree recovery record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_head: Option<String>,
+    /// What the log's `git` records told (`hub/git_watch.rs`), so a new daemon compares its
+    /// first read of the folder with it without reading the log. None: not known (a chat saved
+    /// before this field, a fork, or a log that ran ahead of its saved session): the log is read
+    /// once for it, newest record first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_told: Option<GitTold>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<crate::git_state::WorktreeOrigin>,
     /// The sum of what this session's turns reported (`hub/turn_usage.rs`).

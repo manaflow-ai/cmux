@@ -29,18 +29,21 @@ impl PendingBells {
 
     /// Emit one `Bell` event per counted bell, and mark the terminal's tab for
     /// attention like a notification (at most once per cooldown). Call without
-    /// the terminal or geometry lock held.
-    pub(super) fn publish(&self, mux: &Weak<Mux>, surface: SurfaceId) {
+    /// the terminal or geometry lock held. The notification is a registry
+    /// commit, which the output thread calling this may not make: it goes to
+    /// the terminal's publication sequence, as its other notifications do
+    /// ([`Surface::post_output_notifications`]).
+    pub(super) fn publish(&self, mux: &Weak<Mux>, surface: &Surface) {
         let rung = self.rung.swap(0, Ordering::AcqRel);
         if rung == 0 {
             return;
         }
         if let Some(mux) = mux.upgrade() {
             for _ in 0..rung {
-                mux.emit_terminal_bell(surface);
+                mux.emit_terminal_bell(surface.id);
             }
             if self.notification_due(Instant::now()) {
-                mux.post_bell_notification(surface);
+                surface.post_bell_notification();
             }
         }
     }

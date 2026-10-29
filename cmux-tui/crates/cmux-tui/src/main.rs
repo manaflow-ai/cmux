@@ -1824,7 +1824,8 @@ fn run_main(startup: Arc<StartupMarks>) {
     }
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
         set_default_task_role();
-        if let Err(error) = run_terminal_host_process(panic_free::rest_after(&raw_args, 1)) {
+        let args = panic_free::rest_after(&raw_args, 1);
+        if let Err(error) = cmux_tui_core::terminal_host_runtime::run_terminal_host_process(args) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
             client_log::exit(1);
         }
@@ -2007,11 +2008,6 @@ fn run_main(startup: Arc<StartupMarks>) {
         crate::client_log::stderr_log!("startup", "{BIN}: {e:#}");
         client_log::exit(1);
     }
-}
-
-fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
-    cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
-    cmux_tui_core::terminal_host_runtime::serve_terminal_host_process(args)
 }
 
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {

@@ -70,10 +70,16 @@
 //! input and no output (zsh `sched`, a `TRAPALRM` job) is not seen until one.
 //!
 //! `last_output` is when the terminal last printed anything, with or
-//! without shell integration. Reads (`terminal.list`, `terminal.show`) and
-//! every other publish carry the exact time; output on its own pushes an
-//! upsert at most once per `OUTPUT_PUBLISH_INTERVAL_MS`, so a streaming
-//! command does not commit a revision per chunk.
+//! without shell integration: output that draws text ([`PrintScan`]). Output
+//! made only of control and escape sequences prints nothing: an agent TUI
+//! that waits for input repaints its cursor about 40 times a second
+//! (synchronized update, SGR reset, cursor move, cursor show), and that
+//! neither tells the person the terminal is busy nor may cost a revision
+//! (an idle terminal writes nothing, output_store.rs). Reads
+//! (`terminal.list`, `terminal.show`) and every other publish carry the exact
+//! time; printed output on its own pushes an upsert at most once per
+//! `OUTPUT_PUBLISH_INTERVAL_MS`, so a streaming command does not commit a
+//! revision per chunk.
 
 use crate::shell_history::ShellMark;
 use serde_json::{Value, json};
@@ -82,6 +88,63 @@ pub(crate) const CAPABILITY: &str = "terminal-activity-v1";
 
 /// How stale a pushed `last_output` may get while output keeps arriving.
 const OUTPUT_PUBLISH_INTERVAL_MS: u64 = 5_000;
+
+/// Whether output prints text, read across reader chunks: a byte that draws
+/// a glyph (printable ASCII, or any byte of a UTF-8 sequence) outside an
+/// escape sequence. CSI sequences (cursor moves, SGR, modes), other escape
+/// sequences and the strings (OSC, DCS, SOS, PM, APC up to BEL or ST) print
+/// nothing; C0 controls (CR, LF, BEL) print nothing either. CAN and SUB
+/// cancel a sequence, as in the VT parser (vt100.net's DEC parser, which
+/// Ghostty follows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum PrintScan {
+    #[default]
+    Ground,
+    Escape,
+    EscapeIntermediate,
+    Csi,
+    String,
+    StringEscape,
+}
+
+impl PrintScan {
+    /// Feeds one output chunk; true when it printed text.
+    pub(crate) fn printed(&mut self, bytes: &[u8]) -> bool {
+        let mut printed = false;
+        for &byte in bytes {
+            let (next, prints) = self.step(byte);
+            *self = next;
+            printed |= prints;
+        }
+        printed
+    }
+
+    fn step(self, byte: u8) -> (Self, bool) {
+        const ESC: u8 = 0x1b;
+        if matches!(byte, 0x18 | 0x1a) {
+            return (Self::Ground, false);
+        }
+        let next = match (self, byte) {
+            (Self::String, 0x07) => Self::Ground,
+            (Self::String, ESC) => Self::StringEscape,
+            (Self::String, _) => Self::String,
+            (Self::StringEscape, b'\\') => Self::Ground,
+            // ESC inside a string ends it and starts a new sequence.
+            (Self::StringEscape, _) => return Self::Escape.step(byte),
+            (_, ESC) => Self::Escape,
+            (Self::Escape, b'[') => Self::Csi,
+            (Self::Escape, b']' | b'P' | b'X' | b'^' | b'_') => Self::String,
+            (Self::Escape | Self::EscapeIntermediate, 0x20..=0x2f) => Self::EscapeIntermediate,
+            (Self::Escape | Self::EscapeIntermediate, 0x30..=0x7e) => Self::Ground,
+            (Self::Csi, 0x40..=0x7e) => Self::Ground,
+            // C0 controls execute inside a sequence; parameters continue it.
+            (state @ (Self::Escape | Self::EscapeIntermediate | Self::Csi), _) => state,
+            (Self::Ground, 0x20..=0x7e | 0x80..=0xff) => return (Self::Ground, true),
+            (Self::Ground, _) => Self::Ground,
+        };
+        (next, false)
+    }
+}
 
 /// DEC private mouse tracking modes (X10, normal, button, any-event). The
 /// prompt resets them, so a command that has one on turned it on itself.
@@ -718,6 +781,33 @@ mod tests {
         assert!(!restored.take_change());
         restored.note_output(7_000 + OUTPUT_PUBLISH_INTERVAL_MS);
         assert!(restored.take_change());
+    }
+
+    #[test]
+    fn last_output_an_escape_only_cursor_repaint_prints_nothing() {
+        // The idle agent TUI frame of the output-store idle tests.
+        let repaint = b"\x1b[?2026h\x1b[39m\x1b[49m\x1b[0m\x1b[20;3H\x1b[?25h\x1b[?2026l";
+        let mut scan = PrintScan::default();
+        assert!(!scan.printed(repaint));
+        assert!(!scan.printed(b"\r\n\x07"), "C0 controls print nothing");
+        assert!(!scan.printed(b"\x1b]133;A\x07\x1b]9;4;1;50\x1b\\"), "OSC strings print nothing");
+        assert!(!scan.printed(b"\x1bP+q544e\x1b\\\x1b(B\x1b7\x1b8"), "DCS and ESC sequences");
+        assert_eq!(scan, PrintScan::Ground);
+        assert!(scan.printed(b"\x1b[1mok\x1b[0m"), "text inside SGR prints");
+        assert!(scan.printed("\u{280b} working".as_bytes()), "a spinner frame prints");
+    }
+
+    #[test]
+    fn last_output_a_sequence_split_across_chunks_prints_nothing() {
+        let mut scan = PrintScan::default();
+        assert!(!scan.printed(b"\x1b[20"));
+        assert!(!scan.printed(b";3H\x1b]0;tit"), "the CSI parameters continue the sequence");
+        assert!(!scan.printed(b"le\x07"), "the title continues the OSC string");
+        assert!(scan.printed(b"x"));
+        assert!(!scan.printed(b"\x1b[12\x18"), "CAN cancels the sequence");
+        assert!(scan.printed(b"y"), "and the next byte is text again");
+        assert!(!scan.printed(b"\x1b]2;a\x1b"));
+        assert!(!scan.printed(b"[5m"), "ESC inside a string starts a new sequence");
     }
 
     #[test]

@@ -139,6 +139,7 @@ impl Mux {
                 index: Some(index),
                 entity,
                 workspace_revision: None,
+                registry_event: None,
                 transaction: None,
             }
         };

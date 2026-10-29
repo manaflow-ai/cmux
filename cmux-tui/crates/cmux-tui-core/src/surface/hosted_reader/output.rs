@@ -23,7 +23,7 @@ impl HostedReader {
     ) -> Flow {
         let mux = self.mux.clone();
         if let Some(delay) = self.output_apply_delay {
-            crate::request_path::sleep(delay);
+            busy_apply(delay);
         }
         if crate::debug_spans::following() {
             follow_marks(pty, &output);
@@ -148,6 +148,19 @@ impl HostedReader {
             mux.append_shell_commands(terminal.clone(), finished_commands);
         }
         Flow::Continue
+    }
+}
+
+/// The test seam's slow apply (`CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS`):
+/// a parse that takes `delay` of CPU on this thread. It computes, it does not
+/// wait: this thread streams the host connection with blocking disallowed (the
+/// echo path), so a sleep here is a blocking-call violation that ends the
+/// reader in Debug, which is not the backlog the seam models. A slow apply is
+/// parser work, so the seam spins as a slow parser would.
+fn busy_apply(delay: Duration) {
+    let until = Instant::now() + delay;
+    while Instant::now() < until {
+        std::hint::spin_loop();
     }
 }
 
