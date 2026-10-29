@@ -348,6 +348,9 @@ extension SettingsSchema {
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
+        // The model new chats on the cmux model router start on (the router's models, its cost and what a
+        // chat sends to it): the person's call. An agent must not move every future chat to another model.
+        "agents.modelRouter.model": .userOnly,
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
