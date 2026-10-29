@@ -3328,6 +3328,16 @@ jobs:
           # hang ends in ~5 min; this only caps a slow healthy pass (~860 s).
           # Both passes share one deadline below the step's 30 minutes.
           CMUX_NEXT_TEST_HANG_SECONDS: "1500"
+          # No suite here fetches the same-tree cmux-tui, so the live-daemon
+          # suites skip here as they did in the one shared process. There every
+          # suite read the tree's path before a CmuxNextDaemonTests suite
+          # fetched it (RealBinary.sameTree, IntegrationTests.swift), so all of
+          # them skipped. As shards, a shard that starts after that fetch ran
+          # them (run 40932106119: 87 skipped, 315 on the base), and the
+          # same-tree suites the base never runs in this job came out red here.
+          # A path that is never a file: RealBinary takes it and does not
+          # fetch. The live-daemon suites run in the daemon tests job.
+          CMUX_NEXT_TUI_TREE_PATH: /dev/null/no-same-tree-here
           # One Swift Testing test at a time inside each shard process; the
           # shards themselves run side by side (swift-test-shards.py). A test's
           # time limit counts from its start, and Swift Testing otherwise starts
