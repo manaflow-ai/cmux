@@ -15,7 +15,9 @@
 // - The palette's Side Question (`sideQuestion`, carrying the selected session) focuses the composer
 //   with `/btw ` in it, and only for the shown, selected chat that is not itself a side session.
 //
-// Real WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// Real Chromium from Playwright (`chromium.launch`); CI fails the file when it cannot launch
+// (requireBrowserLane). The only `webkit` here is the `window.webkit.messageHandlers` bridge the
+// page talks to, not the engine.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
