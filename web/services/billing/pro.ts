@@ -29,6 +29,7 @@ import { activeApplePlanForUser } from "./apple/entitlement";
 import { hasCompanyPlanGrant } from "./companyPlan";
 import { planTierRank } from "./planTier";
 import { planItem } from "./subscriptionItems";
+import { subscriptionPriceFromRaw, type SubscriptionPrice } from "./subscriptionPrice";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "./apple/config";
 import type { BillingInterval } from "./plans";
 
@@ -229,6 +230,12 @@ export type StripeBillingStatus = {
    * to Pro without paying for it.
    */
   readonly hasFoundersEdition?: boolean;
+  /** The Stripe Price id of the plan item behind `subscriptionId`, or null. */
+  readonly planPriceId?: string | null;
+  /** The Stripe Product of that Price: its name when the payload expanded it, else its id. */
+  readonly planProduct?: { readonly id: string | null; readonly name: string | null } | null;
+  /** What that Price charges, when it is a USD recurring price. */
+  readonly planPrice?: SubscriptionPrice | null;
 };
 export type StripeBillingStatusQuery = (
   stackUserId: string,
@@ -806,6 +813,7 @@ export async function stripeBillingStatusForTeam(
       .select({
         id: stripeSubscriptions.id,
         status: stripeSubscriptions.status,
+        raw: stripeSubscriptions.raw,
         cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
         currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
         updatedAt: stripeSubscriptions.updatedAt,
@@ -993,6 +1001,31 @@ function stripeBillingStatusFromRows(
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(subscriptionStatus)
     ),
     subscriptionInterval: subscriptionIntervalFromRaw(subscription?.raw),
+    planPriceId: planPriceIdFromRaw(subscription?.raw),
+    planProduct: planProductFromRaw(subscription?.raw),
+    planPrice: subscriptionPriceFromRaw(subscription?.raw),
+  };
+}
+
+function planPriceFieldsFromRaw(raw: unknown): { readonly id?: unknown; readonly product?: unknown } | null {
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const price = (item as { price?: unknown } | undefined)?.price;
+  return price && typeof price === "object" ? price as { readonly id?: unknown; readonly product?: unknown } : null;
+}
+
+function planPriceIdFromRaw(raw: unknown): string | null {
+  const id = planPriceFieldsFromRaw(raw)?.id;
+  return typeof id === "string" && id ? id : null;
+}
+
+function planProductFromRaw(raw: unknown): { readonly id: string | null; readonly name: string | null } | null {
+  const product = planPriceFieldsFromRaw(raw)?.product;
+  if (typeof product === "string" && product) return { id: product, name: null };
+  if (!product || typeof product !== "object") return null;
+  const { id, name } = product as { readonly id?: unknown; readonly name?: unknown };
+  return {
+    id: typeof id === "string" && id ? id : null,
+    name: typeof name === "string" && name ? name : null,
   };
 }
 

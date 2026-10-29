@@ -83,6 +83,8 @@ export type VmProviderGatewayShape = {
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
+  /** Merge owner and billing labels into provider metadata; a no-op for providers without labels. */
+  readonly updateTags?: (provider: ProviderId, vmId: string, tags: Readonly<Record<string, string>>) => Effect.Effect<void, VmProviderOperationError>;
   readonly snapshot?: (
     provider: ProviderId,
     vmId: string,
@@ -360,6 +362,10 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     const driver = getProvider(provider);
     if (!driver.setRuntimeBudget) throw new Error("Provider runtime caps are unavailable");
     await driver.setRuntimeBudget(vmId, remainingSeconds);
+  }),
+  updateTags: (provider, vmId, tags) => providerEffect(provider, "updateTags", async () => {
+    const driver = getProvider(provider);
+    if (driver.updateTags) await driver.updateTags(vmId, tags);
   }),
   snapshot: (provider, vmId, name) =>
     providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),

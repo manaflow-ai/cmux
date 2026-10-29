@@ -1417,6 +1417,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         displayName: create.vm.displayName ?? create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
+        providerTags: vmCreateProviderTags(input, create.vm.id),
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
           : input.persistentHome
@@ -1509,6 +1510,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       yield* recordCreateSuccessEvents(repo, input, running);
     }
     yield* schedulePromptIdentityPush(providers, running, input.deferAfterResponse);
+    yield* scheduleStripeProviderTags(providers, billing, input, running, input.deferAfterResponse);
     // The guest records its kind in /etc/cmux/vm-kind (guestVmKind.ts), after the response.
     yield* scheduleGuestVmKindRecord(repo, providers, running, input.deferAfterResponse);
     // The create response carries the first connection, so openVmCmuxRemote
@@ -1519,6 +1521,65 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
 
     return vmEntryFromRow(running);
   });
+}
+
+/** The billing scope a machine is created under; the provider tags name it. */
+type VmTagScope = {
+  readonly userId: string;
+  readonly billingCustomerType: BillingCustomerType;
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+};
+
+/** The deployment that created the machine (`cmuxEnv`): production, preview, staging, or development. */
+function vmProviderTagEnv(): string {
+  return process.env.VERCEL_ENV?.trim() || "development";
+}
+
+/**
+ * Owner and billing labels written into the provider machine's own metadata
+ * by the create call itself, so they cost no extra request
+ * (services/vms/README.md, "Provider tags"). `cmuxVmRowId` lets a sweep find
+ * provider machines whose row is missing or failed. Ids only, never an email
+ * or a name. `cmuxPlan` is the plan on the row at create; it is not retagged
+ * after an upgrade.
+ */
+function vmCreateProviderTags(scope: VmTagScope, vmRowId: string): Record<string, string> {
+  return {
+    cmuxEnv: vmProviderTagEnv(),
+    cmuxVmRowId: vmRowId,
+    cmuxUserId: scope.userId,
+    cmuxBillingTeamId: scope.billingTeamId,
+    cmuxPlan: scope.billingPlanId,
+  };
+}
+
+/**
+ * Adds the billing scope's Stripe labels (`cmuxPlanSource`, `stripe*`) to a
+ * new machine after the response. They need a subscription read, so they are
+ * not on the create call. Best effort: a failure is logged and the machine
+ * keeps its create-time labels.
+ */
+function scheduleStripeProviderTags(
+  providers: VmProviderGatewayShape,
+  billing: VmBillingGatewayShape,
+  scope: VmTagScope,
+  row: CloudVmRow,
+  defer: ((work: Effect.Effect<void>) => void) | undefined,
+): Effect.Effect<void> {
+  const providerVmId = row.providerVmId;
+  const resolve = billing.resolveProviderTags;
+  const update = providers.updateTags;
+  if (!providerVmId || !resolve || !update) return Effect.void;
+  const work = Effect.suspend(() => resolve(scope)).pipe(
+    Effect.flatMap((tags) => update(row.provider, providerVmId, tags)),
+    Effect.catchAllCause((cause) => Effect.logWarning("Cloud VM Stripe provider tags skipped", { vmId: row.id, cause })),
+  );
+  if (defer) {
+    defer(work);
+    return Effect.void;
+  }
+  return Effect.asVoid(Effect.forkDaemon(work));
 }
 
 /**
@@ -1934,6 +1995,7 @@ function finishBaseCreate(
         displayName: create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
+        providerTags: vmCreateProviderTags(input, create.vm.id),
         edgeRules: materials?.edgeRules,
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
       }),
@@ -2014,6 +2076,7 @@ function finishBaseCreate(
 
     yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey, origin: "base" }, running);
     yield* schedulePromptIdentityPush(providers, running, undefined);
+    yield* scheduleStripeProviderTags(providers, billing, input, running, input.deferAfterResponse);
     yield* scheduleGuestVmKindRecord(repo, providers, running, input.deferAfterResponse);
     yield* repo.recordUsageEvent({
       userId: input.userId,
