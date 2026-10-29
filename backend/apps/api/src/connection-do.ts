@@ -193,6 +193,17 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const result = frames.find((f) => f.t === "result")
     const c = result && result.t === "result" ? (result.value as Connection) : undefined
     if (!c || c.status !== "revoked") return
+    if (c.provider === "github") {
+      // Mark the revoked connection's issued tokens before returning; the alarm
+      // completes provider DELETE even if this isolate stops during the first try.
+      const marked = ghTokens.markConnectionTokensRevoked(this.ledger(), c.id, Date.now())
+      if (marked > 0) {
+        this.scheduleAlarm()
+        void ghTokens.drainTokenRevocations(this.ledger(), Date.now()).catch((e) =>
+          console.error(JSON.stringify({ msg: "github disconnect token revoke failed", error: e instanceof Error ? e.name : "unknown" })),
+        )
+      }
+    }
     // Gmail: users.stop runs with the credential before the revoke (google-watches.ts onDisconnect).
     const stopAlias = watchOf(this.ctx.storage.sql, c.id)?.alias ?? null
     const taken = takeCredentialForRevocation(this.ctx.storage.sql, c, providers[c.provider], Date.now(), stopAlias)
