@@ -7,19 +7,29 @@ import Foundation
 /// consume that export instead of keeping their own key lists.
 public nonisolated struct SettingSurfaceAvailability: Sendable, Hashable {
     public let operations: [String]
+    public let aliases: [String]
+    public let row: String?
+    public let editor: String?
+    public let offered: Bool
     public let reason: String?
 
-    public init(operations: [String], reason: String? = nil) {
+    public init(operations: [String], aliases: [String] = [], row: String? = nil, editor: String? = nil,
+                offered: Bool? = nil, reason: String? = nil) {
         self.operations = operations
+        self.aliases = aliases
+        self.row = row
+        self.editor = editor
+        self.offered = offered ?? !operations.isEmpty
         self.reason = reason
     }
-
-    public var offered: Bool { !operations.isEmpty }
 
     var exportObject: [String: Any] {
         [
             "offered": offered,
             "operations": operations,
+            "aliases": aliases,
+            "row": row.map { $0 as Any } ?? NSNull(),
+            "editor": editor.map { $0 as Any } ?? NSNull(),
             "reason": reason.map { $0 as Any } ?? NSNull(),
         ]
     }
@@ -27,6 +37,8 @@ public nonisolated struct SettingSurfaceAvailability: Sendable, Hashable {
 
 /// One descriptor's binding on each settings surface.
 public nonisolated struct SettingSurfacePlan: Sendable, Hashable {
+    public static let cliOperations = ["settings.list", "settings.get", "settings.set", "settings.reset"]
+    public static let resetAliases = ["settings.unset"]
     public let palette: SettingSurfaceAvailability
     public let cli: SettingSurfaceAvailability
     public let mcp: SettingSurfaceAvailability
@@ -50,25 +62,33 @@ extension SettingDescriptor {
         let palette: SettingSurfaceAvailability
         switch self.palette {
         case .exposed where isShownInCmuxNext:
-            palette = SettingSurfaceAvailability(operations: ["palette.setSetting"])
+            let row = "setting:\(id)"
+            switch kind {
+            case .toggle:
+                palette = SettingSurfaceAvailability(operations: ["palette.toggleSetting"], row: row, editor: "toggle")
+            default:
+                // Choice, color, number and text rows are value pages in
+                // SettingsPaletteSource rather than registered actions.
+                palette = SettingSurfaceAvailability(operations: [], row: row, editor: "options", offered: true)
+            }
         case .hidden(let reason):
             palette = SettingSurfaceAvailability(operations: [], reason: reason)
         case .exposed:
             palette = SettingSurfaceAvailability(operations: [], reason: "not_consumed_by_cmux_next")
         }
 
-        let cliAndSocket = ["settings.list", "settings.get", "settings.set", "settings.reset", "settings.unset"]
         let mcpRead = ["settings.list", "settings.get"]
-        let mcpWrite = ["settings.set", "settings.reset", "settings.unset"]
+        let mcpWrite = ["settings.set", "settings.reset"]
         let agentSettable = SettingsSchema.agentSettable(self) == true
         return SettingSurfacePlan(
             palette: palette,
-            cli: SettingSurfaceAvailability(operations: cliAndSocket),
+            cli: SettingSurfaceAvailability(operations: Self.cliOperations, aliases: Self.resetAliases),
             mcp: SettingSurfaceAvailability(
                 operations: mcpRead + (agentSettable ? mcpWrite : []),
+                aliases: agentSettable ? Self.resetAliases : [],
                 reason: agentSettable ? nil : "agent_settable_false"
             ),
-            socket: SettingSurfaceAvailability(operations: cliAndSocket)
+            socket: SettingSurfaceAvailability(operations: Self.cliOperations)
         )
     }
 }

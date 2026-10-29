@@ -10,10 +10,10 @@ const CLI_AND_SOCKET: &[&str] = &[
     "settings.get",
     "settings.set",
     "settings.reset",
-    "settings.unset",
 ];
 const MCP_READ: &[&str] = &["settings.list", "settings.get"];
-const MCP_WRITE: &[&str] = &["settings.set", "settings.reset", "settings.unset"];
+const MCP_WRITE: &[&str] = &["settings.set", "settings.reset"];
+const RESET_ALIASES: &[&str] = &["settings.unset"];
 
 fn operations<'a>(row: &'a Value, surface: &str) -> Vec<&'a str> {
     row["surfaces"][surface]["operations"]
@@ -21,6 +21,15 @@ fn operations<'a>(row: &'a Value, surface: &str) -> Vec<&'a str> {
         .unwrap_or_else(|| panic!("{} has no {surface}.operations", row["key"]))
         .iter()
         .map(|operation| operation.as_str().expect("operation is a string"))
+        .collect()
+}
+
+fn aliases<'a>(row: &'a Value, surface: &str) -> Vec<&'a str> {
+    row["surfaces"][surface]["aliases"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{} has no {surface}.aliases", row["key"]))
+        .iter()
+        .map(|alias| alias.as_str().expect("alias is a string"))
         .collect()
 }
 
@@ -38,15 +47,23 @@ fn every_schema_row_declares_matching_surface_operations() {
         for surface in ["cli", "socket"] {
             assert_eq!(operations(&row.raw, surface), CLI_AND_SOCKET, "{} {surface}", row.key);
             assert_eq!(row.raw["surfaces"][surface]["offered"], true, "{} {surface}", row.key);
+            let expected_aliases = if surface == "cli" { RESET_ALIASES } else { &[] };
+            assert_eq!(aliases(&row.raw, surface), expected_aliases, "{} {surface} aliases", row.key);
         }
         let palette = &row.raw["surfaces"]["palette"];
         let palette_operations = operations(&row.raw, "palette");
-        assert_eq!(palette["offered"], !palette_operations.is_empty(), "{} palette", row.key);
-        assert!(
-            palette_operations.is_empty() || palette_operations == ["palette.setSetting"],
-            "{} palette operations: {palette_operations:?}",
-            row.key
-        );
+        let palette_offered = palette["offered"].as_bool().unwrap_or(false);
+        assert_eq!(palette_offered, row.raw["surfaces"]["palette"]["row"] != Value::Null, "{} palette", row.key);
+        if palette_offered {
+            assert_eq!(palette["row"], format!("setting:{}", row.key), "{} palette row", row.key);
+            if row.kind.name() == "toggle" {
+                assert_eq!(palette_operations, ["palette.toggleSetting"], "{} palette operations", row.key);
+                assert_eq!(palette["editor"], "toggle", "{} palette editor", row.key);
+            } else {
+                assert!(palette_operations.is_empty(), "{} palette operations: {palette_operations:?}", row.key);
+                assert_eq!(palette["editor"], "options", "{} palette editor", row.key);
+            }
+        }
 
         let mcp_operations = operations(&row.raw, "mcp");
         let expected_mcp = if row.agent_settable {
@@ -55,6 +72,7 @@ fn every_schema_row_declares_matching_surface_operations() {
             MCP_READ.to_vec()
         };
         assert_eq!(mcp_operations, expected_mcp, "{} mcp", row.key);
+        assert_eq!(aliases(&row.raw, "mcp"), if row.agent_settable { RESET_ALIASES } else { &[] }, "{} mcp aliases", row.key);
         assert_eq!(row.raw["surfaces"]["mcp"]["offered"], true, "{} mcp", row.key);
     }
 }
