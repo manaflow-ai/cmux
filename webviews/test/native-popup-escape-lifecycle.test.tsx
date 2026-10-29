@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 test.each(["shown", "rejected"] as const)("observes the real escape hook before and after native %s", async (outcome) => {
-  dom = new JSDOM('<!doctype html><main id="root"></main><div id="shell"><div id="menu" role="menu"><button role="menuitem">Choose</button></div></div>', { pretendToBeVisual: true });
+  dom = new JSDOM('<!doctype html><main id="root"></main><div id="shell" style="position:fixed;z-index:9"><div id="menu" role="menu"><button role="menuitem">Choose</button></div></div>', { pretendToBeVisual: true });
   const document = dom.window.document;
   const frames = new Map<number, FrameRequestCallback>();
   let serial = 0;

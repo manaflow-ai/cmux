@@ -79,7 +79,7 @@ describe("native popup DOM observations", () => {
   });
 
   test("compatibility policy observes pending, shown and rejected escape mirrors", () => {
-    const f = fixture('<div id="shell" data-escaped style="opacity:0;pointer-events:none"><div id="popup" role="menu">Model</div></div>');
+    const f = fixture('<div id="shell" data-escaped style="position:fixed;z-index:9;opacity:0;pointer-events:none"><div id="popup" role="menu">Model</div></div>');
     const expected = identity();
     const semantics = new Map<Element, SurfaceSemantics>();
     const observe = (state: "pending" | "shown" | "rejected") => {
@@ -92,7 +92,7 @@ describe("native popup DOM observations", () => {
     // A declaration is not a blanket exemption under the migration's native-only policy.
     expect(f.inspect({ semantics }).some((item) => item.kind === "dom-popup")).toBe(true);
     f.element("shell").removeAttribute("data-escaped");
-    f.element("shell").removeAttribute("style");
+    f.element("shell").setAttribute("style", "position:fixed;z-index:9");
     expect(observe("rejected")).toEqual([]);
     expect(observe("shown").some((item) => item.kind === "dom-popup")).toBe(true);
     semantics.set(f.element("popup"), { kind: "escape-mirror", shell: f.element("shell"), expected,
