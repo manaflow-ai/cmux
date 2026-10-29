@@ -79,6 +79,11 @@ KEYCHAIN_DELETE = re.compile(r"signing-keychain\.sh\s+delete\b")
 LITERAL_INDEX = re.compile(r"\[\s*'([A-Za-z0-9_-]+)'\s*\]|\[\s*\"([A-Za-z0-9_-]+)\"\s*\]")
 DYNAMIC_INDEX = re.compile(r"\b(?:secrets|needs|outputs)\s*\[")
 # Status functions that let a step run after an earlier step failed.
+# A picker that offers an owned Mac runs its own checked-out code with the routing token, from an environment with no
+# branch policy: each of its steps that names a secret runs only on a named ref (github.ref or github.ref_name in its
+# if), or only after such a step failed (steps.<that step>.outcome == 'failure').
+REF_CONDITION = re.compile(r"\bgithub\.ref(?:_name)?\b")
+AFTER_STEP = re.compile(r"^\s*steps\.([\w-]+)\.outcome\s*==\s*'failure'\s*$")
 RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
 
 
@@ -109,6 +114,22 @@ def signing_job(job: dict) -> bool:
         script in text for script in keychain_guard.SCRIPT_MADE_KEYCHAINS.values())
 
 
+def picker_ref_failures(name: str, job: dict) -> list[str]:
+    """Why picker `name` could hold a secret on any ref; [] when each secret step is held to a named ref."""
+    failures, pinned = [], set()
+    for index, step in enumerate(job.get("steps") or []):
+        if not isinstance(step, dict):
+            continue
+        condition = str(step.get("if", ""))
+        after = AFTER_STEP.match(condition)
+        if REF_CONDITION.search(condition) or (after and after.group(1) in pinned):
+            pinned.add(str(step.get("id")))
+        elif "secrets." in json.dumps(step):
+            failures.append(f"picker {name} step {index} names a secret on any ref; its if must name the trusted ref "
+                            "(github.ref or github.ref_name)")
+    return failures
+
+
 def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     """The picker scripts behind needs.<needed>.outputs.<output>: the run of every step its value reads."""
     job = jobs.get(needed) or {}
@@ -117,8 +138,12 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     found = []
     for step_id in dict.fromkeys(STEP_OUTPUT.findall(value)):
         run = steps.get(step_id, "")
-        found.append(OWNED_PICKER if OWNED_PICKER in run else BLACKSMITH_PICKER if BLACKSMITH_PICKER in run
-                     else f"steps.{step_id} ({run.strip()[:60] or 'no run'})")
+        if OWNED_PICKER in run:  # its `owned` output names a mini; `runner` and `alternate` are nightly_sign_runner's
+            owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned\b", value) is not None
+            found.append(OWNED_PICKER if owned else BLACKSMITH_PICKER)
+        else:
+            found.append(BLACKSMITH_PICKER if BLACKSMITH_PICKER in run
+                         else f"steps.{step_id} ({run.strip()[:60] or 'no run'})")
     return found or [f"needs.{needed}.outputs.{output} (no step output)"]
 
 
@@ -149,6 +174,8 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             if DYNAMIC_INDEX.search(json.dumps(job)) or DYNAMIC_INDEX.search(json.dumps(document.get("env") or {})):
                 failures.append(f"{label}: indexes secrets, needs or outputs with an expression the guard cannot read")
             owned_jobs += 1
+            for needed in dict.fromkeys(read.split(".")[1] for read in owned_reads):
+                failures.extend(f"{label}: {why}" for why in picker_ref_failures(needed, jobs.get(needed) or {}))
             if (workflow, name) not in SIGNING_JOBS:
                 failures.append(f"{label}: routed to owned Macs but not in SIGNING_JOBS (add it here and to glaeda's "
                                 "SIGNING_JOBS, which gives it the whole mini)")
@@ -171,9 +198,10 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             elif first_secret is not None and first_secret < claim:
                 failures.append(f"{label}: step {first_secret} names a secret before the claim step ({claim})")
             else:
-                if steps[claim].get("if") is not None or str(steps[claim].get("continue-on-error", "false")) != "false":
-                    failures.append(f"{label}: the claim step must run unconditionally and fail the job "
-                                    "(no `if`, no continue-on-error)")
+                # Its `if` may skip it with the job's own work (cmux-next-dev-daily's sign skips everything without a
+                # source artifact); the unconditional first-step gate is what fails the job without the claim.
+                if str(steps[claim].get("continue-on-error", "false")) != "false":
+                    failures.append(f"{label}: the claim step must fail the job (no continue-on-error)")
                 for index, step in enumerate(steps[1:], 1):
                     if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
                         failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
@@ -224,7 +252,7 @@ class SigningOwnedMacTests(unittest.TestCase):
                                                                    good["steps"][3]]}),
             "without an `if: always()` step": ("release.yml", "build-sign-notarize",
                                                {**good, "steps": good["steps"][:3]}),
-            "must run unconditionally": ("release.yml", "build-sign-notarize",
+            "must fail the job": ("release.yml", "build-sign-notarize",
                                          {**good, "steps": [good["steps"][0], {"run": CLAIM, "continue-on-error": True},
                                                             *good["steps"][2:]]}),
             "runs after a failed claim": ("release.yml", "build-sign-notarize",
@@ -259,6 +287,15 @@ class SigningOwnedMacTests(unittest.TestCase):
         failures, _ = check({"release.yml": {"jobs": {"pick": picker, "build-sign-notarize": {
             **good, "runs-on": "${{ fromJSON(needs[format('pi{0}', 'ck')].outputs.owned) }}"}}}})
         self.assertTrue(any("cannot read" in failure for failure in failures), failures)
+        open_picker = {**picker, "steps": [{"id": "mint", "if": "vars.X == '1'", "with": {"k": "${{ secrets.K }}"}},
+                                           *picker["steps"]]}
+        failures, _ = check({"release.yml": {"jobs": {"pick": open_picker, "build-sign-notarize": good}}})
+        self.assertTrue(any("names a secret on any ref" in failure for failure in failures), failures)
+        pinned = {**picker, "steps": [{"id": "mint", "if": "vars.X == '1' && github.ref == 'refs/heads/main'",
+                                       "with": {"k": "${{ secrets.K }}"}},
+                                      {"id": "again", "if": "steps.mint.outcome == 'failure'",
+                                       "with": {"k": "${{ secrets.K }}"}}, *picker["steps"]]}
+        self.assertEqual(check({"release.yml": {"jobs": {"pick": pinned, "build-sign-notarize": good}}}), ([], 1))
         other = {"outputs": {"owned": "${{ steps.pick.outputs.owned }}"},
                  "steps": [{"id": "pick", "run": "python3 scripts/ci/nightly_build_runner.py verify"}]}
         failures, _ = check({"release.yml": {"jobs": {"pick": other, "build-sign-notarize": good}}})
@@ -283,6 +320,10 @@ class SigningOwnedMacTests(unittest.TestCase):
         self.assertEqual(signing_runner.drained_runner(runners, [SIDE]), (
             "", f"no mini with an idle `{SIDE}` runner is drained now"))
         self.assertEqual(signing_runner.drained_runner(runners, ["blacksmith-6vcpu-macos-26"])[0], "")
+        slot = "glaeda-nightly-std-xcode-26.6"  # glaeda's nightly slot, which CI_NIGHTLY_NEXT_BUILD_RUNNER may name
+        labels, why = signing_runner.drained_runner(
+            [runner("cmux20-glaeda-nightly", [slot, "glaeda-runner-cmux20-glaeda-nightly"])], [slot])
+        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux20-glaeda-nightly"], why)
         self.assertEqual(signing_runner.member("cmux13-glaeda-nightly-next"), "cmux13")
         self.assertEqual(signing_runner.member("blacksmith-runner"), "")
 

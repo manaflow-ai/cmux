@@ -84,12 +84,15 @@ extension SidebarBridge {
                 services.registry.perform("newTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .window, id: state.id), origin: .user))
                 return
             }
-            // A double-click in a group's empty part, or its "+": the end of that group.
+            // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
+            // new workspace in it (its top under the default `top`).
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
                 ?? services.machines.daemon(machine: state.machineID)
             // A machine turned off by policy (DisabledFeatures) gets nothing, not a local stand-in.
             if machine != nil || state.machineID != MachineRegistry.localID, daemon == nil { return }
-            services.windows.newWorkspace(in: state, on: daemon, at: group.map(WorkspaceSlot.endOfGroup))
+            let rule = NewWorkspacePlacements.rule(for: state.id, in: services.windows)
+            let slot = group.map { rule.slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
+            services.windows.newWorkspace(in: state, on: daemon, at: slot)
         case .setColor(let ids, let color):
             model.apply(intent)
             for (daemon, key) in keys(ids) {

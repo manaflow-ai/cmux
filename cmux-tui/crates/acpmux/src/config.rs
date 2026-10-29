@@ -827,6 +827,10 @@ pub struct Config {
     pub harnesses: BTreeMap<String, HarnessProfile>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub peers: BTreeMap<String, PeerConfig>,
+    /// Opt-in cmux-platform wake-on-message integration. Absent/disabled keeps
+    /// the normal peer route and send behavior unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine_wake: Option<MachineWakeConfig>,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
     /// More login-shell variables agents get, beyond the allow-list
@@ -949,6 +953,11 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<crate::cli::send_relay::SendRelay>,
+    /// `meshRelay`: `{"url", "tokenCommand"}`, the team hub this daemon heartbeats its sessions to,
+    /// takes messages for them from, and sends a message to a name nobody here resolves through
+    /// (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the default): no relay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh_relay: Option<crate::mesh_http::MeshRelayConfig>,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
@@ -1005,6 +1014,16 @@ pub struct Config {
     /// the hot-reload watcher read the same ones.
     #[serde(skip)]
     pub profile_sources: ProfileSources,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineWakeConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub base_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
 }
 
 impl Config {
@@ -1419,8 +1438,10 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_coderouter_route,
-    coderouter_claude_route, discover_harnesses, discover_harnesses_from,
+    CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE, CODEROUTER_CLAUDE_PROFILE,
+    CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_cmux_router, add_cmux_router_with,
+    add_coderouter_route, cmux_router_model_setting, coderouter_claude_route, discover_harnesses,
+    discover_harnesses_from,
 };
 mod peer;
 pub use peer::PeerConfig;
