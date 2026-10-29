@@ -59,13 +59,21 @@ enum ViewerHandlers {
             guard let pane = context.paneController(invocation) else { return }
             try showPicker(viewers.diffPickerPage(for: pane), context, invocation)
         })
-        registry.bind("openMarkdownFile", run: { invocation in
-            let pane = context.paneController(invocation)
+        registry.bindEffect("openMarkdownFile", effect: { invocation in
+            guard let pane = context.paneController(invocation) else { return .done }
             if let path = invocation["path"]?.stringValue, !path.isEmpty {
-                viewers.openFile(URL(fileURLWithPath: path), in: pane, markdown: true)
+                if !pane.daemon.isLocal {
+                    guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
+                    if let reason = viewers.openFile(URL(fileURLWithPath: path), on: pane.daemon, in: pane, userChose: invocation.origin == .user) {
+                        throw ActionFailure(message: reason)
+                    }
+                } else {
+                    viewers.openFile(URL(fileURLWithPath: path), in: pane, markdown: true)
+                }
             } else {
                 try showPicker(viewers.filePickerPage(for: pane, markdown: true), context, invocation)
             }
+            return .done
         })
         // In the palette each picker is a page of the palette, pushed in place.
         services.palette.sources.actionPages["palette.openDirectoryDiffViewer"] = { [weak services] in

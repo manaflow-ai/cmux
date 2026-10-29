@@ -133,6 +133,12 @@ final class FilePageService: InternalPageProvider {
     /// The file tab `key` shows, nil for the empty state or another tab.
     func file(_ key: String) -> URL? { tabs[key]?.provider?.file ?? tabs[key]?.file }
 
+    /// A file that this Mac's Finder and external apps may open. Remote paths are never local URLs.
+    func localFile(_ key: String) -> URL? {
+        guard tabs[key]?.files.isLocal == true else { return nil }
+        return file(key)
+    }
+
     /// Opens `file` in a tab after `pane`'s selected tab, or selects the tab of `pane`'s window that
     /// already shows it. A user run (`focus`) selects and focuses it. `readOnly`: the tab never saves
     /// the file (a chat transcript); every other markdown file opens writable. `position` (the code

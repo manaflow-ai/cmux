@@ -131,7 +131,10 @@ enum AgentHandlers {
             }
         })
         gatePointerInspectorMenuRows(in: registry)
-        registry.bind(.fileOpen, run: { try openFile($0, context: context) })
+        registry.bindEffect(.fileOpen, effect: { invocation in
+            try openFile(invocation, context: context)
+            return .done
+        })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still
         // running in one.
@@ -396,12 +399,23 @@ enum AgentHandlers {
         // an in-app caller that passes another place is refused, not ignored.
         let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
         guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
+        // A path named in a Cloud pane belongs to that machine, including an absolute path
+        // that also exists here. Refuse local editor apps before resolving anything on this Mac.
+        guard let pane = context.paneController(invocation) else { return }
+        if !pane.daemon.isLocal {
+            guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
+            let url = URL(fileURLWithPath: path)
+            guard target == .tab else { throw ActionFailure(message: FilePageStrings.remotePreview(url.lastPathComponent)) }
+            if let reason = context.services.viewers.openFile(url, on: pane.daemon, in: pane, userChose: invocation.origin == .user) {
+                throw ActionFailure(message: reason)
+            }
+            return
+        }
         // A tab is the file pages (diff-host S6, S7): any regular file shows there as text (never
         // run), so the tab check for WebKit page types no longer applies.
         if target == .tab {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
-            guard let pane = context.paneController(invocation) else { return }
             // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
             if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
                 context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)

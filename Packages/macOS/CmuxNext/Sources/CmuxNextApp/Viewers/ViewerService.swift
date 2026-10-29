@@ -50,6 +50,14 @@ final class ViewerService {
         return fileOpener.open(file, in: pane)
     }
 
+    /// An explicit file action in a machine's pane. Returns its refusal to the action caller;
+    /// the remote path is never resolved or opened on this Mac.
+    func openFile(_ file: URL, on machine: DaemonService, in pane: PaneController?, userChose: Bool) -> String? {
+        guard !machine.isLocal else { return openFile(file, in: pane, userChose: userChose) }
+        guard let opener = fileOpener as? FilePageOpener else { return FilePageStrings.notAFile }
+        return opener.open(file, on: machine, in: pane, userChose: userChose)
+    }
+
     /// A local Markdown file a new browser tab would show as text opens the markdown page instead
     /// (``LocalFileHandoff``). Returns whether it did.
     func openMarkdownHandoff(_ url: URL, in pane: PaneController, focus: Bool) -> Bool {
