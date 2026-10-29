@@ -82,6 +82,7 @@ export interface AcpmuxRequests {
   "_acpmux/worktree/restore": { params: unknown; result: unknown };
   "_acpmux/retention": { params: unknown; result: unknown };
   "_acpmux/kill": { params: unknown; result: unknown };
+  "_acpmux/keep": { params: unknown; result: unknown };
   "_acpmux/watch_take_over": { params: unknown; result: unknown };
   "_acpmux/archive": { params: unknown; result: unknown };
   "_acpmux/side": { params: unknown; result: unknown };
@@ -111,6 +112,7 @@ export interface AcpmuxRequests {
   "_acpmux/start_mode": { params: unknown; result: unknown };
   "_acpmux/queue_remove": { params: unknown; result: unknown };
   "_acpmux/queue_edit": { params: unknown; result: unknown };
+  "_acpmux/queue_text": { params: unknown; result: unknown };
   "_acpmux/draft_get": { params: unknown; result: unknown };
   "_acpmux/draft_set": { params: unknown; result: unknown };
   "_acpmux/composer_set": { params: unknown; result: unknown };
@@ -140,6 +142,7 @@ export interface AcpmuxRequests {
   "_acpmux/set_policy": { params: unknown; result: unknown };
   "_acpmux/set_default_policy": { params: unknown; result: unknown };
   "_acpmux/set_rules": { params: unknown; result: unknown };
+  "_acpmux/set_turn_cap": { params: unknown; result: unknown };
   "_acpmux/person_enroll": { params: unknown; result: unknown };
   "_acpmux/computer_use_enroll": { params: unknown; result: unknown };
   "_acpmux/person_prove": { params: unknown; result: unknown };
@@ -354,6 +357,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/retention", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process_update", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/kill", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/keep", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch_take_over", kind: "request", acp: false, typed: false },
   { name: "_acpmux/archive", kind: "request", acp: false, typed: false },
   { name: "_acpmux/side", kind: "request", acp: false, typed: false },
@@ -383,6 +387,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/start_mode", kind: "request", acp: false, typed: false },
   { name: "_acpmux/queue_remove", kind: "request", acp: false, typed: false },
   { name: "_acpmux/queue_edit", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/queue_text", kind: "request", acp: false, typed: false },
   { name: "_acpmux/draft_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/draft_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/composer_set", kind: "request", acp: false, typed: false },
@@ -412,6 +417,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/set_policy", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_default_policy", kind: "request", acp: false, typed: false },
   { name: "_acpmux/set_rules", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/set_turn_cap", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_enroll", kind: "request", acp: false, typed: false },
   { name: "_acpmux/computer_use_enroll", kind: "request", acp: false, typed: false },
   { name: "_acpmux/person_prove", kind: "request", acp: false, typed: false },

@@ -359,6 +359,13 @@ pub struct QueuedPromptSummary {
     /// The sending agent's name when it is another agent's message, null for the person's: an
     /// app draws it as a received message waiting for the turn, not as a composer row.
     pub from_agent: Option<String>,
+    /// The sending session's id when the daemon bound it (its caller token, a peer daemon's word
+    /// on its own proven caller, the mesh relay's sender, a lane's report), null otherwise
+    /// (`prompt_provenance.rs` `FROM_SESSION_ID`). Display only, never authority.
+    pub from_session_id: Option<String>,
+    /// That session's harness family (`claude`, `codex`, ...), bound the same way: what an app
+    /// draws the sender's icon from. Null when unknown (a mesh relay carries none yet).
+    pub from_harness: Option<String>,
     /// What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):
     /// `result` when it named none; null for the person's own prompt and from a peer on an older
     /// acpmux.

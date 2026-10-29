@@ -14,7 +14,9 @@ those host names take rather than listing every host:
   - a macOS default host name ("someones-mac-mini"),
   - a named fleet host ("cmux-<person>", "aws-m4pro-3", the fleet daemon's name).
 
-Fixture files: Swift `*Gallery*.swift` and `*Showcase*.swift` under Packages/, and under
+Fixture files: Swift `*Gallery*.swift` and `*Showcase*.swift` under Packages/, Swift `*Fixture*.swift`
+under a Packages/ Sources/ folder (the debug fixtures `cmux-ci capture` renders, such as
+SidebarNestedFixture; vendored code under Vendor/ is left out), and under
 webviews/src every `*.gallery.ts(x)`, every file whose name says fixture, and every file in a
 `fixtures/` folder.
 
@@ -42,13 +44,15 @@ HOST = re.compile(
     re.IGNORECASE,
 )
 SWIFT_FIXTURE = re.compile(r"(Gallery|Showcase)[^/]*\.swift$")
+SWIFT_SOURCE_FIXTURE = re.compile(r"/Sources/(?:[^/]+/)*[^/]*Fixture[^/]*\.swift$")
 WEB_FIXTURE = re.compile(r"\.gallery\.tsx?$|/fixtures/|fixture[^/]*$", re.IGNORECASE)
 
 
 def is_fixture(rel: str) -> bool:
     """True for a gallery fixture file; `rel` is its path from the repository root."""
     if rel.startswith("Packages/"):
-        return bool(SWIFT_FIXTURE.search(rel))
+        return bool(SWIFT_FIXTURE.search(rel)) or (
+            bool(SWIFT_SOURCE_FIXTURE.search(rel)) and "/Vendor/" not in rel)
     if rel.startswith("webviews/src/"):
         return bool(WEB_FIXTURE.search(rel))
     return False

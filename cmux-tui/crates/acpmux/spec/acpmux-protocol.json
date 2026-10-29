@@ -558,6 +558,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/watch_take_over",
       "params": true,
       "result": true
@@ -752,6 +758,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/queue_text",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/draft_get",
       "params": true,
       "result": true
@@ -937,6 +949,12 @@
     {
       "kind": "request",
       "name": "_acpmux/set_rules",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/set_turn_cap",
       "params": true,
       "result": true
     },
@@ -3319,6 +3337,20 @@
             "null"
           ]
         },
+        "fromHarness": {
+          "description": "That session's harness family (`claude`, `codex`, ...), bound the same way: what an app\ndraws the sender's icon from. Null when unknown (a mesh relay carries none yet).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fromSessionId": {
+          "description": "The sending session's id when the daemon bound it (its caller token, a peer daemon's word\non its own proven caller, the mesh relay's sender, a lane's report), null otherwise\n(`prompt_provenance.rs` `FROM_SESSION_ID`). Display only, never authority.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "held": {
           "description": "Waits behind a failed turn until the queue is resumed.",
           "type": "boolean"
@@ -3351,6 +3383,8 @@
         "class",
         "client",
         "fromAgent",
+        "fromHarness",
+        "fromSessionId",
         "held",
         "images",
         "prompt",

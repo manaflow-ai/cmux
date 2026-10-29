@@ -52,7 +52,12 @@ fn message(text: &str, client: &str, provenance: Option<&Value>) -> Option<(Stri
             Some((name, format!("inbox digest of {} messages", parts.len())))
         }
         Some(_) => None,
-        None if client.starts_with("acpmux-cli#") || client.starts_with("acpmux-peer#") => {
+        // `acpmux send` at a shell, through a peer, or with `--no-wait` through this daemon's
+        // outbox (`server/outbox.rs`, which connects as `acpmux-outbox`).
+        None if ["acpmux-cli#", "acpmux-peer#", "acpmux-outbox#"]
+            .iter()
+            .any(|c| client.starts_with(c)) =>
+        {
             name_prefixed(text)
         }
         None if client == "adopt" => cross_session(text),
@@ -196,6 +201,11 @@ mod tests {
             "coord-deputy: Merged #1"
         );
         assert_eq!(prompt_line("[Grid fix]\n\nDone", "acpmux-peer#7", None), "Grid fix: Done");
+        // `acpmux send --no-wait` reaches the chat through the daemon's outbox.
+        assert_eq!(
+            prompt_line("[sub-lane] Tests pass\nok", "acpmux-outbox#01a189", None),
+            "sub-lane: Tests pass"
+        );
         // Not a sender: the interruption note, cmux's header, a sentence, a bare name, another client.
         for (text, client) in [
             ("[Request interrupted by user for tool use]", "acpmux-cli#1"),
