@@ -323,7 +323,8 @@
               "appearance.theme",
               "appearance.appTheme",
               "appearance.themeEdits",
-              "appearance.accent"
+              "appearance.accent",
+              "appearance.highlightColor"
             ],
             "title" : {
               "key" : "settings.group.appTheme",
@@ -849,7 +850,8 @@
             "key" : "settings.group.computerUse",
             "rows" : [
               "computerUse.enabled",
-              "computerUse.driver"
+              "computerUse.driver",
+              "computerUse.livePreview"
             ],
             "title" : {
               "key" : "settings.group.computerUse",
@@ -4911,6 +4913,58 @@
       "title" : {
         "key" : "settings.computerUse.driver",
         "text" : "Computer Use Driver"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.livePreview.help",
+        "text" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.livePreview",
+      "keywords" : [
+        "computer use",
+        "live preview",
+        "preview",
+        "agent activity",
+        "screenshot",
+        "chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "livePreview"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.livePreview.summary",
+        "text" : "Shows the app an agent uses in its chat"
+      },
+      "title" : {
+        "key" : "settings.computerUse.livePreview",
+        "text" : "Live Preview in Chat"
       },
       "validation" : "portable"
     },
@@ -9440,6 +9494,65 @@
       "title" : {
         "key" : "settings.appearance.accent",
         "text" : "Accent"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.terminalTheme",
+        "text" : "Terminal Theme"
+      },
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.highlightColor.help",
+        "text" : "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.highlightColor",
+      "keywords" : [
+        "highlight",
+        "selection",
+        "selected text",
+        "selection-background",
+        "color",
+        "colour",
+        "theme"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "highlightColor"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.highlightColor.summary",
+        "text" : "Color of selected text"
+      },
+      "title" : {
+        "key" : "settings.appearance.highlightColor",
+        "text" : "Highlight Color"
       },
       "validation" : "portable"
     },
