@@ -22,9 +22,10 @@ const DRAFT = [
 
 const ALT_ID = "newtab-composer-height-candidate";
 const FIELD = ".nt-field";
+const PAD_BLOCK = "var(--nt-input-pad-block)";
 const rules: Record<string, string> = {
-  "old-eight-lines": `${FIELD} { max-height: min(calc(8 * 1lh + 32px), 40vh); }`,
-  "current-forty-percent": `${FIELD} { max-height: min(calc(8 * 1lh + 32px), 40vh); }`,
+  "old-eight-lines": `${FIELD} { max-height: min(calc(8 * 1lh + 2 * ${PAD_BLOCK}), 40vh); }`,
+  "current-forty-percent": `${FIELD} { max-height: min(calc(8 * 1lh + 2 * ${PAD_BLOCK}), 40vh); }`,
   "thirty-percent": `${FIELD} { max-height: 30vh; }`,
 };
 const play = (candidate: string) => async (ctx: PlayContext) => {

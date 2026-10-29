@@ -23,9 +23,11 @@ const DRAFT = [
 
 const ALT_ID = "composer-height-candidate";
 const FIELD = ".acpmux-composer-box .acpmux-md-field";
+const LINE_HEIGHT = "var(--text-content--line-height)";
+const CONTROL_HEIGHT = "var(--cmux-control-height, 23px)";
 const rules: Record<string, string> = {
-  "old-eight-lines": `${FIELD} { max-height: calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px)); }`,
-  "current-forty-percent": `${FIELD} { max-height: max(calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px)), 40vh); }`,
+  "old-eight-lines": `${FIELD} { max-height: calc(${LINE_HEIGHT} * 8 + ${CONTROL_HEIGHT}); }`,
+  "current-forty-percent": `${FIELD} { max-height: max(calc(${LINE_HEIGHT} * 8 + ${CONTROL_HEIGHT}), 40vh); }`,
   "thirty-percent": `${FIELD} { max-height: 30vh; }`,
 };
 
