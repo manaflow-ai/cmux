@@ -206,7 +206,10 @@ export function IncomingMessageLine({
         </>
       }
     >
-      <div className="cv-received__from-line">{t("message.fromHeader", { name: from })}</div>
+      {/* Find counts the message, not this header of it. */}
+      <div className="cv-received__from-line" data-find-skip="">
+        {t("message.fromHeader", { name: from })}
+      </div>
       {/* The chips read whose files these are (chips/messageScope.ts). */}
       <MessageScopeContext.Provider value={scope}>
         <div className="cv-received__text selectable">
