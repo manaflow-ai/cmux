@@ -51,8 +51,11 @@ SNIFFER_MODULES: frozenset[str] = frozenset(
         "client_hello.rs",
         "connection_frame/machine_catalog.rs",
         "debug_crash_inject.rs",
+        "energy_op.rs",
+        "frontend_visibility.rs",
         "fs_wire.rs",
         "loopback_forward.rs",
+        "memory_limit.rs",
         "page_router.rs",
         "scripts.rs",
     }
