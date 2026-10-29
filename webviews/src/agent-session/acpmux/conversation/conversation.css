@@ -2371,7 +2371,7 @@ pre.cv-math-source {
 .cv-received .cv-disclosure__label {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: calc(var(--ds-space-1) + 2px);
   font-weight: 400;
 }
 .cv-received__from {
@@ -4086,9 +4086,7 @@ article.acpmux-row:empty {
    quiet tag at the line's end ("Read after this step"), always shown, still. No spinner, no dot, no motion. */
 .cv-received__queued {
   flex: none;
-  box-sizing: border-box;
-  height: 18px;
-  padding: 0 6px;
+  padding: 0 calc(var(--ds-space-1) + 2px);
   border-radius: 5px;
   color: var(--cv-text-dim);
   background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);

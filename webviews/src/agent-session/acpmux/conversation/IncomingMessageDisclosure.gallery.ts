@@ -21,7 +21,7 @@ const incoming = (name: string, text: string, sessionId: string) => ({
 });
 
 const DEP_FLEET =
-  "**dep-fleet**: rolled glaeda 0.48 to all 14 minis.\n\nmini-6 and mini-9 needed a runner restart; both are back and took jobs within a minute.\n\nNothing needs you.";
+  "**dep-fleet**: rolled the runner agent 0.48 to all 14 build boxes.\n\nbuild-box-6 and build-box-9 needed a runner restart; both are back and took jobs within a minute.\n\nNothing needs you.";
 const FANOUT = [
   "**Landing report** for fanout-infra:",
   "",
