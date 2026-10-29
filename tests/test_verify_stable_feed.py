@@ -27,6 +27,7 @@ spec.loader.exec_module(feed)
 
 FEED_URL = "https://github.com/o/r/releases/latest/download/appcast.xml"
 DMG = "https://github.com/o/r/releases/download/v1.2.3/cmux-macos.dmg"
+EXPECTED_FEED_NAMES = ("appcast.xml", "appcast-arm64.xml", "appcast-x86_64.xml")
 
 
 def appcast(*enclosures: str) -> bytes:
@@ -94,8 +95,11 @@ class Clock:
 
 @contextlib.contextmanager
 def range_server(body):
+    ranges = []
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            ranges.append(self.headers.get("Range"))
             self.send_response(206)
             self.send_header("Content-Range", "bytes 0-0/100")
             self.send_header("Content-Length", "1")
@@ -109,7 +113,7 @@ def range_server(body):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            yield f"http://127.0.0.1:{server.server_port}/update.dmg"
+            yield f"http://127.0.0.1:{server.server_port}/update.dmg", ranges
         finally:
             server.shutdown()
             thread.join()
@@ -150,13 +154,14 @@ class VerifyStableFeedTests(unittest.TestCase):
         self.assertEqual(check(server), [f"{FEED_URL}: {DMG} has no numeric length"])
 
     def test_range_response_that_closes_before_its_byte_fails(self):
-        with range_server(b"") as url:
+        with range_server(b"") as (url, _ranges):
             with self.assertRaises(feed.FetchError):
                 feed.http_content_length(url)
 
     def test_range_response_with_its_byte_passes(self):
-        with range_server(b"x") as url:
+        with range_server(b"x") as (url, ranges):
             self.assertEqual(feed.http_content_length(url), 100)
+        self.assertEqual(ranges, ["bytes=0-0"])
 
     def test_unsigned_enclosure_fails(self):
         problems = check(Server({FEED_URL: appcast(enclosure(signature=""))}, {DMG: 100}))
@@ -204,7 +209,7 @@ class VerifyStableFeedTests(unittest.TestCase):
         finally:
             feed.check_feed = original
         self.assertEqual(seen, ["https://x/a.xml"] + [
-            f"https://github.com/manaflow-ai/cmux/releases/download/v1.2.3/{name}" for name in feed.FEED_NAMES])
+            f"https://github.com/manaflow-ai/cmux/releases/download/v1.2.3/{name}" for name in EXPECTED_FEED_NAMES])
 
     def test_settle_retries_a_404_until_it_clears(self):
         # GitHub serves a cached 404 for a just-uploaded asset for a few minutes.
@@ -266,7 +271,7 @@ class VerifyStableFeedTests(unittest.TestCase):
         finally:
             feed.check_feed = original
         self.assertEqual(seen, [
-            f"https://github.com/manaflow-ai/cmux/releases/download/v1.2.3/{name}" for name in feed.FEED_NAMES])
+            f"https://github.com/manaflow-ai/cmux/releases/download/v1.2.3/{name}" for name in EXPECTED_FEED_NAMES])
 
     def test_served_length_reads_the_range_total(self):
         self.assertEqual(feed.served_length(206, "bytes 0-0/77859900", "1"), 77859900)
@@ -275,7 +280,7 @@ class VerifyStableFeedTests(unittest.TestCase):
         self.assertIsNone(feed.served_length(200, None, None))
 
     def test_default_feeds_cover_every_stable_feed_name(self):
-        for name in feed.FEED_NAMES:
+        for name in EXPECTED_FEED_NAMES:
             self.assertIn(f"https://github.com/manaflow-ai/cmux/releases/latest/download/{name}", feed.DEFAULT_FEEDS)
             self.assertIn(f"https://files.cmux.com/stable/{name}", feed.DEFAULT_FEEDS)
 
