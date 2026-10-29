@@ -94,6 +94,7 @@ class SidebarItemRowView: NSView {
             // The menu's tracking takes the release: no mouseUp ends the press.
             isPressed = false
             pointerChanged()
+            needsLayout = true
         }
     }
     /// The next fill change came from the pointer, so it fades.
@@ -188,9 +189,15 @@ class SidebarItemRowView: NSView {
             let strong = (style == .icon || showsAvatar) && (isHovered || isPressed || showsMenu || showsKeyFocus)
             avatarView.isStrong = strong
             pin.contentTintColor = Palette.textSecondary
-            icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
+            let fallbackAgentTint = info.agentColor.flatMap { color in
+                guard let brand = info.brand else { return SidebarStyle.color(color) }
+                return AgentBrandCatalog.templateImage(brand: brand, size: SidebarStyle.kindGlyphSize) == nil
+                    ? SidebarStyle.color(color) : nil
+            }
+            icon.contentTintColor = fallbackAgentTint
+                ?? (wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
-                : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary
+                : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary)
         }
     }
 

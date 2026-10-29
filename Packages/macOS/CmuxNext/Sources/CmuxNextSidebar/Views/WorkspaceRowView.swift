@@ -18,6 +18,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
+    private var agentMarkFallbackColor: NSColor?
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
     var activityState = StatusIndicatorState.idle
@@ -293,6 +294,11 @@ final class WorkspaceRowView: SidebarRowView {
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
             : ws.agentIcon.flatMap { agentIconImage($0) }
                 ?? ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
+                ?? (ws.kind == .harness ? NSImage.icon(symbol: ws.kind.symbol, size: agentMarkSize) : nil)
+        let hasRegisteredMark = ws.agentIcon.flatMap { agentIconImage($0) } != nil
+            || ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) } != nil
+        agentMarkFallbackColor = ws.kind == .harness && !hasRegisteredMark
+            ? SidebarStyle.color(SidebarItemInfo.stableAgentColor(for: ws.id.rawValue)) : nil
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(badgesLead ? .none : ws.unread)
