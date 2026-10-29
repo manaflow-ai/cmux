@@ -421,6 +421,8 @@ mod tests {
             agent: agent.map(str::to_owned),
             supersede: None,
             full_access_device: None,
+            message_id: None,
+            message_sender: None,
         })
     }
 

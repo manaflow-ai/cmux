@@ -22,7 +22,7 @@ use crate::no_panic::JsonExt;
 use std::time::Duration;
 
 use super::*;
-use crate::hub::outbox::{Delivery, State};
+use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, State};
 
 /// What an attempt that did not deliver leaves the delivery as.
 #[derive(Debug, PartialEq)]
@@ -38,7 +38,6 @@ pub(super) enum Next {
 /// How long one attempt waits for the target's acceptance.
 const ATTEMPT_WAIT: Duration = Duration::from_secs(120);
 /// The waits before each attempt after the first: about 34 minutes in all, then it fails.
-const RETRY_DELAYS_SECS: &[u64] = &[2, 5, 10, 30, 60, 120, 300, 600, 900];
 /// The longest a `send_status` waits for a delivery to settle.
 const MAX_STATUS_WAIT_MS: u64 = 10_000;
 
@@ -90,12 +89,17 @@ pub(super) async fn handle(
         .map(|meta| meta.entry("acpmux").or_insert_with(|| json!({})))
         .and_then(Value::as_object_mut)
         .ok_or_else(|| RpcError::invalid_params("request._meta.acpmux must be an object"))?;
+    mux.remove("forwardProjection");
     if mux.get("promptId").and_then(Value::as_str).is_none_or(str::is_empty) {
         mux.insert("promptId".into(), json!(uuid::Uuid::now_v7().to_string()));
     }
     let now = crate::store::now_ms();
+    let delivery_id = uuid::Uuid::now_v7().to_string();
+    if let Some(mux) = request.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        mux.insert("messageId".into(), Value::String(delivery_id.clone()));
+    }
     let new = Delivery {
-        id: uuid::Uuid::now_v7().to_string(),
+        id: delivery_id,
         target,
         request,
         caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
@@ -126,6 +130,178 @@ pub(super) async fn handle(
         drop_own_uploads(hub, &new, &delivery).await;
     }
     Ok(delivery.status())
+}
+
+/// A direct peer send needs a durable projection intent: the peer may accept
+/// just before this daemon exits and loses its in-memory acceptance callback.
+/// Recovery only reads the target journal; it never retransmits a direct prompt.
+/// send_queue entries keep their own delivery/retry semantics; this separate
+/// intent stays pending if persisting the sender projection fails after acceptance.
+pub(super) async fn remember_forward(
+    hub: &Arc<Hub>,
+    peer: &str,
+    target: &str,
+    caller: &str,
+    params: &Value,
+) -> Result<String, RpcError> {
+    let prompt_id = params.pointer("/_meta/acpmux/promptId").and_then(Value::as_str);
+    let target = format!("{peer}/{target}");
+    let text = params
+        .get("prompt")
+        .and_then(Value::as_array)
+        .map(|blocks| crate::hub::prompt_text(blocks))
+        .or_else(|| params.get("text").and_then(Value::as_str).map(str::to_owned))
+        .unwrap_or_default();
+    let message_id = params
+        .pointer("/_meta/acpmux/messageId")
+        .and_then(Value::as_str)
+        .or(prompt_id)
+        .unwrap_or_default();
+    let sender = params.pointer("/_meta/acpmux/messageSender").cloned().unwrap_or_else(|| {
+        json!({"name": hub.session_name(caller), "sessionId": caller,
+                                 "host": crate::hub::host_label()})
+    });
+    // Store only the projection and its address: recovery needs no attachments,
+    // caller tokens, or executable prompt payload.
+    let request = json!({"sessionId": target, "_meta": {"acpmux": {
+        "promptId": prompt_id,
+        "forwardProjection": {"sender": sender, "text": text, "messageId": message_id}
+    }}});
+    let now = crate::store::now_ms();
+    let intent = Delivery {
+        id: uuid::Uuid::now_v7().to_string(),
+        target,
+        request,
+        caller: Some(caller.to_owned()),
+        // Held is terminal to older daemons: rollback never sends this lookup
+        // record as a prompt. New code recognizes the forwardProjection marker.
+        state: State::Held,
+        attempts: 0,
+        error: None,
+        accepted: None,
+        created_at: now,
+        updated_at: now,
+    };
+    hub.outbox
+        .remember_forward(intent)
+        .map(|delivery| delivery.id)
+        .map_err(|e| RpcError::internal(format!("cannot persist peer message intent: {e:#}")))
+}
+
+/// Find a receiver projection across every page, including messages still queued
+/// there. Only a locally recorded intent can name the source journal to repair.
+async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value, (String, Next)> {
+    let intent = &delivery.request["_meta"]["acpmux"]["forwardProjection"];
+    let caller = delivery.caller.as_deref().unwrap_or_default();
+    let source = hub
+        .resolve(caller)
+        .ok()
+        .filter(|s| s.id == caller)
+        .ok_or_else(|| ("the message sender no longer exists".to_owned(), Next::Fail))?;
+    if let Some(accepted) = &delivery.accepted {
+        if hub.append_sender_message_event(
+            &source.id,
+            intent["sender"].clone(),
+            intent["text"].as_str().unwrap_or_default().to_owned(),
+            intent["messageId"].as_str().unwrap_or_default().to_owned(),
+            delivery.updated_at,
+            delivery.target.split_once('/').map(|(_, target)| target).unwrap_or(&delivery.target),
+        ) {
+            return Ok(accepted.clone());
+        }
+        return Err(("cannot persist sender message projection".into(), Next::Retry));
+    }
+    let (peer, target, _) = hub
+        .resolve_remote(&delivery.target)
+        .ok_or_else(|| ("the message receiver is not reachable yet".to_owned(), Next::Retry))?;
+    let mut after = 0;
+    loop {
+        let page = peer
+            .request(
+                method::MUX_EVENTS,
+                json!({
+                    "sessionId": target, "afterSeq": after, "limit": 256,
+                    "kinds": ["_acpmux/message"]
+                }),
+            )
+            .await
+            .map_err(|e| (e.message, Next::Retry))?;
+        let events = page
+            .get("events")
+            .and_then(Value::as_array)
+            .ok_or_else(|| ("peer returned no message page".to_owned(), Next::Retry))?;
+        for event in events {
+            let msg = &event["msg"];
+            if event["kind"] == "_acpmux/message"
+                && msg["messageId"] == intent["messageId"]
+                && msg["sessionId"] == target
+                && msg["sender"]["sessionId"] == caller
+            {
+                if !hub.append_sender_message_event(
+                    &source.id,
+                    intent["sender"].clone(),
+                    intent["text"].as_str().unwrap_or_default().to_owned(),
+                    intent["messageId"].as_str().unwrap_or_default().to_owned(),
+                    msg["at"].as_u64().unwrap_or_else(crate::store::now_ms),
+                    &target,
+                ) {
+                    return Err((
+                        "cannot persist sender message projection".to_owned(),
+                        Next::Retry,
+                    ));
+                }
+                return Ok(json!({"sessionId": target, "promptId": delivery.prompt_id(),
+                                 "recovered": true}));
+            }
+        }
+        if page.get("hasMore").and_then(Value::as_bool) != Some(true) {
+            return Err(("the receiver has not recorded this message".to_owned(), Next::Retry));
+        }
+        let next = events.iter().filter_map(|e| e["seq"].as_u64()).max().unwrap_or(after);
+        if next <= after {
+            return Err(("peer message page did not advance".to_owned(), Next::Retry));
+        }
+        after = next;
+    }
+}
+
+/// Settle only after the caller has written the sender-side message projection.
+pub(super) fn forward_accepted(hub: &Arc<Hub>, id: &str, accepted: Value, stored: bool) {
+    hub.outbox.update(id, |d| {
+        if d.request.pointer("/_meta/acpmux/forwardProjection").is_none()
+            || d.state == State::Delivered
+        {
+            return;
+        }
+        d.state = if stored { State::Delivered } else { State::Held };
+        d.accepted = Some(accepted);
+        d.error = None;
+        crate::attach::strip(&mut d.request);
+    });
+    if !stored {
+        spawn(hub.clone(), id.to_owned());
+    }
+}
+
+pub(super) fn forward_refused(hub: &Arc<Hub>, id: &str, error: &RpcError) {
+    hub.outbox.update(id, |d| {
+        // A turn can fail after its message was accepted. It cannot undo that
+        // acceptance or turn a delivered event into a failed delivery.
+        if d.settled() || d.accepted.is_some() {
+            return;
+        }
+        d.state = match next(error) {
+            Next::Retry => State::Held,
+            Next::Held => State::Held,
+            Next::Fail => State::Failed,
+        };
+        d.error = Some(error.message.clone());
+    });
+    // The request may have reached the peer before a disconnect. Reconcile its
+    // journal without sending the prompt again, even if this daemon stays up.
+    if hub.outbox.get(id).is_some_and(|d| !d.settled()) {
+        spawn(hub.clone(), id.to_owned());
+    }
 }
 
 /// A send that the outbox answered with an earlier delivery of the same prompt id: the uploads
@@ -186,7 +362,19 @@ pub fn resume(hub: &Arc<Hub>, pending: Vec<Delivery>) {
 }
 
 fn spawn(hub: Arc<Hub>, id: String) {
-    tokio::spawn(async move { deliver(&hub, &id).await });
+    if !hub.outbox.start_delivery(&id) {
+        return;
+    }
+    tokio::spawn(async move {
+        struct Running(Arc<Hub>, String);
+        impl Drop for Running {
+            fn drop(&mut self) {
+                self.0.outbox.end_delivery(&self.1);
+            }
+        }
+        let _running = Running(hub.clone(), id.clone());
+        deliver(&hub, &id).await;
+    });
 }
 
 async fn deliver(hub: &Arc<Hub>, id: &str) {
@@ -198,9 +386,15 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         }
         let attempt = delivery.attempts + 1;
         hub.outbox.update(id, |d| {
-            d.state = State::Delivering;
+            if d.settled() {
+                return;
+            }
+            d.state = if d.projection_only() { State::Held } else { State::Delivering };
             d.attempts = attempt;
         });
+        if hub.outbox.get(id).is_none_or(|d| d.settled()) {
+            return;
+        }
         let mut request = delivery.request.clone();
         // A later attempt asks for the first one's outcome when the target took it already.
         if attempt > 1
@@ -208,7 +402,14 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         {
             mux.insert("resend".into(), json!(true));
         }
-        match attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await {
+        let result = if request.pointer("/_meta/acpmux/forwardProjection").is_some() {
+            tokio::time::timeout(ATTEMPT_WAIT, reconcile_forward(hub, &delivery))
+                .await
+                .unwrap_or_else(|_| Err(("peer message lookup timed out".into(), Next::Retry)))
+        } else {
+            attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await
+        };
+        match result {
             Ok(accepted) => {
                 hub.outbox.update(id, |d| {
                     d.state = State::Delivered;
@@ -225,8 +426,12 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             Err((error, next)) => {
                 let delay = delays.next().filter(|_| next == Next::Retry);
                 hub.outbox.update(id, |d| {
+                    if d.settled() {
+                        return;
+                    }
                     d.state = match (next, delay) {
                         (Next::Held, _) => State::Held,
+                        (_, Some(_)) if d.projection_only() => State::Held,
                         (_, Some(_)) => State::Queued,
                         _ => State::Failed,
                     };
@@ -235,6 +440,9 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         crate::attach::strip(&mut d.request);
                     }
                 });
+                if hub.outbox.get(id).is_none_or(|d| d.state == State::Delivered) {
+                    return;
+                }
                 let Some(secs) = delay else {
                     if let Some(path) = hub.outbox.attachments_path(&delivery) {
                         forget_attachments(path).await;
@@ -360,5 +568,173 @@ fn next(e: &RpcError) -> Next {
         Some(false) => Next::Fail,
         None if e.code != RpcError::invalid_params("").code => Next::Retry,
         None => Next::Fail,
+    }
+}
+
+#[cfg(test)]
+mod forward_projection_tests {
+    use super::*;
+    use crate::config::{Config, StoreMode};
+    use crate::hub::{EventFilter, NewRequest};
+
+    fn config(mode: StoreMode) -> Config {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake", "permissionPolicy": "approve-all"
+        }))
+        .unwrap();
+        config.store.mode = mode;
+        config
+    }
+
+    #[tokio::test]
+    async fn forward_intent_requires_successful_persistence_even_on_retry() {
+        let dir = std::env::temp_dir().join(format!("forward-write-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A regular file in the parent path injects a deterministic write failure,
+        // including when the tests run as a user that can bypass file permissions.
+        let blocked_parent = dir.join("blocked");
+        std::fs::write(&blocked_parent, b"block").unwrap();
+        let path = blocked_parent.join("outbox.json");
+        let config = config(StoreMode::Memory);
+        let hub = Hub::new(config.clone(), crate::store::open(&config.store, &dir).unwrap());
+        hub.outbox.open(&path);
+        let request = json!({"sessionId": "receiver", "text": "hello", "_meta": {"acpmux": {
+            "promptId": "write-failure", "messageId": "message-write-failure",
+            "messageSender": {"name": "sender", "sessionId": "sender"}
+        }}});
+        let error = remember_forward(&hub, "remote", "receiver", "sender", &request)
+            .await
+            .expect_err("a peer request must not proceed without its durable intent");
+        assert!(error.message.contains("cannot persist peer message intent"));
+        assert!(
+            remember_forward(&hub, "remote", "receiver", "sender", &request).await.is_err(),
+            "an existing in-memory intent must not bypass the failed write"
+        );
+        std::fs::remove_file(&blocked_parent).unwrap();
+        std::fs::create_dir(&blocked_parent).unwrap();
+        let id = remember_forward(&hub, "remote", "receiver", "sender", &request)
+            .await
+            .expect("retry succeeds once the intent can be persisted");
+        let reopened = crate::hub::outbox::Outbox::default();
+        let pending = reopened.open(&path);
+        assert_eq!(pending.len(), 1, "retries preserve one durable intent");
+        assert_eq!(pending[0].id, id);
+        assert_eq!(pending[0].prompt_id(), "write-failure");
+        assert!(pending[0].projection_only());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn restarted_forward_recovers_sender_projection_without_resending_prompt() {
+        let dir = std::env::temp_dir().join(format!("forward-projection-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = config(StoreMode::Local);
+        let make_hub = || {
+            let store = crate::store::open(&config.store, &dir).unwrap();
+            Hub::new(config.clone(), store)
+        };
+        let original = make_hub();
+        let outbox_path = dir.join("outbox.json");
+        original.outbox.open(&outbox_path);
+        let sender = original
+            .new_session(NewRequest {
+                name: Some("sender".into()),
+                cwd: Some(std::env::temp_dir()),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        let remote_config = self::config(StoreMode::Memory);
+        let remote = Hub::new(
+            remote_config.clone(),
+            crate::store::open(&remote_config.store, &dir).unwrap(),
+        );
+        let receiver = remote
+            .new_session(NewRequest {
+                name: Some("receiver".into()),
+                cwd: Some(std::env::temp_dir()),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        let sender_meta = json!({"name": "sender", "sessionId": sender.id, "host": "local"});
+        let request = json!({"sessionId": receiver.id,
+            "prompt": [{"type": "text", "text": "already accepted"}], "_meta": {"acpmux": {
+            "promptId": "p-restart", "messageId": "d-restart", "messageSender": sender_meta
+        }}});
+        let intent_id = remember_forward(&original, "remote", &receiver.id, &sender.id, &request)
+            .await
+            .unwrap();
+        // The receiver accepted before the source recorded its outgoing projection.
+        // Fill a first page to ensure recovery advances beyond the first 256 records.
+        for n in 0..257 {
+            assert!(remote.append_message_event(
+                &receiver,
+                json!({"name": "other", "sessionId": "other"}),
+                "earlier".into(),
+                format!("prior-{n}"),
+                1
+            ));
+        }
+        assert!(remote.append_message_event(
+            &receiver,
+            sender_meta.clone(),
+            "already accepted".into(),
+            "d-restart".into(),
+            1234
+        ));
+        let before = receiver.meta().event_count;
+        original.detach_child(&sender).await;
+        original.store.flush().unwrap();
+        // Reopen the source state as daemon startup does. No original callback survives.
+        let restarted = make_hub();
+        let pending = restarted.outbox.open(&outbox_path);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].state, State::Held, "older daemons must never execute the lookup");
+        assert!(pending[0].request.get("prompt").is_none(), "lookup keeps no executable prompt");
+        let auth_dir = dir.join("peer-auth");
+        let auth = crate::server::peer_auth::PeerAuth::create(&auth_dir).unwrap();
+        let token =
+            std::fs::read_to_string(crate::server::peer_auth::token_path(&auth_dir)).unwrap();
+        let listener = bind_ws("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(serve_ws_with(
+            remote.clone(),
+            listener,
+            "test".into(),
+            WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
+        ));
+        restarted
+            .add_peer(
+                "remote",
+                &format!("ws://127.0.0.1:{port}"),
+                Some("test".into()),
+                Some(token),
+                true,
+            )
+            .await
+            .unwrap();
+        resume(&restarted, pending);
+        let done =
+            status(&restarted, &json!({"deliveryId": intent_id, "waitMs": 10_000})).await.unwrap();
+        assert_eq!(done["status"], "delivered", "{done}");
+        let page = restarted
+            .events_page(&sender.id, 0, None, 500, None, false, &EventFilter::parse(None).unwrap())
+            .unwrap();
+        let messages: Vec<_> = page.events.iter().filter(|r| r.kind == "_acpmux/message").collect();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0].msg,
+            json!({"sessionId": sender.id, "sender": sender_meta,
+            "text": "already accepted", "messageId": "d-restart", "at": 1234})
+        );
+        assert_eq!(
+            receiver.meta().event_count,
+            before,
+            "recovery must never send the prompt again"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

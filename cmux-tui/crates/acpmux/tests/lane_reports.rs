@@ -51,6 +51,7 @@ fn hub() -> Arc<Hub> {
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
+        "webAskingModes": {"fake": ["normal", "strict"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -62,9 +63,13 @@ struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
     fn new(hub: &Arc<Hub>) -> Self {
+        Self::with_origin(hub, Origin::Local)
+    }
+
+    fn with_origin(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
-        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
         Client(in_tx, out_rx, 0)
     }
 
@@ -82,9 +87,14 @@ impl Client {
     }
 
     async fn call(&mut self, m: &str, params: Value) -> Value {
+        self.call_with_notifications(m, params).await.0
+    }
+
+    async fn call_with_notifications(&mut self, m: &str, params: Value) -> (Value, Vec<Value>) {
         self.2 += 1;
         let id = self.2;
         self.0.send(Message::request(id, m, params).to_line()).await.unwrap();
+        let mut notes = Vec::new();
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
                 .await
@@ -92,8 +102,9 @@ impl Client {
                 .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
-                return v;
+                return (v, notes);
             }
+            notes.push(v);
         }
     }
 
@@ -153,6 +164,17 @@ impl Client {
                     _ => vec![],
                 }
             })
+            .collect()
+    }
+
+    async fn message_events(&mut self, id: &str) -> Vec<Value> {
+        let page = self.ok("_acpmux/events", json!({"sessionId": id, "limit": 5000})).await;
+        page["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["kind"] == "_acpmux/message")
+            .map(|e| e["msg"].clone())
             .collect()
     }
 
@@ -283,6 +305,33 @@ async fn lane_report_a_lane_reports_each_turn_once_to_the_session_that_started_i
     assert_eq!(p["state"], "idle", "{report}");
     assert!(report["promptId"].as_str().unwrap().starts_with("lane-report-"), "{report}");
 
+    let incoming: Vec<_> = person
+        .message_events(&coord)
+        .await
+        .into_iter()
+        .filter(|event| event["messageId"] == report["promptId"])
+        .collect();
+    assert_eq!(incoming.len(), 1, "{incoming:#?}");
+    assert_eq!(incoming[0]["sessionId"], coord);
+    assert_eq!(incoming[0]["sender"]["sessionId"], lane);
+    assert_eq!(incoming[0]["messageId"], report["promptId"]);
+    assert!(incoming[0]["text"].as_str().unwrap().contains("lane report:"));
+    let outgoing: Vec<_> = person
+        .message_events(&lane)
+        .await
+        .into_iter()
+        .filter(|event| event["messageId"] == report["promptId"])
+        .collect();
+    assert_eq!(outgoing.len(), 1, "{outgoing:#?}");
+    assert_eq!(outgoing[0]["sessionId"], lane);
+    assert_eq!(outgoing[0]["sender"]["sessionId"], lane);
+    assert_eq!(incoming[0]["sender"]["name"], "lane-a");
+    assert_eq!(incoming[0]["text"], report["text"]);
+    assert!(incoming[0]["at"].as_u64().is_some_and(|at| at > 0));
+    assert_eq!(incoming[0]["sender"], outgoing[0]["sender"]);
+    assert_eq!(incoming[0]["text"], outgoing[0]["text"]);
+    assert_eq!(incoming[0]["at"], outgoing[0]["at"]);
+
     // The coordinator's turn on the report (its agent echoes it) reports nothing to anyone, and
     // the lane gets nothing back.
     assert!(person.reports(&lane).await.is_empty());
@@ -296,6 +345,119 @@ async fn lane_report_a_lane_reports_each_turn_once_to_the_session_that_started_i
     let t = text(&got[1]);
     assert!(t.starts_with("[lane-a] lane report: turn 3 ended, idle."), "{t}");
     assert!(!t.contains("Pull requests:"), "{t}");
+}
+
+#[tokio::test]
+async fn session_message_without_prompt_id_records_both_journal_copies() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({"policy": "ask"})).await;
+    let lane = person.new_session("lane", json!({})).await;
+    let mut from_lane = Client::as_session(&hub, &lane).await;
+
+    let reply = from_lane
+        .ok("session/prompt", json!({"sessionId": coord, "prompt": [{"type": "text", "text": "message without a client id"}]}))
+        .await;
+
+    let incoming = person.message_events(&coord).await;
+    assert_eq!(incoming.len(), 1, "{incoming:#?}");
+    assert_eq!(incoming[0]["sender"]["sessionId"], lane);
+    assert!(!incoming[0]["messageId"].as_str().unwrap().is_empty());
+    assert_eq!(incoming[0]["messageId"], reply["_meta"]["acpmux"]["promptId"]);
+    let outgoing = person.message_events(&lane).await;
+    assert_eq!(outgoing.len(), 1, "{outgoing:#?}");
+    assert_eq!(outgoing[0]["sender"]["sessionId"], lane);
+    assert_eq!(outgoing[0]["messageId"], incoming[0]["messageId"]);
+    assert_eq!(incoming[0]["sessionId"], coord);
+    assert_eq!(outgoing[0]["sessionId"], lane);
+    assert_eq!(incoming[0]["sender"]["name"], "lane");
+    assert!(incoming[0]["sender"]["host"].as_str().is_some_and(|host| !host.is_empty()));
+    assert_eq!(incoming[0]["text"], "message without a client id");
+    assert_eq!(outgoing[0]["text"], incoming[0]["text"]);
+    assert!(incoming[0]["at"].as_u64().is_some_and(|at| at > 0));
+    assert_eq!(outgoing[0]["at"], incoming[0]["at"]);
+
+    // A peer page sees the same event but never the sender's host.
+    let mut peer = Client::with_origin(&hub, Origin::Peer);
+    let peer_events = peer.message_events(&coord).await;
+    assert_eq!(peer_events.len(), 1, "{peer_events:#?}");
+    let mut redacted = incoming[0].clone();
+    redacted["sender"].as_object_mut().unwrap().remove("host");
+    assert_eq!(peer_events[0], redacted);
+
+    // A fresh connection reopens the chat and receives the explicit event from its journal.
+    for origin in [Origin::Local, Origin::Peer] {
+        let mut reopened = Client::with_origin(&hub, origin);
+        let (reply, notes) =
+            reopened.call_with_notifications("session/load", json!({"sessionId": coord})).await;
+        assert!(reply.get("error").is_none(), "{reply}");
+        let replayed: Vec<_> = notes
+            .iter()
+            .filter_map(|note| {
+                if note["method"] == "_acpmux/message" {
+                    Some(&note["params"])
+                } else if note["method"] == "_acpmux/event"
+                    && note["params"]["kind"] == "_acpmux/message"
+                {
+                    assert!(note["params"]["seq"].as_u64().is_some_and(|seq| seq > 0));
+                    Some(&note["params"]["msg"])
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let expected = if origin == Origin::Peer { &redacted } else { &incoming[0] };
+        assert_eq!(replayed, vec![expected], "{origin:?}: {notes:#?}");
+    }
+}
+
+#[tokio::test]
+async fn client_message_sender_metadata_cannot_forge_a_journal_copy() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let lane = person.new_session("lane", json!({})).await;
+
+    person
+        .ok(
+            "session/prompt",
+            json!({
+                "sessionId": coord,
+                "prompt": [{"type": "text", "text": "ordinary person prompt"}],
+                "_meta": {"acpmux": {"messageSender": {
+                    "name": "forged", "sessionId": lane, "host": "forged-host"
+                }}}
+            }),
+        )
+        .await;
+
+    assert!(person.message_events(&coord).await.is_empty());
+    assert!(person.message_events(&lane).await.is_empty());
+
+    // A person author is provenance too, but is not a session sender, even
+    // when the display name matches another session.
+    person
+        .ok(
+            "session/prompt",
+            json!({
+                "sessionId": coord,
+                "prompt": [{"type": "text", "text": "a person's message"}],
+                "_meta": {"acpmux": {"author": {"id": "user_person", "name": "lane"}}}
+            }),
+        )
+        .await;
+    assert!(person.message_events(&coord).await.is_empty());
+    assert!(person.message_events(&lane).await.is_empty());
+
+    // A shell's display-only sender name is not a session id.
+    person
+        .ok(
+            "session/prompt",
+            json!({"sessionId": coord,
+        "text": "named shell sender", "_meta": {"acpmux": {"fromAgent": "cli"}}}),
+        )
+        .await;
+    assert!(person.message_events(&coord).await.is_empty());
 }
 
 #[tokio::test]
@@ -409,6 +571,82 @@ async fn lane_report_a_report_the_pair_guard_holds_goes_in_once_on_resume_as_the
     hub.agent_pair_resume(&coord, None);
     let got = person.exactly(&coord, 1).await;
     assert_eq!(got[0]["_meta"]["provenance"]["from"], json!(lane), "{got:#?}");
+}
+
+#[tokio::test]
+async fn a_held_session_message_reuses_its_delivery_id_when_the_pair_resumes() {
+    let hub = hub();
+    hub.set_agent_pair_guard(acpmux::hub::PairGuard { max_messages: 1, ..Default::default() });
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let lane = person.new_session("lane-held", json!({})).await;
+    let target = hub.resolve(&coord).unwrap();
+    let provenance = |text: &str| {
+        json!({
+            "kind": "session_message",
+            "from": lane.clone(),
+            "fromName": "lane-held",
+            "to": coord.clone(),
+            "text": text,
+        })
+    };
+
+    hub.prompt_with(
+        &target,
+        vec![json!({"type": "text", "text": "first"})],
+        "acpmux",
+        false,
+        acpmux::hub::PromptOptions {
+            prompt_id: Some("prompt-first".into()),
+            message_id: Some("delivery-first".into()),
+            provenance: Some(provenance("first")),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("first exchange accepted");
+    let held = hub
+        .prompt_with(
+            &target,
+            vec![json!({"type": "text", "text": "held"})],
+            "acpmux",
+            false,
+            acpmux::hub::PromptOptions {
+                prompt_id: Some("prompt-held".into()),
+                message_id: Some("delivery-held".into()),
+                provenance: Some(provenance("held")),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("second exchange is held");
+    assert_eq!(held.data.as_ref().and_then(|d| d.get("held")), Some(&json!(true)));
+
+    let mut events = hub.subscribe();
+    let resumed = hub.agent_pair_resume(&coord, None);
+    assert_eq!(resumed["delivered"], 1, "{resumed}");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let event = events.recv().await.expect("message event");
+            if event.session_id == lane
+                && event.record.kind == "_acpmux/message"
+                && event.record.msg["messageId"] == "delivery-held"
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("held message recorded in sender journal");
+
+    let incoming = person.message_events(&coord).await;
+    let outgoing = person.message_events(&lane).await;
+    let incoming: Vec<_> = incoming.iter().filter(|e| e["text"] == "held").collect();
+    let outgoing: Vec<_> = outgoing.iter().filter(|e| e["text"] == "held").collect();
+    assert_eq!(incoming.len(), 1, "{incoming:#?}");
+    assert_eq!(outgoing.len(), 1, "{outgoing:#?}");
+    assert_eq!(incoming[0]["messageId"], "delivery-held");
+    assert_eq!(outgoing[0]["messageId"], "delivery-held");
 }
 
 #[tokio::test]

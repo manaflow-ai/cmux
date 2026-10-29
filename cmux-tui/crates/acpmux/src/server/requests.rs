@@ -1116,6 +1116,18 @@ async fn dispatch_request(
                         method::SESSION_UPDATE,
                         json!({"sessionId": s.id, "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}, "_meta": {"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}}}),
                     ));
+                } else if rec.dir == "mux" && rec.kind == "_acpmux/message" {
+                    // A peer connection must receive the event envelope so its hub can
+                    // retain the sequence and replay it after reconnect. Person/app clients
+                    // keep the compact message notification they already consume.
+                    if conn.origin == super::Origin::Peer {
+                        conn.send(&Message::notification(
+                            method::MUX_EVENT,
+                            super::event_value(&s.id, rec),
+                        ));
+                    } else {
+                        conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
+                    }
                 } else if rec.dir == "in"
                     && !rec.kind.ends_with(".replay")
                     && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
@@ -1205,6 +1217,25 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
+            let message_id = mux_meta(&params)
+                .and_then(|m| m.get("messageId"))
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_owned);
+            // Only a peer daemon may carry this metadata.  A local or web caller can
+            // name arbitrary `_meta` fields, but sender identity is stamped by the
+            // proven caller/provenance below; accepting it here would let a client
+            // forge durable message records in another session's journal.
+            let message_sender = (conn.origin == super::Origin::Peer && !web)
+                .then(|| mux_meta(&params).and_then(|m| m.get("messageSender")))
+                .flatten()
+                .and_then(|sender| {
+                    let sender: crate::protocol::MessageSender =
+                        serde_json::from_value(sender.clone()).ok()?;
+                    (!sender.name.is_empty() && !sender.session_id.is_empty())
+                        .then(|| serde_json::to_value(sender).ok())
+                        .flatten()
+                });
             let on_accepted = Some(composer::on_accepted(hub, conn, &s, &params)?);
             // A key replaces its sender's queued prompts (`supersede.rs`), which knows agents and
             // the owner only: a person's prompt neither replaces nor is replaced.
@@ -1245,6 +1276,8 @@ async fn dispatch_request(
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
             let opts = crate::hub::PromptOptions {
                 prompt_id,
+                message_id,
+                message_sender,
                 on_accepted: match &saved {
                     Some(saved) => saved.watch(on_accepted),
                     None => on_accepted,
