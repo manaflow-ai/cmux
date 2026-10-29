@@ -199,6 +199,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 from pr_runner_pool import CAPABILITY_LABELS, pool_label, root_label, side_label  # noqa: E402
+from pr_runner_pool import LANE_LABEL  # noqa: E402
 from pr_runner_pool import GitHub as PoolClient  # noqa: E402
 from pr_runner_pool import ARTIFACT_NAME as SNAPSHOT_ARTIFACT  # noqa: E402
 from pr_runner_pool import SNAPSHOT_BRANCH, SNAPSHOT_FILE, trusted_snapshot_artifact  # noqa: E402
@@ -555,6 +556,11 @@ def is_macos_job(job: Mapping[str, Any]) -> bool:
     return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
 
 
+def lane_label(job: Mapping[str, Any]) -> str | None:
+    """The feat-cmux-next lane label (pr_runner_pool.LANE_LABEL: session, fast, dev, nightly) a job asked for."""
+    return next((str(label) for label in job.get("labels") or () if LANE_LABEL.fullmatch(str(label))), None)
+
+
 def runner_pool(job: Mapping[str, Any]) -> str:
     """The pool a macOS job waits on: its owned pool label, else the macOS labels it asked for."""
     owned = owned_label(job)
@@ -840,12 +846,16 @@ def pool_load_snapshot(
         for label, count in seen.items():
             committed[label] = committed.get(label, 0) + count
         for job in jobs_by_run.get(run.get("id"), ()):
-            if not is_macos_job(job):
+            # A lane label (session, fast, dev, nightly) is no owned pool to the pickers, but its own queue: the
+            # placements and the rescue read whether it runs anything (run 40887257098's daemon test waited
+            # 3 h 20 min on glaeda-session-std-xcode-26.6 with no runner online, unseen here).
+            lane = lane_label(job) if not is_macos_job(job) else None
+            if not is_macos_job(job) and not lane:
                 continue
             status = job.get("status")
             if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
                 continue
-            for pool in (*counted_pools(runner_pool(job)), *capabilities(job)):
+            for pool in ((lane,) if lane else (*counted_pools(runner_pool(job)), *capabilities(job))):
                 entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                                 "oldest_queued_minutes": 0})
                 if status in RUNNING_JOB_STATUSES:

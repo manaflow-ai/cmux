@@ -5629,6 +5629,129 @@ class OpenHeadNeverCancelled(unittest.TestCase):
 
 
 
+SESSION = "glaeda-session-std-xcode-26.6"
+
+
+class OpenHeadUnstartedFailover(unittest.TestCase):
+    """The stall-aware failover at an open head (unstarted_failover()): cancel and re-run every job only while no
+    job was taken by a runner and one waited past UNSTARTED_STALL_SECONDS on a label that runs nothing."""
+
+    def world(self, jobs, *, running=0, listed=True, path=rescue.CMUX_NEXT_WORKFLOW_PATH, extra=None):
+        clock = Clock()
+        pools = {SESSION: {"queued": 1, "running": running, "oldest_queued_minutes": 4}} if listed else \
+            {MINI: {"queued": 0, "running": 3}}
+        api = FakeAPI(clock, jobs, snapshot=lambda seconds: {"generated_at": stamp(seconds), "pools": pools},
+                      rerun_jobs=lambda seconds: [job("cmux-next daemon tests", labels=[BLACKSMITH], status="queued")])
+        target = rescue.Target(**{"run_id": RUN_ID, "attempt": 1, "head_sha": HEAD, "pr_number": 26999,
+                                  "side": True, "path": path, **(extra or {})})
+        return clock, api, target
+
+    def gates(self, seconds):
+        """Run 40887257098's shape: Linux gates done, the daemon test queued on the session label."""
+        done = job("cmux-next macOS placement", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"],
+                   runner="bs-linux")
+        return [done, job("cmux-next daemon tests", labels=[SESSION], created=-240)]
+
+    def run_rescue(self, api, clock, target, failed_only=True):
+        lines = []
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lines.append,
+                               failed_only=failed_only)
+        return result, lines
+
+    def test_run_40887257098_is_moved_while_nothing_has_started(self):
+        clock, api, target = self.world(self.gates)
+        result, lines = self.run_rescue(api, clock, target)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun", api.calls)  # every job again, so the placement checks the routes afresh
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn(rescue.OPEN_HEAD_RULE, result)
+        self.assertTrue(any(line.startswith(rescue.OPEN_HEAD_FAILOVER) and SESSION in line for line in lines), lines)
+
+    def test_a_label_that_runs_a_job_keeps_the_open_head_rule(self):
+        clock, api, target = self.world(self.gates, running=1)
+        result, _ = self.run_rescue(api, clock, target)
+        assert_left_at_open_head(self, api, result, number=26999)
+
+    def test_a_label_the_snapshot_does_not_list_proves_nothing(self):
+        clock, api, target = self.world(self.gates, listed=False)
+        result, _ = self.run_rescue(api, clock, target)
+        assert_left_at_open_head(self, api, result, number=26999)
+
+    def test_a_started_or_taken_mac_job_keeps_the_open_head_rule(self):
+        def running(seconds):
+            return [*self.gates(seconds), job("cmux-next swift test", labels=["glaeda-gui-std-xcode-26.6"],
+                                              status="in_progress", runner="mini-11")]
+
+        def carried(seconds):
+            # A re-run of failed jobs carries attempt 1's finished Mac job: a full re-run would lose it.
+            return [*self.gates(seconds), job("cmux-next swift test", labels=["glaeda-gui-std-xcode-26.6"],
+                                              status="completed", runner="mini-11")]
+
+        def linux_running(seconds):
+            return [*self.gates(seconds), job("cmux-next checks", labels=["blacksmith-16vcpu-ubuntu-2404"],
+                                              status="in_progress", runner="bs")]
+        for jobs in (running, carried, linux_running):
+            with self.subTest(jobs=jobs.__name__):
+                clock, api, target = self.world(jobs)
+                result, _ = self.run_rescue(api, clock, target)
+                assert_left_at_open_head(self, api, result, number=26999)
+
+    def test_a_short_wait_is_looked_at_again_once_it_reaches_the_floor(self):
+        def fresh(seconds):
+            return [job("cmux-next daemon tests", labels=[SESSION], created=0)]
+        clock, api, target = self.world(fresh)
+        result, _ = self.run_rescue(api, clock, target)
+        self.assertGreaterEqual(clock.seconds, rescue.UNSTARTED_STALL_SECONDS)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun", api.calls)
+
+    def test_a_job_that_starts_before_the_cancel_drops_it(self):
+        state = {"looks": 0}
+
+        def starts(seconds):
+            state["looks"] += 1
+            queued = job("cmux-next daemon tests", labels=[SESSION], created=-240)
+            if state["looks"] > 1:  # the guard's read right before the cancel
+                queued.update(status="in_progress", runner="mini-10")
+            return [queued]
+        clock, api, target = self.world(starts)
+        result, _ = self.run_rescue(api, clock, target)
+        assert_left_at_open_head(self, api, result, number=26999)
+        self.assertIn("started before the cancel", result)
+
+    def test_nightly_dev_and_dispatch_targets_never_fail_over(self):
+        for extra in ({"path": DEV_DAILY}, {"path": rescue.NIGHTLY_WORKFLOW_PATH, "nightly": True},
+                      {"e2e": True, "path": ".github/workflows/test-ios.yml"}):
+            with self.subTest(**extra):
+                clock, api, target = self.world(self.gates, extra=extra)
+                self.assertEqual(rescue.unstarted_failover(api, target, now=clock.now, sleep=clock.sleep,
+                                                           log=lambda _: None), "")
+                self.assertNotIn("cancel", api.calls)
+
+    def test_a_refusals_only_watch_fails_over_a_dead_label(self):
+        # Run 40887257098's placement found no free Blacksmith slot, so its watch was refusals-only: a queue alarm
+        # never moved it. A label that runs nothing is no queue to wait in.
+        for running, moved in ((0, True), (1, False)):
+            with self.subTest(running=running):
+                clock, api, target = self.world(self.gates, running=running,
+                                                extra={"refusals_only": True, "attempt_started_at": START})
+                result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                                       log=lambda _: None, side_seconds=30)
+                self.assertEqual("rerun" in api.calls, moved, (result, api.calls))
+                self.assertEqual("cancel" in api.calls, moved, (result, api.calls))
+
+    def test_the_janitor_snapshot_counts_lane_labels(self):
+        janitor = load("queue_janitor", ROOT / "scripts/ci/queue_janitor.py")
+        now = START + dt.timedelta(minutes=10)
+        run = {"id": 9, "status": "queued", "path": rescue.CMUX_NEXT_WORKFLOW_PATH}
+        queued = job("cmux-next daemon tests", labels=[SESSION], created=0)
+        snapshot = janitor.pool_load_snapshot([run], {9: [queued]}, now=now)
+        self.assertEqual(snapshot["pools"][SESSION]["queued"], 1)
+        self.assertEqual(snapshot["pools"][SESSION]["running"], 0)
+        self.assertEqual(snapshot["pools"][SESSION]["oldest_queued_minutes"], 10)
+        self.assertEqual(snapshot["running"], {}, "lane jobs add no owned runner to the warm map")
+
+
 class Budget(unittest.TestCase):
     """The cmux-bot pool's budget: conditional and shared reads, the floor, the token's refresh."""
 
