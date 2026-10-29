@@ -47,7 +47,7 @@ static int installed_at_load;
 __attribute__((constructor)) static void cmux_next_test_signal_policy_load(void) {
     struct sigaction action, current;
     cmux_next_test_signal_policy_action(&action);
-    sigaction(SIGPIPE, &action, NULL);
+    // BISECT: no install
     installed_at_load = sigaction(SIGPIPE, NULL, &current) == 0 && cmux_next_test_signal_policy_is_handler(&current);
 }
 
