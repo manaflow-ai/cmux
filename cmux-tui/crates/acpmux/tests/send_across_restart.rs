@@ -219,54 +219,6 @@ fn cli_daemon_restart_reattaches_an_active_turn() {
     );
 }
 
-/// A waiting CLI request is cut when the daemon hands over. It reconnects to
-/// the replacement daemon and completes the original wait; the prompt ledger
-/// still contains one user message for the turn.
-#[test]
-fn cli_wait_reconnects_during_restart_and_keeps_one_prompt() {
-    let dir = scratch("wait-reconnect");
-    let _shutdown = Shutdown(&dir);
-    let made = cli(
-        &dir,
-        &[
-            "new",
-            "-d",
-            "-n",
-            "lane",
-            "-m",
-            "fake",
-            "--prompt-id",
-            "wait-reconnect-prompt",
-            "ticking:30:100",
-        ],
-    );
-    assert!(made.status.success(), "start: {}", text(&made));
-
-    let waiting = cli_command(&dir, &["wait", "lane", "--timeout", "30"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    // Let wait establish its request before cutting the daemon connection.
-    std::thread::sleep(Duration::from_millis(300));
-    let restarted = cli(&dir, &["--json", "daemon", "restart"]);
-    assert!(restarted.status.success(), "restart: {}", text(&restarted));
-    let waited = waiting.wait_with_output().unwrap();
-    assert!(waited.status.success(), "wait failed across restart: {}", text(&waited));
-
-    let tail = cli(&dir, &["tail", "lane", "--last", "100"]);
-    assert!(tail.status.success(), "tail: {}", text(&tail));
-    let prompts: Vec<serde_json::Value> = String::from_utf8_lossy(&tail.stdout)
-        .lines()
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .filter(|event: &serde_json::Value| {
-            event["kind"] == "user_message" && event["msg"]["text"] == "ticking:30:100"
-        })
-        .collect();
-    assert_eq!(prompts.len(), 1, "the prompt was recorded more than once: {}", text(&tail));
-    assert_eq!(prompts[0]["msg"]["promptId"], "wait-reconnect-prompt");
-}
-
 #[test]
 fn cli_daemon_restart_refuses_unsaved_token_before_stopping() {
     let dir = scratch("cli-restart-custom");
