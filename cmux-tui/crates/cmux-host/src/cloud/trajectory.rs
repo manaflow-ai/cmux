@@ -200,6 +200,9 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
     let mut cursor: Option<String> = None;
     for _ in 0..LIST_MAX_PAGES {
         let mut request = body.clone();
+        // Version gate: a pre-pagination guest should receive an explicit refusal if the
+        // backend has more than 500 chats, rather than silently importing a truncated list.
+        request["page_protocol"] = json!(2);
         if let Some(after) = cursor.as_deref() {
             request["after_session"] = json!(after);
         }
