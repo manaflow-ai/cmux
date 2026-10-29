@@ -1,11 +1,14 @@
 """The advisory UI-review section check for webview changes."""
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +20,26 @@ spec.loader.exec_module(module)
 
 
 class UiReviewAdvisoryTests(unittest.TestCase):
+    def test_workflow_warns_when_base_script_is_missing_or_crashes(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/pr-checks.yml").read_text())
+        steps = workflow["jobs"]["ui-review"]["steps"]
+        self.assertTrue(next(step for step in steps if step.get("id") == "checkout")["continue-on-error"])
+        command = next(step["run"] for step in steps if step["name"] == "Warn when the UI review is missing")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for exists in (False, True):
+                with self.subTest(script_exists=exists):
+                    if exists:
+                        script = root / "scripts/ci/ui_review_advisory.py"
+                        script.parent.mkdir(parents=True)
+                        script.write_text("raise RuntimeError('script failure')\n")
+                    result = subprocess.run(
+                        ["bash", "-e", "-c", command], cwd=root, capture_output=True, text=True,
+                        env={**os.environ, "BODY_FILE": "body", "FILES_JSON": "files"},
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("::warning title=UI review::", result.stdout)
+
     def test_only_webview_css_and_tsx_paths_are_ui_changes(self):
         files = [
             {"filename": "webviews/src/ui/Button.tsx"},

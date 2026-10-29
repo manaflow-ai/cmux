@@ -285,6 +285,8 @@ jobs:
       pull-requests: read
     steps:
       - name: Check out the advisory from the base
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -294,6 +296,7 @@ jobs:
 
       - name: Read changed files and body
         id: read
+        if: steps.checkout.outcome == 'success'
         continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -327,7 +330,7 @@ jobs:
 
       - name: Warn when changed files could not be read
         if: steps.read.outcome != 'success'
-        run: echo "::warning title=UI review::could not read changed files; review the UI section manually"
+        run: echo "::warning title=UI review::could not check out the advisory or read changed files; review the UI section manually"
 
   # Every push-group event runs it (ready_for_review too, which the old workflow did not):
   # that event can cancel a push run, and its own run must answer for all three checks.
