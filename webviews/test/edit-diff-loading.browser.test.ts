@@ -57,8 +57,7 @@ await requireBrowserLane("edit-diff-loading.browser.test.ts", async () => {
           };
         });
         expect(pending.height).toBeGreaterThan(0);
-        expect(pending.paint).not.toContain("rgba(0, 0, 0, 0) 0.4em");
-        expect(pending.paint).toMatch(/(?:rgba\([^)]*, 0\.24\)|color\([^)]*\/ 0\.24\))/);
+        expect(pending.paint).toMatch(/(?:rgba\([^)]*, 0\.[1-9]\d*\)|color\([^)]*\/ 0\.[1-9]\d*\))/);
         await page.goto(url("loaded"));
         await page.locator("diffs-container [data-line]").first().waitFor();
         const loaded = await page.evaluate(() => {

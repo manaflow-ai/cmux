@@ -1247,7 +1247,6 @@
 .cv-edit-diff__loading-lines {
   --cv-loading-line-height: var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px));
   height: calc(var(--cv-loading-lines) * var(--cv-loading-line-height));
-  margin-bottom: var(--cv-lane);
   padding-inline: 1ch;
   font-family: var(--cv-mono);
   font-size: var(--cv-codeblock-size, var(--cmux-diff-font-size, var(--text-detail)));
