@@ -151,27 +151,55 @@ async fn request_writes_a_decision_from_the_asking_task_is_noted() {
 fn request_writes_an_unsaved_answer() {
     let ok = || Ok(json!({"stopReason": "end_turn"}));
     // Saved: the answer is the handler's.
-    assert_eq!(
-        answer("_acpmux/queue_edit", ok(), true).unwrap(),
-        json!({"stopReason": "end_turn"})
-    );
+    assert_eq!(answer(ok(), true, false).unwrap(), json!({"stopReason": "end_turn"}));
+    assert_eq!(answer(ok(), true, true).unwrap(), json!({"stopReason": "end_turn"}));
     // Not saved: an error with its reason...
-    let e = answer("_acpmux/queue_edit", ok(), false).unwrap_err();
+    let e = answer(ok(), false, false).unwrap_err();
     assert_eq!(e.data, Some(json!({"reason": "log.failed"})));
-    // ...but a prompt and a new session keep their Ok, marked.
-    for name in [method::SESSION_PROMPT, method::SESSION_NEW] {
-        let v = answer(name, ok(), false).unwrap();
-        assert_eq!(v["_meta"]["acpmux"]["saved"], false, "{v}");
-        assert_eq!(v["stopReason"], "end_turn");
-    }
-    let marked =
-        answer(method::SESSION_PROMPT, Ok(json!({"_meta": {"acpmux": {"turnId": "t"}}})), false)
-            .unwrap();
+    // ...but a request that committed work a retry would redo keeps its Ok, marked.
+    let v = answer(ok(), false, true).unwrap();
+    assert_eq!(v["_meta"]["acpmux"]["saved"], false, "{v}");
+    assert_eq!(v["stopReason"], "end_turn");
+    let marked = answer(Ok(json!({"_meta": {"acpmux": {"turnId": "t"}}})), false, true).unwrap();
     assert_eq!(marked, json!({"_meta": {"acpmux": {"turnId": "t", "saved": false}}}));
-    assert_eq!(answer(method::SESSION_NEW, Ok(json!(null)), false).unwrap(), json!(null));
+    assert_eq!(answer(Ok(json!(null)), false, true).unwrap(), json!(null));
     // An error stays the handler's error.
-    let refused = answer("x", Err(RpcError::invalid_params("bad")), false).unwrap_err();
+    let refused = answer(Err(RpcError::invalid_params("bad")), false, true).unwrap_err();
     assert_eq!(refused.data, None);
+}
+
+/// Second review, item 3: whether a request keeps its Ok comes from what it committed, not its
+/// method name, so every entrypoint that accepts a prompt or makes a session behaves the same.
+#[tokio::test]
+async fn request_writes_kept_is_noted_on_the_requests_task_only() {
+    let ((), writes) = scope(Box::pin(async {})).await;
+    assert!(!writes.kept());
+    let ((), writes) = scope(Box::pin(async {
+        // A prompt accepted on a spawned task is not this request's: its handler notes it.
+        tokio::spawn(async { note_kept() }).await.unwrap();
+    }))
+    .await;
+    assert!(!writes.kept());
+    let ((), writes) = scope(Box::pin(async { note_kept() })).await;
+    assert!(writes.kept());
+}
+
+/// A bookkeeping append through `unnoted` is neither noted nor marks the request failed, and
+/// the request's own notes around it stay.
+#[tokio::test]
+async fn request_writes_unnoted_bookkeeping_leaves_the_requests_notes() {
+    let ((), writes) = scope(Box::pin(async {
+        note_log("a", 2);
+        unnoted(|| {
+            note_log("b", 5);
+            note_failed();
+        });
+        note_log("a", 3);
+    }))
+    .await;
+    assert_eq!(writes.logs.get("a"), Some(&3));
+    assert_eq!(writes.logs.get("b"), None);
+    assert!(!writes.failed);
 }
 
 /// Second review, item 4: showing an unread chat (`_acpmux/attach` visible, `_acpmux/view`)

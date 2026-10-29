@@ -399,6 +399,8 @@ impl Hub {
             forked.set("harness", json!(parent_meta.harness));
         }
         self.append(&new, "mux", "forked", forked);
+        // The fork exists: a retry would make a second one (`request_writes.rs`).
+        super::request_writes::note_kept();
         self.append(session, "mux", "fork_child", json!({"childId": id}));
         // The forked agent session lives in the parent's process. Load it in
         // its own process so one session keeps one child.

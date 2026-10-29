@@ -185,6 +185,10 @@ impl Hub {
             self.btw_discard(&side).await;
             return Err(e);
         }
+        // Its records up to the acceptance were appended on the spawned turn's task: the answer
+        // waits for them, and keeps its Ok, since a retry would ask twice (`request_writes.rs`).
+        super::request_writes::note_session(&side);
+        super::request_writes::note_kept();
         Ok(json!({"sessionId": side.id, "model": model, "readOnly": read_only}))
     }
 

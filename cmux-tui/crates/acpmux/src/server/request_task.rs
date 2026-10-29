@@ -51,11 +51,12 @@ pub(super) fn spawn(
                 }
             });
             let (result, writes) = crate::hub::request_writes::scope(request).await;
+            let kept = writes.kept();
             let saved = match &result {
                 Ok(_) => hub.wait_written(writes).await,
                 Err(_) => true,
             };
-            crate::hub::request_writes::answer(&method, result, saved)
+            crate::hub::request_writes::answer(result, saved, kept)
         })
     };
     start(hub.supervisor(), conn, id, &method, slot, route);

@@ -257,14 +257,16 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 const THREAD: &str = "acpmux-log-writer";
 
 /// Debug builds only: `ACPMUX_TEST_LOG_WRITE_DELAY_MS` holds each write that long, so a test can
-/// stop the daemon while a record is queued and not yet written. Release builds have no seam.
+/// stop the daemon while a record is queued and not yet written (at most 2 s). Release builds
+/// have no seam.
 fn test_write_delay() -> Option<std::time::Duration> {
     #[cfg(debug_assertions)]
     {
         std::env::var("ACPMUX_TEST_LOG_WRITE_DELAY_MS")
             .ok()
             .and_then(|ms| ms.parse::<u64>().ok())
-            .map(std::time::Duration::from_millis)
+            // Capped as the other test seams are: a stray value never stalls the writer long.
+            .map(|ms| std::time::Duration::from_millis(ms.min(2_000)))
     }
     #[cfg(not(debug_assertions))]
     None

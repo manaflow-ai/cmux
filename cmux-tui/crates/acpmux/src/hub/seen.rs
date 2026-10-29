@@ -55,12 +55,9 @@ impl Hub {
         drop(meta);
         if was_read {
             self.save_meta(session);
-            self.append(
-                session,
-                "mux",
-                "status",
-                json!({"status": session.status().to_string(), "read": false}),
-            );
+            // It tells the clients; the mark is in session.json (`request_writes.rs`: unnoted).
+            let status = json!({"status": session.status().to_string(), "read": false});
+            request_writes::unnoted(|| self.append(session, "mux", "status", status));
         }
     }
 
@@ -71,12 +68,10 @@ impl Hub {
         drop(meta);
         if was_unread {
             self.save_meta(session);
-            self.append(
-                session,
-                "mux",
-                "status",
-                json!({"status": session.status().to_string(), "read": true}),
-            );
+            // It tells the clients, and the chat switch does not wait for it: the mark is in
+            // session.json (`request_writes.rs`: unnoted).
+            let status = json!({"status": session.status().to_string(), "read": true});
+            request_writes::unnoted(|| self.append(session, "mux", "status", status));
         }
     }
 }
