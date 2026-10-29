@@ -95,6 +95,11 @@ public final class HomeStore {
     /// cancelled or failed its upload. So a text sent while a photo uploads
     /// waits for the photo, and the owner commits them in that order.
     @ObservationIgnored var sendQueue: [ConversationID: [IdempotencyKey]] = [:]
+    /// The messages one send became past the owner's parts per message
+    /// (`send(conversation:parts:uploads:)`), each chain in order, its head
+    /// the one going now. A later one goes only once the one before it
+    /// committed or left the log; a failure holds the rest until its retry.
+    @ObservationIgnored var sendChains: [[IdempotencyKey]] = []
     @ObservationIgnored var turnWaiters: [IdempotencyKey: CheckedContinuation<Void, Never>] = [:]
     /// Delayed resends (and upload passes) of sends that got no answer
     /// while the connection stayed up, and how many each has had.
@@ -304,11 +309,12 @@ public final class HomeStore {
             let keys = Set(log.entries.map(\.intent.key))
             for key in Array(offlineDeadlines.keys) where !keys.contains(key) { endOfflineDeadline(key) }
         }
-        guard !uploads.isEmpty || !sendQueue.isEmpty else { return }
+        guard !uploads.isEmpty || !sendQueue.isEmpty || !sendChains.isEmpty else { return }
         let keys = Set(log.entries.map(\.intent.key))
         for key in uploads.keys where !keys.contains(key) { uploads[key] = nil }
         for conversation in Array(sendQueue.keys) { removeFromSendQueue(conversation) { !keys.contains($0) } }
         for key in Array(turnWaiters.keys) where !keys.contains(key) { turnWaiters.removeValue(forKey: key)?.resume() }
+        advanceSendChains(present: keys)
     }
 
     func afterLogChange(_ op: HomeOp) {

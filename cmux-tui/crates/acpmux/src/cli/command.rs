@@ -745,6 +745,10 @@ pub enum SecretCmd {
 
 #[derive(Subcommand)]
 pub enum SessionCmd {
+    /// Queue a new session on a mesh host; prints a receipt, not completed execution.
+    Start(crate::cli::mesh_control::StartArgs),
+    /// Read one mesh lifecycle receipt without waiting.
+    Receipt { message_id: String },
     /// Show session details.
     Info { session: String },
     /// Cancel the running turn.
@@ -753,6 +757,8 @@ pub enum SessionCmd {
     #[command(alias = "kill")]
     Stop {
         session: String,
+        #[command(flatten)]
+        mesh: crate::cli::mesh_control::RouteArgs,
         /// Also delete the log.
         #[arg(long)]
         purge: bool,
@@ -766,7 +772,11 @@ pub enum SessionCmd {
     Rename { session: String, new_name: String },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app.
-    Resume { session: String },
+    Resume {
+        session: String,
+        #[command(flatten)]
+        mesh: crate::cli::mesh_control::RouteArgs,
+    },
     /// Fork a session into a new one that shares the history so far.
     Fork {
         session: String,
@@ -1083,10 +1093,16 @@ pub fn flatten(c: Command) -> Command {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session } => Command::Info { session },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge } => Command::Kill { session, purge },
+            SessionCmd::Stop { session, purge, mesh } if !mesh.mesh => {
+                Command::Kill { session, purge }
+            }
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
-            SessionCmd::Resume { session } => Command::ResumeQueue { session },
+            SessionCmd::Resume { session, mesh } if !mesh.mesh => Command::ResumeQueue { session },
+            control @ (SessionCmd::Start(_)
+            | SessionCmd::Receipt { .. }
+            | SessionCmd::Stop { .. }
+            | SessionCmd::Resume { .. }) => Command::Session(control),
             SessionCmd::Fork { session, name, cwd, force_admit } => {
                 Command::Fork { session, name, cwd, force_admit }
             }

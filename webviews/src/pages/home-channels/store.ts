@@ -5,7 +5,7 @@
 // with an idempotency key; the owner's event is what shows them.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
-import { AttachmentService } from "./attachmentService";
+import { AttachmentService, messageGroups } from "./attachmentService";
 import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, parseConversationLink, threadOf } from "./model";
@@ -70,6 +70,9 @@ export interface PendingSend {
   text: string;
   /** Files the message names, already stored by the owner. */
   attachments?: readonly HomeAttachment[];
+  /** One send past the owner's parts per message: its messages share this id and go in their
+   * order in `pending`, one after another (`HomeChannelsStore.retry`). */
+  chain?: string;
   threadRoot?: string;
   replyTo?: string;
   createdAt: number;
@@ -139,6 +142,8 @@ export class HomeChannelsStore {
   /** The read cursor this page last sent per conversation (one read per new seq). */
   private readonly readSeq = new Map<string, number>();
   private readonly drafts = new DraftBook();
+  /** Split sends (`PendingSend.chain`) whose messages are being delivered now. */
+  private readonly chainsInFlight = new Set<string>();
   /** Agent runs (`cmux.home.runs`, `cmux.home.run`, run events): rows read them through `useRun`. */
   readonly runs = new RunBook();
   /** A Chief's live run text (`chief-live-v1`): the run card and the typing row read it. */
@@ -584,8 +589,10 @@ export class HomeChannelsStore {
 
   /** Sends text to the open conversation, or in the open thread as a reply to `parent` (the root
    * or any reply: threads nest without a limit). Optimistic: the message shows at once as pending
-   * and the composer clears; the owner's event replaces it. Resolves false only when nothing was
-   * sent (no conversation, empty text). */
+   * and the composer clears; the owner's event replaces it. Any number of files goes: past the
+   * owner's parts per message they go as several messages, in order (`messageGroups`), each its
+   * own pending row and idempotency key. Resolves false only when nothing was sent (no
+   * conversation, empty text). */
   async send(
     text: string,
     thread?: string,
@@ -595,36 +602,85 @@ export class HomeChannelsStore {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
     if (!this.client || !conversation || (!trimmed && !attachments?.length)) return false;
-    const pending: PendingSend = {
-      key: this.key("send"),
+    const createdAt = Date.now();
+    const groups = messageGroups(trimmed, attachments ?? []);
+    const keys = groups.map(() => this.key("send"));
+    const chain = groups.length > 1 ? keys[0] : undefined;
+    const sends = groups.map((group, index): PendingSend => ({
+      key: keys[index]!,
+      ...(chain ? { chain } : {}),
       conversation,
-      text: trimmed,
-      createdAt: Date.now(),
+      text: group.text,
+      createdAt,
       failed: false,
-      ...(attachments?.length ? { attachments } : {}),
+      ...(group.files.length ? { attachments: group.files } : {}),
       ...(thread ? { threadRoot: thread } : {}),
       ...(parent ? { replyTo: parent } : {}),
-    };
-    this.set({ pending: [...this.snapshot.pending, pending] });
-    void this.deliver(pending);
+    }));
+    this.set({ pending: [...this.snapshot.pending, ...sends] });
+    void this.deliverInOrder(sends);
     return true;
   }
 
-  /** Sends a failed pending message again with its own idempotency key (never twice). */
+  /** Delivers messages of one send strictly one after another, so the owner orders them as they
+   * were sent. The first that fails stops it: it and the rest of `sends` show "Not sent" (held),
+   * and a Retry of any of them goes on from the earliest (`retry`). */
+  private async deliverInOrder(sends: readonly PendingSend[]): Promise<void> {
+    const chain = sends[0]?.chain;
+    if (chain) this.chainsInFlight.add(chain);
+    try {
+      for (const [index, pending] of sends.entries()) {
+        if (await this.deliver(pending)) continue;
+        const held = new Set(sends.slice(index + 1).map((entry) => entry.key));
+        if (held.size > 0) {
+          this.set({
+            pending: this.snapshot.pending.map((entry) => (held.has(entry.key) ? { ...entry, failed: true } : entry)),
+          });
+        }
+        return;
+      }
+    } finally {
+      if (chain) this.chainsInFlight.delete(chain);
+    }
+  }
+
+  /** Sends a failed pending message again with its own idempotency key (never twice). A message of
+   * a send split into several goes again with every other failed one of that send, from the
+   * earliest, in order (so a held one never passes the one it waits for); a chain already going
+   * is left alone. The chain id rides on the pending row, so this holds after a reconnect too. */
   retry(key: string): void {
     const pending = this.snapshot.pending.find((entry) => entry.key === key);
     if (!pending) return;
+    if (pending.chain) return this.resumeChain(pending.chain);
     const again = { ...pending, failed: false };
     this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === key ? again : entry)) });
     void this.deliver(again);
   }
 
+  /** Drops a pending message. The rest of its send, if held behind it, goes on. */
   discard(key: string): void {
+    const pending = this.snapshot.pending.find((entry) => entry.key === key);
     this.set({ pending: this.snapshot.pending.filter((entry) => entry.key !== key) });
+    if (pending?.chain) this.resumeChain(pending.chain);
   }
 
-  private async deliver(pending: PendingSend): Promise<void> {
-    if (!this.client) return;
+  /** Delivers the failed messages of split send `chain` again, in their order, unless it is
+   * going already. */
+  private resumeChain(chain: string): void {
+    if (this.chainsInFlight.has(chain)) return;
+    const sends = this.snapshot.pending
+      .filter((entry) => entry.chain === chain && entry.failed)
+      .map((entry) => ({ ...entry, failed: false }));
+    if (sends.length === 0) return;
+    this.set({
+      pending: this.snapshot.pending.map((entry) => sends.find((send) => send.key === entry.key) ?? entry),
+    });
+    void this.deliverInOrder(sends);
+  }
+
+  /** Resolves true when the owner took it. */
+  private async deliver(pending: PendingSend): Promise<boolean> {
+    if (!this.client) return false;
     try {
       await this.client.call(HomeOps.send, {
         conversation: pending.conversation,
@@ -639,12 +695,15 @@ export class HomeChannelsStore {
       const held = [...this.snapshot.messages, ...(this.snapshot.threadView?.messages ?? [])];
       const left = this.settled(held);
       if (left) this.set({ pending: left });
+      return true;
     } catch (error) {
-      if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return;
+      // Gone already: the owner's event settled it (the answer was lost), or it was discarded.
+      if (!this.snapshot.pending.some((entry) => entry.key === pending.key)) return true;
       this.set({
         error: describe(error),
         pending: this.snapshot.pending.map((entry) => (entry.key === pending.key ? { ...entry, failed: true } : entry)),
       });
+      return false;
     }
   }
 

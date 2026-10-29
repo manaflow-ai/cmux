@@ -1785,7 +1785,7 @@ fn run_main() {
     // daemon signal handler.
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__holder") {
-        if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
+        if let Err(error) = cmux_holder::serve(raw_args.get(1..).unwrap_or_default()) {
             crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
             client_log::exit(1);
         }
