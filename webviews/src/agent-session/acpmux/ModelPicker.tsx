@@ -28,6 +28,8 @@ import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
 import { relevantModelSections } from "./relevantModels";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { QuickModelPanelMenu } from "./QuickModelPanel";
+import { useComposerLook } from "./composerLook";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
@@ -467,6 +469,8 @@ export function ModelPicker(props: ModelPickerProps) {
   // The Default row's name follows the pane language (`sectionsFor`), so the model rows do too.
   const lang = usePaneLanguage();
   const newTab = useContext(OnNewTab);
+  // The Prototype look draws the model menu as a short menu and a Model panel (QuickModelPanel.tsx).
+  const prototype = useComposerLook() === "prototype";
   /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
   /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
   /// model and its effort it read "Opus 5.5 • Medium" (Leo 2026-10-21: "WE FUCKING HATE THE DOT").
@@ -1159,6 +1163,7 @@ export function ModelPicker(props: ModelPickerProps) {
     const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
+  const QuickMenuView = prototype ? QuickModelPanelMenu : QuickModelMenu;
   const chipFace = (
     <>
       <AgentMark agent={chipHarness} size={15} />
@@ -1206,7 +1211,7 @@ export function ModelPicker(props: ModelPickerProps) {
         // The compact menu's chip is its Base UI menu button (submenus need one); a press while
         // the full picker is open only closes it.
         <>
-          <QuickModelMenu
+          <QuickMenuView
             open={quickOpen}
             onOpenChange={(next) => {
               // A close is only ever the compact menu's own; a press on the chip while the full
@@ -1298,7 +1303,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 data-label={detailShort}
               />
             )}
-          </QuickModelMenu>
+          </QuickMenuView>
         </>
       ) : (
         <>

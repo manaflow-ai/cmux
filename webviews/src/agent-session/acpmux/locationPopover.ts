@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { UiVirtualAnchor } from "../../ui/Popover";
 import { useOpenSide } from "../../ui/openSide";
+import { useComposerLook } from "./composerLook";
 import { registerPicker } from "./pickerOpeners";
 
 /// The location menus open below their control whenever the full menu fits there. If there is no
 /// room below, the shared rule (`useOpenSide`) flips above only when that side fits or has more
-/// room. The side is decided once on open and stays fixed while filtering or refreshing rows.
+/// room. The side is decided once on open and stays fixed while filtering or refreshing rows. The
+/// Prototype look's strip heads the box, so its menus open above first, away from the box.
 export function useLocationPopover() {
   const control = useRef<HTMLSpanElement>(null);
   const anchor = useMemo<UiVirtualAnchor>(
@@ -17,7 +19,8 @@ export function useLocationPopover() {
     }),
     [],
   );
-  return { control, anchor, ...useOpenSide(control, "bottom", LOCATION_MENU_HEIGHT) };
+  const side = useComposerLook() === "prototype" ? "top" : "bottom";
+  return { control, anchor, ...useOpenSide(control, side, LOCATION_MENU_HEIGHT) };
 }
 
 /// A location menu at its tallest: the folder list's cap (composerLocation.css), a field or

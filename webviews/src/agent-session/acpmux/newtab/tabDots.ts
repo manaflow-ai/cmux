@@ -15,7 +15,9 @@ import { COMPOSER_LOOK_NAMES, setComposerLook, type ComposerLook } from "../comp
 import { editNewTabWidgets, type WidgetEdit } from "./pageWidgets";
 import type { NewTabTranslate } from "./strings";
 
-export const NEW_TAB_DOTS = ["claude", "claudeActions", "codex"] as const;
+// A fourth dot, Prototype (Lucas 2026-10-29): the Prototype look (composerLook.ts) with the quick
+// actions, beside Claude + Quick Actions, which stays as it is.
+export const NEW_TAB_DOTS = ["claude", "claudeActions", "codex", "prototype"] as const;
 export type NewTabDot = (typeof NEW_TAB_DOTS)[number];
 
 /// What each dot is: the composer's look, and whether the quick action pills show.
@@ -23,11 +25,13 @@ export const DOT_STATES: Readonly<Record<NewTabDot, { look: ComposerLook; action
   claude: { look: "claude", actions: false },
   claudeActions: { look: "claude", actions: true },
   codex: { look: "codex", actions: false },
+  prototype: { look: "prototype", actions: true },
 };
 
 /// The dot the page is on, from the look and the actions widget.
 export function shownDot(look: ComposerLook, actions: boolean): NewTabDot {
   if (look === "codex") return "codex";
+  if (look === "prototype") return "prototype";
   return actions ? "claudeActions" : "claude";
 }
 
@@ -36,6 +40,7 @@ export function shownDot(look: ComposerLook, actions: boolean): NewTabDot {
 /// the page's own words).
 export function dotName(dot: NewTabDot, nt: NewTabTranslate): string {
   if (dot === "claudeActions") return `${COMPOSER_LOOK_NAMES.claude} + ${nt("widget.actions")}`;
+  if (dot === "prototype") return COMPOSER_LOOK_NAMES.prototype;
   return `${COMPOSER_LOOK_NAMES[DOT_STATES[dot].look]} ${nt("template.minimal")}`;
 }
 

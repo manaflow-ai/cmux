@@ -627,7 +627,7 @@ export function NewTabPage({
   useRowFit(foot, `${kind}:${plainFooter}:${look}`);
 
   return (
-    <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
+    <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "claude" ? undefined : look}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>

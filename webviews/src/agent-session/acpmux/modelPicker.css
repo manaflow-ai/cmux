@@ -652,3 +652,98 @@
   display: inline-flex;
   gap: var(--ds-space-1);
 }
+
+/* The Prototype look's model menu (QuickModelPanel.tsx, composerLook.ts `prototype`, Lucas
+   2026-10-29). The chip's menu is short (Model, Effort, Provider, Fast mode), and its Model row opens
+   a panel beside it: an icon rail (Starred, then each harness), the search field and the models.
+   Every popup of it wears the mode menu's surface (composerLocation.css .acpmux-access-menu): its
+   radius, padding, highlight and text size, on the same glass. */
+.acpmux-quick-menu.acpmux-quick-proto {
+  font-size: var(--text-control);
+  padding: var(--ui-popup-padding);
+  border-radius: var(--ui-popup-radius);
+}
+.acpmux-quick-proto .ui-menu-item.acpmux-quick-item {
+  border-radius: var(--ui-row-radius);
+  font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.acpmux-quick-proto .ui-menu-item.acpmux-quick-item[data-highlighted],
+.acpmux-quick-proto .ui-menu-item.acpmux-quick-item[data-popup-open] {
+  background: var(--acpmux-menu-highlight);
+}
+.acpmux-quick-proto .acpmux-quick-search input {
+  font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
+}
+.acpmux-quick-menu.acpmux-quick-root {
+  min-width: min(260px, var(--available-width, calc(100vw - 24px)));
+  max-width: min(340px, var(--available-width, calc(100vw - 24px)));
+}
+.acpmux-quick-model-value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+.acpmux-quick-menu.acpmux-quick-panel {
+  min-width: min(300px, var(--available-width, calc(100vw - 24px)));
+}
+/* As tall as the shown tab's rows (and the rail), up to the room from its row to the window's edge:
+   it fits each tab as you switch, and More models opened takes it to that limit. */
+.acpmux-quick-menu.acpmux-quick-panel.acpmux-quick-railed {
+  width: min(460px, var(--available-width, calc(100vw - 24px)));
+  height: auto;
+  max-height: min(calc(100vh - 16px), var(--acpmux-quick-room));
+  padding: 0;
+}
+.acpmux-quick-panel .acpmux-quick-layout {
+  flex: 1 1 auto;
+}
+/* The rail counts toward the panel's height (the compact menu's rail does not: contain: size), so a
+   short tab never cuts it off. */
+.acpmux-quick-panel .acpmux-quick-rail {
+  flex: none;
+  contain: none;
+  align-items: center;
+  box-sizing: border-box;
+  padding: var(--ds-space-1);
+}
+.acpmux-quick-panel .acpmux-quick-rail-tab {
+  justify-content: center;
+  /* Row height, so the first tile and the Model row it opened from share their top and bottom. */
+  width: calc(var(--ui-row-height) + var(--ds-space-2));
+  height: var(--ui-row-height);
+  min-height: 0;
+  padding: 0;
+  border-radius: var(--ui-row-radius);
+}
+/* Selected is the full fill; the pointer gets a lighter one, so the two never look alike. */
+.acpmux-quick-panel .acpmux-quick-rail-tab:hover {
+  background: transparent;
+}
+@media (hover: hover) and (pointer: fine) {
+  .acpmux-quick-panel .acpmux-quick-rail-tab:hover {
+    background: color-mix(in srgb, var(--acpmux-menu-hover) 50%, transparent);
+    color: var(--agent-text);
+  }
+}
+.acpmux-quick-panel .acpmux-quick-rail-tab[aria-pressed="true"] {
+  background: var(--acpmux-menu-hover);
+  color: var(--agent-text);
+}
+.acpmux-quick-rail-initial {
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-quick-column {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+/* Its rows' full height counts toward the panel's (a zero basis measured it as empty); it shrinks
+   and scrolls only at the panel's limit. */
+.acpmux-quick-panel .acpmux-quick-body {
+  flex: 0 1 auto;
+  padding: var(--ds-space-1);
+}

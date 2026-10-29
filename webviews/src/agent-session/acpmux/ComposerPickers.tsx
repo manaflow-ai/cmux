@@ -1,3 +1,4 @@
+import { useComposerLook } from "./composerLook";
 import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
@@ -1169,8 +1170,12 @@ function AccessMenu({
   };
   const tooltip = `${label}: ${currentMode?.name ?? label}\n${help}`;
   // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
-  // button keeps the mode's symbol.
-  const iconless = numbered && heading !== undefined;
+  // button keeps the mode's symbol. The Prototype look draws the column, with Codex's icons on the
+  // matching Claude modes (Lucas 2026-10-29).
+  const prototype = useComposerLook() === "prototype";
+  const iconless = !prototype && numbered && heading !== undefined;
+  const iconOf = (choice: ModeChoice | undefined) =>
+    choice?.icon ?? (prototype && choice ? PROTOTYPE_MODE_ICONS[choice.id] : undefined);
   // Nothing left to pick (every other mode refused, no grants): a plain label, never a dead menu.
   if (
     refusedIds.length > 0 &&
@@ -1189,7 +1194,7 @@ function AccessMenu({
         /* tooltip-allow: the chip is its shield alone; the tooltip says what it is and why it is fixed */
         title={`${tooltip}\n${refusedReason}`}
       >
-        <ModeIcon modeId={value} icon={currentMode?.icon} />
+        <ModeIcon modeId={value} icon={iconOf(currentMode)} />
         <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
           {currentMode?.name ?? label}
         </span>
@@ -1211,7 +1216,7 @@ function AccessMenu({
           title={tooltip}
           aria-haspopup="menu"
         >
-          {modes.length > 0 ? <ModeIcon modeId={value} icon={currentMode?.icon} /> : <LockIcon />}
+          {modes.length > 0 ? <ModeIcon modeId={value} icon={iconOf(currentMode)} /> : <LockIcon />}
           <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
             {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
           </span>
@@ -1243,7 +1248,7 @@ function AccessMenu({
                 >
                   {!iconless && (
                     <span className="acpmux-access-item-icon" aria-hidden="true">
-                      <ModeIcon modeId={choice.id} icon={choice.icon} />
+                      <ModeIcon modeId={choice.id} icon={iconOf(choice)} />
                     </span>
                   )}
                   <span className="acpmux-menu-text">
@@ -1292,6 +1297,13 @@ function AccessMenu({
     </span>
   );
 }
+
+/// The Prototype look's icons for Claude Code's modes: Codex's for the matching levels.
+const PROTOTYPE_MODE_ICONS: Readonly<Record<string, ModeIconName>> = {
+  default: "hand",
+  acceptEdits: "terminal-shield",
+  bypassPermissions: "shield-alert",
+};
 
 /// Plan modes (an id ending in "plan") read and propose without editing; the toggle sits apart from the permission chip.
 export function isPlan(modeId: string): boolean {

@@ -600,9 +600,13 @@ export function NewTabScreen(props: Props) {
   const foot = useRef<HTMLDivElement>(null);
   // The model picker uses one footer position in every New Tab template and composer look.
   const look = useComposerLook();
-  const split = props.chips !== undefined;
-  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray. The footer
-  // row exists only with the chips, so without them the strip stays above the box.
+  // The Prototype look puts the chips in the box's bottom row with +, the mic and Send, as its chat
+  // composer does: no quiet row under the box (Lucas 2026-10-29).
+  const prototype = look === "prototype";
+  const split = props.chips !== undefined && !prototype;
+  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray, the Prototype's
+  // above the box. The footer row exists only with the chips, so without them the strip stays above
+  // the box.
   const locationInFooter = split && plainFooter && look === "claude" && template !== "default";
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
@@ -1139,7 +1143,7 @@ export function NewTabScreen(props: Props) {
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !split;
+  const pill = template === "cards" && !split && !prototype;
 
   const attachmentPicker = (
     <>
@@ -1262,7 +1266,12 @@ export function NewTabScreen(props: Props) {
   // this page draws no context ring.
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-      <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
+      <div
+        ref={prototype ? foot : undefined}
+        className="nt-pickers"
+        data-footer-look={plainFooter ? "plain" : undefined}
+        onPointerDownCapture={touch}
+      >
         {!split && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
@@ -1352,7 +1361,7 @@ export function NewTabScreen(props: Props) {
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
-      <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
+      <div ref={setComposer} className="nt-composer" data-composer-look={look === "claude" ? undefined : look}>
         {authBlocksSend(targetAuth) && (
           <p className="acpmux-composer-remote-note" role="alert">
             {targetAuthText}

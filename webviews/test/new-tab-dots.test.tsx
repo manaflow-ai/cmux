@@ -71,7 +71,10 @@ afterAll(() => {
 const storedLook = () => window.localStorage.getItem("cmux.composer.look");
 
 test("the dot shown comes from the look and the actions widget", () => {
-  expect(NEW_TAB_DOTS).toEqual(["claude", "claudeActions", "codex"]);
+  expect(NEW_TAB_DOTS).toEqual(["claude", "claudeActions", "codex", "prototype"]);
+  // The Prototype look is its own dot, with or without the actions widget.
+  expect(shownDot("prototype", true)).toBe("prototype");
+  expect(shownDot("prototype", false)).toBe("prototype");
   expect(shownDot("claude", false)).toBe("claude");
   expect(shownDot("claude", true)).toBe("claudeActions");
   expect(shownDot("codex", false)).toBe("codex");
@@ -81,12 +84,13 @@ test("the dot shown comes from the look and the actions widget", () => {
   for (const dot of NEW_TAB_DOTS) expect(shownDot(DOT_STATES[dot].look, DOT_STATES[dot].actions)).toBe(dot);
 });
 
-test("the dots' names: Claude Minimal, Claude + Quick Actions, Codex Minimal", () => {
+test("the dots' names: Claude Minimal, Claude + Quick Actions, Codex Minimal, Prototype", () => {
   const nt = (key: Parameters<typeof translateNewTab>[0]) => translateNewTab(key, {}, "en");
   expect(NEW_TAB_DOTS.map((dot) => dotName(dot, nt))).toEqual([
     "Claude Minimal",
     "Claude + Quick Actions",
     "Codex Minimal",
+    "Prototype",
   ]);
 });
 
@@ -155,7 +159,7 @@ async function renderDots(actions: boolean, onEdit: (edit: WidgetEdit) => void):
 
 const radios = () => [...host.querySelectorAll<HTMLInputElement>(".nt-style input[type=radio]")];
 
-test("the page draws three dots, the derived one checked, and a click on each picks it", async () => {
+test("the page draws four dots, the derived one checked, and a click on each picks it", async () => {
   const edits: WidgetEdit[] = [];
   let root = await renderDots(false, (edit) => edits.push(edit));
   try {
@@ -163,6 +167,7 @@ test("the page draws three dots, the derived one checked, and a click on each pi
       ["claude", "Claude Minimal", true],
       ["claudeActions", "Claude + Quick Actions", false],
       ["codex", "Codex Minimal", false],
+      ["prototype", "Prototype", false],
     ]);
     await act(async () => radios()[1]!.click());
     expect(edits).toEqual([{ edit: "show", widget: "actions" }]);

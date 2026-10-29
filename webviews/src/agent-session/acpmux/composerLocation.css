@@ -141,8 +141,9 @@
 }
 @media (hover: hover) and (pointer: fine) {
   /* A location control is a text/icon affordance.  Its transparent hit area must not turn
-     into a full rounded pill on hover; the open state above remains the persistent menu cue. */
-  .acpmux-location-button.ui-ghost:hover {
+     into a full rounded pill on hover; the open state above remains the persistent menu cue, also
+     under the pointer (Lucas 2026-10-29: the pill went away while the pointer was on the open chip). */
+  .acpmux-location-button.ui-ghost:hover:not([aria-expanded="true"], [data-popup-open]) {
     background: transparent;
     color: var(--agent-text);
   }
@@ -1468,4 +1469,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
+}
+
+/* The Prototype look's New Tab row (.nt-pickers in the box, Lucas 2026-10-29) names the mode and
+   spaces its chips as the chat's bar does. */
+.nt-composer[data-composer-look="prototype"] .nt-pickers {
+  --acpmux-row-inset: 6px;
+  --acpmux-row-icon-gap: 4px;
+}
+.nt-composer[data-composer-look="prototype"] .nt-pickers .acpmux-mode-text {
+  display: inline;
+  white-space: nowrap;
+}
+.nt-composer[data-composer-look="prototype"] .nt-pickers .acpmux-access-trigger {
+  position: relative;
+  width: auto;
+  gap: var(--acpmux-row-icon-gap);
+}
+.nt-composer[data-composer-look="prototype"] .nt-pickers .acpmux-chips .acpmux-picker-button {
+  gap: var(--acpmux-row-icon-gap);
+  padding-inline: var(--acpmux-row-inset);
 }
