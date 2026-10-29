@@ -213,7 +213,7 @@ pub(super) fn cut(text: &str, max: usize) -> String {
         // The word the cut goes through is dropped: a secret's head would not be masked.
         Some((at, _)) => {
             let read = text.get(..at).unwrap_or("");
-            read.rfind(char::is_whitespace).map_or("", |end| &read[..end])
+            read.rfind(char::is_whitespace).map_or("", |end| read.get(..end).unwrap_or(""))
         }
         None => text,
     };
