@@ -355,7 +355,11 @@ async fn only_the_unix_socket_and_the_chats_own_agent_drain_it() {
 fn durable_hub(dir: &std::path::Path) -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        // A restart's continuation of a cut "until-cancel" turn quotes it, and runs as long.
+        "harnesses": {"fake": {
+            "argv": ["python3", fake],
+            "env": {"FAKE_UNTIL_CANCEL_IN": "until-cancel"}
+        }},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all"
     }))
@@ -736,7 +740,8 @@ async fn messages_drained_twice_follow_the_newest_digest_at_a_restart() {
     let hub = durable_hub(&dir);
     let mut c = connect(&hub).await;
     let first = queue_order(&mut c, &id).await;
-    // The cut turn goes on first (`restart_resume.rs`); the given-back messages wait behind it.
+    // The cut turn goes on first (`restart_resume.rs`), until cancelled; the given-back messages
+    // wait behind it, claimed.
     hub.resume_queues();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let started = |hub: &Arc<Hub>| {
