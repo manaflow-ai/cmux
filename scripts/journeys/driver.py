@@ -1392,6 +1392,15 @@ class Journey:
                               + (f" took {elapsed} ms > {limit} ms" if s["ok"]
                                  else " did not hold at the end" if s["negative"] else " never held"))
         result = {"polls": ticks, "since": since, "conditions": len(state)}
+        # The app's view behind the daemon's screen (an app text check failed where a daemon check passed): keep the
+        # state that tells a stuck main thread, a paused pane and a dropped stream apart.
+        app_failed = any(not s["ok"] and KIND.get(s["name"]) == "app" for s in state)
+        daemon_ok = any(s["ok"] and KIND.get(s["name"]) == "daemon" for s in state)
+        if app_failed and daemon_ok:
+            try:
+                self.save_stale_view()
+            except OSError:
+                pass
         unjudged = [s["not_run"] for s in frames if s.get("not_run")]
         if unjudged and len(failed) == len(unjudged):
             raise NotRun(unjudged[0])
@@ -1480,6 +1489,27 @@ class Journey:
             except (StepError, OSError, ValueError) as error:
                 dump[name] = {"error": str(error)[-300:]}
         (self.out / "diag-framefail.json").write_text(json.dumps(dump, indent=1, default=str) + "\n")
+
+    def save_stale_view(self):
+        """The app's view stays behind the daemon's screen (v2.2.7-opt: a new terminal kept its first, cut line while
+        the shell ran on). Keeps, while it is stale: debug.surfaces with text (each pane's surface, pause, drawing and,
+        in builds that have it, pause_record), debug.action_budget and debug.main_budget as diag-staleview.json, and a
+        3 s `sample` of the app (every thread, the main one included) as diag-stalesample.txt. Never fails the step."""
+        dump = {"at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "pane": self.pane, "terminal": self.term}
+        for name, method, params in (("surfaces", "debug.surfaces", {"text": True}), ("action_budget", "debug.action_budget", {}),
+                                     ("main_budget", "debug.main_budget", {})):
+            try:
+                dump[name] = self.app.rpc(method, params, timeout=30)
+            except (StepError, OSError, ValueError) as error:
+                dump[name] = {"error": str(error)[-300:]}
+        sample = self.out / "diag-stalesample.txt"
+        try:
+            done = subprocess.run(["/usr/bin/sample", str(self.app.pid), "3", "-file", str(sample)],
+                                  capture_output=True, text=True, timeout=30)
+            dump["sample"] = {"exit": done.returncode, "stderr": done.stderr[-300:], "file": sample.name}
+        except (OSError, subprocess.TimeoutExpired) as error:
+            dump["sample"] = {"error": str(error)[-300:]}
+        (self.out / "diag-staleview.json").write_text(json.dumps(dump, indent=1, default=str) + "\n")
 
     def covers_of(self, number):
         """The on-screen windows in front of window NUMBER (the window server's id, debug.surfaces' `window`)
