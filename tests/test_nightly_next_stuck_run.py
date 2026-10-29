@@ -195,7 +195,8 @@ class StuckRun(unittest.TestCase):
         result, calls = self.run_script(jobs, next_runs=[run(40771197361)])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/40771197361/cancel"])
-        self.assertIn("decide has waited 34 min with no runner on blacksmith-4vcpu-ubuntu-2404", result.stdout)
+        # 34 minutes old when made; a slow run can read it a minute later.
+        self.assertRegex(result.stdout, r"decide has waited 3[45] min with no runner on blacksmith-4vcpu-ubuntu-2404")
         self.assertIn("the next step (nightly_next_cancelled_tip.sh) builds the tip again", result.stdout)
 
     def test_a_run_that_is_running_waiting_or_briefly_queued_is_never_cancelled(self):
@@ -294,8 +295,14 @@ class StuckRun(unittest.TestCase):
                 with self.subTest(name=name, field=field, value=value):
                     self.assertNotEqual(check(name, dict(good, **{field: value})), 0)
                     missing = {k: v for k, v in good.items() if k != field}
-                    if field not in ("conclusion", "runner_name", "display_title"):
-                        self.assertNotEqual(check(name, missing), 0, f"{field} missing")
+                    self.assertNotEqual(check(name, missing), 0, f"{field} missing")
+        # A nullable field is null when GitHub sends null, but must be present (jq reads a missing
+        # key as null too; review of bafe4102).
+        for name, good, field in (("typed_job", good_job, "runner_name"), ("typed_job", good_job, "conclusion"),
+                                  ("typed_run", good_run, "conclusion"), ("typed_run", good_run, "display_title")):
+            with self.subTest(name=name, missing=field):
+                self.assertEqual(check(name, dict(good, **{field: None})), 0)
+                self.assertNotEqual(check(name, {k: v for k, v in good.items() if k != field}), 0)
         self.assertNotEqual(check('page_of("jobs")', {"jobs": {"a": good_job}}), 0)
         self.assertNotEqual(check('page_of("jobs")', {"jobs": None}), 0)
 
@@ -316,6 +323,7 @@ class StuckRun(unittest.TestCase):
             "a runner_name object on a finished job": ({7: [stuck, dict(job("probe", 34, status="completed"),
                                                                        runner_name={})]}, {}),
             "a runner_name list": ({7: [dict(stuck, runner_name=[])]}, {}),
+            "no runner_name on the queued job": ({7: [{k: v for k, v in stuck.items() if k != "runner_name"}]}, {}),
             "no name": ({7: [{k: v for k, v in stuck.items() if k != "name"}]}, {}),
             "a null name": ({7: [dict(stuck, name=None)]}, {}),
             "no id": ({7: [{k: v for k, v in stuck.items() if k != "id"}]}, {}),
@@ -501,6 +509,7 @@ class StuckRun(unittest.TestCase):
         names = [step.get("name") for step in steps]
         check = steps[names.index("Cancel a nightly-next run stuck without a runner")]
         self.assertTrue(check["continue-on-error"])
+        self.assertEqual(check.get("if"), "inputs.sha == ''", "only in the shared, serialized tick group")
         self.assertEqual(check["run"], 'bash .tick-tooling/scripts/ci/nightly_next_stuck_run.sh "$GITHUB_REPOSITORY"')
         self.assertLess(names.index("Wait through GitHub API rate limits in this job's gh calls"),
                         names.index("Cancel a nightly-next run stuck without a runner"))

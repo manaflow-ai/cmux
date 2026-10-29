@@ -10,6 +10,9 @@
 # fetch the raw JSON with gh and run jq on it).
 
 def str_or_null: type == "string" or type == "null";
+# A nullable field must still be present: jq reads a missing key as null, which GitHub never sends
+# for these (runner_name is null until a runner takes the job, not absent).
+def has_str_or_null(key): has(key) and (.[key] | str_or_null);
 
 # A workflow run (the runs list and a single run read).
 def typed_run:
@@ -17,10 +20,10 @@ def typed_run:
      and (.id | type) == "number"
      and (.event | type) == "string"
      and (.status | type) == "string"
-     and (.conclusion | str_or_null)
+     and has_str_or_null("conclusion")
      and (.run_attempt | type) == "number"
      and (.head_sha | type) == "string" and (.head_sha | test("^[0-9a-f]{40}$"))
-     and (.display_title | str_or_null)
+     and has_str_or_null("display_title")
   then . else error("a run of an unexpected shape") end;
 
 # A job of a run's jobs list. A queued job is judged by its label, so it must have one; a finished
@@ -30,8 +33,8 @@ def typed_job:
      and (.id | type) == "number"
      and (.name | type) == "string"
      and (.status | type) == "string"
-     and (.conclusion | str_or_null)
-     and (.runner_name | str_or_null)
+     and has_str_or_null("conclusion")
+     and has_str_or_null("runner_name")
      and (.labels | type) == "array" and all(.labels[]; type == "string")
      and (.status != "queued" or (.labels | length) > 0)
      and (.created_at | type) == "string" and (.created_at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]+Z$"))

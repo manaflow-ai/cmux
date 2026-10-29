@@ -156,6 +156,10 @@ jobs:
       # scripts/ci/nightly_next_stuck_run.sh. A run that is running or waiting on a
       # gate is never cancelled.
       - name: Cancel a nightly-next run stuck without a runner
+        # Only in the shared, serialized tick group (a tick with no sha input). A dispatch for one
+        # commit runs in a group of its own, so two of them, or one beside a backstop tick, could
+        # both find the same tip owed and both start a build of it.
+        if: inputs.sha == ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -167,6 +171,10 @@ jobs:
       # it exists: a re-run below 3 attempts, else a fresh dispatch;
       # scripts/ci/nightly_next_cancelled_tip.sh.
       - name: Re-run a cancelled nightly-next tip
+        # Only in the shared, serialized tick group (a tick with no sha input). A dispatch for one
+        # commit runs in a group of its own, so two of them, or one beside a backstop tick, could
+        # both find the same tip owed and both start a build of it.
+        if: inputs.sha == ''
         # The promotion below must run even when this check cannot.
         continue-on-error: true
         env:

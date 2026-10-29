@@ -419,7 +419,14 @@ class CancelledTip(unittest.TestCase):
         names = [step.get("name") for step in steps]
         check = steps[names.index("Re-run a cancelled nightly-next tip")]
         self.assertTrue(check["continue-on-error"])
-        self.assertNotIn("if", check)  # every train mode, "off" included: the promotion still runs then
+        # Every train mode ("off" included), but only in the shared, serialized tick group: a dispatch
+        # for one commit runs in a group of its own, and two ticks that both found the tip owed
+        # would both start a build of it (review of bafe4102).
+        self.assertEqual(check.get("if"), "inputs.sha == ''")
+        job = yaml.safe_load(TICK.read_text())["jobs"]["request"]
+        self.assertEqual(job["concurrency"]["group"],
+                         "${{ inputs.sha != '' && format('nightly-next-tick-{0}', github.run_id) || 'nightly-next-tick' }}")
+        self.assertFalse(job["concurrency"]["cancel-in-progress"])
         self.assertEqual(check["run"], 'bash .tick-tooling/scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"')
         self.assertLess(names.index("Wait through GitHub API rate limits in this job's gh calls"),
                         names.index("Re-run a cancelled nightly-next tip"))
