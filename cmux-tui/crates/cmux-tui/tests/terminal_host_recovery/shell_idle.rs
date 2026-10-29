@@ -41,6 +41,11 @@ fn start_bash(name: &str) -> Option<(RecoveryHarness, u64)> {
 
 /// [`start_bash`] with `rc` first in its rc file (`set +m`).
 fn start_bash_with(name: &str, rc_prefix: &str) -> Option<(RecoveryHarness, u64)> {
+    start_bash_with_ps1(name, rc_prefix, "\\[\\033]133;A\\007\\]idle> \\[\\033]133;B\\007\\]")
+}
+
+/// [`start_bash_with`] with the prompt `ps1` (it must draw [`PROMPT`]).
+fn start_bash_with_ps1(name: &str, rc_prefix: &str, ps1: &str) -> Option<(RecoveryHarness, u64)> {
     let Some(bash) = find(&["/bin/bash", "/usr/bin/bash", "/opt/homebrew/bin/bash"]) else {
         eprintln!("skipped: bash is not installed");
         return None;
@@ -53,7 +58,7 @@ fn start_bash_with(name: &str, rc_prefix: &str) -> Option<(RecoveryHarness, u64)
     fs::write(
         &rc,
         format!(
-            "{rc_prefix}PS1='\\[\\033]133;A\\007\\]idle> \\[\\033]133;B\\007\\]'\n\
+            "{rc_prefix}PS1='{ps1}'\n\
              unset PROMPT_COMMAND\nHISTFILE=/dev/null\n"
         ),
     )
@@ -403,4 +408,26 @@ fn shell_idle_an_open_quote_at_ghosttys_secondary_prompt_is_not_idle() {
     let screen = wait_for_screen(&harness.socket, surface, "...");
     assert!(screen.contains("..."), "no continuation prompt: {screen:?}");
     assert_not_idle(&harness, Duration::from_millis(1_000), "an open quote at Ghostty's PS2");
+}
+
+/// kitty's integration marks each line of a multi-line PS1 after the first
+/// `133;A;k=s`: part of the prompt, not a continuation of a command. That
+/// prompt, with nothing typed, reads idle.
+#[test]
+fn shell_idle_a_multi_line_prompt_with_secondary_marks_is_idle() {
+    let _exclusive = exclusive_process_test();
+    let Some((harness, surface)) = start_bash_with_ps1(
+        "shell-idle-two-line-ps1",
+        "",
+        "\\[\\033]133;A\\007\\]top\\n\\[\\033]133;A;k=s\\007\\]idle> \\[\\033]133;B\\007\\]",
+    ) else {
+        return;
+    };
+    let extra = terminal_extra(&harness);
+    assert!(extra["shell_idle"]["since_ms"].is_string(), "{extra}");
+    // And after a command: the next two-line prompt reads idle again.
+    type_text(&harness, surface, "true\r");
+    let screen = wait_for_screen(&harness.socket, surface, "top");
+    assert!(screen.matches("top").count() >= 1, "{screen:?}");
+    wait_for_idle(&harness);
 }
