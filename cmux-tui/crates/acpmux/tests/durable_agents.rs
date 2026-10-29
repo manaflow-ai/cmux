@@ -6,8 +6,6 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-#[path = "durable_agents/retry_restore.rs"]
-mod retry_restore;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
 #[path = "durable_agents/idle_adopted.rs"]
@@ -20,6 +18,8 @@ mod queue_restore;
 mod restart_fence;
 #[path = "durable_agents/restart_reattach.rs"]
 mod restart_reattach;
+#[path = "durable_agents/retry_restore.rs"]
+mod retry_restore;
 #[path = "durable_agents/stalled_turn.rs"]
 mod stalled_turn;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
