@@ -2020,7 +2020,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // Connector from the root's vertical center down to this bubble.
         if case let .part(p) = r.spec.kind, let rootKey = p.connectorRoot {
             let cellTop = layout.frame(for: i).minY
-            let rootCenter = model.index.value(for: rootKey).map { layout.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) / 2 } ?? layout.rowsTop
+            let rootCenter = model.index.value(for: rootKey).map { layout.contentTop($0) + (model.rows[checked: $0]?.spec.connectorAnchorY ?? 0) } ?? layout.rowsTop
             let myTop = layout.contentTop(i)
             cell.setConnector(top: myTop - 8.5 > rootCenter ? rootCenter - cellTop : nil, bottom: myTop - 8.5 - cellTop, mirrored: p.outgoing)
         } else {
@@ -2065,14 +2065,19 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 Animate.scalar(target, e.keyPath, from: e.from, to: e.to, e.element, begin: e.begin)
             }
         }
-        // cmux: working only rotates; the typing bubble and tail never breathe.
         if case .typing = r.spec.kind {
             if r.ghost {
-                cell.stopTypingSpinner()
-            } else if cell.typingInsertedAt != r.insertedAt || !cell.typingSpinnerActive {
+                cell.stopTypingBreath()
+            } else if cell.typingInsertedAt != r.insertedAt || cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil
+                        || cell.needsTypingBreath {
+                // The dots and the breathing run from the insert's begin (layer time). This used to read a begin
+                // that the commit stored after the cell's first decorate: the dots then ran from layer time 0, so
+                // their phase was arbitrary (motion-gate harness: begin 0). A new indicator under the same key, or
+                // the same row live again after its fade began (stopTypingBreath), starts both again.
                 let insert = r.insertedAt > 0 ? beginTime(r.insertedAt) : Animate.now(layer)
                 cell.typingInsertedAt = r.insertedAt
-                cell.startTypingSpinner(begin: insert + Springs.typingDotsPhase)
+                cell.startTypingDots(begin: insert + Springs.typingDotsPhase)
+                cell.startTypingBreath(insert: insert)
             }
         }
     }
@@ -2266,6 +2271,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         } else {
             threadScrollBack = 0
             threadScrollRange = 0
+            // cmux: the center point sits 518 pt above the pane's bottom (the 1041 pt window's), not at the
+            // space's center: in a tall pane a thread that fits the space ended under the field with no scroll
+            // range (Lawrence 2026-10-28: "unable to scroll down here"). It stays centered where it can.
+            y = min(max(y, area.minY), area.maxY - total)
         }
         placeThreadHeader(header, top: y, fade: (!wasOpen || drilled) && !still)
         y += headerHeight

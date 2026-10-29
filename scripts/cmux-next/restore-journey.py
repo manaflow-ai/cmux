@@ -69,6 +69,8 @@ The seeded state, all named `rj-*` (earlier rj-* workspaces are closed first):
             frame;
   window 2: rj-w2 (a terminal with a marker line and a browser tab zoomed in three Cmd-+ steps
             from 100%), at another frame;
+  window 3: rj-w3 (a terminal with a marker line, pinned to its own space rj-room-<run>, opened
+            with Open Space in New Window), at a third frame with its sidebar hidden;
   agents:   rj-chats (agent chats with the test agent as a Claude Code harness, a non-default
             model picked, and as a Codex harness: two turns and an unsent draft each) and
             rj-tagents (terminal tabs running `claude` and `codex` stand-ins,
@@ -118,7 +120,7 @@ parser.add_argument("--out", default="/tmp/restore-journey")
 parser.add_argument("--fake-agent", default=os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
 parser.add_argument("--src", help="staged app to re-clone from when the slot's app copy is gone after a quit")
 parser.add_argument("--settle", type=float, default=90, help="seconds restore may take to settle")
-parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2,cloud,agents")
+parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2,w3,cloud,agents")
 parser.add_argument("--agents-per-kind", type=int, default=2,
                     help="the agents part: chats per harness (Claude, Codex) and terminal agents per CLI (claude, codex)")
 parser.add_argument("--break-cloud", choices=["moved_chat", "move_retry", "bring_back_retry", "grant", "dismissed"],
@@ -1289,9 +1291,30 @@ def seed_w2(base):
         rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[1]})
 
 
+def seed_w3():
+    """A third window on its own space (New Window makes one; Open Space in New Window's path), sidebar hidden."""
+    answer = cli("room", "create", "--name", f"rj-room-{RUN}")
+    room = answer.get("value", answer) if isinstance(answer, dict) else {}
+    room_id = room.get("id") or room.get("room_id") or (room.get("room") or {}).get("id")
+    ws = new_workspace("rj-w3")
+    if not ws.get("workspace_id") or not room_id:
+        say(f"  w3: room {json.dumps(room)[:160]} workspace {json.dumps(ws)[:160]}")
+        return
+    write(ws["terminal_id"], f"echo rj-w3-marker-{RUN}\n")
+    cli("room", room_id, "pin", "--workspace", ws["workspace_id"])
+    # The new window takes the space's workspaces no window showing the space lists: rj-w3.
+    action("space.openInNewWindow", space=room_id)
+    window = wait(lambda: next((w for w in (topology() or {}).get("windows", []) if w.get("workspace") == ws["workspace_id"]), None), 20)
+    if window:
+        rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[2]})
+        rpc("debug.window.focus", {"window": window.get("key")})
+        # Its sidebar hidden, as Cmd-B does in the key window it just became.
+        action("toggleSidebar")
+
+
 # Window frames (AppKit points, bottom-left origin), inside a 1080p screen's visible frame (above
 # the Dock), so a restore that keeps a window on screen has no reason to move them.
-FRAMES = [[80, 220, 1100, 700], [260, 280, 820, 560]]
+FRAMES = [[80, 220, 1100, 700], [260, 280, 820, 560], [520, 120, 760, 520]]
 
 
 def seed_cloud():
@@ -1323,13 +1346,17 @@ def cleanup_earlier():
     for ws in rj_workspaces(topology()):
         cli("workspace", ws["id"], "close")
     wait(lambda: not rj_workspaces(topology()), 20)
+    rooms = cli("room", "list", quiet=True)
+    for room in (rooms.get("value", rooms) if isinstance(rooms, dict) else rooms) or []:
+        if isinstance(room, dict) and str(room.get("name", "")).startswith("rj-room-"):
+            cli("room", room.get("id"), "delete")
 
 
 def seed(base):
     say("seeding")
     cleanup_earlier()
     for part, run in (("term", seed_term), ("split", seed_split), ("web", lambda: seed_web(base)),
-                      ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("cloud", seed_cloud),
+                      ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("w3", seed_w3), ("cloud", seed_cloud),
                       ("agents", seed_chats), ("agents", seed_tagents)):
         if part not in SKIP:
             try:
@@ -1508,6 +1535,7 @@ def snapshot(label):
         items[f"{p}.full_screen"] = shown.get("full_screen")
         items[f"{p}.sidebar_width"] = shown.get("sidebar_width")
         items[f"{p}.sidebar_hidden"] = shown.get("sidebar_hidden")
+        items[f"{p}.space"] = shown.get("profile")
         # Which display a window comes back on means something only with two to pick from; a
         # capture slot has one 1080p display, so there the row reads n/a.
         if isinstance(displays, int) and displays >= 2:
