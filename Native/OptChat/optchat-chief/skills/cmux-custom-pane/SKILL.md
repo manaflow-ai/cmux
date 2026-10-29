@@ -15,8 +15,9 @@ let the user watch.
 ## 1. Make the folder
 
 ```sh
-LOCAL=$(cmux raw command --request-json '{"cmd":"apps-list"}' | jq -r .local_dir)
+LOCAL=$(cmux --json raw command --request-json '{"cmd":"apps-list"}' | jq -r .local_dir)
 NAME=standup-board   # lowercase letters, digits and dashes, starts with a letter
+test -n "$LOCAL" && test "$LOCAL" != null || exit 1
 mkdir -p "$LOCAL/$NAME/web"
 ```
 

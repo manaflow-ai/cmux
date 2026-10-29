@@ -583,7 +583,7 @@ export class AppsStore {
         (value) => ({ value, error: undefined as unknown }),
         (error: unknown) => ({ value: undefined, error }),
       ),
-      client.call<RegistryListingsResult>(RegistryOps.listings, {}).then(
+      this.readRegistryListings(client).then(
         (value) => ({ value, error: undefined as unknown }),
         (error: unknown) => ({ value: undefined, error }),
       ),
@@ -609,6 +609,20 @@ export class AppsStore {
       who?.signedIn ? this.loadSubmissions() : undefined,
       who?.reviewer ? this.loadQueue() : undefined,
     ]);
+  }
+
+  /** Follow the registry's cursor so search includes apps beyond its first page. */
+  private async readRegistryListings(client: PageClient): Promise<RegistryListingsResult> {
+    const listings: RegistryListingsResult["listings"] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await client.call<RegistryListingsResult>(RegistryOps.listings, cursor ? { cursor } : {});
+      listings.push(...page.listings);
+      if (!page.cursor || seen.has(page.cursor)) return { listings };
+      seen.add(page.cursor);
+      cursor = page.cursor;
+    }
   }
 
   private async loadSubmissions(): Promise<void> {

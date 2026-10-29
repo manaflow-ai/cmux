@@ -37,12 +37,15 @@ describe("Community listings and Get", () => {
     const { provider, store } = setup(person);
     const call = provider.call.bind(provider);
     const listings = sampleRegistry(person).listings;
-    provider.call = async (op, params) => {
-      if (op !== RegistryOps.listings) return call(op, params);
+    provider.call = async <R>(op: string, rawParams: unknown): Promise<R> => {
+      if (op !== RegistryOps.listings) return call<R>(op, rawParams);
+      const params = rawParams as Record<string, unknown>;
       provider.calls.push({ op, params });
-      return params.cursor
-        ? { listings: [listings[1]] }
-        : { listings: [listings[0]], cursor: "sample-studio/workspace-board" };
+      return (
+        params.cursor
+          ? { listings: [listings[1]] }
+          : { listings: [listings[0]], cursor: "sample-studio/workspace-board" }
+      ) as R;
     };
     await store.start();
     expect(store.getSnapshot().registry.listings).toEqual(listings);

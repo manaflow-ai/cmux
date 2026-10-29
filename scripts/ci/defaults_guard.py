@@ -466,20 +466,38 @@ def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
     # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token.
     helper_names = {name for key, (_, kind, name, _) in nodes.items()
                     if key in selected and kind == "func"}
-    for key, (_, _, _, tokens) in nodes.items():
+    for key, (_, kind, _, tokens) in nodes.items():
+        values = set()
+        # Metatype values can invoke static factories; keep such declarations conservative.
+        metatypes = "Type" in tokens or "Protocol" in tokens or "self" in tokens
+        parens = brackets = 0
+        in_signature = kind == "func"
         for i, token in enumerate(tokens):
+            if in_signature:
+                parens += (token == "(") - (token == ")")
+                brackets += (token == "[") - (token == "]")
+                if (token == ":" and parens == 1 and brackets == 0 and i
+                        and i + 1 < len(tokens) and tokens[i + 1] in types):
+                    values.add(tokens[i - 1])
+                if token == "{":
+                    in_signature = False
+            elif (kind == "func" and i and tokens[i - 1] in ("let", "var")
+                  and i + 2 < len(tokens) and tokens[i + 1] == "=" and tokens[i + 2] in values):
+                values.add(token)
             if token not in helper_names:
                 continue
-            # Ignore an unambiguously qualified instance member, such as sidebar.toggle().
-            # Bare/Self calls may use helpers from another extension; generic-qualified
-            # calls have a closing angle bracket here. Keep both conservative, as before.
-            if i > 1 and tokens[i - 1] == ".":
-                qualifier = tokens[i - 2]
-                if re.fullmatch(r"[A-Za-z_]\w*", qualifier) and qualifier != "Self":
-                    if not any(candidate in selected and nodes[candidate][1] == "func"
-                               for owner in types.get(qualifier, ())
-                               for candidate in by_file_name.get((owner, token), ())):
-                        continue
+            # A member chain rooted in this function's parameter/local value is
+            # an instance call, e.g. services.windows.active?.sidebar.model.toggle().
+            # Unknown receivers remain conservative: they may be typealiases,
+            # inherited factories, extensions or generic-qualified type names.
+            if kind == "func" and not metatypes and i > 1 and tokens[i - 1] == ".":
+                root = i - 2
+                while root > 1 and tokens[root - 1] == ".":
+                    root -= 2
+                    if tokens[root] in ("?", "!"):
+                        root -= 1
+                if tokens[root] in values:
+                    continue
             selected.add(key)
             break
     pending = list(selected)

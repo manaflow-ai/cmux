@@ -146,7 +146,8 @@ public nonisolated enum AppRegistryPageConfirmations {
                                     detail: PageStrings.registrySubmitDetail)
         case "cmux.registry.review.decide":
             let approve = params["decision"]?.stringValue == "approve"
-            let app = params["app"]?.stringValue ?? params["id"]?.stringValue ?? ""
+            // Name the exact submission the request decides, never a page-supplied app label.
+            let app = params["id"]?.stringValue ?? ""
             return PageConfirmation(kind: .custom, name: String(format: approve ? PageStrings.registryApproveTitle : PageStrings.registryRejectTitle, app),
                                     detail: approve ? PageStrings.registryApproveDetail : nil)
         default:

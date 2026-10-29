@@ -229,7 +229,8 @@ class DefaultsGuardTests(unittest.TestCase):
     static let enabled = toggle(false)
 }
 """)
-        source = """enum Actions {
+        source = """class Sidebar {}
+enum Actions {
     static func bind(_ sidebar: Sidebar) { sidebar.toggle(); Pane.opens() }
 }
 enum Pane { static func opens() -> Bool { false } }
@@ -242,21 +243,43 @@ enum Pane { static func opens() -> Bool { false } }
     def test_extension_and_generic_tunable_factory_calls_require_review(self):
         factory = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Factory.swift"
         defaults = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Factory+Defaults.swift"
-        self.repo.write(factory, """struct Factory<T> {}
-extension Factory {
+        self.repo.write(factory, """class Factory {
     static func points(_ value: Double) -> Tunable<Double> {
         .number("factory.gap", .status, "Gap", default: value)
     }
 }
 """)
-        for call in ("points", "Self.points", "Factory<Double>.points"):
+        for call in ("points", "Self.points", "PaneFactory.points", "InheritedFactory.points", "GenericFactory<Double>.points"):
             with self.subTest(call=call):
-                source = f"extension Factory {{ static let gap = {call}(2) }}\n"
+                source = ("typealias PaneFactory = Factory\nclass InheritedFactory: Factory {}\n"
+                          "struct GenericFactory<T> { static func points(_ value: Double) -> Tunable<Double> { Factory.points(value) } }\n"
+                          + (f"extension Factory {{ static let gap = {call}(2) }}\n" if call in ("points", "Self.points")
+                             else f"enum Defaults {{ static let gap = {call}(2) }}\n"))
                 self.repo.write(defaults, source)
                 self.base = self.repo.commit("extension defaults")
                 result = self.check(self.head(extra={defaults: source.replace("(2)", "(3)")}))
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Factory+Defaults.swift:gap", result.stdout)
+
+    def test_metatype_factory_values_still_require_review(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Factory.swift"
+        for receiver in ("_ factory: Factory.Type", ""):
+            with self.subTest(receiver=receiver):
+                local = "" if receiver else "let factory = Factory.self; "
+                source = f"""enum Factory {{
+    static func points(_ value: Double) -> Tunable<Double> {{
+        .number("factory.gap", .status, "Gap", default: value)
+    }}
+}}
+enum Defaults {{
+    static func register({receiver}) {{ {local}store(factory.points(2)) }}
+}}
+"""
+                self.repo.write(path, source)
+                self.base = self.repo.commit("metatype factory")
+                result = self.check(self.head(extra={path: source.replace("points(2)", "points(3)")}))
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Factory.swift:register", result.stdout)
 
     def test_backticked_static_default_dependency_is_snapshotted(self):
         path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DevTunables.swift"
