@@ -6,6 +6,8 @@
 // acpmux's trust question for that folder and sends the refused prompt again.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -30,6 +32,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { useFolderTrustAsk } = await import("../src/agent-session/acpmux/useFolderTrustAsk");
 const { TrustAsk } = await import("../src/agent-session/acpmux/TrustAsk");
+const { failedRowTrustRetry } = await import("../src/agent-session/acpmux/failedRowTrustRetry");
 type Hook = ReturnType<typeof useFolderTrustAsk>;
 
 const host = dom.window.document.getElementById("root")!;
@@ -265,6 +268,86 @@ test("a completed Trust save reconciles a stale read in another chat in the same
   expect(shown!.blocked).toBeUndefined();
   expect(trustButton()).toBeUndefined();
   expect(resent).toBe(0);
+});
+
+// A failed row's Retry refused by trust.pending (#24144 review): the question shows, and Trust sends
+// the row's run again with the gesture the refused retry kept, so no second manual Retry is needed.
+test("Trust re-sends a failed row's Retry that acpmux refused with trust.pending", async () => {
+  const cwd = "/Users/you/src/retry-row";
+  const trust = source(async () => ({ cwd, level: "trusted", decided: false, auto: "root" }));
+  await act(async () => root.render(<Pane trust={trust.source} sessionId="chat-retry-row" cwd={cwd} />));
+  const calls: { rowIds: readonly string[]; ticket?: string; anchor?: string }[] = [];
+  const held: string[] = [];
+  let ticket: string | undefined;
+  const rowRetry = failedRowTrustRetry({
+    retry: async (rowIds, sentTicket, anchor) => {
+      calls.push({ rowIds, ticket: sentTicket, anchor });
+      // direct.ts `send` marks the refusal with the failed row it kept.
+      if (calls.length === 1) throw Object.assign(pending(cwd), { failedRow: "row-2" });
+      return "prompt-2";
+    },
+    runOf: (row) => (row === "row-2" ? ["row-1", "row-2"] : [row]),
+    hold: (row) => {
+      held.push(row);
+      ticket = "gesture-2";
+    },
+    takeTicket: () => {
+      const taken = ticket;
+      ticket = undefined;
+      return taken;
+    },
+  });
+  let rejected: unknown;
+  await act(async () => {
+    await rowRetry
+      .retry(["row-1", "row-2"], (error, again) => shown!.refused(error, again))
+      .catch((error: unknown) => {
+        rejected = error;
+      });
+  });
+  // The click still fails as before (the row shows "Still not sent"), and the question shows.
+  expect((rejected as { reason?: unknown } | undefined)?.reason).toBe("trust.pending");
+  expect(held).toEqual(["row-2"]);
+  const button = trustButton();
+  const visible = button !== undefined;
+  expect(visible).toBe(true);
+  await act(async () => {
+    button!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  });
+  expect(trust.sets).toEqual([[cwd, "trusted"]]);
+  expect(calls).toEqual([
+    { rowIds: ["row-1", "row-2"], ticket: undefined, anchor: undefined },
+    { rowIds: ["row-1", "row-2"], ticket: "gesture-2", anchor: "row-2" },
+  ]);
+});
+
+test("a refusal that left no failed row keeps no row replay", async () => {
+  let routed = 0;
+  const rowRetry = failedRowTrustRetry({
+    retry: async () => {
+      throw pending("/Users/you/src/no-row");
+    },
+    runOf: (row) => [row],
+    hold: () => {
+      throw new Error("nothing to hold");
+    },
+    takeTicket: () => undefined,
+  });
+  const error = await rowRetry
+    .retry(["row-1"], () => {
+      routed += 1;
+      return true;
+    })
+    .catch((caught: unknown) => caught);
+  expect((error as { reason?: unknown }).reason).toBe("trust.pending");
+  expect(routed).toBe(0);
+});
+
+test("the pane's failed-row Retry goes through the trust replay", () => {
+  const app = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/App.tsx"), "utf8");
+  const action = app.match(/"chat\.retryPrompt": \(\{ rowId, rowIds \}\) => \{([\s\S]*?)\n {10}\},/)?.[1] ?? "";
+  expect(action).toContain("rowRetry.retry(failedRowIds(rowId, rowIds)");
+  expect(action).not.toContain("client.retryPrompts(");
 });
 
 test("Trust does not resend a refused prompt after the pane unmounts", async () => {

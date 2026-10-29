@@ -55,6 +55,7 @@ import {
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
+import { failedRowOf, failedRowTrustRetry, type TrustRouter } from "./failedRowTrustRetry";
 import {
   authBlocksSend,
   authText,
@@ -694,12 +695,6 @@ function refusedMachine(error: unknown): string | undefined {
 function failedRowIds(rowId: unknown, rowIds: unknown): string[] {
   if (Array.isArray(rowIds) && rowIds.length) return rowIds.map(String);
   return [String(rowId)];
-}
-
-/// The failed prompt row a refused send left (direct.ts `send`), when it left one.
-function failedRowOf(error: unknown): string | undefined {
-  const row = (error as { failedRow?: unknown } | null)?.failedRow;
-  return typeof row === "string" ? row : undefined;
 }
 
 /// Whether a failed send's prompt stays in the chat, never back in the composer: its failed row,
@@ -7748,6 +7743,58 @@ function AcpmuxPane() {
             handedOn();
           }
         };
+        /// The chat a trust refusal belongs to: the client, its selection generation and the session.
+        type TrustOwner = { client: AcpmuxDirectClient; generation: number; sessionId?: string };
+        // A trust refusal goes to the question of the chat it was sent in (`owner`), never another's.
+        const routeTrustFor = (owner: TrustOwner, error: unknown, again?: () => void): boolean => {
+          if (
+            directClient.current !== owner.client ||
+            owner.generation !== owner.client.trustGeneration ||
+            owner.sessionId !== owner.client.selectedSession ||
+            !isTrustRefusal(error)
+          )
+            return false;
+          const pending = pendingTrustRefusal.current;
+          const pendingError = pending?.error as { reason?: unknown; cwd?: unknown } | undefined;
+          if (
+            pending &&
+            pending.client === owner.client &&
+            pending.generation === owner.generation &&
+            pending.sessionId === owner.sessionId &&
+            pendingError?.reason === (error as { reason?: unknown }).reason &&
+            pendingError?.cwd === (error as { cwd?: unknown }).cwd
+          ) {
+            // The caller that owns this send supplies the replay; do not lose it to the
+            // callback that first observed the refusal during the render gap.
+            pending.again = again;
+            return true;
+          }
+          const rendered = trustRouteOwner.current;
+          if (
+            rendered &&
+            rendered.client === owner.client &&
+            rendered.generation === owner.generation &&
+            rendered.sessionId === owner.sessionId
+          )
+            return trustRefused.current?.(error, again) ?? false;
+          pendingTrustRefusal.current = {
+            client: owner.client,
+            generation: owner.generation,
+            sessionId: owner.sessionId,
+            error,
+            again,
+          };
+          return true;
+        };
+        // A failed row's Retry that acpmux refuses for the folder's trust shows the Trust question,
+        // and Trust re-sends the row's run with the gesture the refused retry kept (heldPrompt.ts),
+        // as a refused send's row does (failedRowTrustRetry.ts).
+        const rowRetry = failedRowTrustRetry({
+          retry: (rowIds, ticket, anchor) => client.retryPrompts(rowIds, ticket, anchor),
+          runOf: (row) => lastFailedRuns.current?.get(row)?.rowIds ?? [row],
+          hold: (row) => void heldRowPrompt.hold(client.promptDelivery(row)?.promptId),
+          takeTicket: () => heldRowPrompt.take()?.ticket,
+        });
         const sendThrough = async (
           text: string,
           attachments: import("./attachments").ComposerAttachment[],
@@ -7764,46 +7811,7 @@ function AcpmuxPane() {
             generation: client.trustGeneration,
             sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
           };
-          const routeForSend = (error: unknown, again?: () => void, owner = sendOwner): boolean => {
-            if (
-              directClient.current !== owner.client ||
-              owner.generation !== owner.client.trustGeneration ||
-              owner.sessionId !== owner.client.selectedSession ||
-              !isTrustRefusal(error)
-            )
-              return false;
-            const pending = pendingTrustRefusal.current;
-            const pendingError = pending?.error as { reason?: unknown; cwd?: unknown } | undefined;
-            if (
-              pending &&
-              pending.client === owner.client &&
-              pending.generation === owner.generation &&
-              pending.sessionId === owner.sessionId &&
-              pendingError?.reason === (error as { reason?: unknown }).reason &&
-              pendingError?.cwd === (error as { cwd?: unknown }).cwd
-            ) {
-              // The caller that owns this send supplies the replay; do not lose it to the
-              // callback that first observed the refusal during the render gap.
-              pending.again = again;
-              return true;
-            }
-            const rendered = trustRouteOwner.current;
-            if (
-              rendered &&
-              rendered.client === owner.client &&
-              rendered.generation === owner.generation &&
-              rendered.sessionId === owner.sessionId
-            )
-              return trustRefused.current?.(error, again) ?? false;
-            pendingTrustRefusal.current = {
-              client: owner.client,
-              generation: owner.generation,
-              sessionId: owner.sessionId,
-              error,
-              again,
-            };
-            return true;
-          };
+          const routeForSend: TrustRouter = (error, again) => routeTrustFor(sendOwner, error, again);
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
@@ -7816,16 +7824,7 @@ function AcpmuxPane() {
               // gesture goes to the trust answer (heldPrompt.ts).
               if (row) {
                 // After Trust, the row's whole run goes again, as its card's Retry sends it.
-                const owns = routeForSend(
-                  error,
-                  () =>
-                    void client.retryPrompts(
-                      lastFailedRuns.current?.get(row)?.rowIds ?? [row],
-                      heldRowPrompt.take()?.ticket,
-                      row,
-                    ),
-                );
-                if (owns) void heldRowPrompt.hold(client.promptDelivery(row)?.promptId);
+                rowRetry.replayAfterTrust(error, routeForSend);
               } else if (routeForSend(error, () => composerHandle.current?.send())) {
                 void heldPrompt.hold();
                 if (!inComposer) restorePrompt(text, attachments);
@@ -8055,7 +8054,16 @@ function AcpmuxPane() {
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           // A failure card acts on its run of prompts (`rowIds`, in order; sendFailure.ts), else on `rowId`.
           // Retry sends the run again as one prompt: one click is one gesture (direct.ts `retryPrompts`).
-          "chat.retryPrompt": ({ rowId, rowIds }) => client.retryPrompts(failedRowIds(rowId, rowIds)),
+          "chat.retryPrompt": ({ rowId, rowIds }) => {
+            // The retry belongs to the chat it was clicked in: a trust refusal goes to that chat's
+            // question, whose Trust sends the run again (no second manual Retry).
+            const owner: TrustOwner = {
+              client,
+              generation: client.trustGeneration,
+              sessionId: client.shownSession()?.sessionId ?? sessionIdRef.current,
+            };
+            return rowRetry.retry(failedRowIds(rowId, rowIds), (error, again) => routeTrustFor(owner, error, again));
+          },
           // Edit on prompts that did not get there: their rows go and the prompts come back to the
           // composer as one, in order, ahead of what is typed there now.
           "chat.editFailedPrompt": async ({ rowId, rowIds }) => {
