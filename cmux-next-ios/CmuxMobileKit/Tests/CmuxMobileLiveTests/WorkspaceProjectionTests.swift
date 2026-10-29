@@ -75,6 +75,81 @@ import Testing
         #expect(tree.workspaces.first?.tabs.first?.linkIDs?.isPaneSelected == true)
     }
 
+    private static func selectedTabsSnapshot(surfaces: [Int] = [4, 5, 6], activeIndex: Int = 1) throws -> Data {
+        let tabs: [[String: Any]] = surfaces.map { ["surface": $0, "kind": "pty", "title": "Tab \($0)"] }
+        let pane: [String: Any] = ["id": 3, "active_tab": activeIndex, "tabs": tabs]
+        let screen: [String: Any] = ["id": 2, "active": true, "active_pane": 3, "panes": [pane]]
+        let workspace: [String: Any] = ["id": 1, "key": "w1", "name": "one", "screens": [screen]]
+        return try JSONSerialization.data(withJSONObject: ["ok": true, "data": [
+            "workspace_revision": 1, "registry_id": "r", "workspaces": [workspace],
+        ]])
+    }
+
+    private static func expectTabs(_ tree: DaemonTree, ordered surfaces: [Int], selected: Int?) {
+        let expectedIDs = surfaces.map { "s\($0)" }
+        #expect(tree.workspaces.first?.tabs.map(\.id) == expectedIDs)
+        #expect(tree.workspaces.first?.activeTabID == selected.map { "s\($0)" })
+        let selectedIDs = selected.map { ["s\($0)"] } ?? []
+        #expect(tree.workspaces.first?.tabs.filter { $0.linkIDs?.isPaneSelected == true }.map(\.id) == selectedIDs)
+        for (index, id) in expectedIDs.enumerated() {
+            #expect(tree.tabPlaces[id]?.pane == 3)
+            #expect(tree.tabPlaces[id]?.index == index)
+        }
+    }
+
+    @Test func insertingBeforeSelectedTabPreservesSelectionAndReplayIsNoOp() async throws {
+        let projection = WorkspaceProjection()
+        _ = try await projection.reset(snapshot: Self.selectedTabsSnapshot(), macID: "m")
+        let add = Self.delta(.tabAdded, surface: 7, index: 1,
+                             entity: ["surface": 7, "kind": "pty", "title": "inserted"])
+        let update = try await projection.apply(add, agents: AgentStates(), activity: [:])
+        Self.expectTabs(try #require(update?.tree), ordered: [4, 7, 5, 6], selected: 5)
+        let replay = try await projection.apply(add, agents: AgentStates(), activity: [:])
+        #expect(replay == nil)
+        // A subsequent row publication inspects the stored state after replay.
+        let after = try await projection.apply(.titleChanged(surface: 5, title: "still selected"), agents: AgentStates(), activity: [:])
+        Self.expectTabs(try #require(after?.tree), ordered: [4, 7, 5, 6], selected: 5)
+    }
+
+    @Test func closingTabBeforeSelectionPreservesSelectedSurfaceAndReplayIsNoOp() async throws {
+        let projection = WorkspaceProjection()
+        _ = try await projection.reset(snapshot: Self.selectedTabsSnapshot(), macID: "m")
+        let close = Self.delta(.tabClosed, surface: 4)
+        let update = try await projection.apply(close, agents: AgentStates(), activity: [:])
+        let tree = try #require(update?.tree)
+        Self.expectTabs(tree, ordered: [5, 6], selected: 5)
+        #expect(tree.tabPlaces["s4"] == nil)
+        let replay = try await projection.apply(close, agents: AgentStates(), activity: [:])
+        #expect(replay == nil)
+        let after = try await projection.apply(.titleChanged(surface: 5, title: "still selected"), agents: AgentStates(), activity: [:])
+        Self.expectTabs(try #require(after?.tree), ordered: [5, 6], selected: 5)
+    }
+
+    @Test func closingSelectedMiddleTabSelectsPreviousTab() async throws {
+        let projection = WorkspaceProjection()
+        _ = try await projection.reset(snapshot: Self.selectedTabsSnapshot(), macID: "m")
+        let update = try await projection.apply(Self.delta(.tabClosed, surface: 5), agents: AgentStates(), activity: [:])
+        Self.expectTabs(try #require(update?.tree), ordered: [4, 6], selected: 4)
+    }
+
+    @Test func closingFirstSelectedTabSelectsNextTab() async throws {
+        let projection = WorkspaceProjection()
+        _ = try await projection.reset(snapshot: Self.selectedTabsSnapshot(activeIndex: 0), macID: "m")
+        let update = try await projection.apply(Self.delta(.tabClosed, surface: 4), agents: AgentStates(), activity: [:])
+        Self.expectTabs(try #require(update?.tree), ordered: [5, 6], selected: 5)
+    }
+
+    @Test func closingLastTabClearsSelectionAndPlace() async throws {
+        let projection = WorkspaceProjection()
+        _ = try await projection.reset(snapshot: Self.selectedTabsSnapshot(surfaces: [4], activeIndex: 0), macID: "m")
+        let update = try await projection.apply(Self.delta(.tabClosed, surface: 4), agents: AgentStates(), activity: [:])
+        let tree = try #require(update?.tree)
+        Self.expectTabs(tree, ordered: [], selected: nil)
+        #expect(tree.tabPlaces.isEmpty)
+        #expect(tree.surfaces.isEmpty)
+        #expect(try await projection.apply(Self.delta(.tabClosed, surface: 4), agents: AgentStates(), activity: [:]) == nil)
+    }
+
     @Test func workspaceInsertReindexesDisplacedSurfaces() async throws {
         let snapshot = Data(#"{"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":1,"key":"one","screens":[{"id":1,"panes":[{"id":1,"tabs":[{"surface":4,"kind":"pty","title":"one"}]}]}]},{"id":2,"key":"two","screens":[{"id":2,"panes":[{"id":2,"tabs":[{"surface":5,"kind":"pty","title":"two"}]}]}]}]}}"#.utf8)
         let projection = WorkspaceProjection()

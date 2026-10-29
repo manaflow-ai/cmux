@@ -298,33 +298,38 @@ public actor WorkspaceProjection {
             if delta.kind.isClose { return false }
             throw ProjectionError.needsSnapshot
         }
+        let selectedIndex = panes[paneIndex]["active_tab"] as? Int
+        let selected = selectedIndex.flatMap {
+            tabs.indices.contains($0) ? tabs[$0]["surface"] as? Int : nil
+        }
         if delta.kind.isAdd {
             guard let entity else { throw ProjectionError.needsSnapshot }
             if tabs.contains(where: { ($0["surface"] as? Int) == surface }) { return false }
             tabs.insert(entity, at: min(max(delta.index ?? tabs.count, 0), tabs.count))
-            panes[paneIndex]["tabs"] = tabs
-            screens[screenIndex]["panes"] = panes
-            workspace["screens"] = screens
-            return true
-        }
-        guard let tabIndex = tabs.firstIndex(where: { ($0["surface"] as? Int) == surface }) else {
-            if delta.kind.isClose { return false }
-            throw ProjectionError.needsSnapshot
-        }
-        if delta.kind.isClose { tabs.remove(at: tabIndex) }
-        else {
-            guard let entity else { throw ProjectionError.needsSnapshot }
-            let selected = (panes[paneIndex]["active_tab"] as? Int).flatMap {
-                tabs.indices.contains($0) ? tabs[$0]["surface"] as? Int : nil
+        } else {
+            guard let tabIndex = tabs.firstIndex(where: { ($0["surface"] as? Int) == surface }) else {
+                if delta.kind.isClose { return false }
+                throw ProjectionError.needsSnapshot
             }
-            tabs[tabIndex] = entity
-            if let destination = delta.index, destination != tabIndex {
-                let moved = tabs.remove(at: tabIndex)
-                tabs.insert(moved, at: min(max(destination, 0), tabs.count))
-                if let selected, let selectedIndex = tabs.firstIndex(where: { $0["surface"] as? Int == selected }) {
-                    panes[paneIndex]["active_tab"] = selectedIndex
+            if delta.kind.isClose { tabs.remove(at: tabIndex) }
+            else {
+                guard let entity else { throw ProjectionError.needsSnapshot }
+                tabs[tabIndex] = entity
+                if let destination = delta.index, destination != tabIndex {
+                    let moved = tabs.remove(at: tabIndex)
+                    tabs.insert(moved, at: min(max(destination, 0), tabs.count))
                 }
             }
+        }
+        // Selection is a surface identity; active_tab is only its current
+        // position. Preserve it through every membership/order mutation.
+        if let selected, let index = tabs.firstIndex(where: { $0["surface"] as? Int == selected }) {
+            panes[paneIndex]["active_tab"] = index
+        } else if delta.kind.isClose, selected == surface, let selectedIndex {
+            // Match the daemon's close policy: preceding tab, or the first
+            // survivor when closing index zero. Empty panes have no selection.
+            if tabs.isEmpty { panes[paneIndex].removeValue(forKey: "active_tab") }
+            else { panes[paneIndex]["active_tab"] = min(max(selectedIndex - 1, 0), tabs.count - 1) }
         }
         panes[paneIndex]["tabs"] = tabs
         screens[screenIndex]["panes"] = panes
