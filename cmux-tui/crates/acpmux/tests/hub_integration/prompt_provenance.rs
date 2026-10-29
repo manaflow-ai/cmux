@@ -501,9 +501,14 @@ async fn a_queued_agent_message_reads_whole_and_names_its_senders_session_and_ha
     assert_eq!(row["fromSessionId"], json!(sender), "{row}");
     assert_eq!(row["fromHarness"], "codex", "{row}");
     let composers = hub.composers_view(&s)["queue"][0].clone();
-    assert_eq!((&composers["fromSessionId"], &composers["fromHarness"]), (&json!(sender), &json!("codex")));
+    assert_eq!(
+        (&composers["fromSessionId"], &composers["fromHarness"]),
+        (&json!(sender), &json!("codex"))
+    );
 
-    let read = person.call("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-long"})).await;
+    let read = person
+        .call("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-long"}))
+        .await;
     assert_eq!(read["text"], json!(whole), "{read}");
     assert_eq!(read["prompt"][0]["text"], json!(whole), "{read}");
     assert_eq!(read["turnId"], row["turnId"], "{read}");
@@ -511,7 +516,9 @@ async fn a_queued_agent_message_reads_whole_and_names_its_senders_session_and_ha
     let queued = person.records(&receiver, "queued").await;
     let queued = queued.iter().find(|m| m["promptId"] == "p-long").expect("its queued record");
     assert_eq!(queued.pointer("/_meta/provenance/fromHarness"), Some(&json!("codex")), "{queued}");
-    let missing = person.reply("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-none"})).await;
+    let missing = person
+        .reply("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-none"}))
+        .await;
     assert_eq!(reason(&missing), "queue.not_found", "{missing}");
     assert_eq!(missing.pointer("/error/code"), Some(&json!(-32002)), "{missing}");
 
@@ -521,7 +528,9 @@ async fn a_queued_agent_message_reads_whole_and_names_its_senders_session_and_ha
     assert_eq!(ran.pointer("/_meta/provenance/fromSessionId"), Some(&json!(sender)), "{ran}");
     assert_eq!(ran.pointer("/_meta/provenance/fromHarness"), Some(&json!("codex")), "{ran}");
     // Once it ran it waits no more: its user_message has the text.
-    let gone = person.reply("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-long"})).await;
+    let gone = person
+        .reply("_acpmux/queue_text", json!({"sessionId": receiver, "promptId": "p-long"}))
+        .await;
     assert_eq!(reason(&gone), "queue.not_found", "{gone}");
 }
 
@@ -558,14 +567,25 @@ async fn a_senders_session_and_harness_come_from_a_proven_caller_or_a_peer_link_
 
     let p = |m: &Value| m["_meta"]["provenance"].clone();
     let peer = p(&person.user_message(&receiver, "p-peer").await);
-    assert_eq!((&peer["fromSessionId"], &peer["fromHarness"]), (&json!("s-remote"), &json!("claude")), "{peer}");
+    assert_eq!(
+        (&peer["fromSessionId"], &peer["fromHarness"]),
+        (&json!("s-remote"), &json!("claude")),
+        "{peer}"
+    );
     for id in ["p-peer-app", "p-cli"] {
         let other = p(&person.user_message(&receiver, id).await);
         assert_eq!(other["fromName"], "codex-lane", "{id}: {other}");
-        assert!(other.get("fromSessionId").is_none() && other.get("fromHarness").is_none(), "{id}: {other}");
+        assert!(
+            other.get("fromSessionId").is_none() && other.get("fromHarness").is_none(),
+            "{id}: {other}"
+        );
     }
     let bound = p(&person.user_message(&receiver, "p-lane").await);
-    assert_eq!((&bound["fromSessionId"], &bound["fromHarness"]), (&json!(sender), &json!("codex")), "{bound}");
+    assert_eq!(
+        (&bound["fromSessionId"], &bound["fromHarness"]),
+        (&json!(sender), &json!("codex")),
+        "{bound}"
+    );
 }
 
 /// claude-sr2, 2026-10-24: lanes on other machines reached its daemon over the peer link, or ran

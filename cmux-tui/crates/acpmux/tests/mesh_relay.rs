@@ -372,8 +372,7 @@ async fn a_relayed_message_names_its_sending_session_for_display() {
             .call("_acpmux/events", json!({"sessionId": session, "kinds": ["user_message"]}))
             .await;
         let events = page.pointer("/result/events").and_then(Value::as_array).cloned();
-        if let Some(e) = events.into_iter().flatten().find(|e| e["msg"]["promptId"] == "msg-from")
-        {
+        if let Some(e) = events.into_iter().flatten().find(|e| e["msg"]["promptId"] == "msg-from") {
             found = e["msg"].clone();
             break;
         }
