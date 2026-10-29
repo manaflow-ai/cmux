@@ -1623,6 +1623,7 @@ mod ephemeral;
 mod fanout;
 mod forum;
 mod media_forward;
+pub mod mesh_relay;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
