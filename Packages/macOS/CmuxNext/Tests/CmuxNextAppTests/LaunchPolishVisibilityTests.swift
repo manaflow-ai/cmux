@@ -1,8 +1,9 @@
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextPages
 @testable import CmuxNextSidebar
 import CmuxNextSettings
-import CmuxNextUpdater
+@testable import CmuxNextUpdater
 import Foundation
 import Testing
 
@@ -52,10 +53,25 @@ struct LaunchPolishVisibilityTests {
         #expect(InternalPageTabStore.isPreviewPage(InternalPageID.appStore.rawValue))
     }
 
-    /// The "cmux Updated!" card's See What's New opens the changelog through the updater, as
-    /// the update island's does, not through the palette's `updates.whatsNew` (a Labs entry,
-    /// unavailable with Labs off, which left the card's button doing nothing).
-    @Test func updatedCardSeeWhatsNewOpensTheChangelogWithoutThePaletteAction() throws {
+    /// The update this launch came from, as the old build recorded it.
+    static let lastUpdate = WhatsNewLastUpdate(fromVersion: "0.9.0", fromBuild: "90", toVersion: "1.0.0", toBuild: "100",
+                                               stagedAt: Date(timeIntervalSince1970: 0),
+                                               changelog: UpdateChangelog(version: "1.0.0", date: nil, lines: ["A change"]))
+
+    /// Seeds the last update on `updater` and records what its changelog openers get.
+    static func recordOpens(_ updater: UpdaterService) -> () -> (spans: [[String]], plain: Int) {
+        updater.whatsNew.lastUpdate = lastUpdate
+        var spans: [[String]] = [], plain = 0
+        updater.openChangelog = { plain += 1; return true }
+        updater.openChangelogSpan = { from, to in spans.append([from, to]); return true }
+        return { (spans, plain) }
+    }
+
+    /// The "cmux Updated!" card's See What's New opens the changelog for the update's span
+    /// through the updater, as the update island's does, not through the palette's
+    /// `updates.whatsNew` (a Labs entry, unavailable with Labs off, which left the card's
+    /// button doing nothing).
+    @Test func updatedCardSeeWhatsNewOpensTheUpdatesSpanWithoutThePaletteAction() throws {
         let suite = "launch-polish-see-whats-new-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -64,11 +80,27 @@ struct LaunchPolishVisibilityTests {
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false)
-        var opened = 0
-        updater.openChangelog = { opened += 1; return true }
-        updater.openChangelogSpan = { _, _ in opened += 1; return true }
+        let opens = Self.recordOpens(updater)
         // No `updates.whatsNew` bound: the palette entry is unavailable, as with Labs off.
         SidebarCardFeed.route(.openWhatsNew, registry: ActionRegistry(), updater: updater)
-        #expect(opened == 1, "See What's New on the Updated card opened nothing")
+        #expect(opens().spans == [["0.9.0", "1.0.0"]], "See What's New on the Updated card did not open the update's span")
+        #expect(opens().plain == 0)
+    }
+
+    /// The update toast (the Updated surface island) asks for the same span.
+    @Test func updatedToastSeeWhatsNewOpensTheUpdatesSpan() async throws {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let opens = Self.recordOpens(services.updater)
+        let provider = UpdateSurfaceProvider(kind: .updated, services: services)
+        _ = try await provider.call("cmux.changelog.surface.openChangelog", params: [:],
+                                    context: PageCallContext(page: "cmux.changelog.surface", userGesture: true))
+        #expect(opens().spans == [["0.9.0", "1.0.0"]], "See What's New on the update toast did not open the update's span")
+        #expect(opens().plain == 0)
+        #expect(services.updater.whatsNew.lastUpdate == Self.lastUpdate, "opening keeps the record; only the card's x clears it")
+    }
+
+    /// The span the opener gets becomes the changelog tab's route (`#/?from=&to=`).
+    @Test func theUpdatesSpanIsTheChangelogTabsRoute() {
+        #expect(ChangelogPageTab.route(from: "0.9.0", to: "1.0.0") == "#/?from=0.9.0&to=1.0.0")
     }
 }
