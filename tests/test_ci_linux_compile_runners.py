@@ -60,6 +60,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER", BIG),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER", BIG),
     ("cmux-tui-headless-debug.yml", "build", "runs-on", BIG),
+    ("cmux-tui-spec.yml", "acpmux-protocol-ir", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "packages", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "consumers", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "conformance", "runs-on", BIG),
