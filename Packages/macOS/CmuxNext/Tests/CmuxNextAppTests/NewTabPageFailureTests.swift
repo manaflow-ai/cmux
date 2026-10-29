@@ -111,7 +111,7 @@ struct NewTabPageFailureTests {
 
     /// The hold ended in the failure's turn, its two keys dropped, none ran into a view, and Escape is the person's
     /// again (not held).
-    private static func expectHoldEndedAndKeysDropped(_ h: Harness, droppedBefore: Int, ranBefore: Int, _ cause: String) throws {
+    private static func expectHoldEndedAndKeysDropped(_ h: Harness, droppedBefore: Int, ranBefore: UInt64, _ cause: String) throws {
         let router = h.services.keyRouter
         let input = router.newTabInputCoordinator
         #expect(!input.isHolding(in: h.window), "the hold kept waiting for the field of a page that \(cause): \(input.log)")
