@@ -77,19 +77,28 @@ impl Api for FakeServer {
         let store = if from_parent { self.parent.clone() } else { Some(self.machine.clone()) };
         let Some(store) = store else {
             return match action {
-                "list" => ok(json!({ "sessions": [] })),
+                "list" => ok(json!({ "sessions": [], "has_more": false, "next_after_session": null })),
                 _ => refuse(404, "cloud.trajectory.not_found", Value::Null),
             };
         };
         let sessions = self.stores.entry(store).or_default();
         match action {
-            "list" => ok(json!({ "sessions": sessions.iter().map(|(id, k)| json!({
-                "session": id,
-                "generation": k.generation,
-                "last_seq": k.lines.len(),
-                "meta": k.meta,
-                "native": k.native.iter().map(|((l, p), b)| json!({ "label": l, "path": p, "size": b.len() })).collect::<Vec<_>>(),
-            })).collect::<Vec<_>>() })),
+            "list" => {
+                // Same 500-row, stable id cursor contract as TrajectoryStore.list.
+                let after = body["after_session"].as_str().unwrap_or("");
+                let rows: Vec<_> = sessions.iter().filter(|(id, _)| id.as_str() > after)
+                    .take(501).collect();
+                let has_more = rows.len() > 500;
+                let page: Vec<Value> = rows.into_iter().take(500).map(|(id, k)| json!({
+                    "session": id,
+                    "generation": k.generation,
+                    "last_seq": k.lines.len(),
+                    "meta": k.meta,
+                    "native": k.native.iter().map(|((l, p), b)| json!({ "label": l, "path": p, "size": b.len() })).collect::<Vec<_>>(),
+                })).collect();
+                let next = has_more.then(|| page.last().unwrap()["session"].as_str().unwrap().to_owned());
+                ok(json!({ "sessions": page, "has_more": has_more, "next_after_session": next }))
+            }
             "append" => {
                 let generation = body["generation"].as_u64().unwrap();
                 if sessions.get(&session).is_some_and(|k| generation < k.generation) {
