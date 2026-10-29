@@ -31,12 +31,24 @@ struct SavedWindowsReadTests {
 
     @Test func aReadThatNeverAnswersIsUnreadNotEmpty() async {
         let attempts = Attempts()
-        let outcome = await SavedWindowsRead().run { deadline in
+        let outcome = await SavedWindowsRead(attempts: 3).run { deadline in
             attempts.deadlines.append(deadline)
             throw DaemonError.timedOut("frontend_projection.get")
         }
         guard case .unread = outcome else { Issue.record("an unanswered read must not read as nothing saved"); return }
         #expect(attempts.deadlines.count == 3)
+    }
+
+    @Test func aDaemonThatOutlastsThreeDeadlinesStillRestoresEveryWindow() async {
+        let attempts = Attempts()
+        let outcome = await SavedWindowsRead().run { deadline in
+            attempts.deadlines.append(deadline)
+            if attempts.deadlines.count <= 4 { throw DaemonError.timedOut("frontend_projection.get") }
+            return Self.twoWindows
+        }
+        guard case .loaded(let document) = outcome else { Issue.record("restoration stopped before the daemon recovered"); return }
+        #expect(document.windows.map(\.id) == ["front", "second"])
+        #expect(attempts.deadlines.count == 5)
     }
 
     @Test func aConnectionThatIsNotReadyIsNotRetriedAtOnce() async {

@@ -50,12 +50,12 @@ struct SavedWindowsLaunchTests {
             #expect(try await windowState.load().windows.map(\.id) == saved,
                     "the unread launch replaced the saved windows with its own")
 
-            // A read that answers: this launch's windows save again.
+            // A read that answers still cannot save before its records have been installed.
             let read = await windows.readSavedWindows()
             #expect(read.windows.map(\.id) == saved)
-            #expect(!windows.savedWindowsUnread)
+            #expect(windows.savedWindowsUnread)
             _ = await windows.recordSaver.saveNow()
-            #expect(try await windowState.load().windows.map(\.id) != saved)
+            #expect(try await windowState.load().windows.map(\.id) == saved)
         }
     }
 }
