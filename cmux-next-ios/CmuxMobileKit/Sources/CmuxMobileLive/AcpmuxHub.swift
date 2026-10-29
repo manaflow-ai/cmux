@@ -145,6 +145,7 @@ public final class AcpmuxHub {
             isReady = false
             fullAccess = false
             lastError = LinkController.reason(error)
+            for entry in sources.values { entry.source?.linkDown() }
             await connection.close()
             log.error("acpmux bind failed: \(String(describing: error), privacy: .public)")
         }
