@@ -9,20 +9,28 @@ use serde_json::{Map, Value};
 
 use super::{CommandPlan, Flags, ResourceOperation, Selectors, UsageError, request};
 
-pub(super) fn parse(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+pub(super) fn parse(
+    words: &[String],
+    flags: &mut Flags,
+    argv: Option<&[String]>,
+) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
-    match words {
-        [verb, key] if verb == "get" => {
+    let mut operands = words[1..].to_vec();
+    if let Some(argv) = argv {
+        operands.extend_from_slice(argv);
+    }
+    match (words.first().map(String::as_str), operands.as_slice()) {
+        (Some("get"), [key]) => {
             request(ResourceOperation::SettingsGet, &selectors, flags, key_params(key))
         }
-        [verb, key, value] if verb == "set" => {
+        (Some("set"), [key, value]) => {
             let value =
                 serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.clone()));
             let mut params = key_params(key);
             params.insert("value".into(), value);
             request(ResourceOperation::SettingsSet, &selectors, flags, params)
         }
-        [verb, key] if verb == "reset" || verb == "unset" => {
+        (Some("reset" | "unset"), [key]) => {
             request(ResourceOperation::SettingsReset, &selectors, flags, key_params(key))
         }
         _ => Err(UsageError::new(

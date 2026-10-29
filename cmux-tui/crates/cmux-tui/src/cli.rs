@@ -501,13 +501,18 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
     // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
     // local-only helpers (`list`, `schema`, `validate`) until those have daemon
     // equivalents on this surface.
-    if matches!(command_args.first().map(String::as_str), Some("settings" | "config"))
-        && matches!(
-            command_args.get(1).map(String::as_str),
-            Some("get" | "set" | "reset" | "unset")
-        )
-    {
-        return None;
+    if matches!(command_args.first().map(String::as_str), Some("settings" | "config")) {
+        match command_args.get(1).map(String::as_str) {
+            // `get` without a path is the legacy app snapshot; keep it until
+            // the daemon gains an equivalent empty-target read.
+            Some("get") if command_args.len() == 2 => {}
+            // Person-only settings still need the app's native confirmation
+            // sheet. The daemon CLI deliberately has no fake approval path.
+            Some("set" | "reset" | "unset")
+                if command_args.iter().any(|arg| arg == "--confirm") => {}
+            Some("get" | "set" | "reset" | "unset") => return None,
+            _ => {}
+        }
     }
     if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
         return extra_help::print(&command_args);

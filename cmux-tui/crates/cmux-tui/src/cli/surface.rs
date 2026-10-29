@@ -18,6 +18,8 @@ pub(super) const CMUX_SCOPES: &[&str] = &[
     "terminal",
     "browser",
     "notification",
+    "settings",
+    "config",
     "attention",
     "agent",
     "room",
