@@ -337,6 +337,10 @@ class PlanTests(unittest.TestCase):
         # A job already on the failover size is where the switch sends it; re-running moves nothing.
         on_failover = [{"status": "queued", "labels": ["blacksmith-16vcpu-ubuntu-2404"], "created_at": ago(30)}]
         self.assertIsNone(switch.stuck_job(on_failover, NOW, 5, ["blacksmith-16vcpu-ubuntu-2404"]))
+        # With no Linux size serving, a Linux job has nowhere to go; a macOS one still moves to the owned pool.
+        self.assertIsNone(switch.stuck_job(on_failover, NOW, 5, linux_moves=False))
+        on_mac = [{"status": "queued", "labels": ["blacksmith-6vcpu-macos-26"], "created_at": ago(30)}]
+        self.assertIsNotNone(switch.stuck_job(on_mac, NOW, 5, linux_moves=False))
         self.assertIsNotNone(switch.stuck_job(on_failover, NOW, 5))
         # Only a destination that was nobody's value before counts: LINUX_RUNNER on 2 vCPU moved to 16,
         # while CI_TRUSTED_RUNNER moved onto 2, so jobs queued on 2 vCPU still move.
@@ -360,8 +364,11 @@ class MainTests(unittest.TestCase):
                  "created_at": ago(40)}
         merge = {"id": 8, "status": "queued", "event": "merge_group", "name": "CI", "run_attempt": 1,
                  "created_at": ago(30)}
-        queued = [{"status": "queued", "labels": ["blacksmith-4vcpu-ubuntu-2404"], "created_at": ago(35)}]
-        actions = FakeActions(probe_job(0), [stuck, merge], {7: queued, 8: queued})
+        queued = [{"status": "queued", "labels": ["blacksmith-6vcpu-macos-26"], "created_at": ago(35)}]
+        linux = {"id": 9, "status": "queued", "event": "pull_request", "name": "CI", "run_attempt": 1,
+                 "created_at": ago(35)}
+        on_linux = [{"status": "queued", "labels": ["blacksmith-4vcpu-ubuntu-2404"], "created_at": ago(35)}]
+        actions = FakeActions(probe_job(0), [stuck, merge, linux], {7: queued, 8: queued, 9: on_linux})
         writer = FakeSwitch()
         code, out, summary = run_main(BLACKSMITH_STEADY, actions, writer)
         self.assertEqual(code, 0)
@@ -379,6 +386,8 @@ class MainTests(unittest.TestCase):
         self.assertEqual(written["CI_PAID_MACOS_OVERFLOW"], "1")
         for name in LANE_SWITCHES:
             self.assertNotIn(name, written)
+        # Run 9 waits on Blacksmith Linux, and no Linux size started: a re-run would land on the same
+        # label, so it is left alone instead of being cancelled on every scheduled run.
         self.assertEqual(actions.calls, [("force-cancel", 7), ("rerun", 7)])
         self.assertIn("merge_group run", summary)
 
@@ -394,10 +403,17 @@ class MainTests(unittest.TestCase):
         code, out, summary = run_main(env, actions, writer)
         self.assertEqual(code, 0)
         self.assertIn("outcome=started", out)
-        self.assertEqual(writer.writes, [("CI_PAID_MACOS_OVERFLOW", None),
-                                         ("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404"),
-                                         ("CI_CLOUD_OVERFLOW_SAVED", None)])
+        # Review of this change: 4 vCPU is not probed and may still be stalled, so LINUX_RUNNER stays on
+        # the 16 vCPU size whose probe started rather than going back to a label nobody watches.
+        self.assertEqual(writer.writes, [("CI_PAID_MACOS_OVERFLOW", None), ("CI_CLOUD_OVERFLOW_SAVED", None)])
+        self.assertIn("stays on blacksmith-16vcpu-ubuntu-2404", summary)
         self.assertIn("left alone", summary)
+        # A before that is a probed size goes back as before.
+        restores = switch.plan_on({"changed": {"LINUX_RUNNER": {
+            "before": "blacksmith-32vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"}}},
+            {"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}, switch.PROBE_LABELS)
+        self.assertEqual([(r.name, r.value, r.skipped) for r in restores],
+                         [("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404", "")])
         self.assertEqual(actions.calls, [])
 
     def test_a_stalled_record_finishes_a_partial_switch(self) -> None:

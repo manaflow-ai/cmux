@@ -299,8 +299,17 @@ class Resume:
     skipped: str = ""  # why it is left alone
 
 
-def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None]) -> list[Restore]:
-    """What turning overflow back on writes: each recorded variable's value before, unless it moved since."""
+def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
+            started: Iterable[str] | None = None) -> list[Restore]:
+    """What turning overflow back on writes: each recorded variable's value before, unless it moved since.
+
+    With `started` (the labels whose probes started in this run), a Linux
+    variable now on one of them is never moved back onto a label nobody
+    probed: an older record's before (blacksmith-4vcpu-ubuntu-2404, from when
+    that one label was the probe) may still be stalled, and once the record is
+    deleted nothing would see it. Such a variable stays where it serves.
+    """
+    healthy = None if started is None else set(started)
     restores: list[Restore] = []
     for name, change in sorted((record.get("changed") or {}).items()):
         if not isinstance(change, Mapping):
@@ -310,6 +319,11 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None]) -> lis
         if now != after and not (now is not None and now == change.get("was")):
             restores.append(Restore(name, before, f"now {now or 'unset'}, not the failover {after}; "
                                                   "someone changed it, so it is left alone"))
+            continue
+        if (healthy is not None and name in LINUX_VARIABLES and now in healthy
+                and (before or "") not in healthy):
+            restores.append(Restore(name, before, f"stays on {now}, whose probe started; its value before, "
+                                                  f"{before or 'unset'}, is not a probed size"))
             continue
         restores.append(Restore(name, before))
     return restores
@@ -468,18 +482,25 @@ def protected_reason(run: Mapping[str, Any]) -> str:
 
 
 def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
-              failovers: Iterable[str] = ()) -> Mapping[str, Any] | None:
+              failovers: Iterable[str] = (), linux_moves: bool = True) -> Mapping[str, Any] | None:
     """The oldest job queued with no runner on a Blacksmith label for `minutes` or more.
 
     A job queued on a failover label (another Blacksmith size) already went
-    where the switch sends overflow, so re-running it moves nothing.
+    where the switch sends overflow, so re-running it moves nothing. Without
+    `linux_moves` (no Linux size started, so no Linux variable has anywhere to
+    go), a job on a Blacksmith Linux label would come back on the same label,
+    so it is not one either.
     """
     skip = {str(label) for label in failovers}
+
+    def movable(label: str) -> bool:
+        return cloud_label(label) and label not in skip and (linux_moves or not linux_cloud_label(label))
+
     stuck = []
     for job in jobs:
         if job.get("status") != "queued" or job.get("runner_name"):
             continue
-        if not any(cloud_label(str(label)) and str(label) not in skip for label in job.get("labels") or ()):
+        if not any(movable(str(label)) for label in job.get("labels") or ()):
             continue
         created = parse_time(job.get("created_at"))
         if created is not None and (now - created).total_seconds() >= minutes * 60:
@@ -592,7 +613,7 @@ def wait_for_probe(api: GitHub, run_id: int, attempt: int, minutes: int, labels:
 
 def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callable[[], dt.datetime],
                       sleep: Callable[[float], None], log: Callable[[str], None], dry_run: bool,
-                      failovers: Iterable[str] = ()) -> list[str]:
+                      failovers: Iterable[str] = (), linux_moves: bool = True) -> list[str]:
     """Force-cancel and re-run runs holding a job queued on Blacksmith; one line per run touched."""
     lines: list[str] = []
     seen: dict[int, dict[str, Any]] = {}
@@ -609,7 +630,7 @@ def rescue_stuck_runs(api: GitHub, *, own_run_id: int, minutes: int, now: Callab
         if len(chosen) >= MAX_RESCUES:
             break
         try:
-            job = stuck_job(api.jobs(int(run["id"])), now(), minutes, failovers)
+            job = stuck_job(api.jobs(int(run["id"])), now(), minutes, failovers, linux_moves)
         except RuntimeError as error:
             lines.append(f"run {run['id']}: could not list jobs ({error})")
             continue
@@ -751,7 +772,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     elif outcome == "started":
         log(f"{stamp}: every probe started ({label}); Blacksmith is serving")
         if record:
-            restores = plan_on(record, current)
+            restores = plan_on(record, current, started)
             if args.dry_run:
                 for item in restores:
                     if item.skipped:
@@ -836,6 +857,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         if record or args.dry_run:
             for line in rescue_stuck_runs(api, own_run_id=run_id, minutes=minutes, now=now, sleep=sleep,
                                           log=log, dry_run=args.dry_run,
+                                          linux_moves=bool(started),
                                           failovers=failover_destinations(
                                               record or {"changed": plan_off(current, failover)}, labels)):
                 log(f"- {line}")

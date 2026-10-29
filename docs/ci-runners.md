@@ -1019,7 +1019,9 @@ evicted with nothing decided.
   is unset or names a `blacksmith-*` label changes; one someone pointed
   elsewhere is left alone. Then up to 25 runs holding a job queued 5 minutes
   or more on a `blacksmith-*` label are force-cancelled (a plain cancel did
-  nothing on 2026-09-29) and re-run, so they pick their runners again; merge
+  nothing on 2026-09-29) and re-run, so they pick their runners again (a job on
+  a Blacksmith Linux label only when some Linux size started, since otherwise
+  its re-run would land on the same label); merge
   queue, release and publish runs, and runs already on attempt 3, are only
   listed. If a variable write fails after the record is saved, the next
   stalled probe retries entries still at their recorded before-value and
@@ -1030,7 +1032,9 @@ evicted with nothing decided.
 - **Every probe starts.** If the record exists, each variable it changed is put
   back (a variable changed by hand since is left alone and named) and the
   record is deleted. The probes ask for the same sizes whatever the record
-  says.
+  says. A Linux variable now on a size whose probe started is never moved back
+  onto a label nobody probed (an older record's `blacksmith-4vcpu-ubuntu-2404`,
+  say): it stays on the size seen serving.
 - **Some start and some do not.** Nothing changes: one stalled size never
   flips the fleet, and a record is not cleared while a size jobs fall back
   to (`fast-checks.yml` takes 32 vCPU without the record) is still stalled.
