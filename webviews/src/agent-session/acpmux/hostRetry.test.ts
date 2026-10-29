@@ -2,7 +2,14 @@
 // holds this app's socket and the app may replace it). While the restart runs, no handshake
 // starts, including a Retry queued behind an attempt in flight; when it ends, the pane asks once.
 import { expect, test } from "bun:test";
-import { AcpmuxRestartGate, hostIsReconnecting, offersAcpmuxRestart } from "./hostRetry";
+import {
+  AcpmuxRestartGate,
+  RECONNECTING_GRACE_MS,
+  hostIsReconnecting,
+  nextRetryDelay,
+  offersAcpmuxRestart,
+  staysReconnecting,
+} from "./hostRetry";
 
 test("only a typed recovery or an unclassified lost transport is neutral", () => {
   expect(hostIsReconnecting({ code: "host_unavailable", details: { reconnecting: true }, retryable: false })).toBe(
@@ -128,4 +135,27 @@ test("a failed restart still asks again once", async () => {
   const loop = paneLoop(gate);
   await gate.run(() => Promise.reject(new Error("native.failed")), loop.hooks);
   expect(loop.log).toEqual(["restarting", "restarted", "handshake (after restart)"]);
+});
+
+test("a recovery stays neutral for a minute, then says it failed", () => {
+  const restarting = { code: "host_unavailable", details: { reconnecting: true } };
+  expect(staysReconnecting(restarting, 0)).toBe(true);
+  expect(staysReconnecting(restarting, RECONNECTING_GRACE_MS - 1)).toBe(true);
+  expect(staysReconnecting(restarting, RECONNECTING_GRACE_MS)).toBe(false);
+  // A refusal that waits on the person is said at once.
+  expect(staysReconnecting({ code: "host_unavailable" }, 0)).toBe(false);
+});
+
+test("a recovering pane asks again within 2 s; a refusal backs off to 30 s", () => {
+  const waits = (recovering: boolean) => {
+    let delay = 250;
+    const out: number[] = [];
+    for (let attempt = 0; attempt < 8; attempt++) {
+      out.push(delay);
+      delay = nextRetryDelay(delay, recovering);
+    }
+    return out;
+  };
+  expect(waits(true)).toEqual([250, 500, 1000, 2000, 2000, 2000, 2000, 2000]);
+  expect(Math.max(...waits(false))).toBe(30_000);
 });

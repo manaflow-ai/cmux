@@ -104,6 +104,20 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
     case daemonRefused(holder: String?, socketPath: String, reason: String, executable: String = "acpmux",
                        owner: AcpmuxSocketOwner? = nil)
     case timedOut
+
+    /// Whether the failure is one a daemon in the middle of a restart gives, which the page's own
+    /// retries usually outlast (`details.reconnecting` in the handshake's failure): the page says
+    /// it as a neutral Reconnecting… and keeps the red card for a failure that lasts (Leo, 2026-10-29, on the
+    /// card after an update: "why is that still there? it's unnecessary"). A failure that needs
+    /// the person (acpmux missing, another build's daemon, a stopped daemon) is not.
+    var isTransient: Bool {
+        switch self {
+        case .timedOut, .daemonRestarting, .chiefStarting: true
+        case .daemonFailed(_, let cause): cause == .exited || cause == .unresponsive
+        case .daemonRefused(let holder, _, _, _, let owner): holder == nil && owner == nil
+        case .acpmuxNotFound, .daemonStopped, .chiefStopped: false
+        }
+    }
 }
 
 /// Finds the running acpmux daemon, or starts one, and hands the page its

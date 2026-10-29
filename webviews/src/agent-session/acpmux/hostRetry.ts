@@ -18,6 +18,23 @@ export function hostIsReconnecting(error: unknown): boolean {
   return fields?.code === undefined;
 }
 
+/// How long a recovery stays neutral before the pane says it failed: a daemon restarting after an
+/// update is back within seconds, so a minute of failures is no longer a restart (Leo, 2026-10-29:
+/// "why is that still there? it's unnecessary").
+export const RECONNECTING_GRACE_MS = 60_000;
+
+/// Whether a failed handshake still shows as Reconnecting… after failing for `failingForMs`.
+export function staysReconnecting(error: unknown, failingForMs: number): boolean {
+  return hostIsReconnecting(error) && failingForMs < RECONNECTING_GRACE_MS;
+}
+
+/// The wait before the next handshake. Looking for a daemon is cheap, so a lost daemon or one
+/// that is restarting is asked again within 2 s; only a refusal that waits on the person backs
+/// off to 30 s, so a host without a daemon is not asked four times a second.
+export function nextRetryDelay(delay: number, recovering: boolean): number {
+  return Math.min(delay * 2, recovering ? 2_000 : 30_000);
+}
+
 /// What the pane's handshake loop does around a Restart acpmux.
 export type AcpmuxRestartHooks = {
   /// Drops the automatic retry waiting to run and a Retry queued behind an attempt in flight.

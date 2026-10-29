@@ -48,14 +48,23 @@ struct AcpmuxRefusedRestartTests {
         }
     }
 
-    /// An update handoff can finish without a person's action; missing/stopped daemons cannot.
-    @Test func onlyAnUpdateHandoffIsAReconnectingHandshake() async throws {
-        for cause in [AgentPaneHostError.daemonRestarting, .acpmuxNotFound, .daemonStopped, .chiefStopped] {
+    /// A daemon's restart (an update handoff, a lost start race, a daemon still loading) ends
+    /// without a person's action; missing/stopped daemons and another build's daemon do not.
+    @Test func onlyADaemonRestartIsAReconnectingHandshake() async throws {
+        let restarting: [AgentPaneHostError] = [
+            .daemonRestarting, .timedOut, .daemonFailed(logPath: "/l", cause: .exited),
+            .daemonRefused(holder: nil, socketPath: "/s", reason: "the socket's peer process is unknown"),
+        ]
+        let actionable: [AgentPaneHostError] = [
+            .acpmuxNotFound, .daemonStopped, .chiefStopped,
+            .daemonRefused(holder: "cmux DEV x", socketPath: "/s", reason: "another build"),
+        ]
+        for cause in restarting + actionable {
             let model = AgentPaneModel(host: RefusingHost(cause))
             let reply = await model.respond(to: .reconnect)
             let error = try #require(reply["error"] as? [String: Any])
             let details = error["details"] as? [String: Any]
-            #expect((details?["reconnecting"] as? Bool == true) == (cause == .daemonRestarting))
+            #expect((details?["reconnecting"] as? Bool == true) == restarting.contains(cause), "\(cause)")
         }
     }
 

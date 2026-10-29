@@ -55,6 +55,25 @@ nonisolated enum AcpmuxVersionHandoff {
         return .restart
     }
 
+    /// What a handoff does when the daemon refused or failed its shutdown request.
+    enum AfterRefusal: Equatable, Sendable {
+        /// Stop it by signal, as a daemon that stopped answering is (``AcpmuxUnresponsiveWatch``).
+        case signal
+        /// Leave it, and let the next lookup ask again.
+        case askAgain
+    }
+
+    /// A daemon that runs a replaced bundle's executable is an earlier install of this app on this
+    /// app's own home: nothing else can serve its chats, so a refused shutdown is no reason to keep
+    /// it. Its agent hosts detach on SIGTERM and the bundled daemon adopts them, as on the request.
+    /// After an update, macOS may run the new app from a code_sign_clone folder, and such a daemon
+    /// refused the request from that "temporary folder": every chat said another acpmux service
+    /// used the socket until that daemon happened to stop (cosmic-gray, 2026-10-29). Any other
+    /// refusal stays a refusal, and the next lookup asks again instead of finding its key used.
+    static func afterRefusal(replaced: Bool, attached: Bool) -> AfterRefusal {
+        replaced && !attached ? .signal : .askAgain
+    }
+
     /// Whether daemon `pid` runs an executable whose file is gone: the app's bundle was replaced
     /// in place after the daemon started (update-dev-daily.sh renames the old bundle aside and
     /// deletes it; a reinstall), so it is an earlier install of this app. The server peer check
@@ -121,6 +140,13 @@ nonisolated enum AcpmuxVersionHandoff {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
             logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
+            if afterRefusal(replaced: isReplaced, attached: environment.isAttached) == .signal,
+               let daemon = await AcpmuxUnresponsiveWatch.shared.daemon(environment), daemon.pid == pid {
+                logger.info("acpmux \(pid) runs a replaced bundle and refused its handoff; stopping it by signal")
+                let watch = AcpmuxUnresponsiveWatch.shared
+                if await watch.stop(daemon, grace: watch.termGrace) { return true }
+            }
+            handedOff.withLock { _ = $0.remove(key) }
             AcpmuxDaemonSummary.mark(home: environment.home, restarting: false)
             return false
         }
