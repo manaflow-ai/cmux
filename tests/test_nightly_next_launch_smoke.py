@@ -136,6 +136,17 @@ class DecideTests(unittest.TestCase):
         live = feed(200, 180, 150, channel={180: "cmux-next-dev", 150: "cmux-next"})
         self.assertEqual(smoke.decide(live, 200, smoke.CRASH)["serving"], 150)
 
+    def test_a_stable_ring_build_is_served_instead(self) -> None:
+        # Nightly apps accept cmux-next-stable, so the stable build before a crashed newest one is served.
+        live = feed(200, 180, channel={200: "cmux-next", 180: "cmux-next-stable"})
+        decision = smoke.decide(live, 200, smoke.CRASH)
+        self.assertEqual(decision["action"], "rollback")
+        self.assertEqual(decision["serving"], 180)
+
+    def test_the_nightly_channels_match_what_nightly_apps_accept(self) -> None:
+        live_check = load("nightly_next_live_feed_check", ROOT / "scripts" / "ci" / "nightly_next_live_feed_check.py")
+        self.assertEqual(set(smoke.NIGHTLY_CHANNELS) - {None}, set(live_check.NIGHTLY_ACCEPTED))
+
 
 class EvidenceTests(unittest.TestCase):
     def test_the_issue_body_carries_the_failures_crash_and_log_tail(self) -> None:

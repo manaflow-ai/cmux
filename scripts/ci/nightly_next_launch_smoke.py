@@ -35,7 +35,9 @@ PASS, CRASH, CANNOT_RUN = "pass", "crash", "cannot-run"
 ITEM = re.compile(r"<item>.*?</item>", re.S)
 VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
 CHANNEL = re.compile(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
-NIGHTLY_CHANNELS = (None, "cmux-next")
+# The channels a Nightly app accepts (nightly_next_live_feed_check.NIGHTLY_ACCEPTED): a stable-ring
+# build is served to Nightly apps, so it is a rollback target too.
+NIGHTLY_CHANNELS = (None, "cmux-next-stable", "cmux-next")
 LOG_TAIL = 40
 
 

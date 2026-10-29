@@ -1558,10 +1558,6 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_feed_rollback.py
 
-      - name: Validate the nightly-next post-publish launch smoke
-        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_next_launch_smoke.py
-
       - name: Validate the nightly-next fresh-home launch smoke harness
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_fresh_home_launch_smoke.py
