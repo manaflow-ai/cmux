@@ -154,14 +154,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let v = match k {
                 "team-address" | "teamAddress" => {
                     if val.trim().is_empty()
-                        || !val
-                            .split_once('/')
-                            .is_some_and(|(scope, role)| {
-                                !scope.is_empty()
-                                    && !role.is_empty()
-                                    && scope.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                                    && role.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                            })
+                        || !val.split_once('/').is_some_and(|(scope, role)| {
+                            !scope.is_empty()
+                                && !role.is_empty()
+                                && scope
+                                    .chars()
+                                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                                && role
+                                    .chars()
+                                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                        })
                     {
                         return Err(anyhow!("team-address must be scope/role"));
                     }

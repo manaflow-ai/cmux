@@ -816,7 +816,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Inbox(args) => {
             let client = connect(true).await?;
-            let (method, params) = match args.command.unwrap_or(crate::cli::command::InboxCmd::List) {
+            let (method, params) = match args.command.unwrap_or(crate::cli::command::InboxCmd::List)
+            {
                 crate::cli::command::InboxCmd::List => (method::MUX_TEAM_INBOX, json!({})),
                 crate::cli::command::InboxCmd::Read { id } => {
                     (method::MUX_TEAM_READ, json!({"id": id}))

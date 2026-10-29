@@ -14,23 +14,16 @@ pub(super) async fn handle(
     method: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    let enabled = hub
-        .config
-        .read()
-        .await
-        .mesh_relay
-        .as_ref()
-        .is_some_and(|relay| relay.team_messaging);
+    let enabled =
+        hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
     if !enabled {
         return Err(RpcError::invalid_params(
             "team messaging is disabled; enable meshRelay.teamMessaging in Labs",
         )
         .with_data(json!({"reason": "team_messaging_disabled", "labs": true})));
     }
-    let mesh = hub
-        .mesh
-        .get()
-        .ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
+    let mesh =
+        hub.mesh.get().ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
     match method {
         crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, mesh, params).await,
         crate::rpc::method::MUX_TEAM_INBOX => inbox(mesh, params).await,
@@ -49,9 +42,7 @@ async fn send(
     let raw = required(params, "to")?;
     let address = raw.strip_prefix('@').unwrap_or(&raw);
     if !valid_address(address) {
-        return Err(RpcError::invalid_params(
-            "team address must be @member/agent or @team/role",
-        ));
+        return Err(RpcError::invalid_params("team address must be @member/agent or @team/role"));
     }
     let body = required(params, "body")?;
     let id = params
