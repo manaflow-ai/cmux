@@ -8,10 +8,6 @@
   z-index: 3;
   height: 0;
 }
-/* The menu relays events without adding a layout box between the rail and its preview. */
-.acpmux-minimap > .ui-context-menu-host {
-  display: contents;
-}
 /* The rail's tokens; the card takes them too, as it draws outside the rail (PreviewCard.tsx). */
 .acpmux-minimap,
 .acpmux-minimap__card {

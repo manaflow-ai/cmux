@@ -151,6 +151,12 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           await page.locator(".acpmux-minimap__tick").first().focus();
           const card = page.locator(".acpmux-minimap__card");
           await card.waitFor({ state: "visible" });
+          // The rail's ContextMenu host must retain its layout box. WebKit loses a painted frame
+          // between the absolutely positioned rail and its portaled card when the host is flattened
+          // with `display: contents` (the card trails the rail by a pixel during resize).
+          const menuHost = page.locator(".acpmux-minimap > .ui-context-menu-host");
+          await menuHost.waitFor();
+          expect(await menuHost.evaluate((node) => getComputedStyle(node).display)).not.toBe("contents");
           // Keep this same preview open while the Inspector changes independently of pointer/focus.
           await card.locator(".acpmux-minimap__bookmark").focus();
           await page.evaluate(() => {
