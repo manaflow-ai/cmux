@@ -228,20 +228,6 @@ fn initial_session_matches(session: &Value, id: &str) -> bool {
         || session.get("qualifiedSessionId").and_then(Value::as_str) == Some(id)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::initial_session_matches;
-    use serde_json::json;
-
-    #[test]
-    fn initial_selection_accepts_a_peer_qualified_id() {
-        let session = json!({"sessionId": "raw", "qualifiedSessionId": "peer/raw"});
-        assert!(initial_session_matches(&session, "peer/raw"));
-        assert!(initial_session_matches(&session, "raw"));
-        assert!(!initial_session_matches(&session, "other/raw"));
-    }
-}
-
 pub(super) fn make_app(
     client: Arc<Client>,
     tx: mpsc::UnboundedSender<AppMsg>,
@@ -395,5 +381,19 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
                 delay = (delay * 2).min(std::time::Duration::from_secs(3));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::initial_session_matches;
+    use serde_json::json;
+
+    #[test]
+    fn initial_selection_accepts_a_peer_qualified_id() {
+        let session = json!({"sessionId": "raw", "qualifiedSessionId": "peer/raw"});
+        assert!(initial_session_matches(&session, "peer/raw"));
+        assert!(initial_session_matches(&session, "raw"));
+        assert!(!initial_session_matches(&session, "other/raw"));
     }
 }
