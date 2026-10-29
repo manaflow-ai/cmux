@@ -760,6 +760,28 @@ class WebLintPrePushTests(unittest.TestCase):
                                 "bun ../escape.ts", "bun scripts/../x.ts", "bun run loop", "node x.js", "bun install",
                                 "vp fmt --check --write", "vp fmt"])
 
+    def test_ci_runs_every_piece_even_where_the_host_says_no_heavy_checks(self):
+        lint = load_lint(self.repo)
+        for ci in ({"CI": "true"}, {"GITHUB_ACTIONS": "true"}):
+            with self.subTest(ci=ci), mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CI": "",
+                                                                    "GITHUB_ACTIONS": "", **ci}):
+                self.assertTrue(lint.local_heavy_checks())
+        with mock.patch.dict(os.environ, {"CMUX_LOCAL_HEAVY_CHECKS": "0", "CI": "", "GITHUB_ACTIONS": ""}):
+            self.assertFalse(lint.local_heavy_checks())
+
+    def test_a_bun_found_through_a_relative_path_entry_installs(self):
+        lint = load_lint(self.repo)
+        ran = []
+        found = lambda name: "node_modules/.bin/bun" if name in ("bun", "node_modules/.bin/bun") else None
+        with mock.patch.object(lint.shutil, "which", found), mock.patch.object(
+                lint, "run_leaving_no_lockfile",
+                lambda command, cwd: ran.append(command) or subprocess.CompletedProcess(command, 0, "", "")):
+            self.assertIsNone(lint.ensure_deps(self.repo, "webviews", force=True))
+        self.assertEqual(ran[0][0], "node_modules/.bin/bun")
+        with mock.patch.object(lint.shutil, "which", lambda name: None):
+            missing = lint.ensure_deps(self.repo, "webviews", force=True)
+        self.assertIn("bun is not on PATH", missing.output)
+
     def test_a_nested_check_runner_resolves_to_its_pieces(self):
         lint = load_lint(self.repo)
         webviews = lint.SCRIPT_PACKAGES[0]

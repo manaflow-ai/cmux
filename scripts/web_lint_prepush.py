@@ -391,7 +391,10 @@ def light_pieces(repo: Path, package: ScriptPackage, script: str, mode: str, rea
 
 
 def local_heavy_checks() -> bool:
-    """False when the host said it runs no heavy piece (CMUX_LOCAL_HEAVY_CHECKS=0)."""
+    """False when the host said it runs no heavy piece (CMUX_LOCAL_HEAVY_CHECKS=0). CI always runs every piece:
+    a runner that inherits the host setting still runs the full type-aware check."""
+    if in_ci():
+        return True
     return os.environ.get(LOCAL_HEAVY_ENV, "").strip().lower() not in ("0", "false", "no", "off", "skip")
 
 
@@ -488,7 +491,7 @@ def ensure_deps(repo: Path, directory: str, force: bool = False) -> Result | Non
     command = deps_command(repo, directory, force)
     if command is None:
         return None
-    if not Path(command[0]).is_absolute():
+    if shutil.which(command[0]) is None:  # a relative PATH entry (node_modules/.bin/bun) is a real bun
         return Result(directory, "bun install", 127, "bun is not on PATH; install bun 1.4 to run the web lint.", 0)
     started = time.monotonic()
     result = run_leaving_no_lockfile(command, repo / directory)
