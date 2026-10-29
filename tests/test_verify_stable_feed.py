@@ -12,9 +12,12 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import sys
+import threading
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/verify_stable_feed.py"
 spec = importlib.util.spec_from_file_location("verify_stable_feed", SCRIPT)
@@ -78,6 +81,40 @@ def check(server, attempts=1):
     return feed.check_feed(FEED_URL, attempts, get=server.get, content_length=server.head)
 
 
+class Clock:
+    def __init__(self):
+        self.now = 0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+@contextlib.contextmanager
+def range_server(body):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(206)
+            self.send_header("Content-Range", "bytes 0-0/100")
+            self.send_header("Content-Length", "1")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield f"http://127.0.0.1:{server.server_port}/update.dmg"
+        finally:
+            server.shutdown()
+            thread.join()
+
+
 class VerifyStableFeedTests(unittest.TestCase):
     def setUp(self):
         self._sleep = feed.time.sleep
@@ -107,6 +144,19 @@ class VerifyStableFeedTests(unittest.TestCase):
     def test_missing_content_length_is_not_a_mismatch(self):
         server = Server({FEED_URL: appcast(enclosure())}, {DMG: None})
         self.assertEqual(check(server), [])
+
+    def test_non_ascii_length_is_reported_without_a_traceback(self):
+        server = Server({FEED_URL: appcast(enclosure(length="²"))}, {DMG: 100})
+        self.assertEqual(check(server), [f"{FEED_URL}: {DMG} has no numeric length"])
+
+    def test_range_response_that_closes_before_its_byte_fails(self):
+        with range_server(b"") as url:
+            with self.assertRaises(feed.FetchError):
+                feed.http_content_length(url)
+
+    def test_range_response_with_its_byte_passes(self):
+        with range_server(b"x") as url:
+            self.assertEqual(feed.http_content_length(url), 100)
 
     def test_unsigned_enclosure_fails(self):
         problems = check(Server({FEED_URL: appcast(enclosure(signature=""))}, {DMG: 100}))
@@ -159,23 +209,53 @@ class VerifyStableFeedTests(unittest.TestCase):
     def test_settle_retries_a_404_until_it_clears(self):
         # GitHub serves a cached 404 for a just-uploaded asset for a few minutes.
         results = [["https://x/a.xml: feed did not load (HTTP 404)"], []]
-        original, clock = feed.check_feed, feed.time.monotonic
-        feed.check_feed = lambda url, attempts: results.pop(0)
-        feed.time.monotonic = iter([0, 1]).__next__
-        try:
+        clock = Clock()
+        with patch.object(feed, "check_feed", side_effect=lambda url, attempts: results.pop(0)), \
+                patch.object(feed.time, "monotonic", clock.monotonic), \
+                patch.object(feed.time, "sleep", clock.sleep):
             self.assertEqual(quiet_main(["--feed", "https://x/a.xml", "--settle-seconds", "60"]), 0)
-        finally:
-            feed.check_feed, feed.time.monotonic = original, clock
         self.assertEqual(results, [])
 
     def test_settle_gives_up_at_the_deadline(self):
-        original, clock = feed.check_feed, feed.time.monotonic
-        feed.check_feed = lambda url, attempts: [f"{url}: feed did not load (HTTP 404)"]
-        feed.time.monotonic = iter([0, 30, 61]).__next__
-        try:
+        clock = Clock()
+        with patch.object(feed, "check_feed", return_value=["feed did not load (HTTP 404)"]), \
+                patch.object(feed.time, "monotonic", clock.monotonic), \
+                patch.object(feed.time, "sleep", clock.sleep):
             self.assertEqual(quiet_main(["--feed", "https://x/a.xml", "--settle-seconds", "60"]), 1)
-        finally:
-            feed.check_feed, feed.time.monotonic = original, clock
+        self.assertEqual(clock.now, 60)
+
+    def test_settle_retries_failing_feeds_in_rounds(self):
+        clock, calls = Clock(), []
+        first, second, healthy = (f"https://x/{name}.xml" for name in ("a", "b", "healthy"))
+
+        def check_url(url, _attempts):
+            calls.append(url)
+            if url == healthy or (url == second and calls.count(second) > 1):
+                return []
+            return [f"{url}: feed did not load (HTTP 404)"]
+
+        with patch.object(feed, "check_feed", side_effect=check_url), \
+                patch.object(feed.time, "monotonic", clock.monotonic), \
+                patch.object(feed.time, "sleep", clock.sleep):
+            self.assertEqual(quiet_main([
+                "--feed", first, "--feed", second, "--feed", healthy, "--settle-seconds", "30",
+            ]), 1)
+        self.assertEqual(calls, [first, second, healthy, first, second])
+        self.assertEqual(clock.now, 30)
+
+    def test_settle_does_not_start_a_retry_after_the_deadline(self):
+        clock = Clock()
+        with patch.object(feed, "check_feed", return_value=["HTTP 404"]) as check_url, \
+                patch.object(feed.time, "monotonic", clock.monotonic), \
+                patch.object(feed.time, "sleep", clock.sleep):
+            self.assertEqual(quiet_main(["--feed", FEED_URL, "--settle-seconds", "1"]), 1)
+        self.assertEqual(check_url.call_count, 1)
+        self.assertEqual(clock.now, 1)
+
+    def test_zero_settle_checks_each_feed_once(self):
+        with patch.object(feed, "check_feed", return_value=["HTTP 404"]) as check_url:
+            self.assertEqual(quiet_main(["--feed", FEED_URL, "--feed", "https://x/b.xml"]), 1)
+        self.assertEqual(check_url.call_count, 2)
 
     def test_tag_only_checks_just_the_release_feeds(self):
         seen = []
