@@ -192,6 +192,9 @@ extension SidebarListViewComponents {
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
+            // Reload may move an offscreen parent's title column without changing this
+            // tab's Content or frame size. Re-resolve the model-derived anchor on apply.
+            if case .tab = row.key { view.needsLayout = true }
             let opens = animate && ((existing == nil && old.row(for: row.key) == nil) || reopened.contains(row.key))
             if existing == nil || opens {
                 // The start state never animates: a recycled view shows no

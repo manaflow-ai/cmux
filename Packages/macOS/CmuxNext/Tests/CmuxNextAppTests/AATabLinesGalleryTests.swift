@@ -48,7 +48,7 @@ import Testing
         _ = NSApplication.shared
         TunableStore.shared.set(SidebarTunables.tabLines.key, look.tunableValue)
         SidebarTunablesWatch.shared.changed()
-        let width: CGFloat = hierarchy == .combined ? 280 : 200, height: CGFloat = hierarchy == .combined ? 220 : 360
+        let width: CGFloat = 280, height: CGFloat = 360
         let theme = dark ? "Soft Blue" : "Soft Blue Light"
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -106,8 +106,33 @@ import Testing
             if hierarchy == .typographyOnly {
                 // Rewind the complete production indent so this variant isolates typography.
                 let indentDelta = SidebarStyle.tabChildIndent + SidebarStyle.labelCellPadding - Metrics.space3 - WorkspaceRowView.labelInset
-                for view in row.subviews where view is ChromeLabel || view is DecorativeImageView {
-                    view.frame.origin.x -= indentDelta
+                for icon in row.subviews where icon is DecorativeImageView { icon.frame.origin.x -= indentDelta }
+                guard labels.count == 2, let title = labels.first, let detail = labels.last else {
+                    Issue.record("hierarchy fixture needs the tab title and detail labels")
+                    continue
+                }
+                let textX = title.frame.minX - indentDelta
+                // Keep the production trailing controls fixed, then give the recovered indent
+                // back to the text. Merely translating both labels preserves the narrow title
+                // truncation and does not reproduce the typography-only layout.
+                var trailing = row.layoutBounds.width - SidebarStyle.horizontalInset
+                if row.subviews.compactMap({ $0 as? StatusIndicatorView }).contains(where: \.showsGlyph)
+                    || !row.closeButton.isHidden {
+                    trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: row.layoutBounds.width))
+                }
+                if let unread = row.subviews.compactMap({ $0 as? UnreadBadgeView }).first, unread.state.isUnread {
+                    trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: row.layoutBounds.width), unread.frame.minX) - Metrics.space2
+                }
+                if detail.isHidden {
+                    title.frame.origin.x = textX
+                    title.frame.size.width = max(0, trailing - textX)
+                } else {
+                    let room = max(0, trailing - textX)
+                    let titleNeeds = ceil(title.naturalSize.width), detailNeeds = ceil(detail.naturalSize.width)
+                    title.frame.origin.x = textX
+                    title.frame.size.width = min(titleNeeds, room - min(detailNeeds, room / 3))
+                    detail.frame.origin.x = title.frame.maxX
+                    detail.frame.size.width = max(0, min(detailNeeds, trailing - title.frame.maxX))
                 }
             }
         }
