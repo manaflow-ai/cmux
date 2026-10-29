@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// `cmux chat colors` was given a value that is not a colour (`--sent blue`).
 public struct HomeChatColorsRefusal: LocalizedError, Equatable {
