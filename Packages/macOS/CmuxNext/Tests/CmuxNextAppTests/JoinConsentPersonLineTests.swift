@@ -56,6 +56,8 @@ import CmuxNextServer
         let first = try #require(await AcpmuxPersonLine.open(environment, deadline: .seconds(2)))
         #expect(first.isPerson)
         let held = DispatchSemaphore(value: 0)
+        // A failed expectation below still lets the queue go (a second signal is never waited on).
+        defer { held.signal() }
         first.line.enqueue { held.wait() }
         let gate = JoinConsentGrantGate()
         // Queued behind the held queue; the deadline closes the line and answers nil.

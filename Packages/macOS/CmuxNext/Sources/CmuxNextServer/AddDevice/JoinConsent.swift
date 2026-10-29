@@ -179,7 +179,7 @@ public struct JoinConsentServices {
 
     public init(status: @escaping @MainActor () async -> JoinStatus?, openLine: @escaping @MainActor () async -> (any JoinConsentLine)?,
                 enabled: @escaping @MainActor () -> Bool, settingsEpoch: @escaping @MainActor () -> Int = { 0 },
-                confirmOwner: @escaping @MainActor (JoinConsentSurface) async -> JoinConsentConfirm = { _ in .unavailable },
+                confirmOwner: @escaping @MainActor (JoinConsentSurface) async -> JoinConsentConfirm = JoinConsentServices.cannotConfirm,
                 askShown: @escaping @MainActor () -> Bool, markAskShown: @escaping @MainActor () -> Void) {
         self.status = status
         self.openLine = openLine
@@ -188,6 +188,13 @@ public struct JoinConsentServices {
         self.confirmOwner = confirmOwner
         self.askShown = askShown
         self.markAskShown = markAskShown
+    }
+
+    /// The default confirm: this Mac can't ask, so nothing is granted. A named function, not a closure
+    /// literal default (an async closure default is a crash class, cx-bsue).
+    @MainActor
+    public static func cannotConfirm(_ surface: JoinConsentSurface) async -> JoinConsentConfirm {
+        .unavailable
     }
 }
 

@@ -156,7 +156,7 @@ extension JoinConsentModel {
             gate.invalidate()
             guard let settings else { return }
             if Thread.isMainThread {
-                MainActor.assumeIsolated { invalidateGrants(gate, onEveryLoadOf: settings) }
+                MainActor.assumeIsolated { invalidateGrants(gate, onEveryLoadOf: settings) } // main-proof: checked Thread.isMainThread above
             } else {
                 // task-owner: re-arms one observation; never taken, since settings change on the main actor
                 Task { @MainActor in invalidateGrants(gate, onEveryLoadOf: settings) }
