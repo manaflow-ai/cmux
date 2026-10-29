@@ -130,11 +130,18 @@ extension BrowserHibernation {
         }
     }
 
-    /// A cmux page (`BrowserAppPage`) is built again at its address, as its tab's record opens it,
-    /// and gets its view state back.
+    /// A cmux page (`BrowserAppPage`) is built again at its address, as its tab's record opens it (a session-local
+    /// tab, with no record, as its first open built it: `sessionLocalAppPage`), and gets its view state back.
     private func restoreAppPage(_ key: String, _ saved: BrowserAppPageState, token: ContentLifecycle<String>.Token) {
-        guard let cache, let tab = cache.tabModel(key), let page = cache.makeAppPage(saved.url, for: tab) else {
-            cache?.applyLifecycle(cache?.lifecycle.send(.mountFailed(key, token)) ?? [])
+        guard let cache else { return restoreEnded(key) }
+        let page: (any BrowserTab)?
+        if let tab = cache.tabModel(key) {
+            page = cache.makeAppPage(saved.url, for: tab)
+        } else {
+            page = cache.sessionLocalAppPage(key: key, url: saved.url)
+        }
+        guard let page else {
+            cache.applyLifecycle(cache.lifecycle.send(.mountFailed(key, token)))
             restoreEnded(key)
             return
         }
