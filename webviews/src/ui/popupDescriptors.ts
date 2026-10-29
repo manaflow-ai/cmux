@@ -5,11 +5,12 @@ import type { NativePopupDescription } from "./nativePopup";
 export type PopupRowKind = NativePopupRowKind;
 export type PopupRow = NativePopupRow;
 export type PopupDescription = NativePopupDescription;
+type ResolvedAction = NativePopupAction & { value?: string };
 
 /** Resolve a current pick through enabled ancestors, using the native host's action rules. */
-export function popupAction(model: PopupDescription, id: string | undefined): NativePopupAction | undefined {
+export function popupAction(model: PopupDescription, id: string | undefined): ResolvedAction | undefined {
   if (id === undefined) return undefined;
-  function find(rows: readonly PopupRow[]): NativePopupAction | undefined {
+  function find(rows: readonly PopupRow[]): ResolvedAction | undefined {
     for (const row of rows) {
       if (row.disabled) continue;
       if (row.id === id && row.kind === "action") return row;
@@ -107,7 +108,8 @@ export function comboboxDescription(input: ComboboxDescriptorInput): PopupDescri
     search: { id: "query", value: input.query ?? "", placeholder: input.placeholder ?? input.label ?? "Search" },
     rows: ordered.map((value) =>
       choiceRow({
-        id: value,
+        // Keep search identity stable across filtering, in a separate ID namespace.
+        id: `suggestion:${value}`,
         value,
         label: value,
         checked: input.current?.(value) ?? false,

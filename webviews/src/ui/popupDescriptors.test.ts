@@ -33,7 +33,7 @@ test("combobox descriptors keep pinned actions at the end of keyboard order", ()
     label: "Projects",
   });
   expect(d.search).toEqual({ id: "query", value: "a", placeholder: "Projects" });
-  expect(d.rows.map((row) => row.id)).toEqual(["alpha", "beta", "New project"]);
+  expect(d.rows.map((row) => row.value)).toEqual(["alpha", "beta", "New project"]);
   // Native `choice` means a segmented control with its own options. A suggestion is a
   // pickable action, with an optional checkmark for the committed selection.
   expect(d.rows.every((row) => row.kind === "action")).toBe(true);
@@ -43,7 +43,8 @@ test("combobox search IDs do not collide with suggestion IDs", () => {
   const d = comboboxDescription({ suggestions });
   const ids = [d.search!.id, ...d.rows.map((row) => row.id)];
   expect(new Set(ids).size).toBe(ids.length);
-  expect(d.rows.map((row) => row.id)).toEqual(suggestions);
+  expect(d.rows.map((row) => row.value)).toEqual(suggestions);
+  expect(d.search!.id).toBe(comboboxDescription({ suggestions: [] }).search!.id);
 });
 test("context descriptors preserve separators, toggles, and icon metadata", () => {
   const d = contextDescription([

@@ -110,10 +110,13 @@ export function Combobox({
     anchor: native?.anchor ?? (() => field),
     onEvent: (event) => {
       native?.onEvent?.(event);
-      const picked = event.type === "pick" && native && popupAction(native.model, event.id) ? event.id : undefined;
-      if ((event.type === "search" || event.type === "change") && event.value !== undefined) onQuery(event.value);
-      else if (picked !== undefined && suggestions.includes(picked) && !isItemDisabled?.(picked)) onSubmit(picked);
-      else if (event.type === "highlight") onHighlight?.(event.id, "pointer");
+      const action = native && popupAction(native.model, event.id);
+      const suggestion = action ? (action.value ?? event.id) : undefined;
+      if ((event.type === "search" || event.type === "change") && event.value !== undefined) changeQuery(event.value);
+      else if (suggestion !== undefined && suggestions.includes(suggestion) && !isItemDisabled?.(suggestion)) {
+        if (event.type === "pick") onSubmit(suggestion);
+        else if (event.type === "highlight") onHighlight?.(suggestion, "pointer");
+      } else if (event.type === "highlight" && event.id === undefined) onHighlight?.(undefined, "pointer");
     },
     onDismiss: () => {
       native?.onDismiss?.();
@@ -183,6 +186,11 @@ export function Combobox({
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
   const deliberatelyHighlighted = useRef(false);
+  const changeQuery = (next: string) => {
+    if (completionRef.current?.text !== next) completionRef.current = undefined;
+    deliberatelyHighlighted.current = false;
+    update(next);
+  };
   const availableSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
   // Base UI highlights item zero for an empty query too. Put destinations first in its collection
   // while the pinned actions remain visually fixed above the scrolling results.
@@ -329,11 +337,7 @@ export function Combobox({
       items={enabledSuggestions as string[]}
       filter={null}
       value={value}
-      onValueChange={(next) => {
-        if (completionRef.current?.text !== next) completionRef.current = undefined;
-        deliberatelyHighlighted.current = false;
-        update(next);
-      }}
+      onValueChange={changeQuery}
       open={inline || enabledSuggestions.length > 0}
       inline={inline}
       autoHighlight={autoHighlight}

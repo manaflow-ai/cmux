@@ -2,7 +2,16 @@ import type { ReactNode } from "react";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "./Menu";
 import { cx } from "./cx";
 import type { NativePopupDescription } from "./nativePopup";
-import type { NativePopupEvent } from "./generated/popupProtocol";
+import type { NativePopupEvent, NativePopupRow } from "./generated/popupProtocol";
+
+function selectionRows(rows: readonly NativePopupRow[], keepOpen: boolean): NativePopupRow[] {
+  return rows.map((row) => ({
+    ...row,
+    ...(row.kind === "action" ? { keepOpen } : {}),
+    ...(row.children ? { children: selectionRows(row.children, keepOpen) } : {}),
+    ...(row.actions ? { actions: row.actions.map((action) => ({ ...action, keepOpen })) } : {}),
+  }));
+}
 
 /** One option in a shared macOS-style select. */
 export interface SelectOption {
@@ -54,9 +63,9 @@ export function Select({
             ? {
                 model: {
                   ...native.model,
-                  rows: native.model.rows.map((row) =>
-                    row.kind === "action" ? { ...row, keepOpen: closeOnPick !== true } : row,
-                  ),
+                  rows: selectionRows(native.model.rows, closeOnPick !== true),
+                  ...(native.model.rail ? { rail: selectionRows(native.model.rail, closeOnPick !== true) } : {}),
+                  ...(native.model.footer ? { footer: selectionRows(native.model.footer, closeOnPick !== true) } : {}),
                 },
                 onEvent: (event: NativePopupEvent) => {
                   const picked = event.value ?? event.id;
