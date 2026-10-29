@@ -204,7 +204,8 @@ final class HomeFirstRunView: NSView {
         stack.setCustomSpacing(14 * scale, after: pet)
         stack.setCustomSpacing(14 * scale, after: starters)
         stack.setCustomSpacing(Self.heroGap * scale, after: hero)
-        stack.setCustomSpacing(Self.heroGap * scale, after: intro)
+        // Only while the intro is arranged: NSStackView throws for a view that is not in it.
+        if stack.arrangedSubviews.contains(intro) { stack.setCustomSpacing(Self.heroGap * scale, after: intro) }
     }
 
     /// The space between the hero and the first row.

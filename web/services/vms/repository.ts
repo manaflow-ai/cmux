@@ -42,7 +42,8 @@ import {
   type SnapshotRequestBegin,
 } from "./snapshotRequests";
 import { storedAgentUpdates, type VmAgentUpdatesSetting } from "./agentUpdates";
-import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
+import { VM_RESOURCE_PEAK_KEY, VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
+import { AUTOSIZE_METADATA_KEY, type AutosizeTag } from "./autosize";
 import {
   VM_API_ACTIVITY_MIN_INTERVAL_MS,
   VM_IDLE_OBSERVATION_KEY,
@@ -432,13 +433,31 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly providerVmId: string;
     readonly at: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
-  /** Atomically coalesce advisory samples; false also covers a replaced VM. */
+  /** Atomically coalesce advisory samples and the run's peaks; false also covers a replaced VM. */
   readonly recordResourceUsage?: (input: {
     readonly id: string;
     readonly providerVmId: string;
     readonly usage: VmResourceUsage;
     readonly receivedAt: number;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Marks the owner's VM as an auto-sized run of a repo and task kind (autosize.ts AutosizeTag). */
+  readonly tagAutosizeRun?: (input: {
+    readonly userId: string;
+    readonly provider: string;
+    readonly providerVmId: string;
+    readonly tag: AutosizeTag;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * The metadata of the owner's newest tagged runs of a repo and task kind that
+   * recorded peaks and have ended (paused or destroyed): a running VM's peaks
+   * so far may be its idle start, not what its task needs.
+   */
+  readonly listAutosizeRuns?: (input: {
+    readonly userId: string;
+    readonly repoKey: string;
+    readonly taskKind: string;
+    readonly limit: number;
+  }) => Effect.Effect<readonly Readonly<Record<string, unknown>>[], VmDatabaseError>;
   readonly claimBillingGrant: (input: {
     readonly billingCustomerType: string;
     readonly billingCustomerId: string;
@@ -2151,7 +2170,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const patch = { [VM_RESOURCE_USAGE_KEY]: { ...input.usage, receivedAt: input.receivedAt, providerVmId: input.providerVmId } };
       const rows = await cloudDb().update(cloudVms).set({
         // Samples have their own timestamp; they are not lifecycle mutations.
-        providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify(patch)}::jsonb`,
+        providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify(patch)}::jsonb
+          || jsonb_build_object(${VM_RESOURCE_PEAK_KEY}::text, ${resourcePeakSql(input.providerVmId, input.usage)})`,
       }).where(and(
         eq(cloudVms.id, input.id),
         eq(cloudVms.providerVmId, input.providerVmId),
@@ -2162,6 +2182,37 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         ),
       )).returning({ id: cloudVms.id });
       return rows.length > 0;
+    }),
+
+  tagAutosizeRun: (input) =>
+    dbEffect("tagAutosizeRun", async () => {
+      const rows = await cloudDb().update(cloudVms).set({
+        providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify({ [AUTOSIZE_METADATA_KEY]: input.tag })}::jsonb`,
+      }).where(and(
+        eq(cloudVms.userId, input.userId),
+        eq(cloudVms.provider, input.provider as CloudVmRow["provider"]),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        ne(cloudVms.status, "destroyed"),
+      )).returning({ id: cloudVms.id });
+      return rows.length > 0;
+    }),
+
+  listAutosizeRuns: (input) =>
+    dbEffect("listAutosizeRuns", async () => {
+      const tag = sql`${cloudVms.providerMetadata} -> ${AUTOSIZE_METADATA_KEY}::text`;
+      const rows = await cloudDb()
+        .select({ providerMetadata: cloudVms.providerMetadata })
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.userId, input.userId),
+          sql`${tag} ->> 'repoKey' = ${input.repoKey}`,
+          sql`${tag} ->> 'taskKind' = ${input.taskKind}`,
+          sql`(${cloudVms.providerMetadata} -> ${VM_RESOURCE_PEAK_KEY}::text) is not null`,
+          inArray(cloudVms.status, ["paused", "destroyed"]),
+        ))
+        .orderBy(desc(cloudVms.createdAt))
+        .limit(input.limit);
+      return rows.map((row) => row.providerMetadata);
     }),
 
   listUserVms: (userId, billingTeamId) =>
@@ -4754,4 +4805,23 @@ function tunnelActivitySql(table: {
   readonly createdAt: AnyPgColumn;
 }): SQL {
   return sql`greatest(${table.updatedAt}, coalesce(${table.lastConfigIssuedAt}, ${table.createdAt}))`;
+}
+
+/**
+ * The run's peaks after one accepted sample (resourceUsage.ts
+ * VM_RESOURCE_PEAK_KEY): the larger of the stored peak and the sample, and the
+ * CPU sum and count. A new provider VM starts over.
+ */
+function resourcePeakSql(providerVmId: string, usage: VmResourceUsage): SQL {
+  const peak = sql`${cloudVms.providerMetadata} -> ${VM_RESOURCE_PEAK_KEY}::text`;
+  const prior = (field: string) => sql`case when (${peak} ->> 'providerVmId') = ${providerVmId}
+    and jsonb_typeof(${peak} -> ${field}::text) = 'number' then (${peak} ->> ${field}::text)::numeric end`;
+  const value = (v: number | undefined) => (v === undefined ? sql`null::numeric` : sql`${v}::numeric`);
+  return sql`jsonb_strip_nulls(jsonb_build_object(
+    'providerVmId', ${providerVmId}::text,
+    'memoryUsedMb', greatest(${prior("memoryUsedMb")}, ${value(usage.memoryUsedMb)}),
+    'diskUsedMb', greatest(${prior("diskUsedMb")}, ${value(usage.diskUsedMb)}),
+    'cpuPercentSum', coalesce(${prior("cpuPercentSum")}, 0) + ${value(usage.cpuPercent ?? 0)},
+    'cpuSamples', coalesce(${prior("cpuSamples")}, 0) + ${value(usage.cpuPercent === undefined ? 0 : 1)}
+  ))`;
 }

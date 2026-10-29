@@ -408,7 +408,8 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: cmux-tui
         run: |
-          cargo clippy --workspace --lib --bins --locked --message-format=json -- $(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags) > "$RUNNER_TEMP/panic-clippy.jsonl"
+          read -r -a panic_flags <<<"$(python3 ../scripts/cmux-next/rust_panic_ratchet.py --flags)"
+          cargo clippy --workspace --lib --bins --locked --message-format=json -- "${panic_flags[@]}" > "$RUNNER_TEMP/panic-clippy.jsonl"
           python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$RUNNER_TEMP/panic-clippy.jsonl"
 
       # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
@@ -692,8 +693,8 @@ jobs:
           ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
 
-      - name: Fetch the ghostty-next Zig packages (retried)
-        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -855,7 +856,7 @@ jobs:
           name: optchat-chief-lock-${{ inputs.commit }}
           path: Native/OptChat/optchat-chief/Cargo.lock
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
 
       - name: Require committed Chief lockfile
         run: git diff --exit-code -- Native/OptChat/optchat-chief/Cargo.lock

@@ -156,6 +156,13 @@ impl Hub {
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
+        // A bundle does not carry the source daemon's transcript authorization. Never import
+        // historical native ids or parent links that could collide with local sessions.
+        meta.previous_agent_session_ids.clear();
+        meta.agent_session_family = None;
+        meta.parent_id = None;
+        meta.fork_seq = None;
+        meta.fork_parent_verified = Some(false);
         // A store comes from this machine's chat index, never from a bundle.
         meta.chat_store = None;
         // Nor the VM boundary: only a caller's peer link asks for it (`vm_boundary.rs`).

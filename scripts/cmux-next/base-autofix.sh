@@ -169,6 +169,23 @@ if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-docs-shortcuts.ts" ]]
   fi
 fi
 
+# 1e1. The cmux-next docs reference pages (web/data/next-docs), from the same
+# export and the settings schema (plans/cmux-next/docs-DESIGN.md).
+if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-next-docs.ts" ]]; then
+  (cd "$repo" && bun web/scripts/export-next-docs.ts >/dev/null)
+  changed="$(git -C "$repo" status --porcelain -- web/data/next-docs | cut -c4-)"
+  if [[ -n "$changed" ]]; then
+    while IFS= read -r rel; do
+      if frozen "$rel"; then
+        git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+        echo "skipped (frozen): $rel (stale; bun web/scripts/export-next-docs.ts)"
+      else
+        echo "fixed: regenerated $rel"
+      fi
+    done <<<"$changed"
+  fi
+fi
+
 # 1e2. The app-host generated files, from the same export and the operation catalogs.
 app_host_gen=cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts
 if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then

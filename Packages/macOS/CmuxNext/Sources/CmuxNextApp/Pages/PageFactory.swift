@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
 import CmuxNextApps
+import CmuxNextCloudUI
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
@@ -144,6 +146,36 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
+        let cloud = services.cloud
+        let environments = CloudEnvironmentsSettings(
+            available: { [weak cloud] in cloud.map { $0.configuration.linkSource == .appServer && $0.auth.isSignedIn } ?? false },
+            list: { [weak cloud] in
+                guard let cloud else { throw PageError.closed }
+                return try JSONEncoder().encode(await cloud.appOps("cloud.environment.list", .object([:]), nil, .script))
+            },
+            save: { [weak cloud] args in
+                guard let cloud else { throw PageError.closed }
+                _ = try await cloud.appOps("cloud.environment.set", try JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: args), UUID().uuidString, .user)
+            },
+            approvedCall: { [weak cloud] op, id, confirm in
+                guard let cloud else { throw PageError.closed }
+                do { _ = try await cloud.appServerApprovedCall(op, args: .object(["environment": .string(id)]), confirm: confirm) }
+                catch CloudMachineCreateFlow.Failure.declined { return false }
+                return true
+            },
+            confirm: { [weak services] title, body, button in
+                await withCheckedContinuation { continuation in
+                    CloudPresenter.confirm(title, body, button: button, identifier: CloudPresenter.environmentConfirmIdentifier,
+                                           in: services?.windows.active?.window) { continuation.resume(returning: $0) }
+                }
+            })
+        provider.environmentsState = { (try? JSONValue.parse(JSONEncoder().encode(environments.state))) ?? .null }
+        provider.environmentsRun = { params in
+            guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
+                throw PageError.invalidParams("unknown environments action")
+            }
+            return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run)))) ?? .object([:])
+        }
         let devices = services.deviceHub.settingsModel
         provider.devicesState = { (try? JSONValue.parse(JSONEncoder().encode(devices.state))) ?? .null }
         provider.devicesRun = { params in

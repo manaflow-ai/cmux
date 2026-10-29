@@ -43,6 +43,9 @@ final class AgentPageHibernation {
     private var hiddenAt: [String: ContinuousClock.Instant] = [:]
     private var shown: Set<String> = []
     private var releasing: Set<String> = []
+    /// Hidden pages whose workspace hibernates (`releaseForWorkspace`): they go without
+    /// `browser.hibernation`, still only when nothing else keeps them; cleared when shown or closed.
+    private var workspaceDue: Set<String> = []
     private let deadline = DemandTimer(owner: "AgentPageHibernation")
     /// The acpmux turn state of the tab's chat; injected by the App.
     var turnState: (String) -> AgentTurnState? = { _ in nil }
@@ -124,6 +127,7 @@ final class AgentPageHibernation {
         if visible {
             shown.insert(key)
             hiddenAt[key] = nil
+            workspaceDue.remove(key)
             tabs.launchImages.drop(key)
         } else if tabs.existingView(key) != nil {
             shown.remove(key)
@@ -134,6 +138,7 @@ final class AgentPageHibernation {
 
     func forget(_ key: String) {
         shown.remove(key)
+        workspaceDue.remove(key)
         hiddenAt[key] = nil
         store()?.launchImages.drop(key)
     }
@@ -175,8 +180,10 @@ final class AgentPageHibernation {
     /// whether its view is still in a window (planning a deadline: the pane takes it out after the hide).
     func keepsPage(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? {
         if !setting.isEnabled { return .disabled }
-        // No `browser.hibernation` written: a hidden chat keeps its page (nothing goes on its own).
-        if !setting.discardsAutomatically { return .keepsState }
+        let forWorkspace = workspaceDue.contains(key)
+        // No `browser.hibernation` written: a hidden chat keeps its page (nothing goes on its own),
+        // unless its workspace hibernates (the person's workspace setting asked).
+        if !setting.discardsAutomatically, !forWorkspace { return .keepsState }
         guard let tabs = store(), Self.canRelease(key, in: tabs, onScreen: onScreen) else { return .unsupported }
         if isPinned(key), !setting.includesPinnedTabs { return .pinned }
         // No watch, no known turn: a chat that looks idle may be working.
@@ -208,7 +215,7 @@ final class AgentPageHibernation {
         guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
         let readWake = wakeState
         let hiddenFor = hiddenAt[key].map { Int((now() - $0).seconds) } ?? 0
-        let cause = pressure == .normal ? "timeout hidden=\(hiddenFor)s" : "memory-pressure=\(pressure.rawValue) hidden=\(hiddenFor)s"
+        let cause = workspaceDue.contains(key) ? "workspace-idle hidden=\(hiddenFor)s" : pressure == .normal ? "timeout hidden=\(hiddenFor)s" : "memory-pressure=\(pressure.rawValue) hidden=\(hiddenFor)s"
         Task { @MainActor [weak self] in
             let wake = await readWake(view)
             let frame = await Self.frame(view)
@@ -241,6 +248,19 @@ final class AgentPageHibernation {
             // Notice, not info: the field log keeps it (the page is built again when shown).
             logger.notice("released agent page \(key, privacy: .public) cause=\(cause, privacy: .public); it is built again when shown")
         }
+    }
+
+    /// Its workspace hibernates (plans/cmux-next/workspace-hibernation-DESIGN.md): hidden chat page
+    /// `key` goes now unless its turn runs or waits, a shell command ran in it, or it is not this
+    /// Mac's chat. Returns why not, or nil when it started.
+    @discardableResult
+    func releaseForWorkspace(_ key: String) -> HibernationPlanner.Exemption? {
+        guard let tabs = store(), tabs.existingView(key) != nil else { return .disabled }
+        workspaceDue.insert(key)
+        if hiddenAt[key] == nil { hiddenAt[key] = now() }
+        if let kept = keepsPage(key) { return kept }
+        release(key)
+        return nil
     }
 
     private func isDue(_ key: String, _ view: AgentPaneView, in tabs: AgentTabStore) -> Bool {

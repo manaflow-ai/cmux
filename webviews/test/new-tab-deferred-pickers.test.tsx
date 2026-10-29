@@ -261,20 +261,28 @@ async function mountNewTab({
     );
   });
   const pickCombo = async (query: string, label: string) => {
-    // Cmd-Ctrl-M opens the full picker; typing a query chooses the model, effort and speed together.
+    // Cmd-Ctrl-M opens the same compact picker as the model button; typing filters its rows.
     await act(async () => {
       dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true }));
     });
-    const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]');
+    const menu = dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+    if (!menu) {
+      const trigger = host.querySelector<HTMLElement>("[data-menu=Model]");
+      expect(trigger).not.toBeNull();
+      await act(async () => trigger!.click());
+    }
+    const openMenu = dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+    expect(openMenu).not.toBeNull();
+    const search = openMenu!.querySelector<HTMLInputElement>(".acpmux-quick-search input");
     expect(search).not.toBeNull();
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
     await act(async () => {
       setter.call(search, query);
       search!.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
-    const row = [...host.querySelectorAll<HTMLElement>('.acpmux-mp [role="option"][data-key^="model:"]')].find(
-      (candidate) => candidate.textContent?.includes(label),
-    );
+    const row = [
+      ...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitemradio"]'),
+    ].find((candidate) => candidate.textContent?.includes(label));
     expect(row).not.toBeUndefined();
     await act(async () => row!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
   };
