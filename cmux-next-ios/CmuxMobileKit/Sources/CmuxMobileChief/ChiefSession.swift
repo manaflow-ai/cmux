@@ -291,8 +291,7 @@ public final class ChiefSession {
     /// status line): ``live``, without the reply text once its message arrived.
     public var shownLive: ChiefLive? {
         guard let live else { return nil }
-        if let step = live.step,
-           answeredLiveStep == "\(live.key)\u{0}\(step)" || Self.liveReplyMatches(live, message: lastMessage) {
+        if let step = live.step, answeredLiveStep == "\(live.key)\u{0}\(step)" {
             // The reply is in the transcript; the run's status line stays
             // until the run ends.
             var rest = live
@@ -311,7 +310,26 @@ public final class ChiefSession {
         guard keyParts.count == 3, let message, message.senderID == String(keyParts[1]),
               let clientID = message.clientMessageID,
               let runID = keyParts.last, !runID.isEmpty else { return false }
-        return clientID == runID || clientID.hasSuffix(":\(runID)")
+        let author = keyParts[1]
+        if clientID == runID || clientID == "\(author):chief-reply:\(runID)" { return true }
+        // Cloud's durable producers append a numeric retry counter. Require
+        // the complete author/run prefix so similar run IDs cannot collide.
+        for kind in ["chief-reply", "chief-reply-d"] {
+            let prefix = "\(kind):\(author):\(runID):"
+            guard clientID.hasPrefix(prefix) else { continue }
+            let retry = clientID.dropFirst(prefix.count)
+            return !retry.isEmpty && retry.utf8.allSatisfy { (48...57).contains($0) }
+        }
+        return false
+    }
+
+    /// Remember a reply that overtook its batched live callback. A later user
+    /// message changes lastMessage but must not resurrect the answered step.
+    func acceptLive(_ live: ChiefLive?) {
+        if let live, let step = live.step, Self.liveReplyMatches(live, message: lastMessage) {
+            answeredLiveStep = "\(live.key)\u{0}\(step)"
+        }
+        self.live = live
     }
 
     /// Chief is typing or a run is live: Home's pin shows the typing bubble.
@@ -534,7 +552,7 @@ public final class ChiefSession {
             source.liveFeed.observe { [weak self] live in
                 Task { @MainActor [weak self] in
                     guard let self, self.store === store, self.live != live else { return }
-                    self.live = live
+                    self.acceptLive(live)
                 }
             }
         }

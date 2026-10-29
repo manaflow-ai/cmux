@@ -81,17 +81,19 @@ struct ChiefLiveBubble: View {
 /// newest words, even when the source string already contains only the tail.
 struct ChiefLiveReplyText: View {
     let text: String
-    @ScaledMetric(relativeTo: .body) private var lineHeight = UIFont.preferredFont(
-        forTextStyle: .body,
-        compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)
-    ).lineHeight
-
     var body: some View {
-        ChiefLiveReplyViewport(maxHeight: lineHeight * 8) {
+        ChiefLiveReplyViewport {
             Text(text)
                 .font(.body)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
+            // Measure SwiftUI's actual eight-line height in this environment.
+            // Scaling UIKit's lineHeight can cut through the first visible row.
+            Text("Ag\nAg\nAg\nAg\nAg\nAg\nAg\nAg")
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+                .hidden()
+                .accessibilityHidden(true)
         }
         .clipped()
         .padding(.horizontal, 12)
@@ -105,12 +107,12 @@ struct ChiefLiveReplyText: View {
 /// the available width with unlimited height, then shows its bottom edge
 /// through a bounded viewport instead of asking Text to truncate it.
 private struct ChiefLiveReplyViewport: Layout {
-    let maxHeight: CGFloat
-
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let text = subviews.first else { return .zero }
+        guard subviews.count == 2, let text = subviews.first else { return .zero }
         let width = min(276, max(0, proposal.width ?? 276))
-        let size = text.sizeThatFits(ProposedViewSize(width: width, height: nil))
+        let textProposal = ProposedViewSize(width: width, height: nil)
+        let size = text.sizeThatFits(textProposal)
+        let maxHeight = subviews[1].sizeThatFits(textProposal).height
         return CGSize(width: min(width, size.width), height: min(maxHeight, size.height))
     }
 
