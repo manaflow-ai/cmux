@@ -167,7 +167,10 @@ class PrePushGateTests(unittest.TestCase):
     def copy_sources(self):
         tracked = subprocess.run(["git", "-C", str(SOURCE), "ls-files", "scripts/cmux-next"],
                                  text=True, capture_output=True, check=True).stdout.split()
-        checks = [p for p in tracked if "/" not in p[len("scripts/cmux-next/"):] or p.startswith("scripts/cmux-next/lint/")]
+        # The folders install-git-hooks.sh installs beside the top-level checks: without ast-grep/ the Rust rules
+        # cannot judge a push, and a rule that cannot judge refuses it (guardrails.py fails closed).
+        checks = [p for p in tracked if "/" not in p[len("scripts/cmux-next/"):]
+                  or p.startswith(tuple(f"scripts/cmux-next/{d}/" for d in ("lint", "arch_rules", "ast-grep")))]
         for relative in (
             "scripts/git-hooks",
             INSTALLER,
