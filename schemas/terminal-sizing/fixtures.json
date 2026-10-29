@@ -1438,6 +1438,449 @@
           }
         }
       ]
+    },
+    {
+      "name": "handheld first: an attached phone sets the whole grid, then the Mac takes it back",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest",
+            "handheld_first": true
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "mac"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "via": "mac",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 44,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest",
+          "counts": {
+            "mac": true,
+            "phone": true
+          }
+        },
+        {
+          "op": "activity",
+          "id": "mac"
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 44,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "detach",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "mac"
+          ],
+          "reason": "smallest"
+        }
+      ]
+    },
+    {
+      "name": "handheld first: a landscape phone wider than the Mac still sets the grid",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest",
+            "handheld_first": true
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "via": "mac",
+            "viewport": {
+              "cols": 180,
+              "rows": 20
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 180,
+          "rows": 20,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest"
+        }
+      ]
+    },
+    {
+      "name": "handheld first: the phone counts under latest despite a counting Mac of the same user",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "latest",
+            "handheld_first": true
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "via": "mac",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "activity",
+          "id": "mac"
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 44,
+          "owners": [
+            "phone"
+          ],
+          "reason": "latest",
+          "counts": {
+            "mac": true,
+            "phone": true
+          }
+        },
+        {
+          "op": "detach",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "mac"
+          ],
+          "reason": "latest"
+        }
+      ]
+    },
+    {
+      "name": "handheld first: a viewer-only phone leaves the Mac in charge",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest",
+            "handheld_first": true
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "via": "mac",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            },
+            "counts_override": false
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "owners": [
+            "mac"
+          ],
+          "reason": "smallest",
+          "counts": {
+            "mac": true,
+            "phone": false
+          }
+        }
+      ]
+    },
+    {
+      "name": "handheld first: the newest-active phone wins between two phones",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest",
+            "handheld_first": true
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "p1",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "via": "mac",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "p2",
+            "user_id": "u1",
+            "device_kind": "ipad",
+            "via": "mac",
+            "viewport": {
+              "cols": 100,
+              "rows": 50
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 100,
+          "rows": 50,
+          "owners": [
+            "p2"
+          ],
+          "reason": "latest"
+        },
+        {
+          "op": "activity",
+          "id": "p1"
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 44,
+          "owners": [
+            "p1"
+          ],
+          "reason": "latest"
+        }
+      ]
+    },
+    {
+      "name": "handheld first: fixed still wins",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "fixed",
+            "fixed": {
+              "cols": 100,
+              "rows": 30
+            },
+            "handheld_first": true
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "via": "mac",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 100,
+          "rows": 30,
+          "owners": [],
+          "reason": "fixed"
+        }
+      ]
+    },
+    {
+      "name": "a policy without handheld_first keeps fit everyone",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "via": "mac",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 42,
+          "owners": [
+            "mac",
+            "phone"
+          ],
+          "reason": "smallest"
+        }
+      ]
     }
   ]
 }
