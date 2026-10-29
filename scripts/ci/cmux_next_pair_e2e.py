@@ -478,7 +478,7 @@ def preparing_evidence(app, out, deadline):
         if text is not None:
             files.append(save_redacted(out, name, text, lines))
     return (f"SecurityAgent pids {agents or 'none'}; Keychain/Authorization frames: "
-            f"{'; '.join(waits) or 'none in the samples'}; {', '.join(files)}"
+            f"{'; '.join(waits) or 'none in the samples'}; {', '.join(files) or 'no files'}"
             f"{'; skipped at the deadline: ' + ', '.join(skipped) if skipped else ''}")
 
 
