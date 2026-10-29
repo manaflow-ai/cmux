@@ -15,10 +15,10 @@ The script rejects dirty or unpushed work, verifies the exact commit in every ho
 
 ## Settings in the CLI and MCP
 
-`cmux settings` and the MCP `settings_*` tools are generic over the embedded settings schema, so every
-app setting reaches them. Keep it that way: a change to a setting's kind, validation or value shape lands in
+`cmux settings` and the MCP `settings_*` tools work for every key in the embedded settings schema
+(`schemas/settings/settings-schema.json`), so every app setting reaches them. Keep it that way: a change to a setting's kind, validation or value shape lands in
 `crates/cmux-config/src/schema/` in the same change, and no setting gets a CLI-only or MCP-only path. See
-"Settings on every surface" in the [root AGENTS.md](../AGENTS.md#settings-on-every-surface).
+"Settings on every surface" in the [root CLAUDE.md](../CLAUDE.md#settings-on-every-surface).
 
 ## Blacksmith Testbox
 
