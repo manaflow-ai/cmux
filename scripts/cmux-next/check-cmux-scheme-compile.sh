@@ -126,6 +126,9 @@ build() {
   xcode_args=(
     -project cmux.xcodeproj -scheme cmux -configuration "$configuration"
     -destination 'platform=macOS,arch=arm64'
+    # A package of this scheme may declare a SwiftPM build-tool plugin (CmuxNextWireGenPlugin, perf/chrome-parity);
+    # a non-interactive xcodebuild refuses an untrusted plugin without this flag.
+    -skipPackagePluginValidation
     -derivedDataPath "$derived_data"
     ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
     # This is a compile check; release packaging retains the project dSYM setting.
