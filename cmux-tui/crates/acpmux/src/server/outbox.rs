@@ -137,6 +137,18 @@ pub(super) async fn handle(
 /// Recovery only reads the target journal; it never retransmits a direct prompt.
 /// send_queue entries keep their own delivery/retry semantics; this separate
 /// intent stays pending if persisting the sender projection fails after acceptance.
+/// The message id a forwarded prompt's receiver keeps (`server/requests.rs` takes a nonempty
+/// `messageId`, else the prompt id), so the sender's intent and acceptance check name the same one.
+pub(super) fn forwarded_message_id(params: &Value) -> &str {
+    let nonempty = |key: &str| {
+        params
+            .pointer(&format!("/_meta/acpmux/{key}"))
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+    };
+    nonempty("messageId").or_else(|| nonempty("promptId")).unwrap_or_default()
+}
+
 pub(super) async fn remember_forward(
     hub: &Arc<Hub>,
     peer: &str,
@@ -152,11 +164,7 @@ pub(super) async fn remember_forward(
         .map(|blocks| crate::hub::prompt_text(blocks))
         .or_else(|| params.get("text").and_then(Value::as_str).map(str::to_owned))
         .unwrap_or_default();
-    let message_id = params
-        .pointer("/_meta/acpmux/messageId")
-        .and_then(Value::as_str)
-        .or(prompt_id)
-        .unwrap_or_default();
+    let message_id = forwarded_message_id(params);
     let sender = params.pointer("/_meta/acpmux/messageSender").cloned().unwrap_or_else(|| {
         json!({"name": hub.session_name(caller), "sessionId": caller,
                                  "host": crate::hub::host_label()})

@@ -346,12 +346,7 @@ async fn forward_inner(
                     .map(|blocks| crate::hub::prompt_text(blocks))
                     .or_else(|| p.get("text").and_then(Value::as_str).map(str::to_owned))
                     .unwrap_or_default();
-                let message_id = p
-                    .pointer("/_meta/acpmux/messageId")
-                    .and_then(Value::as_str)
-                    .or_else(|| p.pointer("/_meta/acpmux/promptId").and_then(Value::as_str))
-                    .unwrap_or_default()
-                    .to_owned();
+                let message_id = super::outbox::forwarded_message_id(&p).to_owned();
                 (sender_session.to_owned(), sender, text, message_id)
             })
         } else {
@@ -729,5 +724,15 @@ mod message_identity_tests {
         assert!(is_duplicate(&json!({"stopReason": "end_turn",
                                      "_meta": {"acpmux": {"duplicate": true}}})));
         assert!(!is_duplicate(&named));
+    }
+
+    /// An empty `messageId` is no id: the receiver keeps the prompt id, and so does the sender.
+    #[test]
+    fn a_forwarded_message_is_named_as_its_receiver_names_it() {
+        use super::super::outbox::forwarded_message_id;
+        let with = |meta: serde_json::Value| json!({"_meta": {"acpmux": meta}});
+        assert_eq!(forwarded_message_id(&with(json!({"messageId": "", "promptId": "p"}))), "p");
+        assert_eq!(forwarded_message_id(&with(json!({"messageId": "m", "promptId": "p"}))), "m");
+        assert_eq!(forwarded_message_id(&with(json!({"promptId": "p"}))), "p");
     }
 }

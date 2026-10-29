@@ -101,7 +101,7 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
             let Some(provenance) = crate::prompt_provenance::recorded(&record.msg) else {
                 return true;
             };
-            collect_message_contexts(&provenance, &mut pending);
+            collect_message_contexts(&provenance, &session.id, &mut pending);
             true
         });
     for message in pending {
@@ -114,17 +114,41 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
 
 /// A digest user message carries each joined prompt's original provenance one level down. Keep
 /// recovery aligned with the live acceptance path, which records every joined message separately.
-fn collect_message_contexts(provenance: &Value, pending: &mut Vec<MessageContext>) {
+/// A record addressed to another session (`to`) is inherited, by a fork that lost its marker
+/// (an import drops `forkSeq`): it was that session's delivery, never this one's.
+fn collect_message_contexts(
+    provenance: &Value,
+    session_id: &str,
+    pending: &mut Vec<MessageContext>,
+) {
+    if addressed_elsewhere(provenance, session_id) {
+        return;
+    }
     if let Some(message) = message_context_from_provenance(provenance) {
         pending.push(message);
     }
     if let Some(messages) = provenance.get("messages").and_then(Value::as_array) {
         for message in messages {
             if let Some(nested) = message.get("provenance") {
-                collect_message_contexts(nested, pending);
+                collect_message_contexts(nested, session_id, pending);
             }
         }
     }
+}
+
+/// The provenance's `to` names another session by id (a name is not checked: names change).
+fn addressed_elsewhere(provenance: &Value, session_id: &str) -> bool {
+    let Some(to) = provenance.get("to").and_then(Value::as_str) else { return false };
+    let to = to.strip_prefix("acp:").unwrap_or(to);
+    to != session_id && uuid::Uuid::parse_str(to).is_ok()
+}
+
+/// A locally derived sender names a session: `acp:<id>`, a session id, or a session here. A
+/// person's or terminal's `from` (`cli`, `term_1234`) names none.
+fn names_a_session(hub: &Hub, from: &str) -> bool {
+    from.starts_with("acp:")
+        || uuid::Uuid::parse_str(from).is_ok()
+        || resolve_exact(hub, from).is_some()
 }
 
 pub(super) fn message_context(
@@ -141,6 +165,15 @@ pub(super) fn message_context(
     }
     let raw = opts.message_sender.as_ref().or(opts.provenance.as_ref())?;
     let object = raw.as_object()?;
+    if opts.message_sender.is_none()
+        && object.get("sessionId").is_none()
+        && !object
+            .get("from")
+            .and_then(Value::as_str)
+            .is_some_and(|from| names_a_session(hub, from))
+    {
+        return None;
+    }
     let mut sender_session = object.get("sessionId").and_then(Value::as_str).map(str::to_owned);
     let name = object
         .get("name")
@@ -228,9 +261,18 @@ fn append_or_repair(
     message: &MessageContext,
     target_scope: Option<&str>,
 ) {
-    let Some(session) = resolve_exact(hub, session_id) else {
-        append_once_loaded(hub, session_id, message, target_scope);
-        return;
+    let session = match resolve_exact(hub, session_id) {
+        Some(session) => session,
+        // The load may have installed it since the lookup: once loaded, a second lookup is the
+        // answer.
+        None if hub.store_loaded() => match resolve_exact(hub, session_id) {
+            Some(session) => session,
+            None => return,
+        },
+        None => {
+            append_once_loaded(hub, session_id, message, target_scope);
+            return;
+        }
     };
     if !hub.append_message_event_scoped(
         &session,
@@ -254,7 +296,7 @@ fn append_once_loaded(
     message: &MessageContext,
     target_scope: Option<&str>,
 ) {
-    if hub.store_loaded() || tokio::runtime::Handle::try_current().is_err() {
+    if tokio::runtime::Handle::try_current().is_err() {
         return;
     }
     let (hub, id, message) = (hub.clone(), session_id.to_owned(), message.clone());
@@ -769,5 +811,84 @@ mod message_recovery_tests {
         .expect("the sender's copy is appended once it loads");
         assert_eq!(message_count(&restarted, &sender_id), 1);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn memory_hub() -> Arc<Hub> {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+            "permissionPolicy": "approve-all"
+        }))
+        .expect("config");
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, Path::new("/nonexistent")).expect("store");
+        Hub::new(config, store)
+    }
+
+    async fn session(hub: &Arc<Hub>, name: &str) -> Arc<Session> {
+        hub.new_session(NewRequest {
+            name: Some(name.into()),
+            cwd: Some(std::env::temp_dir()),
+            policy: Some(PermissionPolicy::ApproveAll),
+            ..NewRequest::default()
+        })
+        .await
+        .expect("session")
+    }
+
+    /// A record addressed to another session (a fork's inherited prefix, after an import
+    /// dropped its marker) recreates no copy; one addressed to this session does.
+    #[tokio::test]
+    async fn a_record_addressed_to_another_session_recreates_no_copy() {
+        let hub = memory_hub();
+        let sender = session(&hub, "sender").await;
+        let imported = session(&hub, "imported").await;
+        let record = |to: &str, id: &str| {
+            json!({"promptId": id, "_meta": {"provenance": {
+                "kind": "session_message", "from": sender.id, "fromName": "sender", "to": to,
+                "_acpmuxMessage": {
+                    "sender": {"name": "sender", "sessionId": sender.id, "host": "local"},
+                    "text": "hello", "messageId": id, "at": 1234, "recordSenderCopy": true
+                }
+            }}})
+        };
+        let original_receiver = uuid::Uuid::now_v7().to_string();
+        hub.append(&imported, "mux", "user_message", record(&original_receiver, "inherited"));
+        hub.append(
+            &imported,
+            "mux",
+            "user_message",
+            record(&format!("acp:{original_receiver}"), "inherited-2"),
+        );
+        recover_message_events(&hub, &imported);
+        assert_eq!(message_count(&hub, &imported.id), 0);
+        assert_eq!(message_count(&hub, &sender.id), 0);
+        hub.append(&imported, "mux", "user_message", record(&imported.id, "own"));
+        recover_message_events(&hub, &imported);
+        assert_eq!(message_count(&hub, &imported.id), 1);
+        assert_eq!(message_count(&hub, &sender.id), 1);
+    }
+
+    /// A person's or terminal's message (`from: "cli"`, `"term_1234"`) is no session's message;
+    /// an agent's (`acp:<id>`) is.
+    #[tokio::test]
+    async fn only_a_session_sender_makes_a_session_message() {
+        let hub = memory_hub();
+        let receiver = session(&hub, "receiver").await;
+        let agent = session(&hub, "agent").await;
+        let context = |from: &str| {
+            let opts = PromptOptions {
+                provenance: Some(json!({"kind": "agent_message", "from": from,
+                    "fromName": "someone", "to": format!("acp:{}", receiver.id),
+                    "msgId": "m", "threadId": "t"})),
+                ..PromptOptions::default()
+            };
+            message_context(&hub, &receiver, &[json!({"type": "text", "text": "hi"})], &opts, "p")
+        };
+        assert!(context("cli").is_none());
+        assert!(context("term_1234").is_none());
+        let from_agent = context(&format!("acp:{}", agent.id)).expect("an agent's message");
+        assert_eq!(from_agent.sender_session, agent.id);
     }
 }
