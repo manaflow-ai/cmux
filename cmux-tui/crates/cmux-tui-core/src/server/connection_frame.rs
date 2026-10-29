@@ -35,15 +35,30 @@ pub(super) fn lock_caller_scope(writer: &MessageWriter) -> LockCallerScope {
     LockCallerScope::enter(writer.lock_caller.get())
 }
 
-/// Debug builds: no request handler runs on a connection's reader thread
-/// (`mux-conn`); the reader only reads, cuts and sequences.
+/// The threads that read a connection's lines and only route them: the
+/// Unix reader (`mux-conn`), the WebSocket and remote-entry readers, and the
+/// mux-io loops that read the person's and every other connection.
+const READER_THREADS: [&str; 5] = [
+    WatchKind::MuxConn.name(),
+    "mux-ws-conn",
+    "mux-remote-conn",
+    super::mux_io::MUX_IO_THREAD,
+    super::mux_io::MUX_IO_INPUT_THREAD,
+];
+
+/// Debug builds: no request handler runs on a thread that reads a
+/// connection ([`READER_THREADS`]); a reader only reads, cuts and
+/// sequences, and disallows blocking, which most handlers need.
 #[track_caller]
 pub(super) fn debug_assert_off_reader() {
-    debug_assert_ne!(
-        std::thread::current().name(),
-        Some(WatchKind::MuxConn.name()),
-        "a request handler ran on its connection's reader thread"
-    );
+    if cfg!(debug_assertions) {
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or_default();
+        debug_assert!(
+            !READER_THREADS.contains(&name),
+            "a request handler ran on its connection's reader thread '{name}'"
+        );
+    }
 }
 
 /// The caller class of a `transport` connection whose writer is `writer`: a
