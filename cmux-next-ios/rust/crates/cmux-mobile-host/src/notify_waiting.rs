@@ -4,7 +4,7 @@
 //! pending requests once per input transition, then use the live-event classifier
 //! so recovery preserves actions and shares its permission-ID deduplication.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use cmux_mobile_link::api::NotifyEvent;
@@ -21,6 +21,8 @@ pub(crate) struct Waiting {
     next_id: u64,
     sessions: HashMap<String, (InputState, u64)>,
     requests: HashMap<u64, Pending>,
+    queued: VecDeque<u64>,
+    active: Option<u64>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -33,12 +35,12 @@ struct InputState {
 struct Pending {
     session: String,
     state: InputState,
-    deadline: Instant,
+    deadline: Option<Instant>,
 }
 
 impl Waiting {
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
-        self.requests.values().map(|request| request.deadline).min()
+        self.active.and_then(|id| self.requests.get(&id)?.deadline)
     }
 
     /// Outgoing acpmux queries and push requests for one watch frame.
@@ -48,20 +50,21 @@ impl Waiting {
         classifier: &mut Classifier,
     ) -> Result<(Vec<Value>, Vec<NotifyEvent>), String> {
         if message.get("id").and_then(Value::as_u64) == Some(2) {
-            let mut queries = Vec::new();
             if let Some(result) = message.get("result") {
                 classifier.load(result);
                 for session in result.get("sessions").and_then(Value::as_array).into_iter().flatten() {
-                    self.observe(session, &mut queries)?;
+                    self.observe(session)?;
                 }
             }
-            return Ok((queries, vec![]));
+            return Ok((self.start_next(), vec![]));
         }
         if let Some(id) = message.get("id").and_then(Value::as_u64)
+            && self.active == Some(id)
             && let Some(request) = self.requests.remove(&id)
         {
+            self.active = None;
             if self.sessions.get(&request.session) != Some(&(request.state, id)) {
-                return Ok((vec![], vec![]));
+                return Ok((self.start_next(), vec![]));
             }
             if message.get("error").is_some() {
                 // The next watch snapshot retries a still-pending state.
@@ -77,18 +80,17 @@ impl Waiting {
                     pushes.push(push);
                 }
             }
-            return Ok((vec![], pushes));
+            return Ok((self.start_next(), pushes));
         }
-        let mut queries = Vec::new();
         if message.get("method").and_then(Value::as_str) == Some("_acpmux/session_changed")
             && let Some(session) = message.pointer("/params/session")
         {
-            self.observe(session, &mut queries)?;
+            self.observe(session)?;
         }
-        Ok((queries, classifier.handle(message).into_iter().collect()))
+        Ok((self.start_next(), classifier.handle(message).into_iter().collect()))
     }
 
-    fn observe(&mut self, session: &Value, queries: &mut Vec<Value>) -> Result<(), String> {
+    fn observe(&mut self, session: &Value) -> Result<(), String> {
         let Some(session_id) = session.get("sessionId").and_then(Value::as_str) else { return Ok(()) };
         // Same source as AgentTurnState.of(summary:) on the Mac. Older peers
         // without indicator still expose waiting/pendingPermissions.
@@ -123,18 +125,34 @@ impl Waiting {
         self.next_id = self.next_id.checked_add(1).ok_or("pending-input request IDs exhausted")?.max(10);
         let id = self.next_id;
         self.sessions.insert(session_id.to_owned(), (state.clone(), id));
-        self.requests.insert(
-            id,
-            Pending { session: session_id.to_owned(), state, deadline: Instant::now() + INFO_TIMEOUT },
-        );
-        queries
-            .push(json!({"jsonrpc":"2.0","id":id,"method":"_acpmux/info","params":{"sessionId":session_id}}));
+        self.requests.insert(id, Pending { session: session_id.to_owned(), state, deadline: None });
+        self.queued.push_back(id);
         Ok(())
+    }
+
+    /// This dedicated connection has only auth/watch plus one recovery lookup,
+    /// staying below acpmux's per-connection request limit even for a large snapshot.
+    fn start_next(&mut self) -> Vec<Value> {
+        if self.active.is_some() {
+            return vec![];
+        }
+        let Some(id) = self.queued.pop_front() else { return vec![] };
+        let Some(request) = self.requests.get_mut(&id) else { return vec![] };
+        request.deadline = Some(Instant::now() + INFO_TIMEOUT);
+        self.active = Some(id);
+        vec![json!({"jsonrpc":"2.0","id":id,"method":"_acpmux/info",
+            "params":{"sessionId":request.session}})]
     }
 
     fn forget(&mut self, session: &str) {
         if let Some((_, id)) = self.sessions.remove(session) {
-            self.requests.remove(&id);
+            if self.active != Some(id) {
+                self.requests.remove(&id);
+                self.queued.retain(|queued| *queued != id);
+            }
+            // A request already sent still occupies the server's slot until its
+            // response. Keep its deadline so a lost stale response cannot stall
+            // later work; the state check above discards its eventual payload.
         }
     }
 }
@@ -256,10 +274,12 @@ mod tests {
         let (old, _) = receive(&mut waiting, &changed(session("waiting", 10)), &mut classifier);
         assert!(waiting.next_deadline().is_some());
         receive(&mut waiting, &changed(session("running", 11)), &mut classifier);
-        assert!(waiting.next_deadline().is_none(), "a resolved wait cancels its lookup deadline");
+        assert!(waiting.next_deadline().is_some(), "the server still holds the sent lookup's slot");
         // Older peers may reuse the same summary key on the next wait.
-        let (new, _) = receive(&mut waiting, &changed(session("waiting", 10)), &mut classifier);
-        assert!(receive(&mut waiting, &reply(&old[0], pending("old")), &mut classifier).1.is_empty());
+        assert!(receive(&mut waiting, &changed(session("waiting", 10)), &mut classifier).0.is_empty());
+        let (new, pushes) = receive(&mut waiting, &reply(&old[0], pending("old")), &mut classifier);
+        assert!(pushes.is_empty());
+        assert_eq!(new.len(), 1);
         assert_eq!(receive(&mut waiting, &reply(&new[0], pending("new")), &mut classifier).1.len(), 1);
         assert!(waiting.next_deadline().is_none());
     }
@@ -303,5 +323,42 @@ mod tests {
             assert!(pushes.is_empty(), "{status}");
             assert!(waiting.next_deadline().is_none());
         }
+    }
+
+    #[test]
+    fn large_snapshots_drain_one_lookup_at_a_time_and_drop_obsolete_queued_states() {
+        let mut waiting = Waiting::default();
+        let mut classifier = Classifier::default();
+        let sessions: Vec<_> = (0..100)
+            .map(|index| {
+                let mut summary = session("waiting", 10);
+                summary["sessionId"] = json!(format!("s{index}"));
+                summary
+            })
+            .collect();
+        let snapshot = json!({"id":2,"result":{"sessions":sessions}});
+        let (mut queries, _) = receive(&mut waiting, &snapshot, &mut classifier);
+        assert_eq!(queries.len(), 1, "never flood the server's 64 request slots");
+
+        // A queued request that resolves must never be sent.
+        let mut resolved = session("running", 11);
+        resolved["sessionId"] = json!("s50");
+        assert!(receive(&mut waiting, &changed(resolved), &mut classifier).0.is_empty());
+
+        let mut count = 0;
+        while let Some(query) = queries.pop() {
+            assert!(queries.is_empty());
+            assert_ne!(query["params"]["sessionId"], "s50");
+            assert_eq!(waiting.requests.values().filter(|request| request.deadline.is_some()).count(), 1);
+            let response = reply(&query, pending(&format!("p{count}")));
+            let (next, pushes) = receive(&mut waiting, &response, &mut classifier);
+            assert_eq!(pushes.len(), 1);
+            assert!(next.len() <= 1);
+            queries = next;
+            count += 1;
+        }
+        assert_eq!(count, 99);
+        assert!(waiting.next_deadline().is_none());
+        assert!(waiting.requests.is_empty());
     }
 }
