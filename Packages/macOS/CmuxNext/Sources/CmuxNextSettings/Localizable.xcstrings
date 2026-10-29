@@ -60501,127 +60501,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane."
+            "value": "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "各ペインのタブバーの位置。下にすると標準のタイトルバーも表示され、ウインドウのボタンがペインを覆うことはありません。"
+            "value": "各ペインのタブバーの位置。下にすると、ペインがウインドウの上端まで広がります。ウインドウのボタンがペインを覆うことはありません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مكان شريط علامات التبويب في كل جزء. عند وضعه في الأسفل يظهر شريط العنوان القياسي أيضًا، فلا تغطي أزرار النافذة أي جزء."
+            "value": "مكان شريط علامات التبويب في كل جزء. عند وضعه في الأسفل تمتد الأجزاء حتى أعلى النافذة، ولا تغطي أزرار النافذة أي جزء."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdje je traka kartica svakog okna. Dolje se prikazuje i standardna naslovna traka, pa dugmad prozora nikad ne prekrivaju okno."
+            "value": "Gdje je traka kartica svakog okna. Dolje, okna sežu do vrha prozora; dugmad prozora nikad ne prekrivaju okno."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvor hver rudes fanebjælke sidder. Nederst vises også den almindelige titellinje, så vinduesknapperne aldrig dækker en rude."
+            "value": "Hvor hver rudes fanebjælke sidder. Nederst når ruderne op til vinduets top; vinduesknapperne dækker aldrig en rude."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wo die Tableiste jedes Bereichs sitzt. Unten wird auch die Standard-Titelleiste gezeigt, damit die Fenstertasten nie einen Bereich verdecken."
+            "value": "Wo die Tableiste jedes Bereichs sitzt. Unten reichen die Bereiche bis zum oberen Fensterrand; die Fenstertasten verdecken nie einen Bereich."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dónde está la barra de pestañas de cada panel. Abajo también muestra la barra de título estándar, para que los botones de la ventana nunca tapen un panel."
+            "value": "Dónde está la barra de pestañas de cada panel. Abajo, los paneles llegan hasta el borde superior de la ventana; los botones de la ventana nunca tapan un panel."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Emplacement de la barre d’onglets de chaque sous-fenêtre. En bas, la barre de titre standard s’affiche aussi, pour que les boutons de la fenêtre ne masquent jamais une sous-fenêtre."
+            "value": "Emplacement de la barre d’onglets de chaque sous-fenêtre. En bas, les sous-fenêtres vont jusqu’en haut de la fenêtre ; les boutons de la fenêtre ne masquent jamais une sous-fenêtre."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dove si trova la barra delle schede di ogni riquadro. In basso mostra anche la barra del titolo standard, così i pulsanti della finestra non coprono mai un riquadro."
+            "value": "Dove si trova la barra delle schede di ogni riquadro. In basso, i riquadri arrivano fino al bordo superiore della finestra; i pulsanti della finestra non coprono mai un riquadro."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កន្លែងដែលរបារផ្ទាំងនៃផ្ទាំងនីមួយៗស្ថិតនៅ។ នៅខាងក្រោម របារចំណងជើងស្តង់ដារក៏បង្ហាញដែរ ដូច្នេះប៊ូតុងបង្អួចមិនគ្របផ្ទាំងទេ។"
+            "value": "កន្លែងដែលរបារផ្ទាំងនៃផ្ទាំងនីមួយៗស្ថិតនៅ។ នៅខាងក្រោម ផ្ទាំងលាតដល់ផ្នែកខាងលើនៃបង្អួច ហើយប៊ូតុងបង្អួចមិនគ្របផ្ទាំងទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "각 패널의 탭 막대 위치입니다. 아래쪽에 두면 표준 제목 막대도 표시되어 윈도우 버튼이 패널을 가리지 않습니다."
+            "value": "각 패널의 탭 막대 위치입니다. 아래쪽에 두면 패널이 윈도우 위쪽 끝까지 닿으며, 윈도우 버튼이 패널을 가리지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvor hver rutes fanelinje ligger. Nederst vises også standard tittellinje, slik at vindusknappene aldri dekker en rute."
+            "value": "Hvor hver rutes fanelinje ligger. Nederst når rutene helt opp til toppen av vinduet; vindusknappene dekker aldri en rute."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Miejsce paska kart każdego panelu. Na dole widoczny jest też standardowy pasek tytułu, więc przyciski okna nigdy nie zasłaniają panelu."
+            "value": "Miejsce paska kart każdego panelu. Na dole panele sięgają górnej krawędzi okna; przyciski okna nigdy nie zasłaniają panelu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Onde fica a barra de abas de cada painel. Embaixo, a barra de título padrão também aparece, para que os botões da janela nunca cubram um painel."
+            "value": "Onde fica a barra de abas de cada painel. Embaixo, os painéis vão até o topo da janela; os botões da janela nunca cobrem um painel."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Где находится панель вкладок каждой панели. Внизу также показывается стандартная строка заголовка, и кнопки окна не закрывают панель."
+            "value": "Где находится панель вкладок каждой панели. Внизу панели доходят до верхнего края окна; кнопки окна не закрывают панель."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ตำแหน่งแถบแท็บของแต่ละบานหน้าต่าง หากอยู่ด้านล่าง จะแสดงแถบชื่อเรื่องมาตรฐานด้วย ปุ่มหน้าต่างจึงไม่บังบานหน้าต่าง"
+            "value": "ตำแหน่งแถบแท็บของแต่ละบานหน้าต่าง หากอยู่ด้านล่าง บานหน้าต่างจะขยายถึงขอบบนของหน้าต่าง และปุ่มหน้าต่างจะไม่บังบานหน้าต่าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Her bölmenin sekme çubuğunun yeri. Altta standart başlık çubuğu da gösterilir, böylece pencere düğmeleri hiçbir bölmeyi örtmez."
+            "value": "Her bölmenin sekme çubuğunun yeri. Altta, bölmeler pencerenin üst kenarına kadar uzanır; pencere düğmeleri hiçbir bölmeyi örtmez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Де розташована панель вкладок кожної панелі. Унизу також показується стандартний рядок заголовка, тож кнопки вікна не закривають панель."
+            "value": "Де розташована панель вкладок кожної панелі. Унизу панелі сягають верхнього краю вікна; кнопки вікна не закривають панель."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vị trí thanh tab của mỗi ngăn. Khi ở dưới, thanh tiêu đề chuẩn cũng hiện ra, nên các nút cửa sổ không bao giờ che một ngăn."
+            "value": "Vị trí thanh tab của mỗi ngăn. Khi ở dưới, các ngăn chạm tới mép trên cửa sổ; các nút cửa sổ không bao giờ che một ngăn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "每个窗格的标签栏位置。放在底部时还会显示标准标题栏，窗口按钮不会遮住窗格。"
+            "value": "每个窗格的标签栏位置。放在底部时，窗格延伸到窗口顶部；窗口按钮不会遮住窗格。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "每個窗格的標籤列位置。放在底部時也會顯示標準標題列，視窗按鈕不會遮住窗格。"
+            "value": "每個窗格的標籤列位置。放在底部時，窗格延伸到視窗頂端；視窗按鈕不會遮住窗格。"
           }
         }
       }

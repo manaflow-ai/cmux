@@ -81,6 +81,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             toolbarBand.showSidebarState(hidden: sidebarHidden)
             collapsedBand.setSidebarHidden(sidebarHidden)
             applyTitlebarButtonsMode()
+            // With tab bars at the bottom the card's top follows who holds the lights (`mainPaneTopInset`).
+            if sidebarHidden != oldValue { needsLayout = true }
         }
     }
     /// Opens the collapsed band while the top-left corner is hovered.
@@ -174,7 +176,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
-                                           DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0] }) {
+                                           DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
+                                           DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
                 self?.applyTokens()
                 self?.applyTitlebarButtonsMode()
             }
