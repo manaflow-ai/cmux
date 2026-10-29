@@ -2867,7 +2867,7 @@
         },
         {
           "id": "macScreen.open",
-          "title": "New Mac Screen Tab",
+          "title": "Screen Sharing",
           "shortcut": null,
           "command": "cmux tab new-mac-screen"
         },
