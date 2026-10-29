@@ -256,6 +256,19 @@ final class ScriptedChiefMac: @unchecked Sendable {
         if case .refused = session.engineProblem {} else { Issue.record("expected a refusal, got \(String(describing: session.engineProblem))") }
     }
 
+    @Test func tryAgainWithoutAnOriginalMessageSendsNothing() async throws {
+        let mac = ScriptedChiefMac([(true, ScriptedChiefMac.report)])
+        let session = try await session(mac, preferences: ChiefPreferences(defaults: defaults()), macID: "mac-1")
+        try await waitUntil("Chief to connect") { session.isConnected }
+        mac.daemon.queueChiefMessage(gatewayOutage)
+        _ = try await session.backend.history(beforeSeq: nil, limit: 50)
+        try await waitUntil("failed turn") { session.lastTurnFailure != nil }
+        session.retryFailedTurn()
+        #expect(session.store.messages.allSatisfy { $0.senderID != session.store.meID })
+        #expect(mac.daemon.ops.allSatisfy { $0["kind"] as? String != "message.send" })
+        if case .failure? = session.barItem {} else { Issue.record("Retry was consumed without sending") }
+    }
+
     @Test(arguments: ["text", "photo", "photo-only", "file", "file-only"])
     func tryAgainSendsTheMessageTheFailedTurnAnswered(kind: String) async throws {
         let mac = ScriptedChiefMac([(true, ScriptedChiefMac.report)])
