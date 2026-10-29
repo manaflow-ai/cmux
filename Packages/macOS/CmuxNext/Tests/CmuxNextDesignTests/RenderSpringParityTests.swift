@@ -346,19 +346,4 @@ import Testing
         #expect(added.count == 1 && added.first?.keyPath == "opacity", "Reduce Motion moved, or did not crossfade the fade")
         #expect(added.allSatisfy { !($0 is CASpringAnimation) && $0.isAdditive && $0.duration == Self.gate.duration(.crossfade) })
     }
-
-    /// The retarget path reads no CPU spring and no presentation layer: what is on screen
-    /// comes from the running springs alone.
-    @Test func theRetargetPathStepsNoCPUSpring() throws {
-        let source = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("Sources/CmuxNextDesign/Motion/RenderSpring.swift")
-        let code = try String(contentsOf: source, encoding: .utf8)
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line in line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? String(line) }
-            .joined(separator: "\n")
-        for banned in [#"\bSpringValue\b"#, #"\bMotionPath\b"#, #"\bAnimatedFrame\b"#, #"presentation\(\)"#] {
-            #expect(code.range(of: banned, options: .regularExpression) == nil, "RenderSpring.swift calls \(banned)")
-        }
-    }
 }

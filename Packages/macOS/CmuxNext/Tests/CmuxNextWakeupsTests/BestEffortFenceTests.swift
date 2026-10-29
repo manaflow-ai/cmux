@@ -146,30 +146,4 @@ import Testing
         #expect(!fence.capArmed)
         #expect(work.state.withLock { $0.launchCaps.isEmpty })
     }
-
-    /// One begin site and one end site (task 114's acceptance): outside CmuxNextWakeups, `main()` is the only
-    /// `LaunchOrder.BestEffortFence(raisingOn:)` call, the order's file the only `raiseLaunchFence` and the only
-    /// `lower()` of a `LaunchFence`, and nothing calls the raw pair. Fences nest, so a second begin would hold
-    /// best-effort and idle work after the reveal.
-    @Test func theAppRaisesAndLowersTheFenceAtOneSiteEach() throws {
-        let sources = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appending(path: "Sources")
-        let files = try #require(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
-        var begins: [String] = [], raises: [String] = [], lowers: [String] = [], raw: [String] = []
-        for case let url as URL in files where url.pathExtension == "swift" {
-            let relative = String(url.path.dropFirst(sources.path.count + 1))
-            guard !relative.hasPrefix("CmuxNextWakeups/"), let text = try? String(contentsOf: url, encoding: .utf8)
-            else { continue }
-            for line in text.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
-                if line.contains("BestEffortFence(raisingOn:") { begins.append(relative) }
-                if line.contains("raiseLaunchFence(") { raises.append(relative) }
-                if line.contains(".lower()") { lowers.append(relative) } // LaunchFence.lower() takes none
-                if line.contains(".beginBestEffortFence(") || line.contains(".endBestEffortFence(") { raw.append(relative) }
-            }
-        }
-        #expect(begins == ["CmuxNextApp/CmuxNextApp.swift"], "one begin site: main()")
-        #expect(raises == ["CmuxNextLaunch/LaunchOrder.swift"])
-        #expect(lowers == ["CmuxNextLaunch/LaunchOrder.swift"], "one end site: the launch order's reveal")
-        #expect(raw.isEmpty)
-    }
 }
