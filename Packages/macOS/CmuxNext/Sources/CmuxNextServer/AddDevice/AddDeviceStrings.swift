@@ -68,6 +68,7 @@ public nonisolated struct AddDeviceStrings {
         case .copyJoinLine: copied ? s("addDevice.copied", "Copied") : s("addDevice.copyLine", "Copy Line")
         case .makeJoinLine: s("addDevice.joinLine.makeLine", "Make Line")
         case .newJoinLine: s("addDevice.joinLine.newLine", "New Line")
+        case .showMachines: s("addDevice.joinLine.showMachines", "Show in Machines")
         case .done: s("addDevice.done", "Done")
         case .cancel: s("addDevice.cancel", "Cancel")
         }

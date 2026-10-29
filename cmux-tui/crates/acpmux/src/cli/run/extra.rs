@@ -453,8 +453,29 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
-        Command::Config { show_token } => {
+        Command::Config { show_token, set } => {
             let path = Config::path();
+            if let Some(assignment) = set {
+                let (key, value) =
+                    assignment.split_once('=').ok_or_else(|| anyhow!("--set expects KEY=VALUE"))?;
+                let mut cfg = Config::load()?;
+                cfg.set_session_resource(key, value)?;
+                cfg.save()?;
+                // Refresh the local daemon's cached config before reporting success;
+                // a later defaults/token save must retain these resource settings.
+                // Config is local even when the CLI targets a remote peer.
+                if let Ok(client) =
+                    crate::client::Client::connect(&crate::config::socket_path()).await
+                {
+                    client.request(method::MUX_RELOAD_CONFIG, json!({})).await?;
+                }
+                if json_out {
+                    print_json(&json!({"path": path, "key": key, "value": value}));
+                } else {
+                    println!("set {key}={value} in {}", path.display());
+                }
+                return Ok(());
+            }
             if json_out {
                 let (written, config) = match std::fs::read_to_string(&path) {
                     Ok(s) => (true, serde_json::from_str::<Value>(&s).unwrap_or(Value::String(s))),

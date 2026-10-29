@@ -219,6 +219,7 @@ impl Hub {
                     interrupt_turn: opts.interrupt.then(|| turn_id.to_owned()),
                     provenance: opts.provenance,
                     agent: opts.agent,
+                    class: opts.class,
                     // Queued under its key, so a later correction still replaces it.
                     supersede: opts.supersede,
                     display_parts: opts.display_parts,

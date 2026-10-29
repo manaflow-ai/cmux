@@ -288,6 +288,8 @@ impl Hub {
         }
         // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        // What it asks of this chat: another agent's only, `result` when it named none.
+        let class = crate::prompt_class::of_message(opts.class, agent.is_some());
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
@@ -314,6 +316,7 @@ impl Hub {
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
+            class,
             supersede: supersede.as_deref(),
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
