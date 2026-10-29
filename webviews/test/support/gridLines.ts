@@ -72,7 +72,14 @@ export function measureGridLines(scene: GridScene): GridResult[] {
         ].filter(visible);
         if (marked.length) return marked;
       }
-      return (selector === ":scope" ? [root] : [...within.querySelectorAll(selector)]).filter(visible);
+      return (
+        selector === ":scope"
+          ? [root]
+          : [
+              ...(within instanceof Element && within.matches(selector) ? [within] : []),
+              ...within.querySelectorAll(selector),
+            ]
+      ).filter(visible);
     };
     const select = (selector: string, role?: string, scope?: GridPoint["scope"]) => {
       const el = matches({ selector, role, scope })[0];
