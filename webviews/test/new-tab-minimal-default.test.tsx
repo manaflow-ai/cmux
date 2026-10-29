@@ -192,8 +192,38 @@ test("the toggle draws a useful headline: what to work on, with the project as a
   // No project yet: the question, and Choose project under it.
   root = await render("minimal", ["greeting"]);
   try {
-    expect(parts().headline).toBe("What should we work on?");
+    expect(parts().headline).toBe("What should we work on on This Mac?");
+    expect(host.querySelector<HTMLButtonElement>('.nt-headline-text button[aria-label="Computer: This Mac"]')).not.toBeNull();
     expect(host.querySelector(".nt-headline-choose .acpmux-project-button")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a missing machine name still exposes the live headline machine picker", async () => {
+  const snapshot = noChat([]);
+  snapshot.peers = ["devbox"];
+  snapshot.peerKinds = { devbox: "ssh" };
+  const asked: unknown[][] = [];
+  const root = await render("minimal", ["greeting"], undefined, { snapshot, onAsk: (...args) => asked.push(args) });
+  try {
+    const machine = host.querySelector<HTMLButtonElement>('.nt-headline-text button[aria-label="Computer: This Mac"]');
+    expect(machine).not.toBeNull();
+    await act(async () => machine!.click());
+    const row = [...window.document.querySelectorAll<HTMLElement>("[role=option]")].find((candidate) =>
+      candidate.textContent?.includes("devbox"),
+    );
+    expect(row).not.toBeNull();
+    await act(async () => row!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true })));
+    expect(parts().headline).toBe("What should we work on on devbox?");
+    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+    await act(async () => {
+      setValue.call(field, "use devbox");
+      field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Send"]')!.click());
+    expect(asked[0]?.[6]).toEqual({ peer: "devbox" });
   } finally {
     await act(async () => root.unmount());
   }

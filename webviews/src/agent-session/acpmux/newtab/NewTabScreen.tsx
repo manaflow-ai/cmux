@@ -619,7 +619,9 @@ export function NewTabScreen(props: Props) {
     (headlineMachineIsLive ? headlineMachines.find((machine) => machine.id === headlineMachineSelection) : undefined) ??
     headlineMachines[0]!;
   const headlineMachineId = headlineMachine.id;
-  const machineHeadlineEnabled = widgets.has("greeting") && props.machineName !== undefined;
+  // The handshake may omit a display name on older hosts; the local row still has a stable
+  // localized label, and the headline picker must remain usable in that case.
+  const machineHeadlineEnabled = widgets.has("greeting");
   const headlineProjects = useMemo(() => {
     if (headlineMachineId === "local") return props.projects ?? [];
     const byPath = new Map<string, Project>();
