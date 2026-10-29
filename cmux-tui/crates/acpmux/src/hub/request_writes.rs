@@ -49,6 +49,7 @@
 //! - a prompt's cancelled decision after `session/cancel` sent as a request, or `_acpmux/kill`
 //!   (`cancel_pending_permissions`);
 //! - a secret's answer (`submit_secret`, `secrets.rs`): the waiting task records it.
+//!
 //! Known gaps where the work is another task's, past the answer:
 //! - an agent message held between a paused pair on the `send_message` path: the hold is
 //!   recorded on the spawned prompt task (`subsessions.rs`), after the request answered;
