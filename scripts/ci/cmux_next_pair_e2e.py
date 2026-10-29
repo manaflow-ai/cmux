@@ -239,8 +239,20 @@ def main():
         pairing_logs = f'processID == {app.pid} AND subsystem == "com.cmuxterm.app.next" AND category BEGINSWITH "app.iphone"'
         streams.append(mac_log := Stream(["/usr/bin/log", "stream", "--level", "info", "--style", "compact",
                                           "--predicate", pairing_logs], os.path.join(a.out, "mac-pairing.log")))
-        # Signed in, hostd online, iPhone connections on: the page shows the code.
-        qr = (wait_for(lambda: status().get("qr"), 300 if expects_code else 60, every=2) or {})
+        # Signed in, hostd online, iPhone connections on: the page shows the code. A page still
+        # without one at 60 s is sampled once (where the app waits), then the wait goes on.
+        qr = (wait_for(lambda: status().get("qr"), 60, every=2) or {})
+        if not qr and expects_code:
+            try:  # evidence only: a failure here never replaces the run's own verdict
+                why = preparing_evidence(app, a.out)
+            except Exception as error:  # noqa: BLE001
+                why = f"no evidence ({type(error).__name__}: {redact(str(error))[:200]})"
+            try:
+                note(f"- Mac pairing page: still {last.get('state') or 'without a status'} at "
+                     f"{time.monotonic() - t0:.0f} s; {why}")
+            except OSError:
+                pass
+            qr = (wait_for(lambda: status().get("qr"), 240, every=2) or {})
         url = qr.get("url")
         note(f"- Mac pairing page: state {last.get('state')}, Mac {last.get('macName')!r}, "
              f"{'code ' + redact(url) if url else 'NO pairing code (FAIL: this ref shows one)' if expects_code else 'NO pairing code (a ref without it: pairing skipped)'} "
@@ -389,22 +401,75 @@ def forget_keychain(bundle):
                 break
 
 
+def run_bounded(argv, timeout):
+    """An evidence read: its output and errors, or why it gave none; never raises, never waits past `timeout`."""
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout,
+                           stdin=subprocess.DEVNULL)
+        return r.stdout + r.stderr
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return f"{argv[0]}: {error}\n"
+
+
+def save_redacted(out, name, text, lines=400):
+    """The last `lines` lines of `text`, token redacted, as `out/name`; returns `name`."""
+    with open(os.path.join(out, name), "w") as f:
+        f.writelines(redact(line) for line in text.splitlines(keepends=True)[-lines:])
+    return name
+
+
+def preparing_evidence(app, out):
+    """Why the pairing page stays "preparing" (steps 59c5f9eb, c9c9b027, 2026-10-28: a SecurityAgent
+    prompt in the console session 2 s after launch, hostd never started, no code in 302 s): which
+    thread waits in a Keychain or Authorization call, and from which frame. A 3 s `sample` of the app
+    and of its cmux-mobile-host and helper children (at most 4), the Security framework's and
+    SecurityAgent's unified log and the app's own subsystem for the last 3 minutes, and the Keychain
+    search list and default keychain (preference reads, no keychain is opened). Each read is bounded
+    and best effort; tokens are redacted. Returns the summary's words."""
+    files, waits = [], []
+    rows = run_bounded(["/bin/ps", "-A", "-o", "pid=,ppid=,comm="], 10).splitlines()
+    kids, agents = [], []
+    for row in rows:
+        parts = row.split(None, 2)
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            pid, ppid, comm = int(parts[0]), int(parts[1]), parts[2]
+            name = os.path.basename(comm)
+            if name == "cmux-mobile-host" or (ppid == app.pid and pid != app.pid):
+                kids.append((name != "cmux-mobile-host", pid, name))
+            if name == "SecurityAgent":
+                agents.append(pid)
+    for _, pid, name in [(False, app.pid, "app")] + sorted(kids)[:4]:
+        text = run_bounded(["/usr/bin/sample", str(pid), "3"], 60)
+        files.append(save_redacted(out, f"preparing-sample-{re.sub(r'[^A-Za-z0-9.-]', '_', name)}-{pid}.txt", text, 3000))
+        hits = sorted({m.group(1) for m in re.finditer(
+            r"\b(SecItem\w+|SecKeychain\w+|SecTrust\w+|Authorization\w+|SecAccess\w+|LAContext\w*|"
+            r"evaluatePolicy\w*|MobileHostMacIdentityStore\.\w+|MobileHostPairingSeal\.\w+|"
+            r"KeychainStackTokenStore\.\w+|DeviceKeychain\.\w+)", text)})
+        if hits:
+            waits.append(f"{name} {pid}: {', '.join(hits[:8])}")
+    files.append(save_redacted(out, "preparing-security.log", run_bounded(
+        ["/usr/bin/log", "show", "--last", "3m", "--info", "--style", "compact", "--predicate",
+         'subsystem == "com.apple.securityd" OR process == "SecurityAgent" OR process == "authd" '
+         'OR process == "securityd" OR (processID == %d AND subsystem == "com.apple.securityd")' % app.pid], 90), 1500))
+    files.append(save_redacted(out, "preparing-app.log", run_bounded(
+        ["/usr/bin/log", "show", "--last", "3m", "--info", "--style", "compact", "--predicate",
+         f'processID == {app.pid} AND subsystem == "com.cmuxterm.app.next"'], 90), 1500))
+    keychains = (run_bounded(["/usr/bin/security", "list-keychains", "-d", "user"], 10) +
+                 run_bounded(["/usr/bin/security", "default-keychain", "-d", "user"], 10))
+    files.append(save_redacted(out, "preparing-keychains.txt", keychains, 40))
+    return (f"SecurityAgent pids {agents or 'none'}; Keychain/Authorization frames: "
+            f"{'; '.join(waits) or 'none in the samples'}; {', '.join(files)}")
+
+
 def no_answer_evidence(app, ls_env, tag, sock, out):
     """Why the Mac app did not answer (step 42cdc9d7, 2026-10-27: alive, silent for 180 s, only an
     NSXPCSharedListener 'ClientCallsAuxiliary' line on stderr): the session it runs in, where its main
     thread waits (`sample`), its own unified log and the tail of its debug log, before the teardown
     ends it. Each read is bounded and best effort; tokens are redacted. Returns the summary's words."""
-    def run(argv, timeout):
-        try:
-            r = subprocess.run(argv, capture_output=True, text=True, errors="replace", timeout=timeout)
-            return r.stdout + r.stderr
-        except (OSError, subprocess.TimeoutExpired) as error:
-            return f"{argv[0]}: {error}\n"
+    run = run_bounded
 
     def save(name, text, lines=400):
-        with open(os.path.join(out, name), "w") as f:
-            f.writelines(redact(line) for line in text.splitlines(keepends=True)[-lines:])
-        return name
+        return save_redacted(out, name, text, lines)
 
     try:  # the worker's rule (build-fleet console_session.go): loginwindow or no key is nobody
         scutil = subprocess.run(["/usr/sbin/scutil"], input="show State:/Users/ConsoleUser\n",
