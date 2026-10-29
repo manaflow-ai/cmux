@@ -18,9 +18,11 @@ use crate::cli::sender::FROM_ENV;
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
+use tokio::time::Instant;
+use wait_timeout::ChildExt;
 
 /// `sendRelay`: the relay command's argv; the CLI appends the session and `-`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -101,6 +103,20 @@ pub(crate) fn relay(
     from: Option<&str>,
     capture: bool,
 ) -> Result<Relayed> {
+    relay_with_deadline(relay, session, text, from, capture, None)
+}
+
+/// Run a relay while respecting the caller's absolute deadline. The child is
+/// put in its own process group so expiry can only terminate this command and
+/// any descendants it started.
+pub(crate) fn relay_with_deadline(
+    relay: &SendRelay,
+    session: &str,
+    text: &str,
+    from: Option<&str>,
+    capture: bool,
+    deadline: Option<Instant>,
+) -> Result<Relayed> {
     let (program, args) =
         relay.argv.split_first().ok_or_else(|| anyhow!("sendRelay has no argv"))?;
     let mut cmd = Command::new(program);
@@ -110,6 +126,8 @@ pub(crate) fn relay(
         .stdin(Stdio::piped())
         .stdout(if capture { Stdio::piped() } else { Stdio::inherit() })
         .stderr(Stdio::inherit());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     match from {
         Some(from) => cmd.env(FROM_ENV, from),
         None => cmd.env_remove(FROM_ENV),
@@ -117,12 +135,48 @@ pub(crate) fn relay(
     let mut child =
         cmd.spawn().with_context(|| format!("cannot run the send relay {program:?}"))?;
     let mut stdin = child.stdin.take().ok_or_else(|| anyhow!("the send relay has no stdin"))?;
+    let mut stdout = child.stdout.take();
     // Written beside the wait, so a relay that answers before reading it all never blocks us.
     let body = text.as_bytes().to_owned();
     let writer = std::thread::spawn(move || stdin.write_all(&body));
-    let out = child.wait_with_output().context("the send relay")?;
+    let reader = stdout.take().map(|mut stdout| {
+        std::thread::spawn(move || {
+            let mut output = Vec::new();
+            let result = stdout.read_to_end(&mut output);
+            (result, output)
+        })
+    });
+    let status = match deadline {
+        Some(deadline) => {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            match child.wait_timeout(remaining).context("the send relay")? {
+                Some(status) => status,
+                None => {
+                    terminate_child(&mut child);
+                    // Do not let a relay that deliberately keeps an inherited
+                    // pipe open extend the caller's deadline. The child group
+                    // is gone; helper threads are detached on this error path.
+                    return Err(AppError::timeout(format!(
+                        "the send relay for {session:?} exceeded its caller deadline"
+                    ))
+                    .into());
+                }
+            }
+        }
+        None => child.wait().context("the send relay")?,
+    };
     let written = writer.join().unwrap_or_else(|_| Err(std::io::Error::other("writer panicked")));
-    let status = out.status.code().unwrap_or(1);
+    let output = match reader {
+        Some(reader) => {
+            let (result, output) = reader
+                .join()
+                .unwrap_or_else(|_| (Err(std::io::Error::other("reader panicked")), Vec::new()));
+            result.context("reading the send relay")?;
+            output
+        }
+        None => Vec::new(),
+    };
+    let status = status.code().unwrap_or(1);
     // A relay that stopped reading and still said yes was not handed the whole message; its own
     // refusal stays its status.
     if status == 0
@@ -132,8 +186,19 @@ pub(crate) fn relay(
     }
     Ok(Relayed {
         status,
-        output: capture.then(|| String::from_utf8_lossy(&out.stdout).trim_end().to_owned()),
+        output: capture.then(|| String::from_utf8_lossy(&output).trim_end().to_owned()),
     })
+}
+
+fn terminate_child(child: &mut Child) {
+    #[cfg(unix)]
+    if let Ok(pid) = i32::try_from(child.id()) {
+        // The group was created by this command, so this cannot target an
+        // unrelated process discovered by name.
+        unsafe { libc::kill(-pid, libc::SIGKILL) };
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// `acpmux send` to a target nobody here resolves, with a relay configured: run it, print what
@@ -146,6 +211,18 @@ pub(crate) fn send(
     attachments: bool,
     json_out: bool,
 ) -> Result<()> {
+    send_with_deadline(config, session, text, from, attachments, json_out, None)
+}
+
+pub(crate) fn send_with_deadline(
+    config: &SendRelay,
+    session: &str,
+    text: &str,
+    from: Option<&str>,
+    attachments: bool,
+    json_out: bool,
+    deadline: Option<Instant>,
+) -> Result<()> {
     if attachments {
         return Err(AppError::usage(format!(
             "no session {session:?} here or on a peer, and the send relay carries text only: send it without --attach"
@@ -155,7 +232,7 @@ pub(crate) fn send(
     if !json_out {
         eprintln!("acpmux: no session {session:?} here or on a peer; handing it to the send relay");
     }
-    let done = relay(config, session, text, from, json_out)?;
+    let done = relay_with_deadline(config, session, text, from, json_out, deadline)?;
     if json_out {
         print_json(&json!({
             "target": session,
