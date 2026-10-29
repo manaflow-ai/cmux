@@ -257,7 +257,7 @@ test("a recording that finishes in another chat never attaches, splices or auto-
     ["chat-a", true],
     ["", true],
   ] as const) {
-    let shown = origin;
+    let shown: string = origin;
     const pane = await mount(true, () => shown || undefined);
     await act(async () => deliverDictation({ state: "starting", text: "", level: 0, cancelled: false }));
     shown = "chat-b";
