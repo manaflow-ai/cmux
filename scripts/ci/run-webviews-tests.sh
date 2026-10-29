@@ -31,6 +31,8 @@
 # is listed as passing alone. CMUX_WEB_TEST_RETRIES=0 turns these retries off too.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
+# CMUX_WEB_TEST_BROWSER_JOBS: plain files that drive a real browser at once (default a quarter of the
+# jobs); they run beside the other plain files, which take the rest of the jobs.
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
 # of every file, for focused runs (scripts/ci/car_guards.py). A name the file list does not hold
 # is an error, so a stale selection never passes by running nothing.
@@ -325,11 +327,51 @@ fi
 # 8-core runner was CPU bound (no faster per file) and frame-budget plays (instructions-notice)
 # and attach timing (agent-pane-seen) failed.
 dev_jobs="${CMUX_WEB_TEST_DEV_JOBS:-$((jobs > 3 ? jobs / 4 : 1))}"
+# The plain files that drive a real browser (they import playwright or wait on requireBrowserLane)
+# run in a pool of their own, CMUX_WEB_TEST_BROWSER_JOBS wide (default a quarter of the jobs, as
+# for the dev server files, which run a browser too), beside the other plain files on the rest of
+# the jobs. Started 32 at once with the jsdom files, the longest-first order put 29 browser files
+# (each launching Chromium and WebKit) on one 32 vCPU shard together: eight timed out at 120 s and
+# frame-timing plays read 71 ms frames and one painted frame of three (agent-pane-wheel-glide), and
+# every one of them passed when the base replay ran it alone (react-apps-check 1/4, job
+# 123385326827, against react-apps-base-check job 123394574731). The first-run failures then ate
+# the retry budget, so a later failed file's retry got 3 s. At one job (the base replay) the two
+# pools run one after the other, so nothing runs beside anything.
+browser_files='from "playwright"|import\("playwright"\)|requireBrowserLane\('
+browser_jobs="${CMUX_WEB_TEST_BROWSER_JOBS:-$((jobs > 3 ? jobs / 4 : 1))}"
+[[ "$browser_jobs" =~ ^[1-9][0-9]*$ ]] || browser_jobs=1
+if [ "$browser_jobs" -gt "$jobs" ]; then browser_jobs="$jobs"; fi
+plain_jobs=$((jobs - browser_jobs))
+# Both lists keep the parallel list's order (longest first with durations): grep prints in input order.
+: > "$results/browser"
+: > "$results/plain"
+if [ -s "$results/parallel" ]; then
+  xargs -0 grep -lE --null -- "$browser_files" < "$results/parallel" > "$results/browser" || true
+  xargs -0 grep -LE --null -- "$browser_files" < "$results/parallel" > "$results/plain" || true
+fi
+browser="$(tr -cd '\0' < "$results/browser" | wc -c | tr -d ' ')"
 shard_note=""
 if [ -n "$shard" ]; then shard_note=", shard $shard/$shard_count"; fi
-echo "running $count webviews test files${shard_note}, $jobs at a time ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
+if [ "$plain_jobs" -ge 1 ]; then pool_note="$plain_jobs at a time, beside $browser browser files $browser_jobs at a time"
+else pool_note="$jobs at a time, then $browser browser files $browser_jobs at a time"; fi
+echo "running $count webviews test files${shard_note}, $pool_note ($serial dev server files after, $dev_jobs at a time), ${timeout_seconds}s each"
 : > "$results/summary"
-xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/parallel"
+if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
+  xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser" &
+  browser_pool=$!
+  # A failed plain pool still waits for the browser pool, so no worker outlives the results directory.
+  plain_status=0
+  xargs -0 -P "$plain_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain" || plain_status=$?
+  wait "$browser_pool"
+  [ "$plain_status" -eq 0 ] || exit "$plain_status"
+else
+  if [ -s "$results/plain" ]; then
+    xargs -0 -P "$jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/plain"
+  fi
+  if [ -s "$results/browser" ]; then
+    xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"
+  fi
+fi
 
 # vite_config FILE: the Vite config whose dependency cache FILE's dev server fills.
 vite_config() {

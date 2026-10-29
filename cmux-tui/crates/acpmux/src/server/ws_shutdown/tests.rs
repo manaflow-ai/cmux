@@ -21,6 +21,10 @@ async fn restart_drains_peer_web_and_redeeming_ticket_clients_with_1012() {
         std::fs::read_to_string(crate::server::peer_auth::token_path(dir.path())).unwrap();
     let listener = bind_ws("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    // A process another test spawns holds a copy of this socket from its clone until its exec.
+    // Hold one throughout, so admission must close even while such a copy is open.
+    #[cfg(target_os = "linux")]
+    let _inherited = std::os::fd::AsFd::as_fd(&listener).try_clone_to_owned().unwrap();
     let shutdown = WsShutdown::default();
     let serving = tokio::spawn(serve_ws_until(
         hub.clone(),
