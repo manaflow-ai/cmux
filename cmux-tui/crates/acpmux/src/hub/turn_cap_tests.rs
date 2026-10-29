@@ -401,3 +401,22 @@ async fn a_notice_whose_turn_ends_on_its_way_never_reaches_the_next_turn() {
     f.open("g2").await;
     tokio::time::timeout(WAIT, second).await.unwrap().unwrap().unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_notice_the_log_holds_is_not_sent_again_when_its_marker_is_lost() {
+    let mut f = fixture().await;
+    let cap = 600_000;
+    f.hub.set_turn_cap(&f.session, Some(cap));
+    let turn = f.gated_turn("g").await;
+    let turn_id = f.session.turn().unwrap().turn_id;
+    f.age_turn(cap);
+    let (_, _a) = f.send("from lane a", Some("lane-a"), true, false).await;
+    f.heard(&format!("steer: {}", notice_text(cap))).await;
+    // The meta save of its marker was lost (a crash before it reached the disk).
+    f.session.meta.lock().unwrap().turn_cap_noticed = None;
+    let (_, _b) = f.send("from lane b", Some("lane-b"), true, false).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(f.notices(), [turn_id], "the log's notice stands; none is sent again");
+    f.open("g").await;
+    tokio::time::timeout(WAIT, turn).await.unwrap().unwrap().unwrap();
+}

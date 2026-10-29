@@ -108,6 +108,14 @@ impl Hub {
         true
     }
 
+    /// Sends the notice when the running turn is past its cap: an agent message was just queued
+    /// behind it ([`Hub::turn_cap_notice`] sends one per turn).
+    pub(super) fn turn_cap_recheck(self: &Arc<Self>, session: &Arc<Session>) {
+        if let Some((turn_id, cap)) = capped_turn(session, now_ms()) {
+            self.turn_cap_notice(session, &turn_id, cap);
+        }
+    }
+
     /// Arms the cap's timer for turn `turn_id`, which starts now (module docs).
     pub(super) fn arm_turn_cap(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
         let mut timer = session.turn_cap_timer.lock().unwrap_or_else(|e| e.into_inner());
@@ -159,6 +167,9 @@ impl Hub {
         self.save_meta(session);
         let opts = PromptOptions {
             prompt_id: Some(format!("turn-cap-{turn_id}")),
+            // One the log holds already (sent before a restart whose meta save was lost) is
+            // answered from the log, never sent again (`prompt_ledger.rs` `logged_prompt`).
+            resend: true,
             // Into this turn or nowhere: a turn that ended meanwhile needs no notice.
             steer_only: true,
             provenance: Some(json!({"kind": NOTICE_KIND, "turnId": turn_id, "capMs": cap})),

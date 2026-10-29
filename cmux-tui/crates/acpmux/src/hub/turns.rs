@@ -259,12 +259,21 @@ impl Hub {
         // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
+        // Another agent's message queued as the running turn crosses its cap still gets the
+        // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
+        let from_agent =
+            super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
+                && !opts.send_now;
         let mut accept = |mut v: Value| {
             if let Some(f) = on_accepted.take() {
                 if supersede.is_some() {
                     super::queue::supersede::mark(&mut v, replaced.get());
                 }
+                let queued = v.get("queued") == Some(&Value::Bool(true));
                 f(v);
+                if queued && from_agent {
+                    self.turn_cap_recheck(session);
+                }
             }
         };
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
