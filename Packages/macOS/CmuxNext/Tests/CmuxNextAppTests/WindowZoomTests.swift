@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextWakeupsTestSupport
 import struct CmuxNextDaemon.CellSize

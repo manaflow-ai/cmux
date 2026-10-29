@@ -5,7 +5,6 @@ import CmuxNextCrashReporting
 import Foundation
 import os
 import CmuxNextCompatAppKit
-import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextLaunch

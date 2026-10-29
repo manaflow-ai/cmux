@@ -81,8 +81,8 @@ final class IncognitoWorkspaceLedger {
     nonisolated private static func read(_ url: URL) -> Leftovers {
         let data: Data
         do {
-            // concurrency-allow: called only from the launch read and record's write, on the files lane
-            data = try Data(contentsOf: url)
+            // Called only from the launch read and record's write, on the files lane.
+            data = try Data(blockingContentsOf: url)
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
             return .noFile
         } catch {

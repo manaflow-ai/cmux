@@ -843,6 +843,12 @@
       "row": "blocking_allow_escapes",
       "allow": 1,
       "why": "Trunk sync (cp/sync-trunk-20261028a, lead decision 1 of fundamentals-perf.md): feat-cmux-next's own lines, unchanged, that merge origin/feat-cmux-next be569953fca brings into perf/chrome-parity. feat-cmux-next landed them under its own ratchet; perf's ratchet first counts them here, because a push that merges this branch's own upstream counts the trunk side again (arch-ratchet own_pair). Judged against the branch's pushed head a29537e2d0b the push adds no site (arch-ratchet.py --base a29537e2d0b: no count rises). Sites: IPhoneHostService's allowBlocking(.terminate) flush of the paired-devices file and SingleInstanceGuard's // blocking-allow: in main before NSApp exists: two trunk sites, one beyond what the earlier exceptions cover."
+    },
+    {
+      "date": "2026-10-29",
+      "row": "assume_isolated_outside_adapters",
+      "allow": 2,
+      "why": "Trunk sync (cp/sync-trunk-20261029a, replaces cp/sync-trunk-20261028a): no new site. MainQueueObservation.swift:17 is perf/chrome-parity's own seam, unchanged by the merge (7eb211cdf65 has the same line); MobileKeyboardFrameTracker.swift:72 is the one queue: .main observer block both sides already had (trunk 9b7d6d9f93c and perf 7eb211cdf65 each have it), its body merged to trunk's record(change:endFrame:) inside perf's lock-held token list. The ratchet counts them only because the merge brings the other side's file in. They move to a @MainActor observation when their owners rewrite those observers."
     }
   ],
   "observer_wrappers": [
