@@ -221,6 +221,8 @@ struct Viewer {
     after_cut: Vec<u8>,
     size_state_generation: Option<u64>,
     last_size_state: Option<(u16, u16)>,
+    /// The generation of the size state the attach reply named, until the first `size-state` event.
+    size_state_from_reply: Option<u64>,
     /// READY grids and `size-state` grids since the last settle.
     window_readies: Vec<(u16, u16)>,
     window_size_states: Vec<(u16, u16)>,
@@ -282,8 +284,11 @@ impl Viewer {
                 let generation = state["generation"].as_u64().unwrap_or_default();
                 let grid = grid_of(state).unwrap_or_default();
                 self.note(format!("size-state g{generation} {}x{}", grid.0, grid.1));
+                // The stream's event of the change the attach itself made may carry the generation
+                // the attach reply already named; any later one must be newer.
+                let same_as_reply = self.size_state_from_reply.take() == Some(generation);
                 if let Some(previous) = self.size_state_generation
-                    && generation <= previous
+                    && (generation < previous || (generation == previous && !same_as_reply))
                 {
                     self.fail(format!(
                         "size-state generation went back: g{generation} after g{previous}"
@@ -639,6 +644,15 @@ impl Case {
             self.fail(&format!("attach-surface gave no lease: {reply}"))
         };
         self.live_resize = live_resize;
+        // The attach reply carries the terminal's size state for a `shared-sizing-v1` view
+        // (spec/commands.md: "`participant`/`size_state` in terminal `attach-surface` responses");
+        // the stream sends `size-state` only when the state changes, so a viewer that joins without
+        // changing it (not the smallest) gets none there. The reply's state is its starting state.
+        let Some(attached_state) = reply.get("size_state").filter(|state| !state.is_null()) else {
+            self.fail(&format!("attach-surface gave no size_state: {reply}"))
+        };
+        let attached_generation = attached_state["generation"].as_u64();
+        let attached_grid = grid_of(attached_state);
         self.viewers.push(Viewer {
             name,
             client,
@@ -651,8 +665,9 @@ impl Case {
             generation: 0,
             next_offset: 0,
             after_cut: Vec::new(),
-            size_state_generation: None,
-            last_size_state: None,
+            size_state_generation: attached_generation,
+            last_size_state: attached_grid,
+            size_state_from_reply: attached_generation,
             window_readies: Vec::new(),
             window_size_states: Vec::new(),
             burst_bytes: Vec::new(),
