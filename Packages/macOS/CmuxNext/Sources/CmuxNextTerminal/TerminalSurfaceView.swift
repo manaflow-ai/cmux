@@ -417,7 +417,6 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// (``reconcileShown()``).
     var isShown: Bool { windowNode.effective > .hidden }
 
-
     func observeWindow(_ observe: Bool) {
         guard observe != windowWatch.isWatching else { return }
         windowWatch.stop()

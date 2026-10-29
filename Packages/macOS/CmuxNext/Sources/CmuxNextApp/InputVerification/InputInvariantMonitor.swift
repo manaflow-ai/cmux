@@ -137,8 +137,8 @@ final class InputInvariantMonitor {
             return (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
                 // A pane whose presentation trails its selection (a launch hold, the one-surface-per-frame queue) is W9's.
                 guard !pane.isSuspended, let key = pane.currentTabKey, pane.stripModel.selectedID?.rawValue == key,
-                      let entry = services.cache.existingTerminal(key) else { return nil }
-                let onScreen = entry.session.view.window === window && !entry.session.view.isHiddenOrHasHiddenAncestor // visibility-walk-allow: a debug invariant reads AppKit's own state once per check, the ground truth the nodes must match
+                      let entry = services.cache.existingTerminal(key), entry.session.view.window === window else { return nil } // a view moving to another window is that window's
+                let onScreen = !entry.session.view.isHiddenOrHasHiddenAncestor // visibility-walk-allow: a debug invariant reads AppKit's own state once per check, the ground truth the nodes must match
                 // The owner's grid, from the IO's attach machine, only where the owner applies this view's grid and
                 // none of it waits to be sent or echoed: the same machine answers both, so no frame lies between them.
                 let owns = services.resizes.isIdle && !entry.io.awaitsEcho && entry.io.appliesViewGrid(reporting: false)
