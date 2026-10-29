@@ -1823,6 +1823,9 @@ def plan_lost_reruns(
                 and run.get("event") in ("push", "workflow_dispatch"):
             decisions.append(LostRerun(entry, "keep", "branch head not read", run))
             continue
+        if state == "unknown":  # not read (a pull request not resolved, a branch head not read): kept
+            decisions.append(LostRerun(entry, "keep", f"{why}; kept", run))
+            continue
         if state != "current":
             decisions.append(LostRerun(entry, "drop", f"not re-run: {why}", run))
             continue

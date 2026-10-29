@@ -3771,5 +3771,24 @@ class ReviewSixTests(unittest.TestCase):
         self.assertIn("unreadable answer", janitor.READS.hold())
 
 
+class ReviewSevenTests(unittest.TestCase):
+    """cmux#27114 review (6040666)."""
+
+    def test_an_unresolved_pull_request_keeps_the_obligation(self):
+        run = make_run(branch="feature", sha="aaa", status="completed")
+        run["conclusion"] = "cancelled"
+        decisions = janitor.plan_lost_reruns([pending_entry(run)], {run["id"]: run}, {"feature": []}, now=NOW,
+                                             head_runs={run["id"]: []})
+        self.assertEqual(decisions[0].action, "keep")
+
+    def test_malformed_dead_label_obligations_never_crash_and_are_kept(self):
+        run = make_run(branch="feature", sha="aaa", status="in_progress")
+        fake = FakeGitHub({run["id"]: dict(run)})
+        bad = [{"run_id": run["id"], "attempt": 1, "at": "x"}, {"run_id": run["id"], "attempt": True, "at": 0},
+               {"run_id": run["id"], "attempt": 1, "at": None}]
+        owed, results, _ = janitor.dead_labels.resume(fake, bad, now=10.0)
+        self.assertEqual(owed, bad)
+
+
 if __name__ == "__main__":
     unittest.main()

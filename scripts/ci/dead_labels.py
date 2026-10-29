@@ -582,7 +582,8 @@ def settle(github: Any, entry: Mapping[str, Any], *, now: float) -> tuple[bool, 
     """Act on one obligation: (cleared, what happened, failed). Cleared only on a confirmed outcome; any error or
     unread state keeps it. A rate limit is raised (the caller has the entry saved)."""
     run_id, attempt = entry.get("run_id"), entry.get("attempt")
-    if not isinstance(run_id, int) or isinstance(run_id, bool) or not isinstance(attempt, int):
+    if not isinstance(run_id, int) or isinstance(run_id, bool) or not isinstance(attempt, int) \
+            or isinstance(attempt, bool):
         return False, "an unreadable entry; kept for a person", True
     try:
         run = github.run(run_id)
@@ -591,12 +592,13 @@ def settle(github: Any, entry: Mapping[str, Any], *, now: float) -> tuple[bool, 
             raise
         return False, f"could not be read ({error}); kept", False
     seen = run.get("run_attempt")
-    if isinstance(seen, int) and seen > attempt:
+    if isinstance(seen, int) and not isinstance(seen, bool) and seen > attempt:
         return True, "re-run (a later attempt exists)", False
     if seen != attempt:
         return False, f"its attempt reads {seen!r}; kept", True
     if run.get("status") != "completed":
-        old = now - float(entry.get("at") or 0) > OBLIGATION_ALARM_S
+        at = entry.get("at")
+        old = isinstance(at, (int, float)) and not isinstance(at, bool) and now - float(at) > OBLIGATION_ALARM_S
         return False, ("cancelled long ago and still not finished; look at it by hand" if old
                        else "its cancel is still finishing; the next sweep re-runs it"), old
     conclusion = run.get("conclusion")
@@ -623,9 +625,13 @@ def resume(github: Any, obligations: Sequence[Mapping[str, Any]], *, now: float)
     for index, entry in enumerate(obligations):
         try:
             cleared, what, failed = settle(github, entry, now=now)
-        except RuntimeError:
-            owed.extend(dict(rest) for rest in obligations[index:])
-            raise
+        except RuntimeError as error:
+            if _rate_limited(error):
+                owed.extend(dict(rest) for rest in obligations[index:])
+                raise
+            cleared, what, failed = False, f"could not be settled ({error}); kept", True
+        except (TypeError, ValueError, KeyError, AttributeError) as error:  # a malformed entry: kept, never a crash
+            cleared, what, failed = False, f"malformed entry ({type(error).__name__}); kept for a person", True
         if not cleared:
             owed.append(dict(entry))
         if isinstance(entry.get("run_id"), int):
