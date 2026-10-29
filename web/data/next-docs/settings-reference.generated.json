@@ -533,7 +533,7 @@
           "title": "Fixed Column Width",
           "help": "A share of the window width, for Fixed Width new columns.",
           "kind": "number",
-          "default": 0.5,
+          "default": 0.6666666666666666,
           "group": "Columns",
           "range": {
             "min": 0.1,
@@ -644,7 +644,7 @@
           "title": "New Column Sizing",
           "help": "",
           "kind": "choice",
-          "default": "matchCurrent",
+          "default": "fixed",
           "group": "Columns",
           "values": [
             "matchCurrent",
