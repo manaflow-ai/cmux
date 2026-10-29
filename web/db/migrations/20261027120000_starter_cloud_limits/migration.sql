@@ -1,4 +1,4 @@
--- Starter keeps the historical go plan ID and allows one saved machine,
+-- Plus keeps the historical go plan ID and allows one saved machine,
 -- whether running or paused. Runtime remains metered, with no hour cap.
 -- Existing subscriptions retain their Stripe prices.
 CREATE OR REPLACE FUNCTION cmux_guard_go_vm_capacity() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -21,7 +21,7 @@ BEGIN
     OR OLD.user_id IS DISTINCT FROM NEW.user_id
     OR OLD.status NOT IN ('provisioning','running','paused')
   ) THEN
-    RAISE EXCEPTION 'Starter supports one saved VM in total' USING ERRCODE = '23514', CONSTRAINT = 'cmux_go_saved_limit';
+    RAISE EXCEPTION 'Plus supports one saved VM in total' USING ERRCODE = '23514', CONSTRAINT = 'cmux_go_saved_limit';
   END IF;
   IF NEW.status IN ('provisioning','running') AND active_count >= 1 AND (
     TG_OP = 'INSERT'
@@ -29,7 +29,7 @@ BEGIN
     OR OLD.user_id IS DISTINCT FROM NEW.user_id
     OR OLD.status NOT IN ('provisioning','running')
   ) THEN
-    RAISE EXCEPTION 'Starter supports one active VM' USING ERRCODE = '23514', CONSTRAINT = 'cmux_go_active_limit';
+    RAISE EXCEPTION 'Plus supports one active VM' USING ERRCODE = '23514', CONSTRAINT = 'cmux_go_active_limit';
   END IF;
   RETURN NEW;
 END;

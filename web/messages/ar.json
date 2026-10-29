@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: جهاز افتراضي محفوظ واحد إجمالاً، بما في ذلك الجهاز المتوقف مؤقتاً",
+      "savedMessage": "Plus: جهاز افتراضي محفوظ واحد إجمالاً، بما في ذلك الجهاز المتوقف مؤقتاً",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: جهاز افتراضي واحد في Cloud",
+      "activeMessage": "Plus: جهاز افتراضي واحد في Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: بلا حد شهري لساعات التشغيل",
+      "hoursMessage": "Plus: بلا حد شهري لساعات التشغيل",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Starter: لكل جهاز: 2 vCPU و4 GiB من RAM و16 GiB من القرص",
+      "shapeMessage": "Plus: لكل جهاز: 2 vCPU و4 GiB من RAM و16 GiB من القرص",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Starter",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -638,9 +638,9 @@
         "manage": "الإدارة في App Store"
       },
       "go": {
-        "name": "cmux Starter",
-        "activeBody": "تتجدد خطة Starter في {date}.",
-        "pendingBody": "تنتهي خطة Starter في {date}.",
+        "name": "cmux Plus",
+        "activeBody": "تتجدد خطة Plus في {date}.",
+        "pendingBody": "تنتهي خطة Plus في {date}.",
         "monthlyPrice": "${amount}/شهر"
       }
     },
@@ -976,7 +976,7 @@
       },
       "plan": {
         "free": "مجاني",
-        "go": "Starter",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3044,7 +3044,7 @@
       "agentUpdatesToggle": "تفعّل ورقة جهاز جديد هذا الإعداد افتراضيًا. لتغييره لجهاز موجود، انقر بزر الماوس الأيمن على الجهاز واختر إبقاء الوكلاء محدَّثين، أو شغّل cmux vm agent-updates. يحتفظ cmux vm new بإصدارات الصورة ما لم تمرّر --agent-updates latest. عند إيقاف التحديثات تبقى الإصدارات المثبتة كما هي.",
       "agentUpdatesNetwork": "تستخدم التحديثات فقط github.com, api.github.com, objects.githubusercontent.com وrelease-assets.githubusercontent.com. يسمح cmux بهذه المضيفات في كل أوضاع الشبكة، بما في ذلك قائمة السماح وبلا إنترنت، لذلك لا تمنع سياسة الشبكة التحديثات أبدًا.",
       "resizeTitle": "تغيير الحجم",
-      "resizeDesc": "يمكنك تكبير جهاز دون فقدان البيانات. انقر بزر الفأرة الأيمن على الجهاز واختر Resize machine، أو استخدم cmux vm resize. يمكن لتغيير الحجم تكبير الجهاز فقط. يكبر القرص بخطوات 4 GB حتى 128 GB في Pro وTeam، أو 256 GB في Max (وStarter محدود بـ16 GB). تكبر الذاكرة حتى 16 GB والمعالج حتى 8 vCPU في Pro وTeam، أو حتى 64 GB و32 vCPU في Max. يستخدم الجهاز الأكبر جزءاً أكبر من مجمعك. تحدد خطتك الحد الأقصى الفعلي.",
+      "resizeDesc": "يمكنك تكبير جهاز دون فقدان البيانات. انقر بزر الفأرة الأيمن على الجهاز واختر Resize machine، أو استخدم cmux vm resize. يمكن لتغيير الحجم تكبير الجهاز فقط. يكبر القرص بخطوات 4 GB حتى 128 GB في Pro وTeam، أو 256 GB في Max (وPlus محدود بـ16 GB). تكبر الذاكرة حتى 16 GB والمعالج حتى 8 vCPU في Pro وTeam، أو حتى 64 GB و32 vCPU في Max. يستخدم الجهاز الأكبر جزءاً أكبر من مجمعك. تحدد خطتك الحد الأقصى الفعلي.",
       "pauseTitle": "الإيقاف المؤقت والاستئناف",
       "pauseDesc": "يوقف cmux vm pause موارد الحوسبة للجهاز. يبقى القرص ومساحات العمل وسجل الطرفية. تتوقف العمليات العاملة. يعيد cmux vm resume تشغيل الجهاز. كما أن فتح جهاز متوقف مؤقتاً أو تشغيل أمر عليه يبدأ تشغيله أيضاً.",
       "pauseIdle": "لا تتوقف الأجهزة مؤقتاً من تلقاء نفسها عندما تكون خاملة. يستمر الجهاز في العمل حتى توقفه مؤقتاً أو تحذفه.",
@@ -5337,8 +5337,8 @@
     "signedOutSignIn": "تسجيل الدخول",
     "manageInAppStore": "الإدارة في App Store",
     "go": {
-      "name": "Starter",
-      "cta": "اختر Starter",
+      "name": "Plus",
+      "cta": "اختر Plus",
       "featuresLead": "يشمل:",
       "features": [
         "جهاز افتراضي واحد في Cloud",

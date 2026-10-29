@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: 1 VM salva no total, mesmo quando pausada",
+      "savedMessage": "Plus: 1 VM salva no total, mesmo quando pausada",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: 1 VM Cloud",
+      "activeMessage": "Plus: 1 VM Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: Sem limite mensal de horas",
+      "hoursMessage": "Plus: Sem limite mensal de horas",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Starter: Cada VM: 2 vCPU, 4 GiB de RAM e 16 GiB de disco",
+      "shapeMessage": "Plus: Cada VM: 2 vCPU, 4 GiB de RAM e 16 GiB de disco",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Starter",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -638,9 +638,9 @@
         "manage": "Gerenciar na App Store"
       },
       "go": {
-        "name": "cmux Starter",
-        "activeBody": "Seu plano Starter renova em {date}.",
-        "pendingBody": "Seu plano Starter termina em {date}.",
+        "name": "cmux Plus",
+        "activeBody": "Seu plano Plus renova em {date}.",
+        "pendingBody": "Seu plano Plus termina em {date}.",
         "monthlyPrice": "${amount}/mês"
       }
     },
@@ -976,7 +976,7 @@
       },
       "plan": {
         "free": "Grátis",
-        "go": "Starter",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3047,7 +3047,7 @@
       "agentUpdatesToggle": "A janela New Machine ativa esta opção por padrão. Para mudar em uma máquina existente, clique com o botão direito na máquina e escolha Keep Agents Up to Date, ou execute cmux vm agent-updates. cmux vm new mantém as versões da imagem, a menos que você passe --agent-updates latest. Desativar as atualizações mantém as versões já instaladas.",
       "agentUpdatesNetwork": "As atualizações usam apenas github.com, api.github.com, objects.githubusercontent.com e release-assets.githubusercontent.com. O cmux permite esses hosts em todos os modos de rede, incluindo Allowlist e No internet, então uma política de rede nunca bloqueia as atualizações.",
       "resizeTitle": "Redimensionar",
-      "resizeDesc": "Você pode aumentar uma máquina sem perder dados. Clique com o botão direito na máquina e escolha Resize machine, ou use cmux vm resize. O redimensionamento só pode aumentar uma máquina. O disco cresce em passos de 4 GB até 128 GB no Pro e no Team, ou 256 GB no Max (o Starter é limitado a 16 GB). A memória cresce até 16 GB e a CPU até 8 vCPU no Pro e no Team, ou até 64 GB e 32 vCPU no Max. Uma máquina maior usa mais do seu conjunto. Seu plano define o máximo real.",
+      "resizeDesc": "Você pode aumentar uma máquina sem perder dados. Clique com o botão direito na máquina e escolha Resize machine, ou use cmux vm resize. O redimensionamento só pode aumentar uma máquina. O disco cresce em passos de 4 GB até 128 GB no Pro e no Team, ou 256 GB no Max (o Plus é limitado a 16 GB). A memória cresce até 16 GB e a CPU até 8 vCPU no Pro e no Team, ou até 64 GB e 32 vCPU no Max. Uma máquina maior usa mais do seu conjunto. Seu plano define o máximo real.",
       "pauseTitle": "Pausar e retomar",
       "pauseDesc": "cmux vm pause interrompe a computação da máquina. O disco, os espaços de trabalho e o histórico dos terminais permanecem. Os processos em execução param. cmux vm resume inicia a máquina novamente. Abrir uma máquina pausada ou executar um comando nela também a inicia.",
       "pauseIdle": "As máquinas não pausam sozinhas quando estão ociosas. Uma máquina continua rodando até você pausá-la ou excluí-la.",
@@ -5340,8 +5340,8 @@
     "signedOutSignIn": "Entrar",
     "manageInAppStore": "Gerenciar na App Store",
     "go": {
-      "name": "Starter",
-      "cta": "Obter Starter",
+      "name": "Plus",
+      "cta": "Obter Plus",
       "featuresLead": "Inclui:",
       "features": [
         "1 VM Cloud",

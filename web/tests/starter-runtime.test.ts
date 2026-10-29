@@ -33,7 +33,7 @@ async function reconcile(metadata: Record<string, unknown>) {
   return { result, caps, patches, pauses };
 }
 
-describe("Starter runtime cleanup", () => {
+describe("Plus runtime cleanup", () => {
   test("clears a legacy provider cap and pending pause without pausing the VM", async () => {
     const { result, caps, patches, pauses } = await reconcile({ cmuxGoPauseIntent: { reason: "go_hours_limit" } });
     expect(result).toEqual({ checked: 1, paused: 0, errors: 0 });

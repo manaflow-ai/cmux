@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: Всего 1 сохранённая ВМ, включая приостановленную",
+      "savedMessage": "Plus: Всего 1 сохранённая ВМ, включая приостановленную",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: 1 виртуальная машина Cloud",
+      "activeMessage": "Plus: 1 виртуальная машина Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: Без месячного лимита часов",
+      "hoursMessage": "Plus: Без месячного лимита часов",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Starter: Каждая ВМ: 2 vCPU, 4 ГиБ ОЗУ и 16 ГиБ диска",
+      "shapeMessage": "Plus: Каждая ВМ: 2 vCPU, 4 ГиБ ОЗУ и 16 ГиБ диска",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Starter",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -638,9 +638,9 @@
         "manage": "Управлять в App Store"
       },
       "go": {
-        "name": "cmux Starter",
-        "activeBody": "Ваш тариф Starter продлевается {date}.",
-        "pendingBody": "Ваш тариф Starter заканчивается {date}.",
+        "name": "cmux Plus",
+        "activeBody": "Ваш тариф Plus продлевается {date}.",
+        "pendingBody": "Ваш тариф Plus заканчивается {date}.",
         "monthlyPrice": "${amount}/мес."
       }
     },
@@ -976,7 +976,7 @@
       },
       "plan": {
         "free": "Бесплатно",
-        "go": "Starter",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3047,7 +3047,7 @@
       "agentUpdatesToggle": "В окне New Machine эта настройка включена по умолчанию. Чтобы изменить её для существующей машины, щёлкните машину правой кнопкой и выберите Keep Agents Up to Date или выполните cmux vm agent-updates. cmux vm new сохраняет версии из образа, если не передать --agent-updates latest. При отключении обновлений уже установленные версии остаются.",
       "agentUpdatesNetwork": "Обновления используют только github.com, api.github.com, objects.githubusercontent.com и release-assets.githubusercontent.com. cmux разрешает эти хосты во всех сетевых режимах, включая Allowlist и No internet, поэтому сетевая политика никогда не блокирует обновления.",
       "resizeTitle": "Изменение размера",
-      "resizeDesc": "Машину можно увеличить без потери данных. Щелкните машину правой кнопкой и выберите Resize machine или используйте cmux vm resize. Размер можно только увеличить. Диск растет шагами по 4 GB до 128 GB на Pro и Team или до 256 GB на Max (для Starter действует ограничение 16 GB). Память растет до 16 GB, а CPU до 8 vCPU на Pro и Team или до 64 GB и 32 vCPU на Max. Большая машина занимает больше пула. Фактический максимум задает ваш тариф.",
+      "resizeDesc": "Машину можно увеличить без потери данных. Щелкните машину правой кнопкой и выберите Resize machine или используйте cmux vm resize. Размер можно только увеличить. Диск растет шагами по 4 GB до 128 GB на Pro и Team или до 256 GB на Max (для Plus действует ограничение 16 GB). Память растет до 16 GB, а CPU до 8 vCPU на Pro и Team или до 64 GB и 32 vCPU на Max. Большая машина занимает больше пула. Фактический максимум задает ваш тариф.",
       "pauseTitle": "Пауза и возобновление",
       "pauseDesc": "cmux vm pause останавливает вычислительные ресурсы машины. Диск, рабочие пространства и история терминалов сохраняются. Запущенные процессы останавливаются. cmux vm resume снова запускает машину. Открытие приостановленной машины или запуск команды на ней тоже ее запускает.",
       "pauseIdle": "Машины не встают на паузу сами при простое. Машина работает, пока вы ее не приостановите или не удалите.",
@@ -5340,8 +5340,8 @@
     "signedOutSignIn": "Войти",
     "manageInAppStore": "Управлять в App Store",
     "go": {
-      "name": "Starter",
-      "cta": "Выбрать Starter",
+      "name": "Plus",
+      "cta": "Выбрать Plus",
       "featuresLead": "Включено:",
       "features": [
         "1 виртуальная машина Cloud",

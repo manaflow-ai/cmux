@@ -108,12 +108,34 @@ describe("Stripe catalog provisioning", () => {
 
     expect(result.exitCode).toBe(0);
     const description = (productId: string) => result.calls
-      .find((call) => call.args.includes(`https://api.stripe.com/v1/products/${productId}`) && call.args.includes("POST"))
-      ?.args.find((argument) => argument.startsWith("description="));
+      .filter((call) => call.args.includes(`https://api.stripe.com/v1/products/${productId}`) && call.args.includes("POST"))
+      .flatMap((call) => call.args)
+      .find((argument) => argument.startsWith("description="));
     expect(description("prod_starter")).toContain("1 Cloud VM with 2 vCPU, 4 GiB RAM, and 16 GiB disk. No monthly hour cap.");
     expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app.");
     expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.");
     expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
+  });
+
+  test("renames the Starter product to cmux Plus in place", async () => {
+    const result = await runProvision("test", "valid");
+
+    expect(result.exitCode).toBe(0);
+    const renames = result.calls.filter(
+      (call) =>
+        call.args.includes("https://api.stripe.com/v1/products/prod_starter") &&
+        call.args.includes("POST") &&
+        call.args.includes("name=cmux Plus"),
+    );
+    expect(renames).toHaveLength(1);
+    expect(result.calls.some((call) => call.args.includes("POST") && call.args.includes("https://api.stripe.com/v1/products"))).toBe(false);
+  });
+
+  test("leaves an already renamed cmux Plus product alone", async () => {
+    const result = await runProvision("test", "plus-renamed");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.some((call) => call.args.some((argument) => argument.startsWith("name=")))).toBe(false);
   });
 
   test("provisions monthly and yearly Max prices and the Pro/Max plan switch portal", async () => {
@@ -403,7 +425,12 @@ const respond = (value) => {
 };
 
 const products = {
-  starter: { id: "prod_starter", name: "cmux Starter", active: true, metadata: { app: "cmux", plan: "go" } },
+  starter: {
+    id: "prod_starter",
+    name: scenario === "plus-renamed" ? "cmux Plus" : "cmux Starter",
+    active: true,
+    metadata: { app: "cmux", plan: "go" },
+  },
   pro: {
     id: "prod_pro",
     name: "cmux Pro",

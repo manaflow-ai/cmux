@@ -68,7 +68,7 @@ import {
   TEAM_PRICING_USD,
 } from "../../../../services/billing/plans";
 import { isVaultEnabled } from "../../../../services/vault/config";
-import { isWebStarterPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -332,7 +332,7 @@ function PricingContent({
 
       {showGo ? (
         <>
-          {/* Starter: one fixed-size Cloud VM with no monthly hour cap. */}
+          {/* Plus: one fixed-size Cloud VM with no monthly hour cap. */}
           <PlanCard
             name={t("go.name")}
             price={`$${GO_PRICING_USD.month.billedAmount}`}

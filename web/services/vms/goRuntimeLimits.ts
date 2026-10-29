@@ -11,7 +11,7 @@ import { VmRepository, type CloudVmRow } from "./repository";
 
 /**
  * The minute job stops compute only after a durable runtime total reaches its
- * cap, when Pro and Max budgets are enabled. Starter has no hour cap; clear
+ * cap, when Pro and Max budgets are enabled. Plus has no hour cap; clear
  * legacy provider caps and stale pause intents once per machine.
  */
 export function enforceGoRuntimeLimits() {

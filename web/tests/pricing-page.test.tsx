@@ -122,7 +122,7 @@ describe("localized pricing page", () => {
       const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
       expect(html).toContain("Get Pro");
       expect(html).toContain("Get Max");
-      expect(html).not.toContain("Get Starter");
+      expect(html).not.toContain("Get Plus");
       expect(html).not.toContain("$10");
       expect(html).toContain("25% repeat(5,15%)");
     } finally {
@@ -321,7 +321,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$160");
     expect(html).toContain("Yearly");
     expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
-    expect(html).toContain("Get Starter");
+    expect(html).toContain("Get Plus");
     expect(html).toContain("$15");
     expect(html).toContain("No monthly hour cap");
     expect(html).toContain("1 Cloud VM");

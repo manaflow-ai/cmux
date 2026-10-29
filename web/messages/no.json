@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: Totalt 1 lagret VM, også når den er på pause",
+      "savedMessage": "Plus: Totalt 1 lagret VM, også når den er på pause",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: 1 Cloud-VM",
+      "activeMessage": "Plus: 1 Cloud-VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: Ingen månedlig timegrense",
+      "hoursMessage": "Plus: Ingen månedlig timegrense",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Starter: Hver VM: 2 vCPU, 4 GiB RAM og 16 GiB disk",
+      "shapeMessage": "Plus: Hver VM: 2 vCPU, 4 GiB RAM og 16 GiB disk",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Starter",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -638,9 +638,9 @@
         "manage": "Administrer i App Store"
       },
       "go": {
-        "name": "cmux Starter",
-        "activeBody": "Starter-abonnementet ditt fornyes {date}.",
-        "pendingBody": "Starter-abonnementet ditt avsluttes {date}.",
+        "name": "cmux Plus",
+        "activeBody": "Plus-abonnementet ditt fornyes {date}.",
+        "pendingBody": "Plus-abonnementet ditt avsluttes {date}.",
         "monthlyPrice": "${amount}/md."
       }
     },
@@ -976,7 +976,7 @@
       },
       "plan": {
         "free": "Gratis",
-        "go": "Starter",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3044,7 +3044,7 @@
       "agentUpdatesToggle": "Arket New Machine slår dette på som standard. For å endre det på en eksisterende maskin høyreklikker du maskinen og velger Keep Agents Up to Date, eller kjører cmux vm agent-updates. cmux vm new beholder versjonene fra bildet med mindre du sender --agent-updates latest. Når du slår av oppdateringer, beholdes versjonene som allerede er installert.",
       "agentUpdatesNetwork": "Oppdateringer bruker bare github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillater disse vertene i alle nettverksmoduser, også Allowlist og No internet, så en nettverkspolicy blokkerer aldri oppdateringer.",
       "resizeTitle": "Endre størrelse",
-      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 128 GB på Pro og Team, eller 256 GB på Max (Starter er begrenset til 16 GB). Minnet vokser opptil 16 GB og CPU opptil 8 vCPU med Pro og Team, eller opptil 64 GB og 32 vCPU med Max. En større maskin bruker mer av potten din. Abonnementet ditt bestemmer det reelle maksimumet.",
+      "resizeDesc": "Du kan gjøre en maskin større uten å miste data. Høyreklikk på maskinen og velg Resize machine, eller bruk cmux vm resize. Størrelsesendring kan bare gjøre en maskin større. Disken vokser i steg på 4 GB opptil 128 GB på Pro og Team, eller 256 GB på Max (Plus er begrenset til 16 GB). Minnet vokser opptil 16 GB og CPU opptil 8 vCPU med Pro og Team, eller opptil 64 GB og 32 vCPU med Max. En større maskin bruker mer av potten din. Abonnementet ditt bestemmer det reelle maksimumet.",
       "pauseTitle": "Pause og gjenoppta",
       "pauseDesc": "cmux vm pause stopper maskinens beregningsressurser. Disken, arbeidsområdene og terminalhistorikken beholdes. Kjørende prosesser stopper. cmux vm resume starter maskinen igjen. Å åpne en maskin på pause eller kjøre en kommando på den starter den også.",
       "pauseIdle": "Maskiner settes ikke på pause av seg selv når de er inaktive. En maskin kjører til du setter den på pause eller sletter den.",
@@ -5337,8 +5337,8 @@
     "signedOutSignIn": "Logg inn",
     "manageInAppStore": "Administrer i App Store",
     "go": {
-      "name": "Starter",
-      "cta": "Velg Starter",
+      "name": "Plus",
+      "cta": "Velg Plus",
       "featuresLead": "Inkluderer:",
       "features": [
         "1 Cloud-VM",

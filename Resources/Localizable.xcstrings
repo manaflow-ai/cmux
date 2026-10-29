@@ -524662,55 +524662,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "$10"
+            "value": "$15"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "$10"
+            "value": "$15"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "$10"
+            "value": "$15"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "$10"
+            "value": "$15"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "$10"
+            "value": "$15"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "$10"
+            "value": "$15"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "$10"
+            "value": "$15"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "$10"
+            "value": "$15"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "$10"
+            "value": "$15"
           }
         }
       }
@@ -524780,55 +524780,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "40 included VM-hours each month; pauses at the limit"
+            "value": "No monthly hour cap"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "毎月 40 VM 時間を含み、上限で一時停止"
+            "value": "月間の時間上限なし"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每月包含 40 个虚拟机小时，达到上限后暂停"
+            "value": "无每月小时数上限"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "40 VM-Stunden pro Monat, Pause am Limit"
+            "value": "Keine monatliche Stundenbegrenzung"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "40 heures de VM incluses par mois, pause à la limite"
+            "value": "Aucun plafond mensuel d’heures"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "40 ساعة VM مشمولة كل شهر، وتتوقف عند الحد"
+            "value": "بلا حد شهري لساعات التشغيل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "40 horas de VM incluidas al mes; pausa al alcanzar el límite"
+            "value": "Sin límite mensual de horas"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每月包含 40 個 VM 小時，達到上限時暫停"
+            "value": "無每月時數上限"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "매월 VM 40시간 포함, 한도에 도달하면 일시 중지"
+            "value": "월간 시간 제한 없음"
           }
         }
       }
@@ -525370,55 +525370,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "2 saved VMs"
+            "value": "1 saved VM total, including paused machines"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存 VM 2 台"
+            "value": "一時停止中も含めて保存できる VM は合計 1 台"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "2 台已保存的虚拟机"
+            "value": "共可保存 1 台 VM，包括已暂停的机器"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "2 gespeicherte VMs"
+            "value": "Insgesamt 1 gespeicherte VM, auch im pausierten Zustand"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "2 VM enregistrées"
+            "value": "1 VM conservée au total, même en pause"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "آلتان افتراضيتان محفوظتان"
+            "value": "جهاز افتراضي محفوظ واحد إجمالاً، بما في ذلك الجهاز المتوقف مؤقتاً"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "2 VM guardadas"
+            "value": "1 VM guardada en total, incluso si está en pausa"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "2 台已儲存的 VM"
+            "value": "共可儲存 1 台 VM，包含已暫停的機器"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "저장된 VM 2개"
+            "value": "일시 정지된 머신을 포함하여 총 1대의 VM 저장"
           }
         }
       }
@@ -525613,55 +525613,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Get Go"
+            "value": "Get Plus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go を入手"
+            "value": "Plus を入手"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "获取 Go"
+            "value": "获取 Plus"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go abonnieren"
+            "value": "Plus abonnieren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Obtenir Go"
+            "value": "Obtenir Plus"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اشترك في Go"
+            "value": "اشترك في Plus"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Obtener Go"
+            "value": "Obtener Plus"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "取得 Go"
+            "value": "取得 Plus"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go 받기"
+            "value": "Plus 받기"
           }
         }
       }
@@ -526981,55 +526981,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go"
+            "value": "Plus"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go"
+            "value": "Plus"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go"
+            "value": "Plus"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go"
+            "value": "Plus"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go"
+            "value": "Plus"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go"
+            "value": "Plus"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go"
+            "value": "Plus"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go"
+            "value": "Plus"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go"
+            "value": "Plus"
           }
         }
       }

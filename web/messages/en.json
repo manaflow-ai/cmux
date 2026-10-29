@@ -297,13 +297,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: 1 saved VM total, including paused machines",
+      "savedMessage": "Plus: 1 saved VM total, including paused machines",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: 1 Cloud VM",
+      "activeMessage": "Plus: 1 Cloud VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: No monthly hour cap",
+      "hoursMessage": "Plus: No monthly hour cap",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Starter: Each VM: 2 vCPU, 4 GiB RAM, and 16 GiB disk",
+      "shapeMessage": "Plus: Each VM: 2 vCPU, 4 GiB RAM, and 16 GiB disk",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -774,9 +774,9 @@
         "grantedBody": "Pro access was granted to this account by the cmux team. There is no subscription to manage."
       },
       "go": {
-        "name": "cmux Starter",
-        "activeBody": "Your Starter plan renews on {date}.",
-        "pendingBody": "Your Starter plan ends on {date}.",
+        "name": "cmux Plus",
+        "activeBody": "Your Plus plan renews on {date}.",
+        "pendingBody": "Your Plus plan ends on {date}.",
         "monthlyPrice": "${amount}/mo"
       },
       "team": {
@@ -869,7 +869,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Starter",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -1328,7 +1328,7 @@
       },
       "plan": {
         "free": "Free",
-        "go": "Starter",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -1833,8 +1833,8 @@
       ]
     },
     "go": {
-      "name": "Starter",
-      "cta": "Get Starter",
+      "name": "Plus",
+      "cta": "Get Plus",
       "featuresLead": "Includes:",
       "features": [
         "1 Cloud VM",
@@ -4588,7 +4588,7 @@
       "agentUpdatesToggle": "The New Machine sheet turns this on by default. To change it for an existing machine, right-click the machine and choose Keep Agents Up to Date, or run cmux vm agent-updates. cmux vm new keeps the image's versions unless you pass --agent-updates latest. Turning updates off keeps the versions already installed.",
       "agentUpdatesNetwork": "Updates use only github.com, api.github.com, objects.githubusercontent.com, and release-assets.githubusercontent.com. cmux allows these hosts in every network mode, including Allowlist and No internet, so a network policy never blocks updates.",
       "resizeTitle": "Resize",
-      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 128 GB on Pro and Team, or 256 GB on Max (Starter is limited to 16 GB). Memory grows up to 16 GB and CPU up to 8 vCPU on Pro, Team, and Founder's Edition, or up to 64 GB and 32 vCPU on Max. A larger machine uses more of your pool. Your plan sets the real maximum.",
+      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 128 GB on Pro and Team, or 256 GB on Max (Plus is limited to 16 GB). Memory grows up to 16 GB and CPU up to 8 vCPU on Pro, Team, and Founder's Edition, or up to 64 GB and 32 vCPU on Max. A larger machine uses more of your pool. Your plan sets the real maximum.",
       "pauseTitle": "Pause and resume",
       "pauseDesc": "cmux vm pause stops the machine's compute. The disk, workspaces, and terminal history stay. Running processes stop. cmux vm resume starts the machine again. Opening a paused machine or running a command on it also starts it.",
       "pauseIdle": "Machines do not pause by themselves when they are idle. A machine keeps running until you pause it or delete it.",

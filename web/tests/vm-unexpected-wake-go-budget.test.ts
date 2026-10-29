@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-// A concurrency re-pause can still zero a provider cap. Starter must clear
+// A concurrency re-pause can still zero a provider cap. Plus must clear
 // that cap before giving a machine back to a resume that won the race.
 const { VmBillingGateway, noOpVmBillingGateway } = await import("../services/vms/billingGateway");
 const { VmProviderOperationError } = await import("../services/vms/errors");
@@ -78,7 +78,7 @@ async function runLostRace(options: { readonly budgetFails?: boolean } = {}) {
   return { budgets, resumes };
 }
 
-describe("giving a Starter machine back after a lost re-pause race", () => {
+describe("giving a Plus machine back after a lost re-pause race", () => {
   test("clears the runtime cap before resuming", async () => {
     const { budgets, resumes } = await runLostRace();
     expect(budgets).toEqual([0, null]);

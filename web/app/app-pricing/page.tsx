@@ -9,7 +9,7 @@ import {
   isDevelopmentProAccessEnabled,
   resolveProPlanStatus,
 } from "../../services/billing/pro";
-import { isWebStarterPlanEnabled as isGoPlanEnabled } from "../../services/billing/goPlanFlag";
+import { isWebPlusPlanEnabled as isGoPlanEnabled } from "../../services/billing/goPlanFlag";
 import { PricingView } from "../components/pricing-checkout";
 import { isAppStoreDistributionMode } from "../lib/billing";
 import {

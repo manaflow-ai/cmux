@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: 1 VM guardada en total, incluso si está en pausa",
+      "savedMessage": "Plus: 1 VM guardada en total, incluso si está en pausa",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: 1 VM de Cloud",
+      "activeMessage": "Plus: 1 VM de Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: Sin límite mensual de horas",
+      "hoursMessage": "Plus: Sin límite mensual de horas",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Starter: Cada VM: 2 vCPU, 4 GiB de RAM y 16 GiB de disco",
+      "shapeMessage": "Plus: Cada VM: 2 vCPU, 4 GiB de RAM y 16 GiB de disco",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Starter",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -638,9 +638,9 @@
         "manage": "Gestionar en el App Store"
       },
       "go": {
-        "name": "cmux Starter",
-        "activeBody": "Tu plan Starter se renueva el {date}.",
-        "pendingBody": "Tu plan Starter termina el {date}.",
+        "name": "cmux Plus",
+        "activeBody": "Tu plan Plus se renueva el {date}.",
+        "pendingBody": "Tu plan Plus termina el {date}.",
         "monthlyPrice": "${amount}/mes"
       }
     },
@@ -976,7 +976,7 @@
       },
       "plan": {
         "free": "Gratis",
-        "go": "Starter",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3046,7 +3046,7 @@
       "agentUpdatesToggle": "La hoja Nueva máquina activa esta opción de forma predeterminada. Para cambiarla en una máquina existente, haz clic derecho en la máquina y elige Mantener los agentes actualizados, o ejecuta cmux vm agent-updates. cmux vm new conserva las versiones de la imagen salvo que pases --agent-updates latest. Al desactivar las actualizaciones se conservan las versiones ya instaladas.",
       "agentUpdatesNetwork": "Las actualizaciones solo usan github.com, api.github.com, objects.githubusercontent.com y release-assets.githubusercontent.com. cmux permite estos hosts en todos los modos de red, incluidos Lista permitida y Sin internet, así que una política de red nunca bloquea las actualizaciones.",
       "resizeTitle": "Cambiar tamaño",
-      "resizeDesc": "Puedes ampliar una máquina sin perder datos. Haz clic derecho en la máquina y elige Resize machine, o usa cmux vm resize. Solo se puede ampliar una máquina, no reducirla. El disco crece en incrementos de 4 GB hasta 128 GB en Pro y Team, o 256 GB en Max (Starter está limitado a 16 GB). La memoria crece hasta 16 GB y la CPU hasta 8 vCPU en Pro y Team, o hasta 64 GB y 32 vCPU en Max. Una máquina más grande usa más de tu fondo. Tu plan fija el máximo real.",
+      "resizeDesc": "Puedes ampliar una máquina sin perder datos. Haz clic derecho en la máquina y elige Resize machine, o usa cmux vm resize. Solo se puede ampliar una máquina, no reducirla. El disco crece en incrementos de 4 GB hasta 128 GB en Pro y Team, o 256 GB en Max (Plus está limitado a 16 GB). La memoria crece hasta 16 GB y la CPU hasta 8 vCPU en Pro y Team, o hasta 64 GB y 32 vCPU en Max. Una máquina más grande usa más de tu fondo. Tu plan fija el máximo real.",
       "pauseTitle": "Pausar y reanudar",
       "pauseDesc": "cmux vm pause detiene el cómputo de la máquina. El disco, los espacios de trabajo y el historial de los terminales se conservan. Los procesos en ejecución se detienen. cmux vm resume vuelve a iniciar la máquina. Abrir una máquina en pausa o ejecutar un comando en ella también la inicia.",
       "pauseIdle": "Las máquinas no se pausan solas cuando están inactivas. Una máquina sigue en ejecución hasta que la pausas o la eliminas.",
@@ -5339,8 +5339,8 @@
     "signedOutSignIn": "Iniciar sesión",
     "manageInAppStore": "Gestionar en el App Store",
     "go": {
-      "name": "Starter",
-      "cta": "Obtener Starter",
+      "name": "Plus",
+      "cta": "Obtener Plus",
       "featuresLead": "Incluye:",
       "features": [
         "1 VM de Cloud",

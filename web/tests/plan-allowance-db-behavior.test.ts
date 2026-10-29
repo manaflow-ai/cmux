@@ -1,4 +1,4 @@
-// Database-backed proof that Starter has no hourly cap, while enabled Pro
+// Database-backed proof that Plus has no hourly cap, while enabled Pro
 // and Max allowances meter compute and saved disk on each billing period.
 // Every test uses its own user ids on an isolated database.
 
@@ -80,8 +80,8 @@ async function machine(input: {
   return row!.id;
 }
 
-describe("Starter without an hourly cap", () => {
-  dbTest("an App Store Starter machine resumes after more than a month's runtime", async () => {
+describe("Plus without an hourly cap", () => {
+  dbTest("an App Store Plus machine resumes after more than a month's runtime", async () => {
     const now = new Date();
     const userId = newUser("apple-go");
     await appleSubscription(userId, "go", new Date(now.getTime() - 3 * DAY), new Date(now.getTime() + 27 * DAY));

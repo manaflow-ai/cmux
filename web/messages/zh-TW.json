@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: 共可儲存 1 台 VM，包含已暫停的機器",
+      "savedMessage": "Plus: 共可儲存 1 台 VM，包含已暫停的機器",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: 1 台 Cloud VM",
+      "activeMessage": "Plus: 1 台 Cloud VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 無每月時數上限",
+      "hoursMessage": "Plus: 無每月時數上限",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Starter: 每台 VM：2 vCPU、4 GiB 記憶體和 16 GiB 磁碟",
+      "shapeMessage": "Plus: 每台 VM：2 vCPU、4 GiB 記憶體和 16 GiB 磁碟",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Starter",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -638,9 +638,9 @@
         "manage": "在 App Store 中管理"
       },
       "go": {
-        "name": "cmux Starter",
-        "activeBody": "你的 Starter 方案將於 {date} 續訂。",
-        "pendingBody": "你的 Starter 方案將於 {date} 結束。",
+        "name": "cmux Plus",
+        "activeBody": "你的 Plus 方案將於 {date} 續訂。",
+        "pendingBody": "你的 Plus 方案將於 {date} 結束。",
         "monthlyPrice": "${amount}/月"
       }
     },
@@ -976,7 +976,7 @@
       },
       "plan": {
         "free": "免費",
-        "go": "Starter",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3046,7 +3046,7 @@
       "agentUpdatesToggle": "「新增機器」面板預設開啟此設定。若要為現有機器變更，請在機器上按右鍵並選擇「讓代理保持最新」，或執行 cmux vm agent-updates。除非傳入 --agent-updates latest，否則 cmux vm new 會保留映像檔中的版本。關閉更新後，已安裝的版本會保留。",
       "agentUpdatesNetwork": "更新只使用 github.com, api.github.com, objects.githubusercontent.com 和 release-assets.githubusercontent.com。cmux 在所有網路模式下都允許這些主機，包括「允許清單」和「不連網」，因此網路政策不會阻擋更新。",
       "resizeTitle": "調整規格",
-      "resizeDesc": "你可以在不遺失資料的情況下擴大機器。在機器上按右鍵並選擇 Resize machine，或使用 cmux vm resize。調整規格只能擴大機器。磁碟以 4 GB 為單位，在 Pro 和 Team 中最多擴充到 128 GB，在 Max 中最多擴充到 256 GB（Starter 限制為 16 GB）。在 Pro 和 Team 中，記憶體最多 16 GB，CPU 最多 8 vCPU；在 Max 中，記憶體最多 64 GB，CPU 最多 32 vCPU。機器越大，占用的資源池越多。實際上限由你的方案決定。",
+      "resizeDesc": "你可以在不遺失資料的情況下擴大機器。在機器上按右鍵並選擇 Resize machine，或使用 cmux vm resize。調整規格只能擴大機器。磁碟以 4 GB 為單位，在 Pro 和 Team 中最多擴充到 128 GB，在 Max 中最多擴充到 256 GB（Plus 限制為 16 GB）。在 Pro 和 Team 中，記憶體最多 16 GB，CPU 最多 8 vCPU；在 Max 中，記憶體最多 64 GB，CPU 最多 32 vCPU。機器越大，占用的資源池越多。實際上限由你的方案決定。",
       "pauseTitle": "暫停與繼續",
       "pauseDesc": "cmux vm pause 會停止機器的運算資源。磁碟、工作區和終端機歷史記錄會保留，執行中的程序則會停止。cmux vm resume 會再次啟動機器。開啟已暫停的機器或在其上執行指令也會啟動它。",
       "pauseIdle": "機器閒置時不會自動暫停。機器會持續執行，直到你暫停或刪除它。",
@@ -5339,8 +5339,8 @@
     "signedOutSignIn": "登入",
     "manageInAppStore": "在 App Store 中管理",
     "go": {
-      "name": "Starter",
-      "cta": "取得 Starter",
+      "name": "Plus",
+      "cta": "取得 Plus",
       "featuresLead": "包含：",
       "features": [
         "1 台 Cloud VM",

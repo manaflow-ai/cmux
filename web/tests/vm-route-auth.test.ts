@@ -552,7 +552,7 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
-  test("publishes Starter's one-machine allowance without an hourly cap in VM list limits", async () => {
+  test("publishes Plus's one-machine allowance without an hourly cap in VM list limits", async () => {
     getUser.mockResolvedValue({
       ...authedStackUser(),
       selectedTeam: null,

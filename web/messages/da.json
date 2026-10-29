@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: I alt 1 gemt VM, også når den er på pause",
+      "savedMessage": "Plus: I alt 1 gemt VM, også når den er på pause",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: 1 Cloud-VM",
+      "activeMessage": "Plus: 1 Cloud-VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: Ingen månedlig timegrænse",
+      "hoursMessage": "Plus: Ingen månedlig timegrænse",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Starter: Hver VM: 2 vCPU, 4 GiB RAM og 16 GiB disk",
+      "shapeMessage": "Plus: Hver VM: 2 vCPU, 4 GiB RAM og 16 GiB disk",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Starter",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -638,9 +638,9 @@
         "manage": "Administrer i App Store"
       },
       "go": {
-        "name": "cmux Starter",
-        "activeBody": "Dit Starter-abonnement fornyes den {date}.",
-        "pendingBody": "Dit Starter-abonnement slutter den {date}.",
+        "name": "cmux Plus",
+        "activeBody": "Dit Plus-abonnement fornyes den {date}.",
+        "pendingBody": "Dit Plus-abonnement slutter den {date}.",
         "monthlyPrice": "${amount}/md."
       }
     },
@@ -976,7 +976,7 @@
       },
       "plan": {
         "free": "Gratis",
-        "go": "Starter",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3044,7 +3044,7 @@
       "agentUpdatesToggle": "Arket New Machine slår dette til som standard. For at ændre det på en eksisterende maskine skal du højreklikke på maskinen og vælge Keep Agents Up to Date eller køre cmux vm agent-updates. cmux vm new beholder billedets versioner, medmindre du angiver --agent-updates latest. Når du slår opdateringer fra, beholdes de versioner, der allerede er installeret.",
       "agentUpdatesNetwork": "Opdateringer bruger kun github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillader disse værter i alle netværkstilstande, også Allowlist og No internet, så en netværkspolitik blokerer aldrig opdateringer.",
       "resizeTitle": "Ændr størrelse",
-      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 128 GB på Pro og Team eller 256 GB på Max (Starter er begrænset til 16 GB). Hukommelsen vokser op til 16 GB og CPU op til 8 vCPU med Pro og Team, eller op til 64 GB og 32 vCPU med Max. En større maskine bruger mere af din pulje. Dit abonnement fastsætter det reelle maksimum.",
+      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 128 GB på Pro og Team eller 256 GB på Max (Plus er begrænset til 16 GB). Hukommelsen vokser op til 16 GB og CPU op til 8 vCPU med Pro og Team, eller op til 64 GB og 32 vCPU med Max. En større maskine bruger mere af din pulje. Dit abonnement fastsætter det reelle maksimum.",
       "pauseTitle": "Pause og genoptagelse",
       "pauseDesc": "cmux vm pause stopper maskinens beregning. Disken, arbejdsområderne og terminalhistorikken bevares. Kørende processer stopper. cmux vm resume starter maskinen igen. Hvis du åbner en maskine på pause eller kører en kommando på den, starter den også.",
       "pauseIdle": "Maskiner sættes ikke på pause af sig selv, når de er inaktive. En maskine kører, indtil du sætter den på pause eller sletter den.",
@@ -5337,8 +5337,8 @@
     "signedOutSignIn": "Log ind",
     "manageInAppStore": "Administrer i App Store",
     "go": {
-      "name": "Starter",
-      "cta": "Vælg Starter",
+      "name": "Plus",
+      "cta": "Vælg Plus",
       "featuresLead": "Indeholder:",
       "features": [
         "1 Cloud-VM",

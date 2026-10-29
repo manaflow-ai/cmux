@@ -1,4 +1,4 @@
--- Run against an isolated database after the Starter limits migration.
+-- Run against an isolated database after the Plus limits migration.
 BEGIN;
 DO $$
 DECLARE
@@ -39,7 +39,7 @@ BEGIN
   IF NOT rejected THEN RAISE EXCEPTION 'paused VM bypassed saved cap'; END IF;
   UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '1000 hours', ended_at=now() WHERE vm_id=machine;
   UPDATE cloud_vms SET status='running' WHERE id=machine;
-  IF (SELECT status FROM cloud_vms WHERE id=machine) <> 'running' THEN RAISE EXCEPTION 'Starter still enforces an hour cap'; END IF;
+  IF (SELECT status FROM cloud_vms WHERE id=machine) <> 'running' THEN RAISE EXCEPTION 'Plus still enforces an hour cap'; END IF;
   UPDATE cloud_vms SET status='destroyed',destroyed_at=now() WHERE id=machine;
   INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
     VALUES (u,u,'go','freestyle','test','running');

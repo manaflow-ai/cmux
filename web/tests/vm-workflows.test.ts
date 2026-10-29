@@ -3635,7 +3635,7 @@ describe("VM Effect workflows", () => {
     expect(usageEventAttempts).toBe(2);
   });
 
-  dbTest("replaces a destroyed Starter idempotent row without a billing-period or hour gate", async () => {
+  dbTest("replaces a destroyed Plus idempotent row without a billing-period or hour gate", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
@@ -3668,7 +3668,7 @@ describe("VM Effect workflows", () => {
         maxActiveVms: 1,
         provider: "freestyle",
         image: "snapshot-go",
-        // Match the fixed Starter image sent by the create route so this
+        // Match the fixed Plus image sent by the create route so this
         // exercises replacement admission without any subscription period.
         imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
         idempotencyKey: "go-destroyed-retry",

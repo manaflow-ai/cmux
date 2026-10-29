@@ -1163,7 +1163,7 @@ function requestedCreateDiskMb(input: Pick<Parameters<typeof createVm>[0], "imag
   return (input.resourceReservation ?? vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })).diskMb;
 }
 
-/** Check the fixed Starter shape and any enabled Pro or Max allowances. */
+/** Check the fixed Plus shape and any enabled Pro or Max allowances. */
 function requirePlanCreate(input: Pick<Parameters<typeof createVm>[0], "billingPlanId" | "userId" | "imageSize" | "resourceReservation" | "memoryMb">) {
   return Effect.gen(function* () {
     if (isBudgetPlanId(input.billingPlanId)) {
@@ -3748,7 +3748,7 @@ function resumeAfterLostRace(
   });
 }
 
-/** Clear any legacy cap before giving a Starter machine back after a race. */
+/** Clear any legacy cap before giving a Plus machine back after a race. */
 function restoreGoRuntimeBudget(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,

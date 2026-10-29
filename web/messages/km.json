@@ -130,13 +130,13 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: រក្សាទុក VM សរុប 1 គ្រឿង រួមទាំងម៉ាស៊ីនដែលបានផ្អាក",
+      "savedMessage": "Plus: រក្សាទុក VM សរុប 1 គ្រឿង រួមទាំងម៉ាស៊ីនដែលបានផ្អាក",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: Cloud VM ចំនួន 1 គ្រឿង",
+      "activeMessage": "Plus: Cloud VM ចំនួន 1 គ្រឿង",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: គ្មានកំណត់ម៉ោងប្រចាំខែ",
+      "hoursMessage": "Plus: គ្មានកំណត់ម៉ោងប្រចាំខែ",
       "hoursAction": "cmux billing checkout --plan pro",
-      "shapeMessage": "Starter: VM នីមួយៗ៖ 2 vCPU, RAM 4 GiB និងថាស 16 GiB",
+      "shapeMessage": "Plus: VM នីមួយៗ៖ 2 vCPU, RAM 4 GiB និងថាស 16 GiB",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
     "planBudget": {
@@ -556,7 +556,7 @@
         },
         "names": {
           "free": "Free",
-          "go": "Starter",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -638,9 +638,9 @@
         "manage": "គ្រប់គ្រងនៅក្នុង App Store"
       },
       "go": {
-        "name": "cmux Starter",
-        "activeBody": "គម្រោង Starter របស់អ្នកបន្តនៅ {date}។",
-        "pendingBody": "គម្រោង Starter របស់អ្នកបញ្ចប់នៅ {date}។",
+        "name": "cmux Plus",
+        "activeBody": "គម្រោង Plus របស់អ្នកបន្តនៅ {date}។",
+        "pendingBody": "គម្រោង Plus របស់អ្នកបញ្ចប់នៅ {date}។",
         "monthlyPrice": "${amount}/ខែ"
       }
     },
@@ -976,7 +976,7 @@
       },
       "plan": {
         "free": "ឥតគិតថ្លៃ",
-        "go": "Starter",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -3045,7 +3045,7 @@
       "agentUpdatesToggle": "សន្លឹក New Machine បើកការកំណត់នេះតាមលំនាំដើម។ ដើម្បីប្ដូរវាសម្រាប់ម៉ាស៊ីនដែលមានស្រាប់ ចុចកណ្ដុរស្ដាំលើម៉ាស៊ីន ហើយជ្រើស Keep Agents Up to Date ឬដំណើរការ cmux vm agent-updates។ cmux vm new រក្សាកំណែរបស់រូបភាព លុះត្រាតែអ្នកបញ្ជូន --agent-updates latest។ ការបិទការធ្វើបច្ចុប្បន្នភាពរក្សាកំណែដែលបានដំឡើងរួចហើយ។",
       "agentUpdatesNetwork": "ការធ្វើបច្ចុប្បន្នភាពប្រើតែ github.com, api.github.com, objects.githubusercontent.com និង release-assets.githubusercontent.com ប៉ុណ្ណោះ។ cmux អនុញ្ញាតម៉ាស៊ីនមេទាំងនេះក្នុងគ្រប់របៀបបណ្ដាញ រួមទាំង Allowlist និង No internet ដូច្នេះគោលការណ៍បណ្ដាញមិនដែលរារាំងការធ្វើបច្ចុប្បន្នភាពទេ។",
       "resizeTitle": "ប្ដូរទំហំ",
-      "resizeDesc": "អ្នកអាចពង្រីកម៉ាស៊ីនដោយមិនបាត់ទិន្នន័យ។ ចុចកណ្ដុរស្ដាំលើម៉ាស៊ីន ហើយជ្រើសរើស Resize machine ឬប្រើ cmux vm resize។ ការប្ដូរទំហំអាចពង្រីកម៉ាស៊ីនបានតែប៉ុណ្ណោះ។ ថាសកើនឡើងម្ដង 4 GB រហូតដល់ 128 GB សម្រាប់ Pro និង Team ឬ 256 GB សម្រាប់ Max (Starter កំណត់ត្រឹម 16 GB)។ អង្គចងចាំកើនរហូតដល់ 16 GB និង CPU រហូតដល់ 8 vCPU នៅលើ Pro និង Team ឬរហូតដល់ 64 GB និង 32 vCPU នៅលើ Max។ ម៉ាស៊ីនធំជាងប្រើបណ្ដុំរបស់អ្នកច្រើនជាង។ គម្រោងរបស់អ្នកកំណត់កម្រិតអតិបរមាពិតប្រាកដ។",
+      "resizeDesc": "អ្នកអាចពង្រីកម៉ាស៊ីនដោយមិនបាត់ទិន្នន័យ។ ចុចកណ្ដុរស្ដាំលើម៉ាស៊ីន ហើយជ្រើសរើស Resize machine ឬប្រើ cmux vm resize។ ការប្ដូរទំហំអាចពង្រីកម៉ាស៊ីនបានតែប៉ុណ្ណោះ។ ថាសកើនឡើងម្ដង 4 GB រហូតដល់ 128 GB សម្រាប់ Pro និង Team ឬ 256 GB សម្រាប់ Max (Plus កំណត់ត្រឹម 16 GB)។ អង្គចងចាំកើនរហូតដល់ 16 GB និង CPU រហូតដល់ 8 vCPU នៅលើ Pro និង Team ឬរហូតដល់ 64 GB និង 32 vCPU នៅលើ Max។ ម៉ាស៊ីនធំជាងប្រើបណ្ដុំរបស់អ្នកច្រើនជាង។ គម្រោងរបស់អ្នកកំណត់កម្រិតអតិបរមាពិតប្រាកដ។",
       "pauseTitle": "ផ្អាក និងបន្ត",
       "pauseDesc": "cmux vm pause បញ្ឈប់ការគណនារបស់ម៉ាស៊ីន។ ថាស workspace និងប្រវត្តិទែមីណលនៅដដែល។ ដំណើរការដែលកំពុងដំណើរការនឹងឈប់។ cmux vm resume ចាប់ផ្ដើមម៉ាស៊ីនម្ដងទៀត។ ការបើកម៉ាស៊ីនដែលបានផ្អាក ឬដំណើរការពាក្យបញ្ជានៅលើវា ក៏ចាប់ផ្ដើមវាដែរ។",
       "pauseIdle": "ម៉ាស៊ីនមិនផ្អាកដោយខ្លួនឯងនៅពេលទំនេរទេ។ ម៉ាស៊ីនបន្តដំណើរការរហូតដល់អ្នកផ្អាក ឬលុបវា។",
@@ -5338,8 +5338,8 @@
     "signedOutSignIn": "ចូល",
     "manageInAppStore": "គ្រប់គ្រងនៅក្នុង App Store",
     "go": {
-      "name": "Starter",
-      "cta": "ជ្រើសរើស Starter",
+      "name": "Plus",
+      "cta": "ជ្រើសរើស Plus",
       "featuresLead": "រួមមាន៖",
       "features": [
         "Cloud VM ចំនួន 1 គ្រឿង",

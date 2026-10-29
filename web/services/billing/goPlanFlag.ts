@@ -6,8 +6,8 @@ import {
   postHogFlagsUrl,
 } from "../client-config/posthogFlags";
 
-/** Web Starter is publicly available. App Store Go keeps its own rollout. */
-export async function isWebStarterPlanEnabled(_distinctId = "anonymous"): Promise<boolean> {
+/** Web Plus is publicly available. App Store Go keeps its own rollout. */
+export async function isWebPlusPlanEnabled(_distinctId = "anonymous"): Promise<boolean> {
   return (process.env.NODE_ENV ?? "test") !== "test" || process.env.CMUX_TEST_GO_PLAN_DISABLED !== "1";
 }
 

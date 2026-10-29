@@ -169,7 +169,7 @@ describe("app pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$200");
     expect(html).toContain("$15");
-    expect(html).toContain("Get Starter");
+    expect(html).toContain("Get Plus");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
     expect(html).toContain("Get Max");
@@ -184,7 +184,7 @@ describe("app pricing page", () => {
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
     expect(html).toContain("md:grid-cols-2 lg:grid-cols-4");
     expect(html).toContain("$15");
-    expect(html).toContain("Get Starter");
+    expect(html).toContain("Get Plus");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
     expect(html).toContain("plan%253Dpro");
