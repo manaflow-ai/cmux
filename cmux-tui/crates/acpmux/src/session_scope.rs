@@ -154,13 +154,13 @@ fn daemon_limits() -> SessionLimits {
     #[cfg(not(target_os = "linux"))]
     return SessionLimits::default();
     #[cfg(target_os = "linux")]
-    crate::config::Config::load()
-        .ok()
-        .map(|config| SessionLimits {
-            memory_mb: config.session.memory_mb,
-            swap_mb: config.session.swap_mb,
-        })
-        .unwrap_or_default()
+    crate::config::Config::load().map_or_else(|_| SessionLimits::default(), |config| {
+        session_limits_from_config(&config)
+    })
+}
+
+fn session_limits_from_config(config: &crate::config::Config) -> SessionLimits {
+    SessionLimits { memory_mb: config.session.memory_mb, swap_mb: config.session.swap_mb }
 }
 
 /// A knob's value: the profile's env, then daemon config, then daemon env.
@@ -642,6 +642,17 @@ mod tests {
         let get = knob_reader(&profile, config);
         let props = properties_with_swap(&get, 32 * GIB, 8 * GIB);
         assert!(joined(&props).contains("MemoryMax=4294967296"));
+        assert!(joined(&props).contains("MemorySwapMax=2147483648"));
+    }
+
+    #[test]
+    fn cli_session_budget_reaches_a_new_scope() {
+        let mut config = crate::config::Config::default();
+        config.set_session_resource("session.memory_mb", "6144").unwrap();
+        config.set_session_resource("session.swap_mb", "2048").unwrap();
+        let get = knob_reader(&BTreeMap::new(), session_limits_from_config(&config));
+        let props = properties_with_swap(&get, 32 * GIB, 8 * GIB);
+        assert!(joined(&props).contains("MemoryMax=6442450944"));
         assert!(joined(&props).contains("MemorySwapMax=2147483648"));
     }
 
