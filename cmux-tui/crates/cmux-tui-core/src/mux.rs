@@ -23,6 +23,8 @@ use terminal_records::{
 #[cfg(any(unix, windows))]
 mod terminal_host_records;
 #[cfg(any(unix, windows))]
+pub(crate) use terminal_host_records::TerminalHostPaths;
+#[cfg(any(unix, windows))]
 use terminal_host_records::{
     acknowledge_exact_terminal_host_exit, cleanup_terminal_host_record,
     terminal_host_record_liveness, terminate_discovered_terminal_host_in,
@@ -546,7 +548,10 @@ pub struct Mux {
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
     next_in_process_resize_owner: AtomicU64,
-    pub(crate) surface_options: Mutex<SurfaceOptions>,
+    /// A leaf lock: nothing takes another ranked lock or this one again
+    /// while it holds it (a re-lock panics in debug and test builds). The
+    /// host root and panic log are read with `terminal_host_paths`.
+    pub(crate) surface_options: crate::lock_rank::RankedMutex<SurfaceOptions>,
     provider_workspace: Mutex<ProviderWorkspaceState>,
     /// `provider_workspace.managed`, readable under the registry and state
     /// locks (the provider lock orders before them; the flag is one-way).
