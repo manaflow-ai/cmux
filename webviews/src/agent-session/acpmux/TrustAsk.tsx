@@ -48,7 +48,9 @@ export function TrustAsk({
 }: {
   ask: FolderTrustAsk;
   agent: string;
-  /// This pane can record an answer (not a remote chat whose host keeps it): Trust is offered.
+  /// This pane can record an answer (not a remote chat whose host keeps it). Without it the card
+  /// only says where the folder stands: Trust, Not now and Undo would each send an answer the host
+  /// refuses, and that refusal's failed state would offer Trust again.
   answers?: boolean;
   /// Trust only this folder.
   onTrust(): void;
@@ -92,9 +94,11 @@ export function TrustAsk({
                 {owned ? t("trust.trust") : t("trust.trustFolder")}
               </button>
             )}
-            <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
-              {t("trust.undo")}
-            </button>
+            {answers && (
+              <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
+                {t("trust.undo")}
+              </button>
+            )}
           </span>
         </>
       ) : ask.state === "decided" ? (
@@ -110,9 +114,11 @@ export function TrustAsk({
                   ? t("trust.notTrustedRepo", { agent, repo })
                   : t("trust.notTrusted", { agent, folder: subject.viaFolder ?? folder })}
           </span>
-          <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
-            {t("trust.undo")}
-          </button>
+          {answers && (
+            <button type="button" className="acpmux-trust-ask-action" onClick={onUndo}>
+              {t("trust.undo")}
+            </button>
+          )}
         </>
       ) : ask.state === "remote" ? (
         <span className="acpmux-trust-ask-text">{t("trust.remote")}</span>
@@ -121,12 +127,16 @@ export function TrustAsk({
           <span className="acpmux-trust-ask-text">
             {ask.state === "failed" ? t("trust.failed") : t("trust.askPrivate", { agent })}
           </span>
-          <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrust}>
-            {t("trust.trust")}
-          </button>
-          <button type="button" className="acpmux-trust-ask-action" onClick={onDistrust}>
-            {t("trust.notNow")}
-          </button>
+          {answers && (
+            <>
+              <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrust}>
+                {t("trust.trust")}
+              </button>
+              <button type="button" className="acpmux-trust-ask-action" onClick={onDistrust}>
+                {t("trust.notNow")}
+              </button>
+            </>
+          )}
         </>
       ) : (
         <>
@@ -146,31 +156,33 @@ export function TrustAsk({
                 : t("trust.allowsFolder", { agent })}
             </span>
           </span>
-          <span className="acpmux-trust-ask-actions">
-            {offersRepo ? (
-              <>
-                <button
-                  type="button"
-                  className="acpmux-trust-ask-action acpmux-trust-ask-primary"
-                  onClick={onTrustRepo}
-                >
-                  {t("trust.trustRepo")}
-                </button>
-                {!subject.atRoot && (
-                  <button type="button" className="acpmux-trust-ask-action" onClick={onTrust}>
-                    {t("trust.onlyThisFolder")}
+          {answers && (
+            <span className="acpmux-trust-ask-actions">
+              {offersRepo ? (
+                <>
+                  <button
+                    type="button"
+                    className="acpmux-trust-ask-action acpmux-trust-ask-primary"
+                    onClick={onTrustRepo}
+                  >
+                    {t("trust.trustRepo")}
                   </button>
-                )}
-              </>
-            ) : (
-              <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrust}>
-                {t("trust.trustFolder")}
+                  {!subject.atRoot && (
+                    <button type="button" className="acpmux-trust-ask-action" onClick={onTrust}>
+                      {t("trust.onlyThisFolder")}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrust}>
+                  {t("trust.trustFolder")}
+                </button>
+              )}
+              <button type="button" className="acpmux-trust-ask-action" onClick={onDistrust}>
+                {t("trust.notNow")}
               </button>
-            )}
-            <button type="button" className="acpmux-trust-ask-action" onClick={onDistrust}>
-              {t("trust.notNow")}
-            </button>
-          </span>
+            </span>
+          )}
         </>
       )}
     </div>
