@@ -37,6 +37,54 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
 
   const bounds = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
 
+  test("More models grows with the viewport and shares one body scroll", async () => {
+    const heights: number[] = [];
+    for (const height of [400, 1000]) {
+      const page = await open("opencode-more-models", 640, height);
+      try {
+        const menu = await bounds(page, ".acpmux-quick-menu");
+        heights.push(menu.height);
+        expect(menu.y + menu.height).toBeLessThanOrEqual(height);
+        expect(await page.locator(".acpmux-quick-more-list").evaluate((node) => getComputedStyle(node).overflowY)).toBe(
+          "visible",
+        );
+        await page.locator(".acpmux-quick-body").evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+        });
+        await page.getByRole("menuitemradio", { name: /Sample Model 40/ }).waitFor();
+      } finally {
+        await page.close();
+      }
+    }
+    expect(heights[1]!).toBeGreaterThan(480);
+    expect(heights[1]!).toBeGreaterThan(heights[0]! + 200);
+  });
+
+  test("search and model rows share height and padding without a second list inset", async () => {
+    for (const variant of ["claude-many-harnesses", "chat-flipped"]) {
+      const page = await open(variant);
+      try {
+        const geometry = await page.evaluate(() => {
+          const search = document.querySelector<HTMLElement>(".acpmux-quick-search")!;
+          const item = document.querySelector<HTMLElement>(".acpmux-quick-item")!;
+          const body = document.querySelector<HTMLElement>(".acpmux-quick-body")!;
+          return {
+            searchHeight: search.getBoundingClientRect().height,
+            itemHeight: item.getBoundingClientRect().height,
+            searchInset: getComputedStyle(search).paddingLeft,
+            itemInset: getComputedStyle(item).paddingLeft,
+            bodyInset: getComputedStyle(body).paddingLeft,
+          };
+        });
+        expect(geometry.searchHeight).toBe(geometry.itemHeight);
+        expect(geometry.searchInset).toBe(geometry.itemInset);
+        expect(geometry.bodyInset).toBe("0px");
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
   test("downward Claude menu ends immediately after Fast even with ten distinct harnesses", async () => {
     const page = await open("claude-many-harnesses");
     try {
@@ -59,18 +107,18 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       try {
         const rail = await bounds(page, ".acpmux-quick-rail");
         const menu = await bounds(page, ".acpmux-quick-menu");
-        await page.getByRole("button", { name: "Unii", exact: true }).click();
+        await page.getByRole("button", { name: "Codex", exact: true }).click();
         await page.waitForFunction(
-          (y) => Math.abs(document.querySelector(".acpmux-quick-rail")!.getBoundingClientRect().y - y) < 1,
-          rail.y,
+          () =>
+            document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
         );
         const nextRail = await bounds(page, ".acpmux-quick-rail");
         const nextMenu = await bounds(page, ".acpmux-quick-menu");
-        expect(Math.abs(nextRail.y - rail.y)).toBeLessThan(1);
         expect(Math.abs(nextRail.x - rail.x)).toBeLessThan(1);
+        expect(Math.abs(nextMenu.x - menu.x)).toBeLessThan(1);
         expect(nextMenu.width).toBe(menu.width);
         expect(nextMenu.height).toBeLessThan(menu.height);
-        expect(await page.locator(".acpmux-quick-list").innerText()).toContain("Signed out");
+        expect(await page.locator(".acpmux-quick-list").innerText()).toContain("GPT-6");
       } finally {
         await page.close();
       }
@@ -85,13 +133,14 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         () => document.querySelector(".acpmux-quick-menu")?.getAttribute("data-side") === "top",
       );
       const rail = await bounds(page, ".acpmux-quick-rail");
-      await page.getByRole("button", { name: "Unii", exact: true }).click();
+      await page.getByRole("button", { name: "Codex", exact: true }).click();
       await page.waitForFunction(
-        () => document.querySelector(".acpmux-quick-menu")!.getBoundingClientRect().height < 230,
+        () =>
+          document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
       );
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       expect(await menu.getAttribute("data-side")).toBe("top");
-      expect(Math.abs((await bounds(page, ".acpmux-quick-rail")).y - rail.y)).toBeLessThan(1);
+      expect(Math.abs((await bounds(page, ".acpmux-quick-rail")).x - rail.x)).toBeLessThan(1);
     } finally {
       await page.close();
     }
@@ -133,19 +182,75 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
-  test("launch profiles and route-backed accounts occupy separate submenus", async () => {
-    for (const [label, choice, absent] of [
-      ["Profile", "Subrouter", "API key"],
-      ["Account", "API key", "Subrouter"],
-    ]) {
-      const page = await open("claude");
+  test("launch configurations are named harness entries, with no Profile submenu", async () => {
+    const page = await open("claude");
+    try {
+      expect(await page.getByRole("menuitem", { name: /^Profile/ }).count()).toBe(0);
+      expect(await page.getByRole("button", { name: "Claude Code (sr)", exact: true }).count()).toBe(1);
+      await page.getByRole("menuitem", { name: /^Provider/ }).hover();
+      await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("the picker uses readable rows and a left harness rail", async () => {
+    const page = await open("claude");
+    try {
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      const body = await bounds(page, ".acpmux-quick-body");
+      const row = (await page.locator(".acpmux-quick-list .acpmux-quick-item").first().boundingBox())!;
+      expect(rail.x + rail.width).toBeLessThanOrEqual(body.x + 1);
+      expect(row.height).toBeGreaterThanOrEqual(36);
+      const search = await bounds(page, ".acpmux-quick-search");
+      expect(search.height).toBe(row.height);
+      expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("every harness placement leaves the model rows visible", async () => {
+    for (const variant of ["harness-left", "harness-top", "harness-compact"]) {
+      const page = await open(variant, 420, 560);
       try {
-        await page.getByRole("menuitem", { name: new RegExp("^" + label) }).hover();
-        await page.getByRole("menuitemradio", { name: choice, exact: true }).waitFor();
-        expect(await page.getByRole("menuitemradio", { name: absent, exact: true }).count()).toBe(0);
+        const body = await bounds(page, ".acpmux-quick-body");
+        const first = (await page.locator(".acpmux-quick-list [role=menuitemradio]").first().boundingBox())!;
+        expect(body.height).toBeGreaterThanOrEqual(first.height);
+        expect(first.y).toBeGreaterThanOrEqual(body.y);
+        expect(first.y + first.height).toBeLessThanOrEqual(body.y + body.height);
       } finally {
         await page.close();
       }
+    }
+  });
+
+  test("a long account name keeps the Provider control readable in a narrow pane", async () => {
+    for (const width of [320, 420]) {
+      const page = await open("claude", width);
+      try {
+        const label = page.getByRole("menuitem", { name: /^Provider/ }).locator(".acpmux-menu-label");
+        expect(await label.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+        await page.getByRole("menuitem", { name: /^Provider/ }).hover();
+        await page.getByRole("menuitemradio", { name: "API key", exact: true }).waitFor();
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  test("searching from a launch entry selects the visible model, not that launch entry", async () => {
+    const page = await open("claude");
+    try {
+      await page.keyboard.press("ArrowLeft");
+      await page.waitForFunction(
+        () => document.querySelector('.acpmux-quick-rail-tab[aria-pressed="true"]')?.textContent === "Claude Code (sr)",
+      );
+      await page.locator(".acpmux-quick-search input").fill("Sonnet");
+      await page.keyboard.press("Enter");
+      expect(await page.locator("[data-selection]").getAttribute("data-selection")).toBe("claude/Sonnet 5.5");
+    } finally {
+      await page.close();
     }
   });
 
@@ -161,7 +266,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       expect(await body.getAttribute("data-scrolled")).toBeNull();
       const first = (await page.locator(".acpmux-quick-list [role=menuitemradio]").first().boundingBox())!;
       const inset = await bounds(page, ".acpmux-quick-body");
-      expect(first.y - inset.y).toBeGreaterThanOrEqual(6);
+      expect(first.y - inset.y).toBe(0);
       await body.evaluate((node) => {
         node.scrollTop = node.scrollHeight;
       });

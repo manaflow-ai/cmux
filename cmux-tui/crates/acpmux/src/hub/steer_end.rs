@@ -131,6 +131,19 @@ impl Hub {
         if step_now {
             params["_meta"]["steerNow"] = json!(true);
         }
+        // Another session's plain message goes in with the other agents' messages waiting for
+        // this step, as one message (claude_stdio `steer_batch.rs`). One read now goes alone at
+        // once, and so do a family message (its gate holds until it is written), a slash command
+        // (only a line's first words run one) and one with uploaded files.
+        let sender = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        if let Some(from) = sender
+            && !step_now
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            && super::forum::slash_command(&blocks).is_none()
+            && !crate::prompt_uploads::any(&blocks)
+        {
+            params["_meta"]["batch"] = json!({"from": from});
+        }
         // Counted in the turn before the agent can read it (`lane_reports.rs`).
         let count = self.lane_steer_in(session, opts.provenance.as_ref());
         let fence = family_gate.map(|hold| self.hold_until_written(session, hold));

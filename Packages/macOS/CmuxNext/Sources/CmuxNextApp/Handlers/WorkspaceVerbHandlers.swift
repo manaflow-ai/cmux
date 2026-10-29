@@ -31,11 +31,12 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.newInNewGroup", run: { invocation in
             let name = invocation["name"]?.stringValue ?? ""
             let byUser = invocation.origin == .user
-            // The group forms last in its section in one write, where the store lists a new
-            // group, not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
+            // The group forms in one write at `workspaces.newPlacement` (first under `top`, the default; last
+            // under `bottom`), not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
+            let index = NewWorkspacePlacements.newGroupIndex(context.services)
             try create(context, invocation, anchorFree: nil) { id, bridge in
                 guard let bridge = bridge as? SidebarBridge else { return }
-                bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser, index: .max)
+                bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser, index: index)
             }
         })
         registry.bind("workspace.newOnMachine", run: { invocation in

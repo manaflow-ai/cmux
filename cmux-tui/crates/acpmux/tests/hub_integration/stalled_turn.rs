@@ -264,9 +264,12 @@ async fn a_turn_counts_from_its_prompt_being_written() {
     c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
     // The agent exits idle; the last word was 5 min ago, past one period.
     clock.advance(Duration::from_secs(301));
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let status = hub.session_summary(&hub.resolve("stall-written").unwrap())["status"].clone();
-    assert_eq!(status, "idle", "the agent did not exit idle");
+    // The idle pass lists the processes under the harness first (`hub/idle_census.rs`).
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while hub.session_summary(&hub.resolve("stall-written").unwrap())["status"] != "idle" {
+        assert!(std::time::Instant::now() < deadline, "the agent did not exit idle");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 
     // An unattended prompt: its client lets go while the agent still starts.
     let mut other = connect(&hub).await;

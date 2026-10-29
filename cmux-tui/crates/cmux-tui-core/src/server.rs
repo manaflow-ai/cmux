@@ -133,7 +133,8 @@ mod agent_session_attach;
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
     AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
-    AGENT_SESSION_TRUST_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter,
+    AgentStartHost, AgentStartHostSource,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -151,6 +152,10 @@ mod origin_gate;
 mod orphan_shutdown;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+mod starter_exit;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
@@ -2882,6 +2887,9 @@ mod orphan_shutdown_tests;
 #[cfg(test)]
 #[path = "server/session_identity_tests.rs"]
 mod session_identity_tests;
+#[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
+#[path = "server/starter_exit_tests.rs"]
+mod starter_exit_tests;
 
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
@@ -2905,6 +2913,9 @@ mod pinned_columns_tests;
 #[path = "server/rows_tests.rs"]
 mod rows_tests;
 
+#[cfg(test)]
+#[path = "server/column_left_tests.rs"]
+mod column_left_tests;
 #[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;

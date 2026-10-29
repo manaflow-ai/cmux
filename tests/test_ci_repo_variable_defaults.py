@@ -197,9 +197,32 @@ def top_level_conjuncts(condition: str) -> list[str]:
     return parts
 
 
-def gated_on_every_read(condition: str, reads: list[re.Match]) -> bool:
+def gated_on_every_read(condition: str, reads: list[re.Match], expression: str = "") -> bool:
     conjuncts = top_level_conjuncts(condition)
-    return all(f"vars.{read.group(1)} != ''" in conjuncts for read in reads)
+    if all(f"vars.{read.group(1)} != ''" in conjuncts for read in reads):
+        return True
+    # `runs-on: ${{ vars.A || vars.B }}` is non-empty when either is set, so a
+    # job gated on `(vars.A != '' || vars.B != '')` never schedules on an empty
+    # runs-on either. Only a pure `||` chain of the same variables qualifies.
+    names = {read.group(1) for read in reads}
+    chain = re.fullmatch(r"\$\{\{\s*(vars\.[A-Z0-9_]+(?:\s*\|\|\s*vars\.[A-Z0-9_]+)*)\s*\}\}", expression.strip())
+    if chain is None:
+        return False
+    for conjunct in conjuncts:
+        inner = conjunct.strip()
+        if inner.startswith("(") and inner.endswith(")"):
+            inner = inner[1:-1]
+        terms = [term.strip() for term in inner.split("||")]
+        gated = set()
+        for term in terms:
+            matched = re.fullmatch(r"vars\.([A-Z0-9_]+) != ''", term)
+            if matched is None:
+                gated = set()
+                break
+            gated.add(matched.group(1))
+        if gated and gated == names:
+            return True
+    return False
 
 
 def check_runs_on(path: Path, errors: list[str]) -> None:
@@ -214,7 +237,7 @@ def check_runs_on(path: Path, errors: list[str]) -> None:
             continue
         if any(default_chain_reaches_literal(expression, read.end()) for read in reads):
             continue
-        if gated_on_every_read(job_if(lines, number - 1), reads):
+        if gated_on_every_read(job_if(lines, number - 1), reads, expression):
             continue
         # A last top-level `|| 'label'` is the fallback of the whole expression
         # (build-nightly-app: trusted tuple || hosted 'macos-26').
@@ -335,7 +358,7 @@ def self_test_gate_matcher(errors: list[str]) -> None:
 
 
 def self_test_runs_on_gate(errors: list[str]) -> None:
-    """Only a job-level `vars.X != ''` conjunct for every read excuses a bare runs-on."""
+    """A job-level `vars.X != ''` conjunct for every read (or one disjunction over a pure `||` chain) excuses a bare runs-on."""
     import tempfile
 
     def job(condition: str, runs_on: str = "${{ vars.A_RUNNER }}") -> str:
@@ -350,6 +373,12 @@ def self_test_runs_on_gate(errors: list[str]) -> None:
         (job("(vars.A_RUNNER != '' || vars.B != '') && github.ref == 'x'"), 1, "a gate inside parentheses"),
         (job("vars.B_RUNNER != ''"), 1, "a gate on another variable"),
         (job("vars.A_RUNNER != ''", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1, "one of two reads gated"),
+        (job("x == 'y' && (vars.A_RUNNER != '' || vars.B_RUNNER != '')", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 0,
+         "a `||` chain gated on either of its variables"),
+        (job("x == 'y' && (vars.A_RUNNER != '' || vars.C_RUNNER != '')", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1,
+         "a `||` chain gated on another variable"),
+        (job("(vars.A_RUNNER != '' || vars.B_RUNNER != '')", "${{ vars.A_RUNNER && vars.B_RUNNER }}"), 1,
+         "an `&&` read gated on either variable"),
         ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two:\n    runs-on: ${{ vars.A_RUNNER }}\n",
          1, "another job's gate"),
         ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two: # note\n    runs-on: ${{ vars.A_RUNNER }}\n",
