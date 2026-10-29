@@ -148,6 +148,7 @@ import Testing
         for seed in 0..<5000 {
             guard await Self.run(seed: UInt64(seed)) else { return }
         }
+        print("JoinConsentInterleavingTests: \(Self.servedChecked) served tickets checked against their own read")
         #expect(Self.servedChecked > 200, "the schedules serve tickets, so the serve invariant is exercised")
     }
 
