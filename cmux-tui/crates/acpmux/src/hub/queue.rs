@@ -304,9 +304,25 @@ impl Hub {
             }
         }
         // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
-        let guard = loop {
+        // A lane's report queued behind a turn its parent's close then ended is refused before
+        // its turn starts (`turns.rs`), so it never reopens the parent.
+        let (guard, run) = loop {
             match self.queue_turn(session, &turn_id, &withdraw).await {
-                Wait::Turn(guard) => break guard,
+                Wait::Turn(guard) => match self.take_queued(session, p.prompt_id, &turn_id) {
+                    Ok(run) => break (guard, run),
+                    // Gone as its turn came: withdrawn, or taken into an inbox digest, which takes
+                    // no turn lock (`inbox_digest.rs`). The turn is freed first (the digest runs
+                    // in it), and the digest's answer is its own unless that turn failed and put
+                    // it back (`requeue_joined`): then it waits again.
+                    Err(gone) => {
+                        drop(guard);
+                        let answer = gone_reply(&joined, p.prompt_id, gone).await;
+                        if session.queue().iter().any(|q| q.turn_id == turn_id) {
+                            continue;
+                        }
+                        return Err(answer);
+                    }
+                },
                 // Gone in with an earlier agent message's turn (`digest.rs`): that turn's answer.
                 // A failed one put it back in the queue (`requeue_joined`): it waits again.
                 Wait::Withdrawn => {
@@ -323,7 +339,13 @@ impl Hub {
                 Wait::Steer => {
                     let run = match self.take_queued(session, p.prompt_id, &turn_id) {
                         Ok(run) => run,
-                        Err(gone) => return Err(gone_reply(&joined, p.prompt_id, gone).await),
+                        Err(gone) => {
+                            let answer = gone_reply(&joined, p.prompt_id, gone).await;
+                            if session.queue().iter().any(|q| q.turn_id == turn_id) {
+                                continue;
+                            }
+                            return Err(answer);
+                        }
                     };
                     let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
                     // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
@@ -333,16 +355,6 @@ impl Hub {
                     }
                     return Err(answer);
                 }
-            }
-        };
-        // A lane's report queued behind a turn its parent's close then ended is refused before
-        // its turn starts (`turns.rs`), so it never reopens the parent.
-        let run = match self.take_queued(session, p.prompt_id, &turn_id) {
-            Ok(run) => run,
-            // Free the turn first: the digest that took it runs in it.
-            Err(gone) => {
-                drop(guard);
-                return Err(gone_reply(&joined, p.prompt_id, gone).await);
             }
         };
         Ok((turn_id, true, guard, run))
