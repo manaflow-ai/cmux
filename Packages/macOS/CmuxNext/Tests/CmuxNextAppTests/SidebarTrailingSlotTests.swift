@@ -73,6 +73,8 @@ import Testing
             for (id, expected) in [(T.selected, ["close", "disclosure", "more"]), (T.nested, ["close", "disclosure", "more"]),
                                    (T.unread, ["close", "more"]), (T.busy, ["close", "more"])] {
                 let row = try #require(h.list.rowViews[.workspace(id)] as? WorkspaceRowView)
+                // The harness wires no menu; the app's rows have one, so the hovered ⋮ shows (as in the capture).
+                row.onMore = {}
                 row.isHovered = true
                 row.layoutSubtreeIfNeeded()
                 defer { row.isHovered = false; row.layoutSubtreeIfNeeded() }
