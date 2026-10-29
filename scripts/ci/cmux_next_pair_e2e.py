@@ -400,19 +400,20 @@ def forget_tag(app):
                 os.unlink(path)
             except OSError:
                 pass
-    RigKeychain(app).end()  # the run's own keychain (its items with it), the user's list and default back
-    forget_keychain(bundle)
+    RigKeychain(app).end()  # the run's own keychain and its items; the user's list and default back
 
 
-def forget_keychain(bundle):
-    """This run's file-Keychain items: the Stack tokens (`<bundle>.auth`, CloudConfiguration), the iPhone
-    host's identity (`<bundle>.iphone-host.identity`, MobileHostMacIdentity) and the device hub's keys
-    (`<bundle>.device-hub`, DeviceKeychain), by their exact services;
-    the bundle id is this tag's own. Every item of a service goes (one per account)."""
+def forget_keychain(bundle, keychain):
+    """This run's file-Keychain items in the rig's own `keychain` only (never the account's): the Stack
+    tokens (`<bundle>.auth`, CloudConfiguration), the iPhone host's identity
+    (`<bundle>.iphone-host.identity`, MobileHostMacIdentity) and the device hub's keys
+    (`<bundle>.device-hub`, DeviceKeychain), by their exact services; the bundle id is this tag's own.
+    Every item of a service goes (one per account). RigKeychain.end() runs it before it deletes the
+    keychain, so the items go even if that delete fails."""
     for service in (f"{bundle}.auth", f"{bundle}.iphone-host.identity", f"{bundle}.device-hub"):
         for _ in range(32):  # bounded: delete-generic-password removes one item per call
             try:
-                if subprocess.run(["/usr/bin/security", "delete-generic-password", "-s", service],
+                if subprocess.run(["/usr/bin/security", "delete-generic-password", "-s", service, keychain],
                                   capture_output=True, stdin=subprocess.DEVNULL, timeout=30).returncode != 0:
                     break
             except (OSError, subprocess.TimeoutExpired):
@@ -425,36 +426,50 @@ class RigKeychain:
     default keychain in a 0600 state file next to the tagged app (before changing anything), creates
     `rig.keychain-db` there with a random password (in argv only, never in a file or log; the keychain is
     unlocked with no lock timeout and deleted at the end), puts it first in the search list and makes it
-    the default. end() is idempotent and runs from the rig's finally and from forget_tag (the sim
-    script's EXIT, for a run cut short): the list and the default go back as recorded (a default that
-    was unset is unset again), then the keychain file is deleted. Every call is bounded."""
+    the default. end() is idempotent and runs from forget_tag (the rig's finally, and the sim script's
+    EXIT for a run cut short): the list and the default go back as recorded (a default that was unset
+    is unset again) and are read back; only then are the run's items, the keychain and the record
+    deleted, so a failed restore is tried again by the next end(). Every call is bounded."""
+
+    NO_DEFAULT = "A default keychain could not be found"
 
     def __init__(self, app):
-        _, tag, _ = step_tag(app)
+        self.bundle, tag, _ = step_tag(app)
         self.dir = os.path.join(os.path.dirname(os.path.abspath(app)), f"pair-rig-keychain-{tag}")
         self.path = os.path.join(self.dir, "rig.keychain-db")
         self.state = os.path.join(self.dir, "state.json")
 
     @staticmethod
     def _security(*argv):
+        """(exit code, stdout, stderr); -1 when it did not run or timed out."""
         try:
             r = subprocess.run(["/usr/bin/security", *argv], capture_output=True, text=True, errors="replace",
                                stdin=subprocess.DEVNULL, timeout=30)
-            return r.returncode, r.stdout
+            return r.returncode, r.stdout, r.stderr
         except (OSError, subprocess.TimeoutExpired) as error:
-            return -1, f"{error}"
+            return -1, "", f"{error}"
 
     @classmethod
-    def _paths(cls, *argv):
-        code, out = cls._security(*argv)
-        return code, [line.strip().strip('"') for line in out.splitlines() if line.strip().strip('"')]
+    def _search(cls):
+        """The user domain's search list, or None when it could not be read."""
+        code, out, _ = cls._security("list-keychains", "-d", "user")
+        return [line.strip().strip('"') for line in out.splitlines() if line.strip().strip('"')] if code == 0 else None
+
+    @classmethod
+    def _default(cls):
+        """(read, path): the user domain's default keychain; path None only when `security` says there is none."""
+        code, out, err = cls._security("default-keychain", "-d", "user")
+        paths = [line.strip().strip('"') for line in out.splitlines() if line.strip().strip('"')]
+        if code == 0 and len(paths) == 1:
+            return True, paths[0]
+        return (cls.NO_DEFAULT in err or cls.NO_DEFAULT in out), None
 
     def start(self):
-        code, search = self._paths("list-keychains", "-d", "user")
-        if code != 0:
-            raise SystemExit(f"security list-keychains failed ({code}); the rig's keychain is not set up")
-        code, default = self._paths("default-keychain", "-d", "user")
-        default = default[0] if code == 0 and default else None
+        search = self._search()
+        read, default = self._default()
+        if search is None or not read:  # never record a guess as the account's state
+            raise SystemExit("security could not read the user search list or default keychain; "
+                             "the rig's keychain is not set up")
         os.makedirs(self.dir, mode=0o700, exist_ok=True)
         if os.path.exists(self.state):  # a run of this tag already holds it: never record its keychain as the user's
             raise SystemExit(f"{self.state} exists: the rig's keychain of this tag is already set up")
@@ -465,29 +480,42 @@ class RigKeychain:
                      ("unlock-keychain", "-p", password, self.path),
                      ("list-keychains", "-d", "user", "-s", self.path, *search),
                      ("default-keychain", "-d", "user", "-s", self.path)):
-            code, _ = self._security(*argv)
+            code, _, _ = self._security(*argv)
             if code != 0:  # names the subcommand only: argv holds the password
                 raise SystemExit(f"security {argv[0]} failed ({code}); the rig's keychain is not set up")
         return (f"the rig's own (first of {len(search) + 1} in the search list, the default; the account's "
                 f"default was {'unset' if default is None else 'set'})")
 
     def end(self):
+        """Returns whether the account's list and default are back (or were never changed)."""
         try:
             with open(self.state) as f:
                 saved = json.load(f)
-        except (OSError, ValueError):
+        except FileNotFoundError:
             saved = None
+        except (OSError, ValueError):
+            return False  # unreadable record: keep it and the keychain for a look, never guess
         if saved is not None:
-            _, now = self._paths("list-keychains", "-d", "user")
+            now = self._search()
+            if now is None:
+                return False
             # The recorded list, plus any keychain added to it during the run (not the rig's).
             keep = saved["search"] + [k for k in now if k not in saved["search"] and k != self.path]
             self._security("list-keychains", "-d", "user", "-s", *keep)
-            _, now_default = self._paths("default-keychain", "-d", "user")
-            if not now_default or now_default[0] == self.path:  # changed by someone else during the run: theirs
+            read, now_default = self._default()
+            if not read:
+                return False
+            if now_default in (None, self.path):  # one someone else set during the run stays theirs
                 self._security("default-keychain", "-d", "user", "-s", *([saved["default"]] if saved["default"] else []))
+            after, (read, after_default) = self._search(), self._default()
+            if after != keep or not read or after_default == self.path or \
+                    (now_default in (None, self.path) and after_default != saved["default"]):
+                return False  # the record and keychain stay: forget_tag's next run tries again
         if os.path.exists(self.path):
+            forget_keychain(self.bundle, self.path)
             self._security("delete-keychain", self.path)
         shutil.rmtree(self.dir, ignore_errors=True)
+        return True
 
 
 def run_bounded(argv, timeout):
