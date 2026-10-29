@@ -106,7 +106,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
 
     func focusInitial() {
         if let search, search.isEnabled { window?.makeFirstResponder(search) }
-        else if let row = enabledRows.first, row.0.slider != nil {
+        else if let row = enabledRows.first, row.0.kind == .slider {
             window?.makeFirstResponder(editableControls[row.0.id] ?? self)
         } else { window?.makeFirstResponder(self) }
     }

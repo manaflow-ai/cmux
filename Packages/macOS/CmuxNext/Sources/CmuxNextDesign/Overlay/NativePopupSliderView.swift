@@ -44,7 +44,8 @@ final class NativePopupSliderView: NSView {
         slider.maxValue = Double(max(1, descriptor.stops.count - 1))
         let selected = descriptor.stops.firstIndex { $0.value == descriptor.selectedValue }
         let fallback = descriptor.stops.firstIndex { $0.value == descriptor.defaultValue }
-        slider.doubleValue = Double(selected ?? fallback ?? 0)
+        let position = row.value.flatMap(Int.init).flatMap { descriptor.stops.indices.contains($0) ? $0 : nil }
+        slider.doubleValue = Double(position ?? selected ?? fallback ?? 0)
         slider.isContinuous = true
         slider.isEnabled = row.disabled != true && !descriptor.stops.isEmpty
         slider.setAccessibilityLabel(descriptor.accessibilityLabel ?? row.label)

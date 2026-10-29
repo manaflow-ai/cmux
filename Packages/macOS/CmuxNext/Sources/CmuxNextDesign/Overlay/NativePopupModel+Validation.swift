@@ -47,6 +47,9 @@ extension NativePopupModel {
                 guard row.kind == .slider, !values.isEmpty, values.count <= 100,
                       values.allSatisfy({ !$0.isEmpty }), Set(values).count == values.count,
                       row.minimum == 0, row.maximum == Double(values.count - 1), row.step == 1 else { return false }
+                if let value = row.value {
+                    guard let index = Int(value), slider.stops.indices.contains(index) else { return false }
+                }
             }
             if row.kind == .choice {
                 let options = row.options ?? []
