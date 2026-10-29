@@ -96,7 +96,7 @@ nonisolated enum AcpmuxPaneMethods {
         // stopSubagent, cx-liswe): acpmux sends Claude's stop_task for the task it already holds
         // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
         // gesture; caller params never reach Claude.
-        "_acpmux/subagent_stop",
+        "_acpmux/subagent_stop", "_acpmux/subagent_transcript",
         // Resume a paused agent pair of a chat in the pane's scope (the pause row's Resume; acpmux
         // hub/agent_pairs.rs): delivers the messages the two agents already sent and the guard held.
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
@@ -117,6 +117,10 @@ nonisolated enum AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
         // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
         "_acpmux/route/list", "_acpmux/chat/route.set",
+        // The composer's sign-in check before a turn (direct.ts sessionAuth, sessionAuth.ts): read
+        // only. It names its chat (`sessionId`, in the pane's scope) or a new chat's `target` (a
+        // harness, and optionally its host and route), never another chat.
+        "_acpmux/session/auth",
         // The Inspector's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
         // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
         // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already
@@ -230,7 +234,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
@@ -247,7 +251,9 @@ nonisolated enum AcpmuxPaneMethods {
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
     /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
-    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set"]
+    /// The sign-in check names a chat (`sessionId`) or only a new chat's `target`: a named one must
+    /// be in the pane's scope too.
+    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set", "_acpmux/session/auth"]
 
     /// The methods that copy a session's content into a new session the pane then controls: a
     /// fork, and the handoff steps (prepare captures the source and makes the target, draft edits
