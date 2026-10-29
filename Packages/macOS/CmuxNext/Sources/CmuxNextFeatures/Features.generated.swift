@@ -2811,16 +2811,16 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
+    /// Bench builds only: changes nothing and reports its value and its source at launch. Off by default in every channel (no perf lab switch defaults on); the kill switch proof turns it on and then off with signed flags documents and reads each state and source.
     public static let perfLabKillProbe = Feature(
         index: 162,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
-        description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
+        description: "Bench builds only: changes nothing and reports its value and its source at launch. Off by default in every channel (no perf lab switch defaults on); the kill switch proof turns it on and then off with signed flags documents and reads each state and source.",
         kind: .killSwitch,
         process: .app,
         chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: true, nightly: true, release: true),
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
         expires: nil,
         params: [],
         stories: [],
