@@ -546,7 +546,7 @@ final class TabContentCache {
     /// moved node when it presents the content (`PaneController.showSelectionNow`). Keeping the earlier node left the
     /// adopted terminal under the stand-in's node, which the pane hid as its old selection: on screen, never sized.
     func moveNode(_ key: String, to real: String) {
-        guard let node = tabNodes.removeValue(forKey: key)?.node else { return }
+        guard let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[real]?.node == nil else { return }
         tabNodes[real] = WeakTabNode(node: node)
         daemon.trackVisibility(ofTab: real, node: node) // the daemon reports the node's visibility for `real` now
     }
