@@ -178,17 +178,27 @@ sleep 8
 simctl io "$udid" screenshot "$out/screens/launch.png" >/dev/null
 simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 note "- launch: ok, screens/launch.png"
+if [[ -f .fleet-scratch/hook.sh ]]; then
+  note "- scratch hook: .fleet-scratch/hook.sh"
+  # shellcheck disable=SC1091
+  source .fleet-scratch/hook.sh
+fi
 
 # --- Tests ------------------------------------------------------------------
 if [[ "$mode" == test || "$mode" == all ]]; then
   t0=$SECONDS
+  only_testing=()
+  if [[ -f .fleet-scratch/only-testing ]]; then
+    while IFS= read -r t; do [[ -n "$t" ]] && only_testing+=("-only-testing:$t"); done < .fleet-scratch/only-testing
+    note "- scratch filter: ${only_testing[*]}"
+  fi
   # xcodebuild sees only the default device set: the tests get their own new
   # iPhone there, deleted by its UDID afterwards (never another step's device).
   test_udid="$(xcrun simctl create "cmux-next-ios-sim-test-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   set +e
   (cd cmux-next-ios/CmuxMobileKit && xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
-    -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet) >"$work/test.log" 2>&1
+    -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet ${only_testing[@]+"${only_testing[@]}"}) >"$work/test.log" 2>&1
   test_status=$?
   set -e
   xcrun simctl shutdown "$test_udid" >/dev/null 2>&1 || true
@@ -213,6 +223,10 @@ for root in json.load(sys.stdin).get("testNodes", []):
     walk(root, [root.get("name", "")])
 ' > "$out/test-failures.txt" 2>/dev/null || true
   cat "$out/test-failures.txt"
+  cp "$work/test.log" "$out/test.log" 2>/dev/null || true
+  xcrun xcresulttool get log --type console --path "$work/kit.xcresult" > "$out/test-console.txt" 2>/dev/null || true
+  xcrun xcresulttool get test-results tests --path "$work/kit.xcresult" --compact > "$out/test-results.json" 2>/dev/null || true
+  grep -hE "LINK_RECOVERY|BENCH|_ms=" "$out/test.log" "$out/test-console.txt" 2>/dev/null | sort -u | tee -a "$summary" || true
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
 fi
 
