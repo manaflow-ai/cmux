@@ -386,6 +386,54 @@ fn link_stop_waits_for_an_ending_link_that_still_holds_its_lock() {
     assert_eq!(app.stop()["stopped"], true);
 }
 
+/// A link that is ending drops its listener before it removes its
+/// registration: for that moment its registration still names its own
+/// socket and a live pid, no connect reaches it, and it still holds
+/// `link.lock`. `stop` must wait for the lock then too, not answer "no link
+/// runs". The test writes that registration (its own live pid, the link's
+/// own socket, no listener) and holds the lock in the ending link's place.
+#[test]
+fn link_stop_waits_for_an_ending_link_whose_registration_is_still_there() {
+    use std::os::fd::AsRawFd as _;
+    let base = Scratch::new("ending-reg");
+    let app = base.app("a");
+    app.ensure(&["--install", "inst_app_a", "--port", "0"]);
+    let registered: Value = serde_json::from_slice(
+        &std::fs::read(app.registration()).expect("the link's registration"),
+    )
+    .expect("registration JSON");
+    assert_eq!(app.stop()["stopped"], true);
+    let mut ending = registered.clone();
+    ending["pid"] = Value::from(std::process::id());
+    std::fs::write(app.registration(), serde_json::to_vec(&ending).unwrap()).unwrap();
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(app.state_dir().join("link.lock"))
+        .expect("the link's lock file");
+    // SAFETY: flock on a descriptor this test owns.
+    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let dir = app.state_dir();
+    let out = app.cmux(&["link", "stop", "--state-dir", dir.to_str().unwrap()]);
+    assert!(
+        !out.status.success(),
+        "stop answered while a link of this state directory still ran: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("stop_timeout"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // The ending link is gone: it removed its registration and let go.
+    std::fs::remove_file(app.registration()).unwrap();
+    drop(lock);
+    assert_eq!(app.stop()["stopped"], false);
+    let started = app.ensure(&[]);
+    assert_eq!(started["status"], "started", "{started}");
+    assert_eq!(app.stop()["stopped"], true);
+}
+
 /// The link never binds its socket in a folder that other users may open.
 #[test]
 fn link_ensure_refuses_a_socket_folder_open_to_other_users() {
