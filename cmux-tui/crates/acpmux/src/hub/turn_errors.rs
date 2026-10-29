@@ -60,9 +60,23 @@ pub fn is_capacity_error(message: &str) -> bool {
 /// Does an agent error mean the connection to the model dropped, not that the prompt or the
 /// account was at fault? Limit and sign-in errors are excluded: another account solves those.
 pub fn is_transport_error(message: &str) -> bool {
-    if is_limit_error(message) {
-        return false;
-    }
+    !is_limit_error(message) && says_connection_dropped(message)
+}
+
+/// Whether an error says the provider had no capacity, a gateway failed (HTTP 502, 504) or
+/// the connection dropped ([`is_capacity_error`], [`says_connection_dropped`]), whatever it
+/// also says about a sign-in: such an error is never evidence of a sign-in state.
+pub fn says_unreachable(message: &str) -> bool {
+    let m = message.to_lowercase();
+    is_capacity_error(message)
+        || has_status(&m, "502")
+        || has_status(&m, "504")
+        || says_connection_dropped(message)
+}
+
+/// Whether an agent error's words say the connection to the model dropped, whatever else it
+/// says ([`is_transport_error`] without its limit and sign-in exclusion).
+pub fn says_connection_dropped(message: &str) -> bool {
     let m = message.to_lowercase();
     const PHRASES: &[&str] = &[
         "stream disconnected",
@@ -119,11 +133,11 @@ pub fn is_refused_request(message: &str) -> bool {
 
 /// Why an agent's error is worth trying again in a moment, if it is: `capacity`
 /// ([`is_capacity_error`]) or `transport` ([`is_transport_error`]). A usage limit, a sign-in
-/// failure, a bad request, a refused permission ([`is_refused_request`]) and anything else are
-/// not: None.
+/// failure (`recovery::auth_kind`: not one that says the provider was unreachable), a bad
+/// request, a refused permission ([`is_refused_request`]) and anything else are not: None.
 pub fn transient_cause(error: &str) -> Option<&'static str> {
     if is_limit_error(error)
-        || crate::claude_auth::is_sign_in_failure(error)
+        || crate::recovery::auth_kind(error).is_some()
         || is_refused_request(error)
     {
         return None;
@@ -149,14 +163,15 @@ pub(super) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'
 /// ([`transient_cause`]), or `agent_exited` (its agent process died mid-turn: "agent process
 /// closed"). `raw` is the
 /// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr
-/// line, or the sign-in explanation). A limit or sign-in failure in either is never continued:
+/// line, or the sign-in explanation). A limit or sign-in failure (an expired credential too,
+/// unless the error also says the provider was unreachable) in either is never continued:
 /// the fallback profile, or the reconciler that reads `lastTurn`, moves that session. Nor is a
 /// refused request ([`is_refused_request`]) in either: an agent that died of one would be
 /// refused the same way again.
 pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     if is_limit_error(raw)
         || is_limit_error(shown)
-        || crate::claude_auth::is_sign_in_failure(shown)
+        || crate::recovery::auth_kind(shown).is_some()
         || is_refused_request(raw)
         || is_refused_request(shown)
     {
@@ -222,6 +237,19 @@ mod tests {
             Some("agent_exited")
         );
         assert_eq!(resume_cause(raw, "agent process closed (claude): You've hit your limit"), None);
+        // An expired credential is a sign-in failure too (`recovery::auth_kind`: auth.expired).
+        assert_eq!(resume_cause(raw, "agent process closed (claude): credential expired"), None);
+        // An unreachable provider is still retried, whatever it says of a credential.
+        let dropped = "token expired? connection refused";
+        assert_eq!(resume_cause(dropped, dropped), Some("transport"));
+        assert_eq!(
+            resume_cause("HTTP 503: credential expired", "HTTP 503: credential expired"),
+            Some("capacity")
+        );
+        for m in ["HTTP 503: OAuth token has expired", "connection error: OAuth token has expired"]
+        {
+            assert!(resume_cause(m, m).is_some(), "{m}");
+        }
         assert_eq!(
             resume_cause(raw, "agent process closed (fake): Not logged in · Please run /login"),
             None

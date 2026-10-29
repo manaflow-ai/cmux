@@ -68,6 +68,8 @@
 //!   (`mediaRead.remote`). They read a chat's images and videos on this
 //!   machine for the app's pane (`hub/media_read.rs`): the unix socket, the
 //!   app and a peer forwarding for either.
+//! - Web, LocalApp and Peer: no `_acpmux/github_action` (`github_broker.rs`), which an agent
+//!   session asks over the unix socket only.
 //! - Web only: no `_acpmux/subagent_transcript` (`transcriptRead.remote`),
 //!   which reads a subagent's transcript from the chat's Claude store
 //!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
@@ -190,6 +192,11 @@ async fn check_inner(
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
+    }
+    // A GitHub action runs with the person's GitHub login on their Mac (`github_broker.rs`): an
+    // agent session of this daemon asks over the unix socket; no page, app or peer does.
+    if m == method::MUX_GITHUB_ACTION {
+        return Err(refused("_acpmux/github_action"));
     }
     // A person's name (`author.rs`) comes over the unix socket, or from a peer forwarding one it
     // took there; never from Web, the app's pane or a peer forwarding for its own Web client.
@@ -583,6 +590,9 @@ pub(super) fn after(
         && let Ok(v) = reply
     {
         super::redact::redact_for_remote(m, v);
+        if origin == super::Origin::Peer {
+            super::redact::hide_peers_from_peer(v);
+        }
     }
 }
 

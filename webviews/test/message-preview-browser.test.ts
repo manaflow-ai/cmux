@@ -88,11 +88,16 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     await page.locator(".cv-received__show").focus();
     await page.keyboard.press("Enter");
     expect(await page.locator(".cv-received__toggle").first().getAttribute("aria-expanded")).toBe("true");
+    // The reader's open plays the text box's resize (fold.ts playResize, 1f4d014186f2); all of it
+    // shows once that ends.
     expect(
       await page
         .locator(".cv-received__text")
         .first()
-        .evaluate((box) => box.clientHeight >= box.scrollHeight),
+        .evaluate(async (box) => {
+          await Promise.all(box.getAnimations().map((animation) => animation.finished));
+          return box.clientHeight >= box.scrollHeight;
+        }),
     ).toBe(true);
     await page.locator(".cv-received__toggle").first().click();
     await page.locator(".cv-received__show").waitFor();

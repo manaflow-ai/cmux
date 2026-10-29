@@ -36,7 +36,7 @@ WORKFLOW_PATH = ROOT / ".github/workflows/pr-checks.yml"
 WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text())
 JOBS = WORKFLOW["jobs"]
 STEP = next(s for s in JOBS["base-only"]["steps"] if s.get("id") == "decide")
-# PR size blocks, so it runs on every push: a base-only skip would keep an older answer.
+# PR size answers on every push: a base-only skip would keep an older answer.
 SKIPPED_ON_BASE_ONLY = ("link", "split")
 ALWAYS = ("size",)
 ANSWER = "needs.base-only.outputs.base_only != 'true'"
@@ -281,7 +281,7 @@ class WorkflowShapeTests(unittest.TestCase):
                 self.assertNotIn("continue-on-error", job)
         self.assertNotIn("pull_request_target", WORKFLOW_PATH.read_text())
 
-    def test_the_blocking_size_check_never_skips_on_a_base_only_update(self):
+    def test_the_size_check_never_skips_on_a_base_only_update(self):
         for job_id in ALWAYS:
             job = JOBS[job_id]
             self.assertNotIn("needs", job)
