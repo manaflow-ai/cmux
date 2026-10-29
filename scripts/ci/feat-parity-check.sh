@@ -5,21 +5,23 @@
 #     --arg MODE [--arg ROOT]
 # Each mode runs the workflow's own commands, from the checkout root:
 #   rust-workspace ROOT  rust-workspaces.yml's job for ROOT, a `run = true` root of
-#                        .github/rust-workspaces.toml: its own toolchain pin and clippy, the
+#                        .github/rust-workspaces.toml: its own toolchain pin (a root with no
+#                        rust-toolchain.toml gets cmux-tui's, as setup-cmux-tui-rust makes it the
+#                        job's default) and clippy, the
 #                        ghostty-next checkout when the root uses ghostty-vt-sys, then
 #                        `rust-workspaces.py run ROOT` (clippy --all-targets -D warnings and
 #                        cargo test). `rust-workspaces.py plan --base BASE` names the roots a
 #                        change reaches. Needs python 3.11 or later (tomllib).
 #   sdk-rust             cmux-tui-sdks.yml `packages` (rust): fmt --check, tests, doc tests and
-#                        clippy -D warnings of cmux-sdk and cmux-sidebar.
+#                        clippy -D warnings of cmux-sdk and cmux-sidebar, cmux-sdk without default
+#                        features, rustdoc -D warnings, and the two `cargo package` checks.
 #   sdk-msrv             cmux-tui-sdks.yml `rust-msrv`: the public Rust SDK crates and examples
 #                        on Rust 1.88 (installed with rustup into the step's RUSTUP_HOME).
 #   cef-shim-cpp         cmux-next-shim-cpp.yml: every scripts/cmux-next/test-*-cpp.sh.
 #   swift-portable PKG   swift-packages-linux.yml for one package its matrix lists:
 #                        `swift build --build-tests`, then `swift test --skip-build --parallel`
-#                        when it has Tests, with CMUX_SWIFTPM_TARGET_LINUX=1. Linux is the
-#                        point (the job runs in swift:6.2-noble, with libsqlite3-dev); a macOS
-#                        run says so and is no Linux evidence.
+#                        when it has Tests, with CMUX_SWIFTPM_TARGET_LINUX=1. Linux only (the
+#                        job runs in swift:6.2-noble, with libsqlite3-dev): elsewhere it exits 78.
 #   web                  ci-web.yml's web/ checks: bun install --frozen-lockfile, the managed
 #                        relay catalog check, typecheck, lint:complexity and the unit tests
 #                        (all four shards in one run), with the bun ci-web.yml pins.
@@ -94,12 +96,27 @@ use_pinned_cargo() { # DIR
   export PATH
   echo "cargo: $cargo_bin"
 }
+# As cmux-tui-rust-check.sh: a synced copy without the gitlink uses the files present;
+# otherwise the commit's gitlink, with init-submodule.sh's retries.
 ghostty_next() {
-  if [[ -f "$root/ghostty-next/build.zig" ]]; then
-    echo "ghostty-next: present"
+  if [[ -z "$(git -C "$root" submodule status ghostty-next 2>/dev/null || true)" && -f "$root/ghostty-next/build.zig" ]]; then
+    echo "ghostty-next: no gitlink in this tree (a synced copy); using the files present"
     return 0
   fi
-  git -C "$root" submodule update --init --depth 1 ghostty-next
+  (cd "$root" && bash scripts/ci/init-submodule.sh ghostty-next)
+}
+# The root's toolchain: nothing when a rust-toolchain(.toml) applies from ROOT up, else
+# cmux-tui's channel (setup-cmux-tui-rust makes it the job's default).
+root_toolchain() { # ROOT
+  local dir="$root/$1"
+  while :; do
+    if [[ -f "$dir/rust-toolchain.toml" || -f "$dir/rust-toolchain" ]]; then
+      return 0
+    fi
+    [[ "$dir" != "$root" ]] || break
+    dir="$(dirname "$dir")"
+  done
+  python3 -I -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["toolchain"]["channel"])' "$root/cmux-tui/rust-toolchain.toml"
 }
 
 if [[ "$mode" == rust-workspace ]]; then
@@ -121,7 +138,7 @@ print(("1" if j.get("ghostty") else "0") + "\t" + (j.get("apt") or ""))
   if [[ -n "$apt" ]]; then
     if [[ "$(uname -s)" == Linux ]] && command -v apt-get >/dev/null && sudo -n true 2>/dev/null; then
       # shellcheck disable=SC2086 # the entry's apt list is space-separated package names
-      step "apt $apt" sudo -n apt-get install -y $apt
+      step "apt $apt" sh -c 'sudo -n apt-get update && sudo -n apt-get install -y "$@"' _ $apt
     else
       step "apt $apt" sh -c 'echo "error: this host cannot install the apt packages $1" >&2; exit 3' _ "$apt"
     fi
@@ -130,7 +147,14 @@ print(("1" if j.get("ghostty") else "0") + "\t" + (j.get("apt") or ""))
     export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC=""
     step "ghostty-next" ghostty_next
   fi
-  step "toolchain" bash -c 'cd "$1" && rustup toolchain install && rustup component add clippy && cargo --version' _ "$workspace"
+  fallback="$(root_toolchain "$workspace")" || { echo "error: cannot read cmux-tui/rust-toolchain.toml" >&2; exit 3; }
+  if [[ -n "$fallback" ]]; then
+    echo "toolchain: $workspace has no rust-toolchain.toml; using cmux-tui's $fallback"
+    export RUSTUP_TOOLCHAIN="$fallback"
+    step "toolchain" bash -c 'rustup toolchain install "$2" --profile minimal --component clippy --component rustfmt && cd "$1" && cargo --version' _ "$workspace" "$fallback"
+  else
+    step "toolchain" bash -c 'cd "$1" && rustup toolchain install && rustup component add clippy && cargo --version' _ "$workspace"
+  fi
   step "clippy and tests" python3 .github/scripts/rust-workspaces.py run "$workspace"
   finish
 fi
@@ -143,6 +167,12 @@ if [[ "$mode" == sdk-rust ]]; then
   step "test" cargo test -p cmux-sdk -p cmux-sidebar --all-targets --locked
   step "doc tests" cargo test -p cmux-sdk -p cmux-sidebar --doc --locked
   step "clippy" cargo clippy -p cmux-sdk -p cmux-sidebar --all-targets --locked -- -D warnings
+  # Embedders such as Chromium build without sha2 (socket-path-hash).
+  step "test no-default-features" cargo test -p cmux-sdk --all-targets --locked --no-default-features
+  step "clippy no-default-features" cargo clippy -p cmux-sdk --all-targets --locked --no-default-features -- -D warnings
+  step "rustdoc" env RUSTDOCFLAGS="-D warnings" cargo doc -p cmux-sdk -p cmux-sidebar --locked --no-deps
+  step "package cmux-sdk" cargo package -p cmux-sdk --locked
+  step "package cmux-sidebar (list)" cargo package -p cmux-sidebar --locked --list
   finish
 fi
 
@@ -150,12 +180,12 @@ if [[ "$mode" == sdk-msrv ]]; then
   export CARGO_TARGET_DIR="$root/.build/sdk-msrv-target"
   step "rust $msrv" rustup toolchain install "$msrv" --profile minimal --component clippy --component rustfmt
   b="$root/cmux-tui/bindings"
-  step "fmt rust" cargo "+$msrv" fmt --manifest-path "$b/rust/Cargo.toml" -- --check
-  step "test rust" cargo "+$msrv" test --manifest-path "$b/rust/Cargo.toml" --locked
-  step "test rust-sidebar" cargo "+$msrv" test --manifest-path "$b/rust-sidebar/Cargo.toml" --locked
-  step "test rust-agent-screen-detection" cargo "+$msrv" test --manifest-path "$b/examples/rust-agent-screen-detection/Cargo.toml" --locked
-  step "clippy rust-agent-dashboard" cargo "+$msrv" clippy --manifest-path "$b/examples/rust-agent-dashboard/Cargo.toml" --locked --all-targets -- -D warnings
-  step "clippy rust-sidebar-monitor" cargo "+$msrv" clippy --manifest-path "$b/examples/rust-sidebar-monitor/Cargo.toml" --locked --all-targets -- -D warnings
+  step "fmt rust" rustup run "$msrv" cargo fmt --manifest-path "$b/rust/Cargo.toml" -- --check
+  step "test rust" rustup run "$msrv" cargo test --manifest-path "$b/rust/Cargo.toml" --locked
+  step "test rust-sidebar" rustup run "$msrv" cargo test --manifest-path "$b/rust-sidebar/Cargo.toml" --locked
+  step "test rust-agent-screen-detection" rustup run "$msrv" cargo test --manifest-path "$b/examples/rust-agent-screen-detection/Cargo.toml" --locked
+  step "clippy rust-agent-dashboard" rustup run "$msrv" cargo clippy --manifest-path "$b/examples/rust-agent-dashboard/Cargo.toml" --locked --all-targets -- -D warnings
+  step "clippy rust-sidebar-monitor" rustup run "$msrv" cargo clippy --manifest-path "$b/examples/rust-sidebar-monitor/Cargo.toml" --locked --all-targets -- -D warnings
   finish
 fi
 
@@ -189,7 +219,8 @@ for line in open(sys.argv[1], encoding="utf-8"):
 raise SystemExit(0 if sys.argv[2] in listed else 1)
 PY
   if [[ "$(uname -s)" != Linux ]]; then
-    echo "gate-notice: swift-portable ran on $(uname -s), not Linux: this run is no Linux portability evidence"
+    echo "error: swift-portable checks Linux portability and runs only on Linux, not $(uname -s)" >&2
+    exit 78
   fi
   export CMUX_SWIFTPM_TARGET_LINUX=1
   step "swift build $pkg" swift build --package-path "$pkg" --build-tests
@@ -218,7 +249,20 @@ step "bun $web_bun_pin" ensure_web_bun
 cd "$root/web"
 step "bun install" bun install --frozen-lockfile
 step "relay catalog" bun tools/generate-managed-iroh-relay-catalog.ts --check
-step "typecheck" bun run typecheck
+# ci-web.yml retries the native TypeScript compiler once when it aborts; real type errors stay red.
+web_typecheck() {
+  local log rc=0
+  log="$(mktemp)"
+  bun run typecheck 2>&1 | tee "$log" || rc=${PIPESTATUS[0]}
+  if [[ "$rc" -ne 0 ]] && grep -Fq 'Aborted (core dumped)' "$log"; then
+    echo "native tsgo aborted during web typecheck; retrying once"
+    rc=0
+    bun run typecheck || rc=$?
+  fi
+  rm -f "$log"
+  return "$rc"
+}
+step "typecheck" web_typecheck
 step "lint:complexity" bun run lint:complexity
 step "unit tests" ./scripts/run-tests.sh
 finish

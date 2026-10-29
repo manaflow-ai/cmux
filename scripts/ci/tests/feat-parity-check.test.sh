@@ -16,9 +16,11 @@ echo "cargo \$(basename "\$PWD") \${CARGO_TARGET_DIR:-unset} \$*" >> "$TMP/calls
 STUB
 cat >"$TMP/bin/rustup" <<STUB
 #!/bin/bash
-echo "rustup \$(basename "\$PWD") \$*" >> "$TMP/calls"
+echo "rustup \$(basename "\$PWD") \${RUSTUP_TOOLCHAIN:+[\$RUSTUP_TOOLCHAIN] }\$*" >> "$TMP/calls"
 [[ "\$1" != which ]] || echo "$TMP/bin/cargo"
+[[ "\$1" != run ]] || { shift 2; exec "$TMP/bin/cargo" "\$@"; }
 STUB
+printf '#!/bin/bash\necho "${FAKE_OS:-Linux}"\n' >"$TMP/bin/uname"
 cat >"$TMP/bin/swift" <<STUB
 #!/bin/bash
 echo "swift \${CMUX_SWIFTPM_TARGET_LINUX:-unset} \$*" >> "$TMP/calls"
@@ -31,7 +33,7 @@ STUB
 chmod +x "$TMP/bin/"*
 # A checkout with every input the modes read.
 W="$TMP/work"
-mkdir -p "$W/.github/workflows" "$W/Packages/Shared/Port/Tests" "$W/Packages/Shared/NoTests" "$W/.github/scripts" "$W/crates/ws" "$W/crates/off" "$W/cmux-tui" "$W/scripts/cmux-next" "$W/web/scripts"
+mkdir -p "$W/.github/workflows" "$W/Packages/Shared/Port/Tests" "$W/Packages/Shared/NoTests" "$W/.github/scripts" "$W/crates/ws" "$W/crates/pinned" "$W/crates/off" "$W/cmux-tui" "$W/scripts/cmux-next" "$W/web/scripts"
 cp "$ROOT/.github/scripts/rust-workspaces.py" "$W/.github/scripts/"
 cat >"$W/.github/rust-workspaces.toml" <<'TOML'
 [[workspace]]
@@ -39,10 +41,17 @@ root = "crates/ws"
 run = true
 
 [[workspace]]
+root = "crates/pinned"
+run = true
+
+[[workspace]]
 root = "crates/off"
 skip = "a test root nothing checks"
 TOML
 printf '[package]\nname = "ws"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/crates/ws/Cargo.toml"
+printf '[package]\nname = "pinned"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/crates/pinned/Cargo.toml"
+printf '[toolchain]\nchannel = "1.90.0"\n' >"$W/crates/pinned/rust-toolchain.toml"
+printf '[toolchain]\nchannel = "1.95.0"\n' >"$W/cmux-tui/rust-toolchain.toml"
 printf '[package]\nname = "off"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/crates/off/Cargo.toml"
 cat >"$W/.github/workflows/swift-packages-linux.yml" <<'YML'
 jobs:
@@ -71,9 +80,15 @@ grep -q 'cmux-ci run --class light --script scripts/ci/feat-parity-check.sh' <<<
 [[ -z "$(calls)" ]] || fail "ran tools outside a fleet step: $(calls)"
 
 # rust-workspace ROOT: the root's toolchain, then rust-workspaces.py run (clippy, then cargo test).
+# A root with no rust-toolchain.toml gets cmux-tui's channel, as setup-cmux-tui-rust makes it the default.
+ARGS=(rust-workspace crates/pinned)
+out=$(run CMUX_CI_STEP_KEY=k) || fail "rust-workspace (pinned) refused: $out"
+grep -q '^rustup pinned toolchain install$' "$TMP/calls" || fail "no toolchain install in the pinned root: $(calls)"
+grep -q 'RUSTUP_TOOLCHAIN\|\[1.95.0\]' "$TMP/calls" && fail "a pinned root got cmux-tui's toolchain: $(calls)"
+rm -f "$TMP/calls"
 ARGS=(rust-workspace crates/ws)
 out=$(run CMUX_CI_STEP_KEY=k) || fail "rust-workspace refused: $out"
-grep -q '^rustup ws toolchain install$' "$TMP/calls" || fail "no toolchain install in the root: $(calls)"
+grep -q '^rustup work \[1.95.0\] toolchain install 1.95.0 --profile minimal --component clippy --component rustfmt$' "$TMP/calls" || fail "an unpinned root did not get cmux-tui's toolchain: $(calls)"
 grep -q '^cargo ws .*/.build/rust-workspace-target/crates__ws clippy --workspace --all-targets -- -D warnings$' "$TMP/calls" || fail "clippy: $(calls)"
 grep -q '^cargo ws .*/.build/rust-workspace-target/crates__ws test --workspace$' "$TMP/calls" || fail "test: $(calls)"
 grep -q 'feat-parity-check: green' <<<"$out" || fail "no green summary: $out"
@@ -93,13 +108,18 @@ run CMUX_CI_STEP_KEY=k >/dev/null || fail "sdk-rust refused"
 want=("fmt -p cmux-sdk -p cmux-sidebar -- --check"
   "test -p cmux-sdk -p cmux-sidebar --all-targets --locked"
   "test -p cmux-sdk -p cmux-sidebar --doc --locked"
-  "clippy -p cmux-sdk -p cmux-sidebar --all-targets --locked -- -D warnings")
+  "clippy -p cmux-sdk -p cmux-sidebar --all-targets --locked -- -D warnings"
+  "test -p cmux-sdk --all-targets --locked --no-default-features"
+  "clippy -p cmux-sdk --all-targets --locked --no-default-features -- -D warnings"
+  "doc -p cmux-sdk -p cmux-sidebar --locked --no-deps"
+  "package -p cmux-sdk --locked"
+  "package -p cmux-sidebar --locked --list")
 [[ "$(grep '^cargo' "$TMP/calls" | sed 's/^cargo cmux-tui [^ ]* //')" == "$(printf '%s\n' "${want[@]}")" ]] || fail "sdk-rust: $(calls)"
 rm -f "$TMP/calls"
 # A red step does not stop the others; the step exits red.
 ARGS=(sdk-rust)
 out=$(run CMUX_CI_STEP_KEY=k CARGO_RED=fmt) && fail "a red fmt passed"
-[[ "$(grep -c '^cargo' "$TMP/calls")" == 4 ]] || fail "a red fmt stopped the other steps: $(calls)"
+[[ "$(grep -c '^cargo' "$TMP/calls")" == 9 ]] || fail "a red fmt stopped the other steps: $(calls)"
 grep -q 'feat-parity-check: RED' <<<"$out" || fail "no red summary: $out"
 rm -f "$TMP/calls"
 
@@ -107,8 +127,8 @@ rm -f "$TMP/calls"
 ARGS=(sdk-msrv)
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "sdk-msrv refused"
 grep -q '^rustup work toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt$' "$TMP/calls" || fail "msrv toolchain: $(calls)"
-[[ "$(grep -c '^cargo work .* +1.88.0 ' "$TMP/calls")" == 6 ]] || fail "msrv cargo runs: $(calls)"
-grep -q '+1.88.0 test --manifest-path .*/cmux-tui/bindings/rust/Cargo.toml --locked$' "$TMP/calls" || fail "msrv rust test: $(calls)"
+[[ "$(grep -c '^rustup work run 1.88.0 cargo ' "$TMP/calls")" == 6 ]] || fail "msrv runs not through rustup run 1.88.0: $(calls)"
+grep -q '^cargo work .* test --manifest-path .*/cmux-tui/bindings/rust/Cargo.toml --locked$' "$TMP/calls" || fail "msrv rust test: $(calls)"
 rm -f "$TMP/calls"
 
 # cef-shim-cpp: every test-*-cpp.sh, all of them even after a red one.
@@ -129,6 +149,9 @@ ARGS=(swift-portable Packages/Shared/NoTests)
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable with no Tests refused"
 [[ "$(calls)" == 'swift 1 build --package-path Packages/Shared/NoTests --build-tests' ]] || fail "swift-portable ran tests a package does not have: $(calls)"
 rm -f "$TMP/calls"
+ARGS=(swift-portable Packages/Shared/Port)
+rc=0; out=$(run CMUX_CI_STEP_KEY=k FAKE_OS=Darwin) || rc=$?
+[[ "$rc" == 78 ]] || fail "swift-portable on macOS exited $rc, want 78 (no Linux evidence): $out"
 for bad in Packages/Shared/Other Packages/Shared ../Packages/Shared/Port; do
   ARGS=(swift-portable "$bad")
   run CMUX_CI_STEP_KEY=k >/dev/null && fail "swift-portable accepted $bad"
