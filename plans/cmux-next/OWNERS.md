@@ -10,13 +10,6 @@ row that matches it (an exact path over a glob or a folder; a longer literal sta
 daemon's crate rows never name a second owner for a file the holder row assigns. A crate no row lists has
 no owner (see "Not listed" below); a new crate is not covered by any row until someone adds one.
 
-Shared Chromium files (every file under `CmuxNextBrowser/CEF/`, `ChromiumHost/` and `CEFShim/`, and the Q3
-shim call-site files, [coordination/cefs-leases.md](coordination/cefs-leases.md)) also need a lease. Every lease
-file matches a row: a narrower row (CEFHostView, CEFPaneHost, CEFTab.swift, CEF/Shim/) names that area's owner,
-and the "Chromium host process and the CEFS file leases" row covers the rest. The lease says which one task may
-edit the file now: run `python3 scripts/cmux-next/cefs-leases.py --check HEAD --task <id>` before you push, and
-do not push a change to a lease file that your task does not hold (chrome-parity task p01-process-180).
-
 Owners are agent names (a590), workstreams (PL-*, plans/cmux-next/perf-lead.md section 4) or
 people. When a workstream ends, its row goes back to the Performance Lead. Change a row in the
 same commit that changes ownership, and name who decided it.
@@ -26,7 +19,7 @@ same commit that changes ownership, and name who decided it.
 | Sidebar (rows, groups, rail, hover card, drag, density) | `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/` | a590 (sidebar-owner agent) | [sidebar-owner.md](sidebar-owner.md) |
 | acpmux agent-session daemon (end to end: audit and fixes) | `cmux-tui/crates/acpmux/`, `scripts/cmux-next/build-acpmux.sh`, `scripts/cmux-next/bundle-acpmux.sh` | PL-acpmux (session cmux-4f; lead decision 2026-10-23) | [acpmux-audit.md](acpmux-audit.md) |
 | Chromium hosting (page layer, host view, clip, shim) | `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFHostView*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFClipShape.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/` | PL-cef-layer (clip memo: Leo, c22a10712b6) | [browser.md](browser.md) |
-| Chromium host process and the CEFS file leases (chrome-parity process model; the CEF files no narrower row owns) | `Packages/macOS/CmuxNext/ChromiumHost/`, `Packages/macOS/CmuxNext/CEFShim/`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/BrowserHibernationSupport.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/BrowserPagePrint.swift`, `plans/cmux-next/coordination/cefs-leases.md`, `scripts/cmux-next/cefs-leases.py` | PL-cefhost (chrome-parity program p01-process; owned paths in chrome-parity/p01-process.md, task 180, 2026-10-26) | [coordination/cefs-leases.md](coordination/cefs-leases.md) |
+| Chromium host process (chrome-parity process model; the CEF files no narrower row owns) | `Packages/macOS/CmuxNext/ChromiumHost/`, `Packages/macOS/CmuxNext/CEFShim/`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/BrowserHibernationSupport.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Engine/BrowserPagePrint.swift` | PL-cefhost (chrome-parity program p01-process; owned paths in chrome-parity/p01-process.md, task 180, 2026-10-26) | [chrome-parity/p01-process.md](chrome-parity/p01-process.md) |
 | cmux pages (WebUI host, process groups, lifecycle, preload) | `Packages/macOS/CmuxNext/Sources/CmuxNextPages/`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/InternalPages/`, `webviews/src/pages/shared/`, `scripts/cmux-next/build-pages-web.sh` | PL-webui (chrome-parity program p13-webui; Performance Lead decision, chrome-parity/p13-webui.md task 004, 2026-10-25) | [webui-DESIGN.md](webui-DESIGN.md) |
 | Favicon store leaf and browser icon state seam | `Packages/macOS/CmuxNext/Sources/CmuxNextFavicons/`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/Favicons/` | PL-arch (module split, 2026-10-24) | [architecture-refactor-DESIGN.md](architecture-refactor-DESIGN.md) |
 | New Chromium tab path | `Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneBrowserTabOpener.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSpareWindow.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost*.swift`, `Packages/macOS/CmuxNext/Sources/CmuxNextChromiumWarmup/` | PL-cef-tab | [instant-new-surfaces.md](instant-new-surfaces.md) |

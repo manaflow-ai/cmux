@@ -189,8 +189,7 @@ before and after on the fleet (test phase); the wake rates below are from the so
 | Network time | a timer every 360 s, a query at about 1.2 % of checks, `components/network_time/network_time_tracker.cc` | kept: it feeds the cert verifier's clock (`cert_verifier_service_time_updater.cc`); 0.003 wakes/s |
 | Domain Reliability | none without metrics consent, `chrome/browser/domain_reliability/service_factory.cc` | already off |
 
-Tell: the browser owner, PL-cefhost (OWNERS.md row for the CEF files; this task holds the `CEFSwitches.swift`
-lease, coordination/cefs-leases.md).
+Tell: the browser owner, PL-cefhost (OWNERS.md row for the CEF files).
 
 ## 4. Workstreams (batch 1)
 
