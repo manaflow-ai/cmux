@@ -133,21 +133,34 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
     }
 
     /// `undo-layout` on the shown screen (named by its focused pane). An undo that closes
-    /// panes comes back as a question first; its `revision` with `confirm_close` commits it.
-    public func undoLayout(in workspace: Workspace, confirming revision: UInt64?) async throws -> LayoutUndoOutcome {
+    /// panes comes back as a question first; the yes sends that screen's `revision` with
+    /// `confirm_close`, named by the same pane, so it never lands on a screen the Mac switched
+    /// to meanwhile.
+    public func undoLayout(in workspace: Workspace, confirming confirmation: LayoutUndoConfirmation?) async throws -> LayoutUndoOutcome {
         guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
-        guard let screen = layout(of: workspace)?.activeScreen,
-              let pane = (screen.panes.first(where: \.isFocused) ?? screen.panes.first)?.id else {
-            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes yet")
+        let screen: Int
+        let pane: Int
+        if let confirmation {
+            // The pane must still be on the screen the question was about.
+            guard layout(of: workspace)?.screen(of: confirmation.pane)?.id == confirmation.screen else {
+                throw WorkspaceCreationError("The layout changed on the Mac. Try Undo Layout Change again.", isForPerson: true)
+            }
+            (screen, pane) = (confirmation.screen, confirmation.pane)
+        } else {
+            guard let shown = layout(of: workspace)?.activeScreen,
+                  let focused = (shown.panes.first(where: \.isFocused) ?? shown.panes.first)?.id else {
+                throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes yet")
+            }
+            (screen, pane) = (shown.id, focused)
         }
         var params: [String: Any] = ["pane": pane]
-        if let revision {
-            params["revision"] = revision
+        if let confirmation {
+            params["revision"] = confirmation.revision
             params["confirm_close"] = true
         }
         do {
             let reply = try WorkspaceSync.check(await client.request("undo-layout", params: params))
-            let outcome = try Self.undoOutcome(reply)
+            let outcome = try Self.undoOutcome(reply, screen: screen, pane: pane)
             if outcome == .undone { _ = try? await sync.listNow() }
             return outcome
         } catch let error as DaemonReplyError {
@@ -160,14 +173,15 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
     }
 
     /// The reply's one complete variant (`undone:true`, or `confirmation_required` with the
-    /// revision and the panes it closes); anything else is a protocol error.
-    nonisolated static func undoOutcome(_ reply: [String: Any]) throws -> LayoutUndoOutcome {
+    /// revision and the panes it closes); anything else is a protocol error. A question keeps
+    /// the `screen` and `pane` it was asked for.
+    nonisolated static func undoOutcome(_ reply: [String: Any], screen: Int = 0, pane: Int = 0) throws -> LayoutUndoOutcome {
         let data = reply["data"] as? [String: Any] ?? [:]
         if data["undone"] as? Bool == true, data["confirmation_required"] as? Bool != true,
            data["screen"] != nil, data["revision"] is NSNumber { return .undone }
         if data["undone"] as? Bool == false, data["confirmation_required"] as? Bool == true,
            let revision = (data["revision"] as? NSNumber)?.uint64Value, let closes = data["closes_panes"] as? [Any] {
-            return .needsConfirmation(revision: revision, closing: closes.count)
+            return .needsConfirmation(LayoutUndoConfirmation(screen: screen, pane: pane, revision: revision, closing: closes.count))
         }
         throw WorkspaceCreationError("The Mac's undo reply wasn't readable")
     }

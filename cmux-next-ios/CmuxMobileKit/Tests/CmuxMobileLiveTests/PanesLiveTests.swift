@@ -326,8 +326,9 @@ import Testing
         let seen = Seen()
         let (backend, workspace) = try await connected(seen)
         let first = try await backend.undoLayout(in: workspace, confirming: nil)
-        #expect(first == .needsConfirmation(revision: 8, closing: 1))
-        #expect(try await backend.undoLayout(in: workspace, confirming: 8) == .undone)
+        let question = LayoutUndoConfirmation(screen: 5, pane: 1, revision: 8, closing: 1)
+        #expect(first == .needsConfirmation(question))
+        #expect(try await backend.undoLayout(in: workspace, confirming: question) == .undone)
         let lines = seen.mutations
         #expect(seen.commands == ["undo-layout", "undo-layout"])
         #expect(lines[0]["pane"] as? Int == 1 && lines[0]["confirm_close"] == nil)
@@ -343,15 +344,27 @@ import Testing
         seen.setTree(Self.switchedTree.replacingOccurrences(of: "\n", with: ""))
         _ = try await backend.sync.listNow()
         #expect(backend.sync.tree?.workspaces.first?.layout?.activeScreen?.id == 6)
-        guard case .needsConfirmation(let revision, _) = asked else {
+        guard case .needsConfirmation(let question) = asked else {
             Issue.record("expected a question, got \(asked)")
             return
         }
-        #expect(try await backend.undoLayout(in: workspace, confirming: revision) == .undone)
+        #expect(question.screen == 5 && question.pane == 1)
+        #expect(try await backend.undoLayout(in: workspace, confirming: question) == .undone)
         let lines = seen.mutations
         #expect(seen.commands == ["undo-layout", "undo-layout"])
         #expect(lines[1]["pane"] as? Int == 1)
         #expect(lines[1]["revision"] as? Int == 8)
+    }
+
+    /// The pane the question named left its screen: the yes is refused before the Mac.
+    @Test func undoConfirmationForAScreenThatChangedIsRefused() async throws {
+        let seen = Seen()
+        let (backend, workspace) = try await connected(seen)
+        let moved = LayoutUndoConfirmation(screen: 6, pane: 1, revision: 8, closing: 1)
+        await #expect(throws: WorkspaceCreationError.self) { try await backend.undoLayout(in: workspace, confirming: moved) }
+        let gone = LayoutUndoConfirmation(screen: 5, pane: 99, revision: 8, closing: 1)
+        await #expect(throws: WorkspaceCreationError.self) { try await backend.undoLayout(in: workspace, confirming: gone) }
+        #expect(seen.commands.isEmpty)
     }
 
     @Test func undoRepliesAreReadStrictly() throws {

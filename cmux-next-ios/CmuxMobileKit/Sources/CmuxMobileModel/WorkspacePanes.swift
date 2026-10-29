@@ -343,9 +343,29 @@ public enum ChatForkDestination: String, CaseIterable, Hashable, Sendable, Ident
 /// What Undo Layout Change did (`undo-layout`, `layout-undo-v1`).
 public enum LayoutUndoOutcome: Hashable, Sendable {
     case undone
-    /// The change made panes; undoing it closes `closing` panes. The same request with this
-    /// `revision` and `confirm_close` commits it.
-    case needsConfirmation(revision: UInt64, closing: Int)
+    /// The change made panes; undoing it closes some. The person's yes sends it back.
+    case needsConfirmation(LayoutUndoConfirmation)
+}
+
+/// An Undo Layout Change that closes panes, as the Mac asked about it: the screen it undoes on,
+/// the pane that named that screen, and the screen's undo `revision`. The yes goes to exactly
+/// this screen (`undo-layout {pane, revision, confirm_close}`), even when the Mac shows another
+/// one by then: revisions count per screen, so another screen's could match.
+public struct LayoutUndoConfirmation: Hashable, Sendable, Identifiable {
+    public var screen: Int
+    public var pane: Int
+    public var revision: UInt64
+    /// How many panes the undo closes.
+    public var closing: Int
+
+    public init(screen: Int, pane: Int, revision: UInt64, closing: Int) {
+        self.screen = screen
+        self.pane = pane
+        self.revision = revision
+        self.closing = closing
+    }
+
+    public var id: String { "\(screen).\(revision)" }
 }
 
 /// The Mac's pane and layout actions, on the workspace's Mac (verify/parity-mac.md, Panes).
@@ -369,9 +389,10 @@ public protocol WorkspacePaneBackend: AnyObject {
     func closePane(_ pane: Int, in workspace: Workspace) async throws
     /// Equalize Splits on the workspace's shown screen; the number of splits it changed.
     func equalizeSplits(in workspace: Workspace) async throws -> Int
-    /// Undo Layout Change on the workspace's shown screen. `revision`: the confirmation of an
-    /// undo that closes panes, from an earlier `.needsConfirmation`.
-    func undoLayout(in workspace: Workspace, confirming revision: UInt64?) async throws -> LayoutUndoOutcome
+    /// Undo Layout Change on the workspace's shown screen. `confirmation`: the person's yes to
+    /// an undo that closes panes, from an earlier `.needsConfirmation`; it goes to the screen
+    /// that question was about.
+    func undoLayout(in workspace: Workspace, confirming confirmation: LayoutUndoConfirmation?) async throws -> LayoutUndoOutcome
     /// Move Tab to New Split: a new pane on `edge` of the tab's pane, holding the tab.
     func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws
     /// Move Tab to New Column: a new viewport column after the screen's last, holding the tab (as the Mac's).

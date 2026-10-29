@@ -97,14 +97,15 @@ extension WorkspaceTabsSource {
     }
 
     /// Undo Layout Change. One that closes panes asks first (`pendingLayoutUndo`).
-    public func undoLayout(confirming revision: UInt64? = nil) async {
+    /// `confirmation`: the person's yes to that question; it undoes on the screen it was about.
+    public func undoLayout(confirming confirmation: LayoutUndoConfirmation? = nil) async {
         pendingLayoutUndo = nil
         await onMac("undo", "the layout change") { backend, workspace in
-            switch try await backend.undoLayout(in: workspace, confirming: revision) {
+            switch try await backend.undoLayout(in: workspace, confirming: confirmation) {
             case .undone:
                 show("Undid the last layout change.")
-            case .needsConfirmation(let revision, let closing):
-                pendingLayoutUndo = PendingLayoutUndo(revision: revision, closing: closing)
+            case .needsConfirmation(let question):
+                pendingLayoutUndo = question
             }
         }
     }

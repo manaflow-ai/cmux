@@ -42,7 +42,7 @@ struct PanesScreen: View {
                 get: { source.pendingLayoutUndo != nil },
                 set: { shown in if !shown { source.pendingLayoutUndo = nil } }
             ), presenting: source.pendingLayoutUndo) { pending in
-                Button("Undo", role: .destructive) { Task { await source.undoLayout(confirming: pending.revision) } }
+                Button("Undo", role: .destructive) { Task { await source.undoLayout(confirming: pending) } }
                 Button("Cancel", role: .cancel) {}
             } message: { pending in
                 Text(pending.closing == 1 ? "This closes 1 pane on the Mac." : "This closes \(pending.closing) panes on the Mac.")

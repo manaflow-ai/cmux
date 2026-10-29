@@ -136,8 +136,8 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func equalizeSplits(in workspace: Workspace) async throws -> Int {
         try await backend(workspace.macID).equalizeSplits(in: workspace)
     }
-    public func undoLayout(in workspace: Workspace, confirming revision: UInt64?) async throws -> LayoutUndoOutcome {
-        try await backend(workspace.macID).undoLayout(in: workspace, confirming: revision)
+    public func undoLayout(in workspace: Workspace, confirming confirmation: LayoutUndoConfirmation?) async throws -> LayoutUndoOutcome {
+        try await backend(workspace.macID).undoLayout(in: workspace, confirming: confirmation)
     }
     public func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws {
         try await backend(workspace.macID).moveTab(tab, toNewSplit: edge, in: workspace)

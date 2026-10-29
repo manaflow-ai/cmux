@@ -751,15 +751,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The pane whose name the person is editing (Rename Pane…).
     public var renamingPane: WorkspaceLayout.Pane?
     /// An Undo Layout Change that closes panes, waiting for the person's yes.
-    public var pendingLayoutUndo: PendingLayoutUndo?
+    public var pendingLayoutUndo: LayoutUndoConfirmation?
     /// The chat whose fork destination the person is picking (Fork Conversation…).
     public var forkingTab: WorkspaceTab?
-
-    public struct PendingLayoutUndo: Hashable, Identifiable {
-        public let revision: UInt64
-        public let closing: Int
-        public var id: UInt64 { revision }
-    }
 
     // MARK: Move to another workspace, pins, groups, chat menu (verify/parity-mac.md)
 
