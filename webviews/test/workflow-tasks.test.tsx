@@ -460,3 +460,36 @@ test("with Labs, a workflow is in neither tray list, running or ended (App.tsx t
   expect(trayItems(running, [], [], true).length).toBe(1);
   expect(finishedTrayItems(finished, []).length).toBe(1);
 });
+
+test("a pending phase opens on its own when its first agent starts running, as a started phase did", async () => {
+  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
+  for (const [key, value] of Object.entries({
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
+    saved.set(key, scope[key]);
+    scope[key] = value;
+  }
+  const before = summaries("running")[0]!;
+  const judge = before.phases.find((phase) => phase.state === "pending")!;
+  expect(judge.agentIds).toEqual([]);
+  // The next update: Judge's first agent is running.
+  const judgeAgent = { ...before.agents[0]!, id: "judge-1", name: "judge", state: "running" as const };
+  const after = {
+    ...before,
+    agents: [...before.agents, judgeAgent],
+    phases: before.phases.map((phase) =>
+      phase.id === judge.id ? { ...phase, state: "running" as const, agentIds: [judgeAgent.id] } : phase,
+    ),
+  };
+  const container = dom.window.document.getElementById("root")!;
+  root = createRoot(container);
+  const judgeRow = () => [...container.querySelectorAll(".acpmux-workflow-phase")].at(-1)!;
+  await act(async () => root!.render(<WorkflowTasks workflows={[before]} />));
+  expect(judgeRow().querySelector(".acpmux-workflow-phase__agents")).toBeNull();
+  await act(async () => root!.render(<WorkflowTasks workflows={[after]} />));
+  expect(judgeRow().querySelector(".acpmux-workflow-phase__agents")).not.toBeNull();
+  expect(judgeRow().querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+});
