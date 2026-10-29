@@ -1831,6 +1831,11 @@ lane = "macos-cli-product"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_kiro_global_hook_mutations.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_hooks_setup_arguments.py"
 lane = "macos-cli-product"
 requirements = ["cmux-cli"]
