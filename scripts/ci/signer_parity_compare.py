@@ -130,12 +130,14 @@ def signature_range(macho: bytes, residue_source: bytes | None = None):
     """(dataoff, datasize) of LC_CODE_SIGNATURE, or None when there is none.
     Raises ValueError when it points outside the slice or its blob is not a
     complete embedded-signature superblob."""
-    ncmds = struct.unpack("<I", macho[16:20])[0]
+    ncmds, sizeofcmds = struct.unpack("<II", macho[16:24])
+    if 32 + sizeofcmds > len(macho) or ncmds * 8 > sizeofcmds:
+        raise ValueError("malformed Mach-O: the load commands do not fit the file")
     off = 32
     for _ in range(ncmds):
         cmd, size = struct.unpack("<II", macho[off:off + 8])
-        if size < 8:
-            raise ValueError("a load command smaller than its header")
+        if size < 8 or off + size > 32 + sizeofcmds:
+            raise ValueError("malformed Mach-O: a load command smaller than its header, or past the load commands")
         if cmd == LC_CODE_SIGNATURE:
             dataoff, datasize = struct.unpack("<II", macho[off + 8:off + 16])
             if datasize < 12 or dataoff + datasize > len(macho):
@@ -186,12 +188,14 @@ RESIDUE: list = []  # sizes of input-signature residue accepted for the current 
 def code_signature_command(macho: bytes):
     """(dataoff, datasize) of LC_CODE_SIGNATURE as written, unchecked; describe()
     checks it with signature_range() before payload() or blobs() reads it."""
-    ncmds = struct.unpack("<I", macho[16:20])[0]
+    ncmds, sizeofcmds = struct.unpack("<II", macho[16:24])
+    if 32 + sizeofcmds > len(macho) or ncmds * 8 > sizeofcmds:
+        raise ValueError("malformed Mach-O: the load commands do not fit the file")
     off = 32
     for _ in range(ncmds):
         cmd, size = struct.unpack("<II", macho[off:off + 8])
-        if size < 8:
-            raise ValueError("a load command smaller than its header")
+        if size < 8 or off + size > 32 + sizeofcmds:
+            raise ValueError("malformed Mach-O: a load command smaller than its header, or past the load commands")
         if cmd == LC_CODE_SIGNATURE:
             return struct.unpack("<II", macho[off + 8:off + 16])
         off += size
@@ -204,12 +208,14 @@ def payload(macho: bytes) -> bytes:
     out = bytearray(macho[:sig[0]] if sig else macho)
     # Bytes after the signature blob (none in a well-formed file) stay payload.
     trailer = macho[sig[0] + sig[1]:] if sig else b""
-    ncmds = struct.unpack("<I", macho[16:20])[0]
+    ncmds, sizeofcmds = struct.unpack("<II", macho[16:24])
+    if 32 + sizeofcmds > len(macho) or ncmds * 8 > sizeofcmds:
+        raise ValueError("malformed Mach-O: the load commands do not fit the file")
     off = 32
     for _ in range(ncmds):
         cmd, size = struct.unpack("<II", macho[off:off + 8])
-        if size < 8:
-            raise ValueError("a load command smaller than its header")
+        if size < 8 or off + size > 32 + sizeofcmds:
+            raise ValueError("malformed Mach-O: a load command smaller than its header, or past the load commands")
         if cmd == LC_SEGMENT_64 and macho[off + 8:off + 24].rstrip(b"\0") == b"__LINKEDIT":
             out[off + 32:off + 40] = bytes(8)  # vmsize
             out[off + 48:off + 56] = bytes(8)  # filesize
@@ -864,6 +870,9 @@ def strict_cms(ca: bytes, cb: bytes, cds_a: dict, cds_b: dict, labels=("A", "B")
         same_signed = (sa["signed"] and der(sa["signed"])) == (sb["signed"] and der(sb["signed"]))
         if same_signed and sa["signature"].value != sb["signature"].value:
             out.append(f"{where}: the signature differs although the signed attributes are identical")
+    for side, cms in zip(labels, (pa, pb)):
+        if cms["trailing"]:
+            out.append(f"CMS ({side}): {len(cms['trailing'])} bytes after the CMS")
     if pa["trailing"] != pb["trailing"]:
         out.append(f"CMS: bytes after the CMS differ ({len(pa['trailing'])} / {len(pb['trailing'])} bytes)")
     fa, fb = framing_issues(pa["root"], skip[0]), framing_issues(pb["root"], skip[1])
@@ -1121,7 +1130,10 @@ def signature_dir_errors(a_root: str, b_root: str, labels) -> dict:
     for rel in sorted(set(da) | set(db)):
         parts = rel.split(os.sep)
         errors = []
-        if not (len(parts) >= 2 and parts[-2] == "Contents" or len(parts) >= 3 and parts[-3] == "Versions"):
+        in_app = len(parts) == 2 and parts[0] == "Contents" or len(parts) >= 3 and parts[-2] == "Contents" \
+            and parts[-3].endswith(BUNDLE_SUFFIXES)
+        in_framework = len(parts) >= 4 and parts[-3] == "Versions" and parts[-4].endswith(".framework")
+        if not (in_app or in_framework):
             errors.append("a _CodeSignature directory where no bundle signature goes")
         if rel not in da or rel not in db:
             errors.append(f"only in {labels[0] if rel in da else labels[1]}")

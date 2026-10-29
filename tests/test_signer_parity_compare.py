@@ -1054,5 +1054,12 @@ class StrictEighthReviewTests(unittest.TestCase):
         self.assertIn("files is not a dictionary", spc.resources_schema_errors({"files": []}))
 
 
+    def test_a_huge_load_command_count_fails_fast(self):
+        good = bytearray(macho(b"T" * 32, b"c"))
+        good[16:20] = struct.pack("<I", 0xFFFFFFF)
+        with self.assertRaises(ValueError):
+            spc.code_signature_command(bytes(good))
+
+
 if __name__ == "__main__":
     unittest.main()
