@@ -110,12 +110,13 @@ final class NewTabButtonView: NSView {
 
     private func updateColors(animated: Bool) {
         let hovering = isHovered || isMenuOpen
-        let token = animated ? ChromeHover.fade(showing: hovering || isPressed, pressed: isPressed) : nil
+        let pressed = isPressed || isMenuOpen
+        let token = animated ? ChromeHover.fade(showing: hovering || pressed, pressed: pressed) : nil
         // An instant change also ends a fill still easing in.
         if (token.map(Motion.tabs.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
         Motion.tabs.transaction(token) {
             performWithTheme {
-                fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: hovering, pressed: isPressed))?.cgColor
+                fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: hovering, pressed: pressed))?.cgColor
                 glyphLayer.strokeColor = (hovering ? Palette.textPrimary : Palette.textSecondary).cgColor
             }
         }
