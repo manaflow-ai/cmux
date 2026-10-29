@@ -1,6 +1,6 @@
 public import Observation
 
-/// The applied Ghostty config's revision (p06-scheduler-044). ``GhosttyRuntime`` bumps it once per
+/// The applied Ghostty config's revision. ``GhosttyRuntime`` bumps it once per
 /// config change (a reload, a conditional theme switch), after the new config is in place. It
 /// replaces the `configDidChange` broadcast: a view reads it through a `VisibleObservation`, which
 /// tracks it only while the view's node is visible, so a reload does no work for a hidden terminal

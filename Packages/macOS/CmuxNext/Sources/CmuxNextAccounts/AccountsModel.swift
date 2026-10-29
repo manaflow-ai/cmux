@@ -57,11 +57,15 @@ public final class AccountsModel {
         apply(.detectionStarted)
         apply(.cmuxSignIn(services.isSignedInToCmux))
         let services = services
+        // main-hop-allow: only awaits main-actor AccountsServices calls, whose reads run off main inside them; its resume applies the rows
         refreshTask = Task { [weak self] in
             // Detection and the CodeRouter list run concurrently.
+            // main-hop-allow: AccountsServices.detect is main-actor; the detection runs detached inside it
             let detecting = Task { await services.detect() }
+            // main-hop-allow: AccountsServices.linkedAccounts is main-actor; the CodeRouter request runs off main inside it
             let loading = Task { await Self.loadLinked(services) }
             // Membership re-reads on its own; the team list updates when it lands.
+            // main-hop-allow: ActiveTeam.refresh is main-actor; its request runs off main inside it
             if let active = services.activeTeam { Task { await active.refresh() } }
             let found = await detecting.value, accounts = await loading.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
@@ -169,6 +173,7 @@ public final class AccountsModel {
         confirmTarget = nil
         // The row shows Connecting at once; the request runs after.
         apply(.connectStarted, to: provider)
+        // main-hop-allow: only awaits main-actor AccountsServices.connect (its request runs off main); its resume sets the row
         Task { await runConnect(provider, pasted: pasted) }
     }
 
@@ -206,6 +211,7 @@ public final class AccountsModel {
         guard !row(account.provider).isBusy else { return }
         apply(.removeStarted(accountID: account.id), to: account.provider)
         guard case .removing = row(account.provider).phase else { return }
+        // main-hop-allow: only awaits main-actor AccountsServices.remove (its request runs off main); its resume sets the row
         Task { await runRemove(account) }
     }
 

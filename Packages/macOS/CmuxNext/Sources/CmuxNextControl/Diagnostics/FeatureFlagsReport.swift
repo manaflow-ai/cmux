@@ -15,7 +15,7 @@ public import CmuxNextSettings
 /// its ``FeatureList`` and the Debug toggles that still override a feature
 /// after launch (``liveLocal``), so each row is the value the app runs with.
 ///
-/// The daemon outlives the app (p12-perf-process-150): ``daemon`` holds the local daemon's answer to the
+/// The daemon outlives the app: ``daemon`` holds the local daemon's answer to the
 /// app's last hello. A `daemon` or `both` row the daemon runs with another value says so (`daemon: pending`
 /// with `daemon_enabled`, until the daemon restarts); a kill switch the hello turned off there says
 /// `daemon: applied`.

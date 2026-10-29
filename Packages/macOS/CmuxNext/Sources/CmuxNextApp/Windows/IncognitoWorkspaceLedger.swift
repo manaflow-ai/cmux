@@ -18,6 +18,8 @@ final class IncognitoWorkspaceLedger {
     /// What the last run left, read once on a launch lane (``startLaunchRead(at:on:)``): the launch
     /// window's check and the restore read it, so the main thread never touches the file at launch.
     private let leftovers: LaunchRead<Leftovers>
+    /// The app's blocking-work lanes: every write runs on the files lane, never on the pool.
+    private let work: any MayBlockRunner
     private var written: Set<String>?
     /// The latest write; the next one waits for it, so writes land in order.
     private var lastWrite: Task<Void, Never>?
@@ -33,9 +35,10 @@ final class IncognitoWorkspaceLedger {
         case unknown
     }
 
-    init(url: URL, leftovers: LaunchRead<Leftovers>) {
+    init(url: URL, leftovers: LaunchRead<Leftovers>, work: any MayBlockRunner) {
         self.url = url
         self.leftovers = leftovers
+        self.work = work
     }
 
     /// The ledger at ``standardURL(bundleIdentifier:)``. `leftovers` is the launch read `main` started
@@ -43,7 +46,7 @@ final class IncognitoWorkspaceLedger {
     /// now, as `AppServices` is built, so it has ended before the first window asks.
     static func forApplication(bundleIdentifier: String?, leftovers: LaunchRead<Leftovers>?, work: BackgroundWork) -> IncognitoWorkspaceLedger {
         let url = standardURL(bundleIdentifier: bundleIdentifier)
-        return IncognitoWorkspaceLedger(url: url, leftovers: leftovers ?? startLaunchRead(at: url, on: work))
+        return IncognitoWorkspaceLedger(url: url, leftovers: leftovers ?? startLaunchRead(at: url, on: work), work: work)
     }
 
     /// `<Application Support>/<bundle id>/incognito-workspaces.json` (a path, no disk call).
@@ -75,7 +78,7 @@ final class IncognitoWorkspaceLedger {
     nonisolated private static func read(_ url: URL) -> Leftovers {
         let data: Data
         do {
-            // concurrency-allow: called only from the launch read, on the files lane
+            // concurrency-allow: called only from the launch read and record's write, on the files lane
             data = try Data(contentsOf: url)
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
             return .noFile
@@ -104,21 +107,34 @@ final class IncognitoWorkspaceLedger {
         return []
     }
 
-    /// Records `ids` when they changed (written off the main thread).
+    /// Records `ids` when they changed, on the files lane. While the launch read has not listed the last
+    /// run's ids (it still runs, or the file could not be read, or quit dropped the read), each write keeps the
+    /// ids the file still lists: they are what closes a crashed run's incognito pages at the next launch.
     func record(_ ids: Set<String>) {
         guard ids != written else { return }
         written = ids
-        let url = url, logger = logger
-        let data = try? JSONEncoder().encode(Document(workspaces: ids.sorted()))
+        let url = url, logger = logger, work = work
+        let keepsLeftovers: Bool = switch leftovers.value {
+        case .noFile, .ids: false
+        case .unknown, nil: true
+        }
         let previous = lastWrite
-        lastWrite = Task.detached(priority: .utility) {
+        // task-owner: lastWrite; each write waits for the one before it, so they land in order. Nonisolated: it only
+        // awaits the files lane, so no main-thread job runs for it.
+        lastWrite = Task { @concurrent in
             await previous?.value
             do {
-                if let data, !ids.isEmpty {
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try data.write(to: url, options: .atomic)
-                } else if FileManager.default.fileExists(atPath: url.path) {
-                    try FileManager.default.removeItem(at: url)
+                // The ledger is what closes a crashed run's incognito pages: quit waits for this small write.
+                try await work.runFiles(.bestEffort, shutdown: .blockShutdown) {
+                    var all = ids
+                    if keepsLeftovers, case .ids(let left) = Self.read(url) { all.formUnion(left) }
+                    let data = try? JSONEncoder().encode(Document(workspaces: all.sorted()))
+                    if let data, !all.isEmpty {
+                        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try data.write(to: url, options: .atomic)
+                    } else if FileManager.default.fileExists(atPath: url.path) {
+                        try FileManager.default.removeItem(at: url)
+                    }
                 }
             } catch {
                 logger.error("incognito ledger write failed: \(String(describing: error), privacy: .public)")

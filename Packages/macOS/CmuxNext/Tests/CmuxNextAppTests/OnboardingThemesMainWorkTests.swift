@@ -9,7 +9,7 @@ import Foundation
 import Observation
 import Testing
 
-/// p06-scheduler-315, the FG sweep of CmuxNextApp/Onboarding and Themes (rule 9): the theme files are read on
+/// The FG sweep of CmuxNextApp/Onboarding and Themes (rule 9): the theme files are read on
 /// the files lane and land as one posted task each (Chrome's PostTaskAndReply, base/task/thread_pool.h), in the
 /// caller's class; the terminal setting follows the settings as a ServiceObservation (a person's change applies in
 /// the input-response pass, a script's yields to input, and its side effects run with no view on screen), hears the
@@ -57,8 +57,9 @@ struct OnboardingThemesMainWorkTests {
     @Test func aWorkspaceBackgroundFileLandsAsOnePostedTaskOffTheCallersTurn() throws {
         let url = try Self.scratch("workspace-backgrounds.json", json: #"{"home/ws-1":"none"}"#)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = WorkspaceBackgroundStore(url: url)
-        store.load(on: BackgroundWork(label: "test.p06-315.backgrounds"), replyingOn: linklessMainWork())
+        let work = BackgroundWork(label: "test.p06-315.backgrounds")
+        let store = WorkspaceBackgroundStore(url: url, runner: work)
+        store.load(on: work, replyingOn: linklessMainWork())
         #expect(store.backgrounds.isEmpty, "nothing merges in the caller's turn")
         #expect(runMainLoop { store.background(for: "home/ws-1") == "none" }, "the read lands as the reply's task")
     }
@@ -66,10 +67,11 @@ struct OnboardingThemesMainWorkTests {
     @Test func aTerminalThemeFileLandsBeforeItsCallerRunsAndKeepsAnEarlierPick() throws {
         let url = try Self.scratch("terminal-themes.json", json: #"{"m:saved":"Nord","m:picked":"Nord"}"#)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = TerminalThemeStore(url: url)
+        let work = BackgroundWork(label: "test.p06-315.terminal-themes")
+        let store = TerminalThemeStore(url: url, runner: work)
         store.set("Dracula", for: "m:picked")
         let seen = Seen()
-        store.load(on: BackgroundWork(label: "test.p06-315.terminal-themes"), replyingOn: linklessMainWork()) {
+        store.load(on: work, replyingOn: linklessMainWork()) {
             seen.value = store.theme(for: "m:saved")
             seen.calls += 1
         }
@@ -80,9 +82,10 @@ struct OnboardingThemesMainWorkTests {
     }
 
     @Test func aStoreWithNoFileCallsBackAtOnce() {
-        let store = TerminalThemeStore(url: nil)
+        let work = BackgroundWork(label: "test.p06-315.no-file")
+        let store = TerminalThemeStore(url: nil, runner: work)
         let seen = Seen()
-        store.load(on: BackgroundWork(label: "test.p06-315.no-file"), replyingOn: linklessMainWork()) { seen.calls += 1 }
+        store.load(on: work, replyingOn: linklessMainWork()) { seen.calls += 1 }
         #expect(seen.calls == 1)
     }
 

@@ -405,7 +405,7 @@ import Testing
         #expect(budget.turns.snapshot().turns == 0, "debug.main_budget reset clears the turns too")
     }
 
-    /// p06-scheduler-221: a window's layout depth is counted only in the turn that began its pass, by
+    /// A window's layout depth is counted only in the turn that began its pass, by
     /// this number: it holds through one turn (the render phase included) and moves when the next begins.
     @Test func theTurnNumberMovesOncePerTurn() {
         let clock = TurnClock()

@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p14-energy-120: the sleep watch reports willSleep, didWake and the displays' sleep once for the
+/// The sleep watch reports willSleep, didWake and the displays' sleep once for the
 /// app, counts one network resume per wake once the path is satisfied, and the policy carries them
 /// to the keepalive gate, which holds keepalives while asleep and reconnects each socket once.
 @MainActor

@@ -23,9 +23,11 @@ required-features = ["engine"]
 default = ["engine"]
 # The VM, the process loop and the OS sandbox. The daemon's supervisor uses
 # only the wire types (`default-features = false`).
-engine = ["dep:rquickjs"]
+engine = ["dep:rquickjs", "dep:cmux-panic-log"]
 
 [dependencies]
+# The host's panic log (src/main.rs); the binary only.
+cmux-panic-log = { workspace = true, optional = true }
 rquickjs = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Runs SwiftPM on the Linux tier of Packages/macOS/CmuxNext (and, with --shared,
-# on the Shared/iOS packages) without writing to the checkout (p15-oracle-229,
-# p15-oracle-004).
+# on the Shared/iOS packages) without writing to the checkout.
 #
 # The checkout's Package.resolved pins the macOS graph (Sparkle, sentry-cocoa).
 # The Linux mode of the manifest (CMUX_SWIFTPM_TARGET_LINUX=1) has a different
@@ -24,7 +23,7 @@
 #
 # Before each SwiftPM build of the tier (not --update-resolved or --shared),
 # compile-xcstrings.py writes the string tables the Linux mode takes from every
-# target with a catalog (LinuxStringTables, p15-oracle-228) into the source
+# target with a catalog (LinuxStringTables) into the source
 # copy, for the targets the Linux-mode dump-package names. Without them SwiftPM
 # stops on the missing folder before it compiles any Swift. The copy's tables
 # and links are kept between runs, so the script rewrites only changed tables;

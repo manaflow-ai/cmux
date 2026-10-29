@@ -106,7 +106,7 @@ public struct BlockingDetector: Sendable {
     }
 
     /// The call sites that blocked the main thread (``BlockingContext/main``), with their counts and wall times
-    /// since launch: what the opt-in hang reports' `blocking_sites` count (p12-perf-process-226). Each count is the
+    /// since launch: what the opt-in hang reports' `blocking_sites` count. Each count is the
     /// site's relaxed atomic, which a repeat of a known site only increments: the stack is captured once, the
     /// first time the site is seen. Empty in Release. Allocates; read it off the main thread.
     public var mainThreadSites: [BlockingSite] {

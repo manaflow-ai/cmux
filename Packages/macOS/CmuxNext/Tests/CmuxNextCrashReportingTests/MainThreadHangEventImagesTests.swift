@@ -2,7 +2,7 @@ import Darwin
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p10-stability-076: the hang event's Mach-O walk, now marked `unsafe` and bounded by the header's
+/// The hang event's Mach-O walk, now marked `unsafe` and bounded by the header's
 /// `sizeofcmds`, still finds the loaded image of a code address: its UUID, its `__TEXT` range and its path.
 struct MainThreadHangEventImagesTests {
     /// The address of `malloc`, in libsystem_malloc (the dyld shared cache on every supported macOS).

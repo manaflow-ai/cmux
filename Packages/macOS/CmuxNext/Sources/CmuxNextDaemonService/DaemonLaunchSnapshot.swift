@@ -7,7 +7,7 @@ import os
 /// the last layout, applied to the store as a provisional tree so the first frame shows it instead of the connecting
 /// state, then replaced in place by the live tree.
 ///
-/// The main thread never reads or decodes the file (up to 8 MiB of JSON, p08-startup-074). `main` begins the read on
+/// The main thread never reads or decodes the file (up to 8 MiB of JSON). `main` begins the read on
 /// the files lane (``LaunchSnapshotPrefetch``); ``take(_:session:stateDirectory:work:)`` applies it in its own turn
 /// when the read has ended, else on the read's end, posted to main as userBlocking work (Chrome replies to the UI
 /// thread with the result, `PostTaskAndReplyWithResult`, base/task/task_runner.h; it never waits for it there).

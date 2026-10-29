@@ -474,7 +474,8 @@ impl Surface {
         let committed = pty.commit_geometry(&mut geometry, next, false);
         drop(geometry);
         match committed {
-            Ok(changed) => {
+            Ok(commit) => {
+                let changed = pty.publish_geometry_commit(commit);
                 if let Some(mux) = pty.mux.upgrade() {
                     if changed {
                         mux.emit_terminal_output(pty.event_surface_id);

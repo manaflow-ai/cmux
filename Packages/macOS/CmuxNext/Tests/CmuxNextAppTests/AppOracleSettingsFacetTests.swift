@@ -8,7 +8,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// The app's settings facet (p15-oracle-039) reads the snapshot the settings controller applied: a preview shows
+/// The app's settings facet reads the snapshot the settings controller applied: a preview shows
 /// in it, and a file edit the controller has not loaded does not (the snapshot's turn opens no file). Its motion
 /// arm is what the gates compute from the design settings the controller applied, not the config's own values.
 /// Run: `swift test --filter AppOracleSettingsFacetTests`.

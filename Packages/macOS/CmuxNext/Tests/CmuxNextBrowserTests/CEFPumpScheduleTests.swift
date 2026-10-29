@@ -65,7 +65,7 @@ import Testing
         #expect(timer.armed == nil, "armed \(String(describing: timer.armed)) after a long pass with no request")
     }
 
-    /// p14-energy-037: from the first fork API built on cef-cmux 066b083f (API 26, layer hosting, whose
+    /// From the first fork API built on cef-cmux 066b083f (API 26, layer hosting, whose
     /// first commit has 066b083f as its parent) a pass runs at most the switch's 2 ms, no longer than
     /// one deadline-queue fire. The API 24 and 25 builds (the cmux.28 pin, the API 25 keychain line)
     /// lack that commit and keep CEF's 10 ms.
@@ -119,7 +119,7 @@ import Testing
         #expect(!schedule.servesDeferredFire)
     }
 
-    // MARK: Absolute run times (fork `cmux_on_schedule_delayed`, p14-energy-046)
+    // MARK: Absolute run times (fork `cmux_on_schedule_delayed`)
 
     /// The table of the absolute path: Chromium's run time and leeway are the wake as sent, with no
     /// whole-millisecond truncation (7.9 ms stays 7.9 ms) and no 36 ms rule (Chromium's own policy

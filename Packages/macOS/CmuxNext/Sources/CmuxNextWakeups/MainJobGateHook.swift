@@ -8,8 +8,8 @@ typealias MainEnqueueOriginal = @convention(thin) (UnownedJob) -> Void
 /// calling convention, the job and the original enqueue.
 typealias MainEnqueueHook = @convention(thin) (UnownedJob, MainEnqueueOriginal) -> Void
 
-/// Installs a ``MainJobGate`` as the Swift runtime's `swift_task_enqueueMainExecutor_hook`
-/// (p04-input-021 and 076): every main-actor job of the process goes through the gate first.
+/// Installs a ``MainJobGate`` as the Swift runtime's `swift_task_enqueueMainExecutor_hook`:
+/// every main-actor job of the process goes through the gate first.
 ///
 /// The hook is found with `dlsym` at runtime, as `AlternateSignalStacks` finds the pthread
 /// hooks; a runtime without it throws ``HookError/notFound`` and the app runs without the gate.

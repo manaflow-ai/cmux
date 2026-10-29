@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p13-webui-057: a cmux page in Chromium forwards its renderer's hang to the page host as
+/// A cmux page in Chromium forwards its renderer's hang to the page host as
 /// Chrome's `RendererUnresponsive` / `RendererResponsive` pair (chrome/browser/ui/browser.cc), only
 /// with a hang scheduler (feature `pageHangNotice`), once per hang, and answers it through the shim's
 /// `cmux_shim_unresponsive_reply`. The shim's RENDER_UNRESPONSIVE / RESPONSIVE events go through the

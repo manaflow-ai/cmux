@@ -22,6 +22,14 @@ public protocol SitePermissionPersistence: Sendable {
 /// One JSON file per profile, written atomically. Saves are serialized by
 /// the actor, so the last snapshot handed in is the one on disk.
 public actor FileSitePermissionPersistence: SitePermissionPersistence {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.browser.site-permissions`): its file reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.browser.site-permissions
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.browser.site-permissions", qos: .default)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public let fileURL: URL
 
     public init(fileURL: URL) {

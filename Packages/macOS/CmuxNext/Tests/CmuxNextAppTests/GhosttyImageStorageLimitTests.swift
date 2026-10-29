@@ -6,7 +6,7 @@ import GhosttyNextKit
 import Testing
 @testable import CmuxNextTerminal
 
-/// p07-memory-083: the app Ghostty's `image-storage-limit` is a bounded 5,000,000 per screen; with
+/// The app Ghostty's `image-storage-limit` is a bounded 5,000,000 per screen; with
 /// `memorySmallAppStores` it comes from `SubsystemBudget.kittyImageBytesPerSurface` (5,000,000 on a 16 GB Mac) and
 /// halves below normal memory pressure, rising again only after the coordinator's rise delay.
 @MainActor

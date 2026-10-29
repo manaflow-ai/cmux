@@ -1,6 +1,5 @@
 import React, {
   lazy,
-  memo,
   Suspense,
   useCallback,
   useDeferredValue,
@@ -14,7 +13,6 @@ import React, {
 } from "react";
 import { flushSync } from "react-dom";
 import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
-import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { rowPresence } from "./conversation/rowPresence";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -31,7 +29,6 @@ import {
   mergeRowRanges,
   scrollLeadRanges,
   visibleLayoutRange,
-  type AcpmuxPermission,
   type AcpmuxSecretAsk,
   type AcpmuxRow,
   type AcpmuxSnapshot,
@@ -136,12 +133,7 @@ import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
 import { droppedPaths } from "./composer/intakeFiles";
 import { useToolCards } from "./toolCards/toolCardStore";
-import { PermissionCard } from "./PermissionCard";
 import { cardTakesShortcuts } from "./permissionKeys";
-import { QuestionCard } from "./question/QuestionCard";
-import { QUESTION_RECORD } from "./question/record";
-import { DECISION_TEXT, PERMISSION_RECORD } from "./permissions/record";
-import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
@@ -168,8 +160,7 @@ import { descendants, subagentChangesFolder, type SubagentScope } from "./inspec
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
-import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
-import { configureWorkflowCardOpen, WorkflowCard } from "./summary/WorkflowCard";
+import { configureWorkflowCardOpen } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
   configureSubagentTray,
@@ -209,7 +200,6 @@ import { DictationMic } from "./DictationMic";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
-import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { transcriptRepositories, type RepositoryCache } from "./conversation/transcriptRepositories";
 import {
   newReferenceScopeCache,
@@ -219,25 +209,14 @@ import {
   type ReferenceScope,
 } from "./conversation/bareReferences";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
-import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
-import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
-import { PlanList } from "./conversation/PlanList";
-import { ActivityLine } from "./conversation/ActivityLine";
-import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
-import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
-import type { IncomingMessage } from "./conversation/incomingMessage";
-import { CompactionNote, FailoverNote, PolicyUnenforcedNote } from "./conversation/CompactionNote";
-import { AgentPairNote } from "./conversation/AgentPairNote";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
-import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
   SessionEditsContext,
@@ -253,8 +232,6 @@ import {
   foregroundCalls,
   useBackgroundKey,
 } from "./conversation/runInBackground";
-import { UserBubble } from "./conversation/UserBubble";
-import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
 import { editableKey, editableSeqs, editableTurns, promptTurns } from "./conversation/editPrompt";
 import {
   clearFindHighlights,
@@ -268,22 +245,16 @@ import {
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
-  ACTIVITY_LINE,
-  DATE,
-  PREVIEW,
   RENDER,
-  THINKING,
   WORKED,
   messageRevealTarget,
   turnFoldFor,
   turnFooterFrom,
-  WORKING,
   type TurnView,
   turnViewFrom,
 } from "./conversation/turns";
-import { ArrowDown, ChevronRight } from "./conversation/icons";
+import { ArrowDown } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
-import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
@@ -300,13 +271,11 @@ import {
 import { actOnReportedImage } from "./conversation/imageMenuActions";
 import { callChipHost } from "./chips/host";
 import { pullRequestRef } from "./chips/PullRequestCard";
-import { RenderToolCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, useArtifactCoversPane, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { artifactVersions } from "./conversation/artifactVersions";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
-import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import {
   FALLBACK_LINK_SCHEME,
@@ -350,47 +319,38 @@ import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
-import { PendingSteer, takeBackSteer } from "./conversation/PendingSteer";
-import { Thinking } from "./conversation/Thinking";
-import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
+import { takeBackSteer } from "./conversation/PendingSteer";
+import { type WorkingCounts, WorkingCountsContext } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
-import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
-import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
-import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { AgentRunCard } from "./subagents/AgentRunCard";
+import { ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
+import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
   SUBAGENT_DONE,
   SUBAGENT_OF,
-  SUBAGENT_ROW,
-  WORKFLOW_CARD,
   type SubagentRows,
   childView,
-  isRunGroup,
   runningGroups,
   subagentRowsFrom,
   subagentsIn,
 } from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
 import {
-  SubagentGroupHeader,
   SubagentHarnessContext,
-  SubagentListRow,
   SubagentNavContext,
-  SubagentOfRow,
   SubagentPaneContext,
   SubagentClockContext,
   SubagentStopContext,
   running,
 } from "./subagents/SubagentGroup";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
-import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
+import { ShellActionsContext, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/backgroundNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
@@ -419,25 +379,18 @@ import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
-import { DeliveryFailure, FailedSendsContext, type FailedSends } from "./conversation/PromptDelivery";
+import { FailedSendsContext, type FailedSends } from "./conversation/PromptDelivery";
 import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
-import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
-import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
+import { setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
-import {
-  NO_MENTIONS,
-  StartedMentionsContext,
-  StartedSessionCards,
-  type StartedMentions,
-} from "./started/StartedSessionCard";
+import { NO_MENTIONS, StartedMentionsContext, type StartedMentions } from "./started/StartedSessionCard";
 import { type SessionHover, SessionHoverContext } from "./started/SessionHoverCard";
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
 import { SubsessionContext, SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
 import {
-  STARTED_SESSIONS,
   type StartedCache,
   type StartedSession,
   offerChildren,
@@ -453,6 +406,12 @@ import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { RetryBackoff } from "../../pages/shared/retryBackoff";
+import { callNative } from "./callNative";
+import type { MeasurableRenderer, NativeRegistry, OpenDiff } from "./rows/rowProps";
+import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
+import { NoticeRow } from "./rows/NoticeRow";
+import { PermissionAsk } from "./rows/PermissionAsk";
+import { defaultRegistry, currentRegistry } from "./rows/registry";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -460,21 +419,6 @@ import { RetryBackoff } from "../../pages/shared/retryBackoff";
 /// cards (conversation/CodeBlock.tsx, conversation/EditDiff.tsx), so opening it waits on nothing.
 const loadDiffPanel = () => import("./DiffPanel");
 const DiffPanel = lazy(() => loadDiffPanel().then((module) => ({ default: module.DiffPanel })));
-
-type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
-type NativeRegistry = Record<string, MeasurableRenderer>;
-/// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given; focus
-/// returns to `opener` when the view closes.
-type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
-type RowProps = {
-  row: AcpmuxRow;
-  sessionId?: string;
-  onToggleActivity: (id: string) => void;
-  expanded: boolean;
-  controls?: string;
-  onOpenDiff?: OpenDiff;
-  githubRepository?: string;
-};
 
 declare global {
   interface Window {
@@ -650,12 +594,6 @@ function failedRowOf(error: unknown): string | undefined {
   return typeof row === "string" ? row : undefined;
 }
 
-function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-  const direct = window.cmuxAcpmuxActions?.[method];
-  if (direct) return direct(params) as Promise<T>;
-  return postNative<T>(method, params);
-}
-
 /// Withdraws a queued prompt before its turn starts; false when it already started.
 const removeQueued = (promptId: string) =>
   callNative<{ removed?: boolean } | null>("chat.queue.remove", { promptId }).then(
@@ -668,13 +606,6 @@ const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAt
   new Promise<void>((resolve, reject) => {
     callNative("chat.send", { text, attachments, accepted: () => resolve(), steer }).then(() => resolve(), reject);
   });
-
-/// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).
-const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
-
-/// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
-const editQueued = (promptId: string, edit: QueueEdit) =>
-  callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
 
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
 const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
@@ -862,436 +793,10 @@ function writeKeysFor(sessionId: string | undefined): WriteKeys | undefined {
 /// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
 const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
-/// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
-const MessageRow = memo(
-  function MessageRow({ row, githubRepository }: RowProps) {
-    const t = useT();
-    // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
-    if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another agent's message as one line at the left (its sender's chip), its text as a card under
-    // it cut to eight lines; a task notification as one quiet line (conversation/incomingMessage.ts).
-    // Its images show with it, and its action row (age, Copy, Retry, Pin) at the line's end on hover;
-    // a steer's read state does not: the message is the agent's to read.
-    if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
-    if (row.kind === "user" && row.incoming?.kind === "message")
-      return (
-        <div className="cv-incoming">
-          <IncomingMessageLine
-            id={row.id}
-            message={row.incoming.message}
-            messageAt={row.at}
-            images={row.images}
-            onOpen={openSenderChat}
-            onReply={replyToMessage}
-            actions={<ReceivedActions row={row} text={row.incoming.message.text} />}
-            githubRepository={githubRepository}
-          />
-        </div>
-      );
-    if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
-    if (row.kind === "user") {
-      // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
-      // the message (the session keeps the whole text).
-      const envelope = chiefEnvelope(row.text);
-      return (
-        <div className="cv-user">
-          {envelope && (
-            // The view's Copy sits outside the disclosure, over the space the summary keeps free at
-            // its trailing end, so it never covers the label; a long label ends in an ellipsis.
-            <div className="cv-user__context">
-              <details>
-                <summary>
-                  <ChevronRight size={10} className="cv-user__context-chevron" />
-                  <span className="cv-user__context-label">
-                    {t("transcript.chiefContext", { count: envelope.lines })}
-                  </span>
-                </summary>
-                <pre className="cv-user__context-text selectable">{envelope.context}</pre>
-              </details>
-              <CopyButton
-                text={envelope.context}
-                label={t("turn.copy")}
-                className="cv-iconbtn cv-iconbtn--compact cv-user__context-copy"
-              />
-            </div>
-          )}
-          {envelope || row.from === "chief" ? (
-            <>
-              <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
-              <PromptActions
-                row={row}
-                text={envelope ? envelope.task : (row.text ?? "")}
-                pending={row.steer === "waiting" ? <PendingSteer row={row} send={editQueued} /> : undefined}
-              />
-            </>
-          ) : (
-            // A waiting steer's Send now leads the action row under the queued prompt (Leo,
-            // 2026-10-24). A prompt of images alone gets the same row under the images.
-            <>
-              <UserBubble
-                row={row}
-                text={row.text ?? ""}
-                pending={row.steer === "waiting" ? <PendingSteer row={row} send={editQueued} /> : undefined}
-              />
-            </>
-          )}
-          <DeliveryFailure row={row} />
-          {row.viaCli && <div className="cv-user__status">{t("transcript.viaCli", { host: row.viaCli })}</div>}
-          {row.status && (
-            <div className="cv-user__status">
-              <span>{row.status}</span>
-              {row.queued && (
-                <button
-                  type="button"
-                  className="cv-user__cancel"
-                  onClick={() =>
-                    void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: row.queued })
-                  }
-                >
-                  {t("switch.cancelPrompt")}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      );
-    }
-    return (
-      <RevealedMarkdown
-        text={row.text ?? ""}
-        streaming={row.streaming === true}
-        githubRepository={githubRepository}
-        messageAt={row.at}
-      />
-    );
-  },
-  (previous, next) =>
-    previous.row.id === next.row.id &&
-    previous.row.version === next.row.version &&
-    previous.githubRepository === next.githubRepository,
-);
-
-/// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
-const ToolActivityRow = memo(
-  function ToolActivityRow({ row, sessionId }: RowProps) {
-    // A finished step of only quiet thoughts draws nothing: no `.cv-tools` box either, so the row's
-    // article is empty and takes no room (model.ts onlyQuietThoughts, conversation.css `:empty`).
-    if (onlyQuietThoughts(row)) return null;
-    return <ToolRows row={row} sessionId={sessionId} />;
-  },
-  (previous, next) =>
-    previous.row.id === next.row.id &&
-    previous.row.version === next.row.version &&
-    previous.sessionId === next.sessionId,
-);
-
-/// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
-const WorkedRow = memo(
-  function WorkedRow({ row, onToggleActivity, expanded, controls }: RowProps) {
-    return <WorkedFor row={row} expanded={expanded} controls={controls} onToggle={() => onToggleActivity(row.id)} />;
-  },
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.expanded === b.expanded &&
-    a.controls === b.controls &&
-    a.onToggleActivity === b.onToggleActivity,
-);
-
-/// "Sun, Sep 13 at 7:55 PM" over a prompt after an hour's gap (turnView in conversation/turns.ts).
-const DateRow = memo(
-  function DateRow({ row }: RowProps) {
-    return <DateLine row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.at === b.row.at,
-);
-/// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
-const ThinkingRow = memo(
-  function ThinkingRow({ row }: RowProps) {
-    const queued = row.queued;
-    return (
-      <Thinking
-        status={row.status}
-        since={row.at}
-        doing={row.doing}
-        doingAt={row.doingAt}
-        doingShell={row.doingShell}
-        draft={row.doingDraft}
-        untimed={row.untimed}
-        quietKey={row.quietKey}
-        below={row.below}
-        command={row.doingCommand}
-        onCancel={
-          queued
-            ? () => void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: queued })
-            : undefined
-        }
-      />
-    );
-  },
-  // The start status line (version 0) becomes "Thinking" (version 1) in place.
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.row.status === b.row.status &&
-    a.row.queued === b.row.queued &&
-    a.row.at === b.row.at &&
-    a.row.doing === b.row.doing &&
-    a.row.doingAt === b.row.doingAt &&
-    a.row.doingShell === b.row.doingShell &&
-    a.row.doingDraft === b.row.doingDraft &&
-    a.row.untimed === b.row.untimed &&
-    a.row.quietKey === b.row.quietKey &&
-    a.row.below === b.row.below &&
-    a.row.doingCommand === b.row.doingCommand,
-);
-const WorkingRow = memo(
-  function WorkingRow({ row, sessionId }: RowProps) {
-    // The session's disclosures say whether the running call's group shows its row (WorkingFor.tsx).
-    return (
-      <TranscriptDisclosureProvider sessionId={sessionId}>
-        <WorkingFor row={row} />
-      </TranscriptDisclosureProvider>
-    );
-  },
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.row.at === b.row.at &&
-    a.row.durationMs === b.row.durationMs &&
-    a.row.doing === b.row.doing &&
-    a.row.thinkingNow === b.row.thinkingNow &&
-    a.row.below === b.row.below &&
-    a.row.doingCommand === b.row.doingCommand &&
-    a.row.doingDraft === b.row.doingDraft &&
-    a.row.doingGroup === b.row.doingGroup &&
-    a.row.doingGroupOpen === b.row.doingGroupOpen &&
-    a.sessionId === b.sessionId,
-);
-/// The running turn's activity line under its todo list (agent.sessionStatus, cx-ncc.102).
-const ActivityLineRow = memo(
-  function ActivityLineRow({ row }: RowProps) {
-    return <ActivityLine row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.at === b.row.at,
-);
-
 /// How many turns back the header's Preview looks for a page.
 const PREVIEW_TURNS = 8;
 /// How long a running line count's reveal holds a run open while its row draws (WorkingFor.tsx).
 const REVEAL_HOLD_MS = 2_000;
-/// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
-/// panel) refuses, and the card's address still opens outside the pane.
-const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
-/// A turn's local web page, live (conversation/PreviewCard.tsx).
-const PreviewRow = memo(
-  function PreviewRow({ row }: RowProps) {
-    return row.text ? <PreviewCard url={row.text} onOpen={openPreview} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.text === b.row.text,
-);
-/// An ended turn's render call, live (conversation/RenderCard.tsx).
-const RenderRow = memo(
-  function RenderRow({ row }: RowProps) {
-    const tool = row.items?.[0]?.tool;
-    return tool && canRender() ? <RenderToolCard tool={tool} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-
-const SummaryRow = memo(
-  function SummaryRow({ row }: RowProps) {
-    return <TurnFooter row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const PlanRow = memo(
-  function PlanRow({ row }: RowProps) {
-    return row.plan ? (
-      <PlanList entries={row.plan} ended={row.turnEnded} />
-    ) : (
-      <div className="acpmux-muted">{row.text}</div>
-    );
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const BackgroundTaskRow = memo(
-  function BackgroundTaskRow({ row }: RowProps) {
-    return row.backgroundTask ? <BackgroundTaskNote task={row.backgroundTask} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const CompactionRow = memo(
-  function CompactionRow({ row }: RowProps) {
-    return row.compaction ? <CompactionNote compaction={row.compaction} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const FailoverRow = memo(
-  function FailoverRow({ row }: RowProps) {
-    return row.failover ? <FailoverNote failover={row.failover} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const PolicyUnenforcedRow = memo(
-  function PolicyUnenforcedRow({ row }: RowProps) {
-    return row.policyUnenforced ? <PolicyUnenforcedNote note={row.policyUnenforced} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const AgentPairRow = memo(
-  function AgentPairRow({ row }: RowProps) {
-    return row.agentPair ? <AgentPairNote pair={row.agentPair} onResume={resumeAgentPair} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const SessionStartRow = memo(
-  function SessionStartRow({ row }: RowProps) {
-    return row.sessionStart ? <SessionStartNote start={row.sessionStart} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const NoticeRow = memo(
-  function NoticeRow({ row }: RowProps) {
-    return <div className="acpmux-muted">{row.text}</div>;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const PermissionRow = memo(
-  function PermissionRow({ row }: RowProps) {
-    const t = useT();
-    const permission = row.permission;
-    if (!permission)
-      return (
-        <div className="acpmux-permission-card">
-          <strong>{t("permission.required")}</strong>
-        </div>
-      );
-    return <PermissionAsk permission={permission} shortcuts={false} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-/// A decided question's record (question/record.ts): the card's own answered or cancelled form,
-/// which answers nothing.
-const QuestionRecordRow = memo(
-  function QuestionRecordRow({ row }: RowProps) {
-    return row.question ? <QuestionCard question={row.question} onReply={ignoreReply} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-const ignoreReply = () => {};
-/// A single permission card's receipt (permissions/record.ts): one muted line, the decision first.
-const PermissionRecordRow = memo(
-  function PermissionRecordRow({ row }: RowProps) {
-    const t = useT();
-    const decision = row.decision;
-    if (!decision) return null;
-    return (
-      <div className="acpmux-permission-record" data-decision={decision.kind}>
-        {t(DECISION_TEXT[decision.kind], {
-          action: row.permission?.title?.trim() || t("permission.required"),
-          option: decision.kind === "answered" ? decision.option : "",
-        })}
-      </div>
-    );
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-/// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
-const SubagentGroupRow = memo(
-  function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
-    // An agent a shell call started (`codex exec`) draws as its own card where it started.
-    if (isRunGroup(row)) return <AgentRunCard agent={row.subagents![0]!} />;
-    return <SubagentGroupHeader row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
-  },
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.expanded === b.expanded &&
-    a.onToggleActivity === b.onToggleActivity,
-);
-const SubagentRow = memo(
-  function SubagentRow({ row }: RowProps) {
-    return <SubagentListRow row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-/// Where a subagent ended, while running ones sit in the tray (subagents/SubagentDoneLine.tsx).
-const SubagentDoneRow = memo(
-  function SubagentDoneRow({ row }: RowProps) {
-    return <SubagentDoneLine row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-/// A Claude workflow's card where it started (Labs, summary/WorkflowCard.tsx).
-const WorkflowCardRow = memo(
-  function WorkflowCardRow({ row }: RowProps) {
-    return (
-      <>
-        {(row.subagents ?? []).map((node) => (
-          <WorkflowCard key={node.id} node={node} />
-        ))}
-      </>
-    );
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-/// The child view's "Subagent of" pill; a click goes back to the parent's view.
-const SubagentOfPillRow = memo(
-  function SubagentOfPillRow({ row }: RowProps) {
-    return <SubagentOfRow row={row} />;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.text === b.row.text,
-);
-/// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
-const EditedFilesRow = memo(
-  function EditedFilesRow({ row, sessionId, onOpenDiff }: RowProps) {
-    return <EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />;
-  },
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.sessionId === b.sessionId &&
-    a.onOpenDiff === b.onOpenDiff,
-);
-
-/// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
-const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
-/// Opens the chat that sent this one a message, from its received line's chip: any chat the daemon
-/// lists, this Mac's or a peer's, beside this one or in the tab that shows it (`sender`).
-const openSenderChat = (sessionId: string) =>
-  void callNative("chat.offer.open", { sessionId, sender: true }).catch(() => undefined);
-/// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
-const replyToMessage = (message: IncomingMessage, text: string) =>
-  callNative<void>("chat.message.reply", {
-    sessionId: message.sessionId,
-    msgId: message.msgId,
-    threadId: message.threadId,
-    text,
-  });
-const offerActions: OfferActions = {
-  start: (offerId, worktree) => callNative("chat.offer.start", { offerId, worktree }),
-  here: (offerId) => callNative("chat.offer.here", { offerId }),
-  dismiss: (offerId) => callNative("chat.offer.dismiss", { offerId }),
-  open: openOfferChat,
-};
-
-/// An agent's suggested tasks (offer/SuggestedTasks.tsx); the reducer draws them only with Labs
-/// preview features or the session-offer experiment on (offer/offersShown.ts).
-const SessionOfferRow = memo(
-  function SessionOfferRow({ row }: RowProps) {
-    return row.offers?.length ? <SuggestedTasks offers={row.offers} actions={offerActions} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-
-/// A task's result waiting in the queue: its received line (offer/SuggestedTasks.tsx).
-const OfferResultRow = memo(
-  function OfferResultRow({ row }: RowProps) {
-    return row.received ? <ReceivedResult result={row.received} onOpen={openOfferChat} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
 
 const NO_STARTED: readonly StartedSession[] = [];
 const NO_EXPANDED: ReadonlySet<string> = new Set();
@@ -1300,50 +805,6 @@ const NO_COMMANDS: readonly BackgroundCommand[] = [];
 const NO_AGENTS: readonly Subagent[] = [];
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
-
-/// The chats this chat's agent started, as cards where each was started (started/StartedSessionCard.tsx).
-const StartedSessionsRow = memo(
-  function StartedSessionsRow({ row }: RowProps) {
-    return row.started?.length ? <StartedSessionCards started={row.started} onOpen={openOfferChat} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-
-const defaultRegistry: NativeRegistry = {
-  user: MessageRow,
-  assistant: MessageRow,
-  activity: ToolActivityRow,
-  [WORKED]: WorkedRow,
-  [DATE]: DateRow,
-  [THINKING]: ThinkingRow,
-  [WORKING]: WorkingRow,
-  [ACTIVITY_LINE]: ActivityLineRow,
-  [PREVIEW]: PreviewRow,
-  [RENDER]: RenderRow,
-  editedFiles: EditedFilesRow,
-  turnSummary: SummaryRow,
-  notice: NoticeRow,
-  plan: PlanRow,
-  backgroundTask: BackgroundTaskRow,
-  compaction: CompactionRow,
-  failover: FailoverRow,
-  policyUnenforced: PolicyUnenforcedRow,
-  agentPair: AgentPairRow,
-  sessionStart: SessionStartRow,
-  sessionOffer: SessionOfferRow,
-  [OFFER_RESULT]: OfferResultRow,
-  [STARTED_SESSIONS]: StartedSessionsRow,
-  typing: NoticeRow,
-  permission: PermissionRow,
-  [QUESTION_RECORD]: QuestionRecordRow,
-  [PERMISSION_RECORD]: PermissionRecordRow,
-  [SHELL_ROW]: ShellRow,
-  [SUBAGENTS]: SubagentGroupRow,
-  [SUBAGENT_ROW]: SubagentRow,
-  [SUBAGENT_DONE]: SubagentDoneRow,
-  [SUBAGENT_OF]: SubagentOfPillRow,
-  [WORKFLOW_CARD]: WorkflowCardRow,
-};
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
 type DrawnHeight = { sessionId?: string; version: number; width: number; height: number };
@@ -1626,10 +1087,6 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
   }
   return ids.length > 0 ? ids.join(" ") : undefined;
 };
-const currentRegistry = (): NativeRegistry => ({
-  ...defaultRegistry,
-  ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
-});
 
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
 /// so the transcript ends this far past their total height.
@@ -3879,81 +3336,9 @@ export function VirtualTranscript({
   );
 }
 
-/// Answers `permission` with the option a button or key picked.
-const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
-  void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
-
-/// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
-/// shows a refusal (the promise rejects) and takes input again for a retry.
-const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) =>
-  callNative("chat.permission", {
-    permissionId: permission.permissionId,
-    ...(sent.optionId === undefined ? {} : { optionId: sent.optionId }),
-    ...(sent.answers === undefined ? {} : { answers: sent.answers }),
-  });
-
 /// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.
 const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) =>
   void callNative("chat.secret", { secretId: ask.secretId, ...(value ? { value } : {}) }).catch(() => undefined);
-
-/// A permission ask: a question card when the request asks a question, else its option buttons.
-function PermissionAsk({
-  permission,
-  harness,
-  focusComposer,
-  shownChat,
-  shortcuts,
-  waiting = 0,
-}: {
-  permission: AcpmuxPermission;
-  harness?: string;
-  focusComposer?: () => void;
-  /// The chat shown now, read when a deny's instructions are about to go: with it, the card can deny
-  /// with what the agent should do instead (`denyWithFeedback`).
-  shownChat?: { readonly current: string | undefined };
-  /// False while a permission group's panel takes the shortcuts (permissionKeys.ts `cardTakesShortcuts`).
-  shortcuts?: boolean;
-  /// More asks waiting behind this one (snapshot `permissionsWaiting`).
-  waiting?: number;
-}) {
-  const t = useT();
-  if (!permission.question)
-    return (
-      <PermissionCard
-        permission={permission}
-        harness={harness}
-        focusComposer={focusComposer}
-        shortcuts={shortcuts}
-        onAnswer={answerPermission(permission)}
-        onDenyWithFeedback={shownChat && denyWithFeedback(permission, shownChat)}
-        waiting={waiting}
-      />
-    );
-  return (
-    <>
-      {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
-      <QuestionCard question={permission.question} onReply={replyToQuestion(permission)} />
-    </>
-  );
-}
-
-/// Denies `permission`, then gives the agent what to do instead: into the running turn now (a
-/// steer; an agent that cannot steer stops the turn and takes it as the next prompt). Sent only once
-/// acpmux took the deny, so the agent never reads it before its tool is refused, and only to the chat
-/// that asked: another chat shown meanwhile would take it as its own. False when the deny failed.
-const denyWithFeedback =
-  (permission: AcpmuxPermission, shownChat: { readonly current: string | undefined }) =>
-  async (optionId: string, text: string): Promise<boolean> => {
-    const chat = shownChat.current;
-    try {
-      await callNative("chat.permission", { permissionId: permission.permissionId, optionId });
-    } catch {
-      return false;
-    }
-    if (text && shownChat.current === chat)
-      await callNative("chat.send", { text, attachments: [], steer: true }).catch(() => undefined);
-    return true;
-  };
 
 /// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts a deferred
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
@@ -6505,7 +5890,7 @@ function AcpmuxPane() {
     const discardUnsent = () => harnessSwitch.cancelDeferred();
     window.addEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     // The handshake's backoff rests while the page is hidden and tries once on show
-    // (retryBackoff.ts, p13-webui-069): a hidden pane asks Swift nothing.
+    // (retryBackoff.ts): a hidden pane asks Swift nothing.
     const handshakeRetry = new RetryBackoff({ firstMs: 250, maxMs: 30_000 });
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.

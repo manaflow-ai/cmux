@@ -1,4 +1,4 @@
-/// What the echo predictor reads from the real terminal grid. The overlay (p04-input-046) reads it
+/// What the echo predictor reads from the real terminal grid. The overlay reads it
 /// from the live Ghostty surface; tests use plain structs.
 nonisolated protocol PredictionScreen {
     var cursorRow: Int { get }

@@ -235,7 +235,7 @@ def usable(case: Mapping[str, Any], platform: str) -> Optional[str]:
 def expected_cases(root: Path = EXPECTATIONS) -> Dict[str, str]:
     """The cases an Expectations.d or NeverFix.d line names, by id, with the line: a walk that is known to fail or
     is skipped before any kill would make every crash walk on it fail at the walk, not at the crash."""
-    import expectations  # noqa: PLC0415 - sibling (p15-oracle-007); only the corpus commands read it
+    import expectations  # noqa: PLC0415 - sibling; only the corpus commands read it
 
     found: Dict[str, str] = {}
     for directory, kind in ((root / "Expectations.d", "expectations"), (root / "NeverFix.d", "neverfix")):

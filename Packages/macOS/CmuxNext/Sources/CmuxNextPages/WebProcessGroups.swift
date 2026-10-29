@@ -10,7 +10,9 @@ public import WebKit
 /// one core of CPU) on macOS 14, 15 and 26, each also compiling the 4 MB pane bundle again. A web
 /// view made with an earlier page as its related web view (`_relatedWebView`, the WebKit SPI
 /// Safari uses for `window.open`) runs in that page's process, and WebKit shares a process only
-/// between views of one data store, so the grouped pages use ``dataStore``.
+/// between views of one data store, so each group's pages use that group's store
+/// (``dataStore(for:)``): one non-persistent store per group, as Chrome keeps WebUI storage per
+/// site, so pages of different groups never share localStorage.
 ///
 /// This is the WebKit side of Chrome's process-per-site for WebUI: Chrome lets WebUI pages share a
 /// renderer only within their process lock (content/browser/site_info.cc,
@@ -45,10 +47,10 @@ public final class WebProcessGroups {
     /// Every page of a sharing ``PageProcessGroup`` joins its group (feature
     /// `webKitPageProcessGroups`); false: only the pages that ask (``PageEngineOptions/sharesWebKitProcess``).
     public let groupsEverySharingPage: Bool
-    /// The in-memory data store every grouped page uses, and the WebKit warm-up view
-    /// (``WebUIHost/groupedWebKitConfiguration()``), so its process can serve the first page. The
-    /// grouped pages also share their localStorage per origin (the New Tab page's chat list and folders).
-    public let dataStore: WKWebsiteDataStore
+    /// Makes a group's in-memory data store at the group's first page (``dataStore(for:)``).
+    private let makeStore: @MainActor () -> WKWebsiteDataStore
+    /// The data store of each membership, for the app's life.
+    private var stores: [Membership: WKWebsiteDataStore] = [:]
     /// The current group of each membership, process pool and data store.
     private var groups: [Key: Group] = [:]
 
@@ -68,12 +70,23 @@ public final class WebProcessGroups {
     /// - Parameters:
     ///   - pagesPerProcess: The most pages one process serves (at least 1; `SubsystemBudget.webProcessPagesPerGroup`).
     ///   - groupsEverySharingPage: Every page of a sharing group joins it (``groupsEverySharingPage``).
-    ///   - dataStore: The grouped pages' data store.
+    ///   - makeStore: Makes a group's data store, once per membership at its first use.
     public init(pagesPerProcess: Int, groupsEverySharingPage: Bool = false,
-                dataStore: WKWebsiteDataStore = .nonPersistent()) {
+                makeStore: @escaping @MainActor () -> WKWebsiteDataStore = { .nonPersistent() }) {
         self.pagesPerProcess = max(pagesPerProcess, 1)
         self.groupsEverySharingPage = groupsEverySharingPage
-        self.dataStore = dataStore
+        self.makeStore = makeStore
+    }
+
+    /// The in-memory data store of `membership`'s pages: made at its first use and kept for the
+    /// app's life, so the group's pages share their localStorage per origin (the agent group's New Tab
+    /// page and chats share the chat list and folders) and another group's pages never see it. The
+    /// WebKit warm-up view takes the agent group's (``WebUIHost/groupedWebKitConfiguration()``).
+    public func dataStore(for membership: Membership) -> WKWebsiteDataStore {
+        if let store = stores[membership] { return store }
+        let store = makeStore()
+        stores[membership] = store
+        return store
     }
 
     /// The group `descriptor`'s page joins when it shows in WebKit, nil when it keeps a process of

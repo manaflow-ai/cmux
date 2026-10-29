@@ -7,7 +7,7 @@ import Testing
 /// containers) understands, unless the ghostty terminfo is installed here.
 /// That check reads the disk, so it runs once per launch on the app's files
 /// lane (`GhosttyLaunchProbe`); the identity the app builds on the main thread
-/// reads nothing (p02-threads-006).
+/// reads nothing.
 struct TerminalTermDefaultTests {
     private let resources = "/Applications/cmux.app/Contents/Resources/ghostty"
 

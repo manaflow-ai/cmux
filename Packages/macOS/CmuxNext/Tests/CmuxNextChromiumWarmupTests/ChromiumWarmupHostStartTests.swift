@@ -4,7 +4,7 @@ import CmuxNextInputCoreTestSupport
 import Foundation
 import Testing
 
-/// p08-startup-046: with the Chromium Host the start runs at once, with no idle step, once per process;
+/// With the Chromium Host the start runs at once, with no idle step, once per process;
 /// the first spare window is still an idle step of its own.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct ChromiumWarmupHostStartTests {
     @Test func theHostStartsWithNoIdleWaitAndOnlyOnce() async {

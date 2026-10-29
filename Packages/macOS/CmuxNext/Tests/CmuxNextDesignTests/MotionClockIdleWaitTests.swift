@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// ``MotionClock/waitIdle()`` (p15-oracle-031): a continuation the clock resumes where its last animator leaves
+/// ``MotionClock/waitIdle()``: a continuation the clock resumes where its last animator leaves
 /// (the frame it rests on, ``MotionClock/stop(_:)``), never a frame client or a poll; a cancelled wait resumes
 /// false and leaves nothing behind. ``MotionClock/existing(in:)`` creates no clock.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct MotionClockIdleWaitTests {

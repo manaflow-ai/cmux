@@ -2,7 +2,7 @@
 import CmuxNextOracle
 import Testing
 
-/// The tabs facet's values (p15-oracle-037): each tab is exactly the schema's object
+/// The tabs facet's values: each tab is exactly the schema's object
 /// (schemas/oracle/snapshot-v1.schema.json `tabs.panes[].tabs[]`, additionalProperties false), `loading` follows
 /// the load state, and the facet answers `{panes: [...]}` in the snapshot's main-actor turn.
 /// Run: `swift test --filter OracleTabsFacetTests`.

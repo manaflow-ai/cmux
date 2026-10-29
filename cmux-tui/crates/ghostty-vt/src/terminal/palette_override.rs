@@ -2,9 +2,69 @@
 
 use super::*;
 
+/// One flag per palette index, so every `u8` index is in range.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct PaletteSet {
+    /// Indices 0..=127, bit `index`.
+    low: u128,
+    /// Indices 128..=255, bit `index - 128`.
+    high: u128,
+}
+
+impl PaletteSet {
+    /// The index's bit within its half (a rotation by `index` is one by `index % 128`).
+    fn mask(index: u8) -> u128 {
+        1u128.rotate_left(u32::from(index))
+    }
+
+    pub(super) fn contains(&self, index: u8) -> bool {
+        let half = if index < 128 { self.low } else { self.high };
+        half & Self::mask(index) != 0
+    }
+
+    pub(super) fn set(&mut self, index: u8, present: bool) {
+        let mask = Self::mask(index);
+        let half = if index < 128 { &mut self.low } else { &mut self.high };
+        if present {
+            *half |= mask;
+        } else {
+            *half &= !mask;
+        }
+    }
+
+    pub(super) fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+/// The indices one OSC 4/104/21 command sets or resets; the last request
+/// for an index wins.
+#[derive(Default)]
+pub(super) struct PendingPalette {
+    set: PaletteSet,
+    reset: PaletteSet,
+}
+
+impl PendingPalette {
+    pub(super) fn mark(&mut self, index: u8, set: bool) {
+        self.set.set(index, set);
+        self.reset.set(index, !set);
+    }
+
+    pub(super) fn apply(&self, active: &mut PaletteSet) {
+        for index in 0..=u8::MAX {
+            if self.set.contains(index) {
+                active.set(index, true);
+            } else if self.reset.contains(index) {
+                active.set(index, false);
+            }
+        }
+    }
+}
+
 pub(super) struct PaletteOverrideTracker {
     pub(super) state: PaletteTrackState,
-    pub(super) active: [bool; 256],
+    pub(super) active: PaletteSet,
     pub(super) revision: u64,
     pub(super) reapply_revision: u64,
 }
@@ -13,7 +73,7 @@ impl Default for PaletteOverrideTracker {
     fn default() -> Self {
         Self {
             state: PaletteTrackState::Ground,
-            active: [false; 256],
+            active: PaletteSet::default(),
             revision: 0,
             reapply_revision: 0,
         }
@@ -50,7 +110,7 @@ pub(super) struct PaletteCommand {
     pub(super) token: [u8; Self::MAX_CAPTURE_BYTES],
     pub(super) token_len: usize,
     pub(super) captured: usize,
-    pub(super) pending: [u8; 256],
+    pub(super) pending: PendingPalette,
     pub(super) request_count: usize,
     pub(super) kitty_request_count: usize,
     pub(super) stopped: bool,
@@ -67,7 +127,7 @@ impl PaletteCommand {
             token: [0; Self::MAX_CAPTURE_BYTES],
             token_len: 0,
             captured: 0,
-            pending: [0; 256],
+            pending: PendingPalette::default(),
             request_count: 0,
             kitty_request_count: 0,
             stopped: false,
@@ -126,7 +186,7 @@ impl PaletteOverrideTracker {
                             // RIS resets the palette to its defaults (ghostty-next),
                             // and attached byte frontends reset their mirror
                             // palette. Re-emit the authoritative sparse snapshot.
-                            self.active = [false; 256];
+                            self.active.clear();
                             self.revision = self.revision.wrapping_add(1);
                             self.reapply_revision = self.reapply_revision.wrapping_add(1);
                             PaletteTrackState::Ground
@@ -225,18 +285,18 @@ impl PaletteOsc {
                     let mode = if *invalid {
                         None
                     } else {
-                        match &bytes[..usize::from(*len)] {
-                            b"4" => Some(PaletteOscMode::SetIndex),
-                            b"104" => Some(PaletteOscMode::Reset),
-                            b"21" => Some(PaletteOscMode::Kitty),
+                        match bytes.get(..usize::from(*len)) {
+                            Some(b"4") => Some(PaletteOscMode::SetIndex),
+                            Some(b"104") => Some(PaletteOscMode::Reset),
+                            Some(b"21") => Some(PaletteOscMode::Kitty),
                             _ => None,
                         }
                     };
                     *self = mode
                         .map(|mode| Self::Palette(Box::new(PaletteCommand::new(mode))))
                         .unwrap_or(Self::Ignore);
-                } else if usize::from(*len) < bytes.len() {
-                    bytes[usize::from(*len)] = byte;
+                } else if let Some(slot) = bytes.get_mut(usize::from(*len)) {
+                    *slot = byte;
                     *len += 1;
                 } else {
                     *invalid = true;
@@ -247,12 +307,12 @@ impl PaletteOsc {
         }
     }
 
-    pub(super) fn commit(self, active: &mut [bool; 256]) -> bool {
+    pub(super) fn commit(self, active: &mut PaletteSet) -> bool {
         match self {
             Self::Operation { bytes, len, invalid: false }
-                if &bytes[..usize::from(len)] == b"104" =>
+                if bytes.get(..usize::from(len)) == Some(b"104") =>
             {
-                active.fill(false);
+                active.clear();
                 true
             }
             Self::Palette(command) => command.commit(active),
@@ -275,9 +335,14 @@ impl PaletteCommand {
         self.captured += 1;
         if byte == b';' {
             self.finish_token();
-        } else {
-            self.token[self.token_len] = byte;
+        } else if let Some(slot) = self.token.get_mut(self.token_len) {
+            // `captured` stops the command before the token outgrows its buffer.
+            *slot = byte;
             self.token_len += 1;
+        } else {
+            self.stopped = true;
+            self.overflowed = true;
+            self.token_len = 0;
         }
     }
 
@@ -286,7 +351,12 @@ impl PaletteCommand {
             self.token_len = 0;
             return;
         }
-        let token = &self.token[..self.token_len];
+        let Some(token) = self.token.get(..self.token_len) else {
+            self.stopped = true;
+            self.overflowed = true;
+            self.token_len = 0;
+            return;
+        };
         if matches!(self.mode, PaletteOscMode::Kitty) && self.kitty_request_count >= 526 {
             self.stopped = true;
             self.overflowed = true;
@@ -312,7 +382,7 @@ impl PaletteCommand {
                     if valid {
                         self.color_changed = true;
                         if let PaletteTarget::Palette(index) = target {
-                            self.pending[index as usize] = 1;
+                            self.pending.mark(index, true);
                         }
                     } else {
                         self.stopped = true;
@@ -325,7 +395,7 @@ impl PaletteCommand {
                     match Self::parse_target(token) {
                         PaletteTarget::Palette(index) => {
                             self.color_changed = true;
-                            self.pending[index as usize] = 2;
+                            self.pending.mark(index, false);
                             self.request_count += 1;
                         }
                         PaletteTarget::Special => {
@@ -338,9 +408,9 @@ impl PaletteCommand {
                 PaletteOscMode::Reset
             }
             PaletteOscMode::Kitty => {
-                let separator = token.iter().position(|byte| *byte == b'=').unwrap_or(token.len());
-                let key = &token[..separator];
-                let value = token.get(separator + 1..).unwrap_or_default();
+                let mut pair = token.splitn(2, |byte| *byte == b'=');
+                let key = pair.next().unwrap_or_default();
+                let value = pair.next().unwrap_or_default();
                 let key = std::str::from_utf8(key).unwrap_or_default();
                 let index =
                     parse_protocol_decimal(key.as_bytes(), u8::MAX.into()).map(|value| value as u8);
@@ -366,11 +436,11 @@ impl PaletteCommand {
                     if value.is_empty()
                         && let Some(index) = index
                     {
-                        self.pending[index as usize] = 2;
+                        self.pending.mark(index, false);
                     } else if value != "?"
                         && let Some(index) = index
                     {
-                        self.pending[index as usize] = 1;
+                        self.pending.mark(index, true);
                     }
                 }
                 PaletteOscMode::Kitty
@@ -392,7 +462,7 @@ impl PaletteCommand {
         }
     }
 
-    pub(super) fn commit(mut self: Box<Self>, active: &mut [bool; 256]) -> bool {
+    pub(super) fn commit(mut self: Box<Self>, active: &mut PaletteSet) -> bool {
         if self.overflowed {
             return false;
         }
@@ -401,16 +471,10 @@ impl PaletteCommand {
             return false;
         }
         if matches!(self.mode, PaletteOscMode::Reset) && self.request_count == 0 {
-            active.fill(false);
+            active.clear();
             return true;
         }
-        for (active, pending) in active.iter_mut().zip(self.pending) {
-            match pending {
-                1 => *active = true,
-                2 => *active = false,
-                _ => {}
-            }
-        }
+        self.pending.apply(active);
         self.color_changed
     }
 }

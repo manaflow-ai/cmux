@@ -3,7 +3,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-083: a Chromium helper's abnormal end is one Sentry event (type, sub type, reason, code,
+/// A Chromium helper's abnormal end is one Sentry event (type, sub type, reason, code,
 /// pump state, pid; no URL or title), at most one per process type an hour, and the macOS crash report of the
 /// same process carries the same `pid` tag.
 @Suite struct HelperExitEventTests {

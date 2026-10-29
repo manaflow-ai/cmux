@@ -32,8 +32,12 @@ final class LaunchSettle {
     private var sawTerminalContent = false
     /// The clock of ``settled(within:images:)``'s limit.
     private let clock: any Clock<Duration>
-    /// The agent pages' WebKit warm-up, whose empty page goes at the settle (``install(daemon:warmup:)``).
+    /// The agent pages' WebKit warm-up, whose empty page goes at the settle (``install(daemon:warmup:windows:on:)``).
     private weak var warmup: AgentPageWarmup?
+    /// The launch's windows, read for the terminals on screen once every visible pane loaded.
+    private weak var windows: WindowManager?
+    /// `launch.visible_terminals_drawn`: each terminal's first frame after its first content.
+    private let terminalsDrawn = LaunchTerminalsDrawn()
 
     /// - Parameters:
     ///   - reveal: The app's launch load-in (`AppServices.launchReveal`).
@@ -88,7 +92,7 @@ final class LaunchSettle {
     }
 
     /// `memorySmallAppStores` (default off): once the launch settled and no agent pane draws its last page, the
-    /// launch reads of the last quit's terminal frames and agent pages go, not at their 30 s deadline (p07-memory-083).
+    /// launch reads of the last quit's terminal frames and agent pages go, not at their 30 s deadline.
     ///
     /// - Parameters:
     ///   - frames: The last quit's terminal frames (`AppServices.terminalLaunchFrames`).
@@ -115,11 +119,13 @@ final class LaunchSettle {
     /// - Parameters:
     ///   - daemon: The local daemon.
     ///   - warmup: The agent pages' WebKit warm-up (`AppServices.agentPageWarmup`).
+    ///   - windows: The launch's windows, for the terminals on screen (`launch.visible_terminals_drawn`).
     ///   - mainWork: The app's main-thread scheduler: the daemon's startup state applies as a task on it.
-    func install(daemon: DaemonService, warmup: AgentPageWarmup, on mainWork: MainWorkScheduler) {
-        self.warmup = warmup
+    func install(daemon: DaemonService, warmup: AgentPageWarmup, windows: WindowManager, on mainWork: MainWorkScheduler) {
+        (self.warmup, self.windows) = (warmup, windows)
         reveal.whenReady(.pane) { [weak self] in self?.settle() }
-        TerminalTimings.onContentApplied = { [weak self] in self?.terminalContentApplied() }
+        TerminalTimings.onContentApplied = { [weak self] session in self?.terminalContentApplied(session) }
+        paneRefs.whenShown { [weak self] in self?.visiblePanesShown() }
         // Ends when the daemon is unavailable or the launch settled (cancelled in settle). `visible`: it reveals
         // the window's regions.
         let watch = ServiceObservation(.visible, owner: "LaunchSettle.daemonUnavailable", on: mainWork) {
@@ -133,10 +139,20 @@ final class LaunchSettle {
         if isSettled { watch.cancel() } else { unavailableWatch = watch }
     }
 
+    /// Every pane on screen was handed its content (`launch.visible_panes_shown`); `launch.visible_terminals_drawn`
+    /// follows once each terminal among them drew it (bench_launch.py `after-kill`).
+    private func visiblePanesShown() {
+        DebugTimings.markLaunch("launch.visible_panes_shown")
+        guard let windows else { return terminalsDrawn.stop() }
+        terminalsDrawn.whenDrawn(paneRefs.visibleTerminals(of: windows)) { DebugTimings.markLaunch(LaunchTerminalsDrawn.mark) }
+    }
+
     /// A terminal was handed content: a content signal for the visible pane refs while they hold
     /// startup; the first one also settles the launch once the frame showing it is committed. The
-    /// hook stays installed while the refs hold startup, and goes at the first content after.
-    func terminalContentApplied() {
+    /// hook stays installed while the refs hold startup, and goes at the first content after. `session`'s wait for
+    /// the frame that draws its content starts here (`launch.visible_terminals_drawn`).
+    func terminalContentApplied(_ session: TerminalSession? = nil) {
+        if let session { terminalsDrawn.contentQueued(ObjectIdentifier(session)) { session.whenContentFrameDrawn($0) } }
         paneRefs.noteChange()
         if !paneRefs.isHolding { TerminalTimings.onContentApplied = nil }
         guard !sawTerminalContent else { return }

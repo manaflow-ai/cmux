@@ -57,7 +57,7 @@ struct PasswordCSVFiles {
             try await cef.importPasswords(rows, into: profile)
         }
         do {
-            let report = try await run(PasswordCSVImporter(destination: destination))
+            let report = try await run(PasswordCSVImporter(destination: destination, work: services.work))
             // The app window, not the key window: after the cmux picker that is the palette's panel.
             let windows = services.windows
             Self.trash(url, report: report, hold: hold) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }

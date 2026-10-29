@@ -21,13 +21,13 @@ enum HandshakeLines {
     /// and its proof (step 2, P8 3b-2) leads the second round trip so it
     /// directly follows step 1.
     ///
-    /// Framed IPC (p05-ipc-092) adds no round trip: the connection echoes what the first `identify` offered
+    /// Framed IPC adds no round trip: the connection echoes what the first `identify` offered
     /// in the `set-client-info` of the second round trip (with `clientHello`), or in a second
     /// `set-client-info` beside the owner metadata (without), and an `identify {revisions}` right after it
     /// tells whether frames were granted, from which schema, and for which methods (``WireNegotiation``).
     static func send(_ transport: LineTransport, configuration: DaemonConnectionConfiguration,
                      logger: Logger) async -> Replies {
-        // A streaming connection joins shared sizing as its device (p05-ipc-095); read off the main thread.
+        // A streaming connection joins shared sizing as its device; read off the main thread.
         let device = await configuration.streamSizingDevice?()
         let negotiation = WireNegotiation(upgrades: configuration.wireUpgrades, bridged: transport.bridged)
         let subscribe = PipelinedLine(SubscribeRequest(treeEvents: configuration.treeEvents))

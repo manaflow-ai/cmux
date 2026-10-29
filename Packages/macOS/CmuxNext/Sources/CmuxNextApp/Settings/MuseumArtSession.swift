@@ -94,7 +94,7 @@ final class MuseumArtSession {
     }
 
     /// Downloads the result's image into a temporary file named "Title — Artist" for
-    /// ``BackdropUserImages/adopt(_:fileManager:)`` to copy; nil when that fails.
+    /// ``BackdropUserImages/adopt(_:)`` to copy; nil when that fails.
     func download(key: String) async -> URL? {
         guard let result = results[key], let data = await search.image(result.image, of: result),
               data.count <= Self.downloadLimit else { return nil }

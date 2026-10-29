@@ -217,7 +217,7 @@ fn request_watchdog_rearms_after_it_parked() {
 
 #[test]
 fn request_watchdog_counts_a_failed_thread_start_and_retries_it() {
-    fn refuse(_: Box<dyn FnOnce() + Send>) -> std::io::Result<Thread> {
+    fn refuse(_: Box<dyn FnOnce() + Send>) -> std::io::Result<supervised::Unparker> {
         Err(std::io::Error::other("no threads"))
     }
     let watchdog = RequestWatchdog::with_seams(
@@ -261,6 +261,18 @@ fn request_watchdog_counts_runs_past_its_slots_as_unwatched() {
     assert_eq!(watchdog.snapshot().unwatched, 1);
     drop(scopes);
     assert!(watchdog.begin(0, CREATE).is_some(), "a freed slot is reused");
+}
+
+#[test]
+fn request_watchdog_claims_wrap_from_the_last_slot_to_the_first() {
+    let watchdog = RequestWatchdog::default();
+    let last = SLOT_COUNT as u64 - 1;
+    // Every run hints the last slot: the second one on finds it taken and
+    // wraps to the start, until every slot is held.
+    let scopes: Vec<_> = (0..SLOT_COUNT).map(|_| watchdog.begin(last, CREATE)).collect();
+    assert!(scopes.iter().all(Option::is_some), "every slot is reached from the last one");
+    assert!(watchdog.begin(last, CREATE).is_none());
+    assert_eq!(watchdog.snapshot().unwatched, 1);
 }
 
 #[test]
@@ -432,7 +444,7 @@ fn request_watchdog_leaves_a_long_wait_for_out() {
     mux.close_surface(surface.id).unwrap();
 }
 
-/// A v2 resource line runs on the connection thread; a slow one is named by
+/// A v2 resource line runs on its connection's control sequence; a slow one is named by
 /// its operation.
 #[test]
 fn request_watchdog_records_a_slow_resource_line() {
@@ -466,7 +478,7 @@ fn request_watchdog_records_a_slow_resource_line() {
 }
 
 /// A frame a connection handler answers itself (`agent-cli-intents-list`
-/// reads the workspace registry on the connection thread) is watched and
+/// reads the workspace registry on its connection's control sequence) is watched and
 /// named by its handler.
 #[cfg(unix)]
 #[test]
@@ -500,8 +512,10 @@ fn request_watchdog_records_a_slow_sniffed_frame() {
 }
 
 /// A remote-relay `fs.*` frame is watched from the first line of the frame
-/// (the client registry is held 300 ms, so its checks are slow) and, ended
-/// before the watchdog looks, named by the handler it ended in.
+/// (the client registry is held 300 ms, so the reader's client lookup is
+/// slow) and, ended before the watchdog looks, named by the stage it ended
+/// in: the reader hands a remote line to the relay on its connection's
+/// control sequence.
 #[cfg(unix)]
 #[test]
 fn request_watchdog_records_a_slow_remote_fs_frame() {
@@ -537,6 +551,6 @@ fn request_watchdog_records_a_slow_remote_fs_frame() {
 
     let snapshot = wait_settled(&mux.request_watchdog, 1);
     assert_eq!(snapshot.total, 1, "{snapshot:?}");
-    assert_eq!(snapshot.recent[0].method, "frame:fs");
+    assert_eq!(snapshot.recent[0].method, "frame:remote-relay");
     assert_eq!(snapshot.recent[0].client, client);
 }

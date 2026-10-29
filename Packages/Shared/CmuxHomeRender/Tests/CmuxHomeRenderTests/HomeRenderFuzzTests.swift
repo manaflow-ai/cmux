@@ -246,7 +246,7 @@ struct HomeRenderFuzzTests {
 
     // MARK: - libFuzzer entry
 
-    /// One input, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One input, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         try measureStep(&rng)

@@ -234,6 +234,7 @@ impl Watch {
         let (stop_read, stop_write) = pipe()?;
         // Nobody waits on a pressure change: utility, as the macOS source's
         // queue. The voter drops when `run` returns, for any reason.
+        // supervise-allow: ended by the stop pipe Watch owns; the voter drops on any end, a panic included, so pressure falls back to Normal and no one waits on this thread.
         let _detached =
             cmux_threads::spawn("cmux-memory-pressure", ThreadQos::Utility, move || {
                 run(&triggers, &stop_read, &voter);

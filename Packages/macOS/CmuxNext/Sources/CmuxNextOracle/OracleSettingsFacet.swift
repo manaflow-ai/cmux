@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The `settings` facet (schemas/oracle/snapshot-v1.schema.json, task p15-oracle-039): the sha256 of the
+/// The `settings` facet (schemas/oracle/snapshot-v1.schema.json): the sha256 of the
 /// applied effective config, the settings set to a value other than their default, and the motion arm read
 /// back. The host reads them in the snapshot's main-actor turn from the settings it already applied
 /// (`CmuxConfigSnapshot.oracleDigest`), so the turn opens no file; this type only gives them the schema's shape.

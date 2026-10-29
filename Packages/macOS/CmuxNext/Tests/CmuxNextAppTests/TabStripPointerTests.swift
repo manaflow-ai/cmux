@@ -4,7 +4,7 @@ import CmuxNextInput
 import CmuxNextWakeups
 import Testing
 
-/// Tab strip hover once per frame (feature `pointerFrameHover`, p04-input-033) on p04-input-030's
+/// Tab strip hover once per frame (feature `pointerFrameHover`) on p04-input-030's
 /// `FrameInputCoalescer`, as Chromium delivers rAF-aligned moves (main_thread_event_queue.cc): the
 /// first move of a frame interval hovers in its own turn, the rest of the interval once at the frame,
 /// at the latest point. Enter, exit and a press land the pending moves first, so a click after fast

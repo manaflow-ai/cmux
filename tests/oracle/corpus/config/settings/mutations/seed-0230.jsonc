@@ -1,5 +1,0 @@
-{"appearance":{"colorTransition":{"reduceMotion":1e0},// "quoted"
-"metrics":{// url: https://localhost/x
-"columnGap":-24.0,},},// note
-"editor":{"renderWhitespace":"all"},"diff":{"groupByKind":1},"sidebar":{// "quoted"
-"workspaceRow":{"browser":{"agentStatus":"true",},},/* {"k": 1} */ "style":"__not_a_choice__"},"app":{"warnBeforeClosingTab":"true",},"palette":{"aliases":{},},"oracleUnknown":{"nested":{"key":"x",},}}

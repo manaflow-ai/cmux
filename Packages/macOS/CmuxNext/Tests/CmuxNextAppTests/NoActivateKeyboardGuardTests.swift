@@ -58,7 +58,7 @@ struct NoActivateKeyboardGuardTests {
         #expect(guardian.giveBacks.last?.restoredTo == 22)
     }
 
-    /// The PID answers come back as budgeted main posts (p02-threads-120), which need not keep the order the
+    /// The PID answers come back as budgeted main posts, which need not keep the order the
     /// activations came in: the newest activation's answer can land first, and the older one that lands after
     /// it is dropped by its sequence.
     @Test func anOlderResolutionThatLandsLastIsDropped() {

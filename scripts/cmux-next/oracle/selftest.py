@@ -132,7 +132,7 @@ KNOWN_RED: Dict[str, KnownRed] = {
 # never show an unexpected pass or go stale.
 NAMED_MODULES = ("normalize", "diff", "oracle_cli_test", "mutant_catch_test")
 
-HOST = {"name": "selftest-host", "os": "Linux", "osVersion": "6.0", "arch": "x86_64"}
+HOST = {"name": "selftest-host", "os": "Linux", "osVersion": "6.0", "arch": "x86_64", "display": "none"}
 
 
 # ---------------------------------------------------------------------------------------------- network
@@ -781,7 +781,7 @@ class PatchMutants(unittest.TestCase):
             self.assertIn(mutant.suite, baselines.SUITE_CLASSES, mutant.id)
 
     def test_the_task_mutants_pass_the_check_at_head_with_no_count(self) -> None:
-        # p15-oracle-206: the double create its I10 test phase must catch, outside the smoke set of ten.
+        # The double create its I10 test phase must catch, outside the smoke set of ten.
         mutants, errors = patch_mutants.check(patch_mutants.TASK_ROOT, counted=False)
         self.assertEqual(errors, [])
         self.assertIn("daemon/tab-create-terminal-runs-again-on-replay", [m.id for m in mutants])

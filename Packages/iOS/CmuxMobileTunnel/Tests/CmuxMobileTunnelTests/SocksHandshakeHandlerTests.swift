@@ -5,7 +5,7 @@ import Testing
 @testable import CmuxMobileTunnel
 
 /// The SOCKS5 handshake handler on a testing channel: the connect task reaches the handler only
-/// through a `NIOLoopBound` (p10-stability-050), replies on the loop, swaps itself for the byte
+/// through a `NIOLoopBound`, replies on the loop, swaps itself for the byte
 /// adapter, and relays. Darwin-free, so it runs on Linux; run it under TSan too.
 @Suite struct SocksHandshakeHandlerTests {
     /// An exit that records what it is sent and ends when closed.

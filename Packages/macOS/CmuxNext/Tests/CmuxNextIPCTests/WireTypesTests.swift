@@ -2,8 +2,8 @@ import Foundation
 import Testing
 import CmuxNextIPC
 
-/// The wire types CmuxNextWireGen builds from cmux-tui/spec/sdk-schema.json
-/// (p05-ipc-020), decoding and encoding real daemon JSON: recursive tagged
+/// The wire types CmuxNextWireGen builds from cmux-tui/spec/sdk-schema.json,
+/// decoding and encoding real daemon JSON: recursive tagged
 /// unions, untagged unions told apart by their members, extensible enums,
 /// schema defaults that are not written, and typed ids.
 @Suite struct WireTypesTests {

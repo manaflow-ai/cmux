@@ -1,4 +1,4 @@
-// Stats keeps the range the person picked and its scroll across a discard (p13-webui-082): the hide
+// Stats keeps the range the person picked and its scroll across a discard: the hide
 // saves them, and the restored document's store reads that range first.
 import { describe, expect, test } from "bun:test";
 import { DOCUMENT_SCROLL_KEY } from "../shared/pageState";

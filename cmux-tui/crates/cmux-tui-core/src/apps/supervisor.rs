@@ -23,6 +23,7 @@ use super::mirror::{self, Effect, Mirror, Op, Origin, Record, SetOp};
 use super::storage::Storage;
 use super::timer::{TimerId, Timers};
 use crate::backoff::Backoff;
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 /// Writes one event or response to a control client; false when it is gone.
 pub type Sink = Arc<dyn Fn(&Value) -> bool + Send + Sync>;
@@ -327,7 +328,7 @@ impl Supervisor {
             link_changed: Mutex::new((false, false)),
         });
         if seeded {
-            let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
+            let _ = supervisor.persist(&supervisor.inner.lock().recover_poison().mirror);
         }
         supervisor.start_always_servers();
         supervisor.start_local_watch();
@@ -342,14 +343,14 @@ impl Supervisor {
 
     /// Makes `client` receive `apps-changed` and `apps-host`.
     pub fn register_client(&self, client: u64, sink: Sink) {
-        self.inner.lock().unwrap().sinks.entry(client).or_insert(sink);
+        self.inner.lock().recover_poison().sinks.entry(client).or_insert(sink);
     }
 
     /// A control connection closed: its mounts unmount, its follows end, its
     /// runs are cancelled.
     pub fn disconnect(&self, client: u64) {
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             inner.sinks.remove(&client);
             let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
             provider_outs.extend(self.cancel_client_locked(&mut inner, client));
@@ -369,7 +370,7 @@ impl Supervisor {
     }
 
     pub fn list(&self) -> Value {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().recover_poison();
         let mut ids: BTreeSet<&String> = inner.catalog.packages.keys().collect();
         ids.extend(inner.mirror.apps.iter().filter(|(_, r)| r.installed).map(|(id, _)| id));
         let apps: Vec<Value> = ids
@@ -386,13 +387,13 @@ impl Supervisor {
         let app = op.app.clone();
         let transaction = format!("apps-{}", self.transactions.fetch_add(1, Ordering::Relaxed));
         let (outs, result) = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             let mut outs = Vec::new();
             let result = self.commit_locked(&mut inner, op, &transaction, &mut outs).map(|()| {
                 let mut record =
                     entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
                 // Lets a client drop list replies older than this commit.
-                record["revision"] = json!(inner.mirror.revision);
+                record.insert("revision", json!(inner.mirror.revision));
                 record
             });
             outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
@@ -460,7 +461,7 @@ impl Supervisor {
 
     /// `apps-logs`: the ring for `app`; `follow` streams `apps-log` events.
     pub fn logs(&self, client: u64, app: &str, follow: bool) -> Value {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().recover_poison();
         if follow {
             inner.followers.entry(app.to_string()).or_default().insert(client);
         }
@@ -498,7 +499,7 @@ impl Supervisor {
 
     pub(super) fn emit(&self, mut outs: Vec<Out>) {
         let sinks = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             outs.extend(Self::inventory_demand_locked(&mut inner));
             inner.sinks.clone()
         };
@@ -545,7 +546,7 @@ impl Supervisor {
     pub(super) fn storage(&self) -> std::sync::MutexGuard<'_, Option<Storage>> {
         let site = std::panic::Location::caller();
         let mut guard =
-            self.storage_holder.lock_mutex(STORAGE_LOCK_NAME, site, &self.storage).unwrap();
+            self.storage_holder.lock_mutex(STORAGE_LOCK_NAME, site, &self.storage).recover_poison();
         if guard.is_none() {
             let path = self.config.state_dir.as_ref().map(|d| d.join("apps-storage.sqlite"));
             *guard = Storage::open(path.as_deref()).ok();
@@ -610,7 +611,7 @@ impl Supervisor {
 impl Drop for Supervisor {
     fn drop(&mut self) {
         self.timers.stop();
-        let inner = self.inner.get_mut().unwrap();
+        let inner = self.inner.get_mut().recover_poison();
         for host in inner.hosts.values() {
             if let Some(process) = &host.process {
                 process.shutdown();
@@ -629,7 +630,7 @@ fn load_mirror(state_dir: Option<&std::path::Path>) -> Mirror {
     let Ok(raw) = files::read(&path) else { return Mirror::default() };
     match serde_json::from_slice::<Value>(&raw)
         .ok()
-        .and_then(|v| serde_json::from_value::<Mirror>(v["mirror"].clone()).ok())
+        .and_then(|v| serde_json::from_value::<Mirror>(v.field("mirror").clone()).ok())
     {
         Some(mirror) => mirror,
         None => {

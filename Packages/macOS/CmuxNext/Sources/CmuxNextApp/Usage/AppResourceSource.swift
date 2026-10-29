@@ -59,7 +59,7 @@ final class AppResourceSource: ResourceSampleSource {
         // Chromium: map renderer client ids to helper processes.
         let chromiumTabs = tabs.indices.filter { resolved.rendererClients[tabs[$0].tabID] != nil }
         if !chromiumTabs.isEmpty {
-            let helpers = await Self.chromiumHelpers()
+            let helpers = await Self.chromiumHelpers(of: services?.cache.chromium.helperParent)
             var byClient: [Int32: Int32] = [:]
             for helper in helpers {
                 switch helper.kind {
@@ -127,7 +127,7 @@ final class AppResourceSource: ResourceSampleSource {
         let entries: [(TabModel, DaemonService)]
         switch target {
         case .tab(let id):
-            // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per sample; no walk, no observation
+            // view-observation-allow: locateTab is one MachineTabIndex lookup, read once per sample; no walk, no observation
             guard let (tab, pane) = services.locateTab(id) else { return resolved }
             entries = [(tab, services.daemon(for: pane))]
             resolved.foreignRendererClients = services.cache.browsers.filter { $0.key != tab.id }.flatMap { _, entry -> [Int32] in
@@ -218,9 +218,10 @@ final class AppResourceSource: ResourceSampleSource {
 
     // MARK: Off the main actor
 
+    /// The children of `parent`, the app or the Chromium Host (`ChromiumEngineSlot.helperParent`).
     @concurrent
-    private static func chromiumHelpers() async -> [ChromiumHelperProcess] {
-        ChromiumHelperProcess.list()
+    private static func chromiumHelpers(of parent: pid_t?) async -> [ChromiumHelperProcess] {
+        ChromiumHelperProcess.list(parent: parent)
     }
 
     @concurrent

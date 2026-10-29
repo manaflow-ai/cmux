@@ -39,6 +39,9 @@
 //!   `/run/cmux/instance-id` and cause metadata reads. Each wake costs one
 //!   bounded read; the id itself always comes from the metadata service.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 pub mod agent;
 pub mod announce;
 pub mod cli;

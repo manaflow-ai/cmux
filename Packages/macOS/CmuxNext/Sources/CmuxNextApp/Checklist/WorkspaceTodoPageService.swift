@@ -71,7 +71,7 @@ final class WorkspaceTodoPageService: InternalPageProvider {
 
     func restore(_ route: String, for key: String) { pending[key] = route }
 
-    // MARK: Discard (p07-memory-025)
+    // MARK: Discard
 
     /// Ten minutes hidden (Chrome's proactive_discarding_policy.cc). The model stays with the tab,
     /// so the rebuilt view shows the same checklist and draft.

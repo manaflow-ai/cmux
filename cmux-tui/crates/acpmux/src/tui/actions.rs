@@ -5,6 +5,7 @@
 //! with what a key does.
 
 use super::*;
+use crate::no_panic::JsonExt;
 mod table;
 pub use table::{ACTIONS, EDITING_KEYS};
 
@@ -78,8 +79,8 @@ pub fn find(name: &str) -> Option<&'static ActionDef> {
     ACTIONS.iter().find(|d| d.name == n || d.aliases.contains(&n))
 }
 
-pub fn def(action: Action) -> &'static ActionDef {
-    ACTIONS.iter().find(|d| d.action == action).expect("every action is in ACTIONS")
+pub fn def(action: Action) -> Option<&'static ActionDef> {
+    ACTIONS.iter().find(|d| d.action == action)
 }
 
 /// Effort levels offered for a draft, before the harness can be asked.
@@ -111,7 +112,7 @@ impl App {
     pub(super) fn persist_default_policy(&self, policy: &str) {
         let client = self.client.clone();
         let policy = policy.to_owned();
-        tokio::spawn(async move {
+        self.background(async move {
             let _ = client.request("_acpmux/set_default_policy", json!({"policy":policy})).await;
         });
     }
@@ -381,7 +382,7 @@ impl App {
                 if let Some(id) = sid {
                     let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": {}}});
                     if let Some(n) = args.first() {
-                        p["_meta"]["acpmux"]["name"] = json!(n);
+                        p.set_path(&["_meta", "acpmux", "name"], json!(n));
                     }
                     self.request_bg(method::SESSION_FORK, p, Some("forked".into()));
                 }
@@ -420,7 +421,9 @@ impl App {
             Action::Policy => match args.first() {
                 Some(p) if self.on_draft() => {
                     if POLICIES.contains(p) {
-                        self.draft_mut().unwrap().policy = p.to_string();
+                        if let Some(draft) = self.draft_mut() {
+                            draft.policy = p.to_string();
+                        }
                         self.status = format!("draft policy: {p}");
                     } else {
                         self.report_error(format!("policy must be one of {}", POLICIES.join(", ")));
@@ -444,7 +447,7 @@ impl App {
             Action::ReloadCatalog => {
                 let client = self.client.clone();
                 let tx = self.tx.clone();
-                tokio::spawn(async move {
+                self.background(async move {
                     match client.request(method::MUX_RELOAD_CONFIG, json!({})).await {
                         Ok(v) => {
                             let names = v
@@ -528,7 +531,7 @@ impl App {
                 if let Some(u) = &self.web_url {
                     // Deep link to the selected session; the token stays out of the status bar.
                     let url = match self.selected_id() {
-                        Some(id) => format!("{u}&session={id}"),
+                        Some(id) => crate::hub::web_url_for_session(u, &id),
                         None => u.clone(),
                     };
                     let _ = std::process::Command::new(if cfg!(target_os = "macos") {
@@ -568,7 +571,7 @@ impl App {
                 if let Some(id) = sid {
                     let mut p = json!({"sessionId": id});
                     if let Some(d) = args.first() {
-                        p["dest"] = json!(d);
+                        p.set("dest", json!(d));
                     }
                     self.request_bg(
                         method::MUX_EXPORT,

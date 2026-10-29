@@ -162,7 +162,7 @@ extension KeyRouter {
     }
 }
 
-// The key router's part in the launch picture phase (p08-startup-061): keys typed while a window shows its saved
+// The key router's part in the launch picture phase: keys typed while a window shows its saved
 // picture change only the model in their turn, and no key builds the window.
 // - The window cannot decide a key yet (it has no controller, or its focus has not resolved): the key waits whole, a
 //   chord too, and goes through the router again once the window can (`holdsUndecided`).

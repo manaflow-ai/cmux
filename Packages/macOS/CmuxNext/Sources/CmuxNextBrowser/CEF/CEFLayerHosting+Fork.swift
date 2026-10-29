@@ -28,7 +28,7 @@ extension CEFLayerHosting {
         /// `cmux_shim_browser_attach_view` (Track B) from fork API ``CEFLayerHosting/attachViewForkAPI`` while the
         /// feature `cefAttachedPages` is on; nil otherwise.
         let attachView: CEFAttachedPages.Attach?
-        /// `cmux_browser_set_embedder_visibility` (task p03-rendering-058): the
+        /// `cmux_browser_set_embedder_visibility`: the
         /// page window's visibility comes from the app, never from its window's
         /// order or occlusion. True when the fork took it. Nil without the call:
         /// the fork follows the host view in the switch's turn.
@@ -37,8 +37,8 @@ extension CEFLayerHosting {
         /// window kept for its next show (the app's ``CEFHiddenFrames`` decides
         /// when). Nil: Chromium's own frame eviction decides.
         let evictFrame: ((_ browser: Int32) -> Bool)?
-        /// The fork's copy of a hidden page window's last frame into a new IOSurface the app owns
-        /// (p03-rendering-055): made on the fork's GPU thread, delivered once on the main thread (nil when
+        /// The fork's copy of a hidden page window's last frame into a new IOSurface the app owns:
+        /// made on the fork's GPU thread, delivered once on the main thread (nil when
         /// there was no frame), as Chromium's `CopyFromCompositingSurface` answers on its UI thread.
         /// False when no copy was started. Nil without the call.
         let copyFrame: ((_ browser: Int32, _ done: @escaping @MainActor (IOSurface?) -> Void) -> Bool)?
@@ -107,7 +107,7 @@ extension CEFLayerHosting {
             attachView = CEFAttachedPages.shimAttach(shim, apiVersion: apiVersion, enabled: policy.attachesViews)
             // The fork's keep-frame-while-hidden call has no shim export yet: Chromium's own eviction decides.
             evictFrame = nil
-            // The fork's frame copy and next-frame calls (p03-rendering-055) come with the same exports.
+            // The fork's frame copy and next-frame calls come with the same exports.
             copyFrame = nil
             onNextFrame = nil
             // Fork APIs 26 and 33 host and attach a tab's page window only. A DevTools frontend and a popup

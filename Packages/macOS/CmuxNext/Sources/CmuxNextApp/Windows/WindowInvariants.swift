@@ -77,7 +77,7 @@ enum WindowInvariants {
 }
 
 #if DEBUG || CMUX_BENCH_HOOKS
-/// The oracle's `windows` facet (p15-oracle-041, ``OracleWindowsFacet``) over this manager's windows.
+/// The oracle's `windows` facet (``OracleWindowsFacet``) over this manager's windows.
 extension WindowManager {
     /// The app's provider: the windows, the services' key window, and AppKit's main window and screens. Each
     /// read also observes a count of `WindowEvents.stateChanges` posts through `events` (subscribed on the

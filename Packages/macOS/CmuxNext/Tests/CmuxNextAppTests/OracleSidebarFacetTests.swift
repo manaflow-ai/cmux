@@ -6,7 +6,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import Testing
 
-/// The oracle's sidebar facet (p15-oracle-036) is the window's `SidebarModel` in the snapshot schema's form:
+/// The oracle's sidebar facet is the window's `SidebarModel` in the snapshot schema's form:
 /// sections, groups and rows in model order with their folds, pins, unread counts and selection; the filter
 /// only as a hash. Run: `swift test --filter OracleSidebarFacetTests`.
 @MainActor struct OracleSidebarFacetTests {

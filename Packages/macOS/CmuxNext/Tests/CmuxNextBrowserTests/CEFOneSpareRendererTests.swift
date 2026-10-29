@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// p07-memory-113: Chrome keeps one spare renderer (`SpareRenderProcessHostManager`). Home had two or
+/// Chrome keeps one spare renderer (`SpareRenderProcessHostManager`). Home had two or
 /// three: the default profile's spare window holds an about:blank placeholder with a renderer, the pages
 /// spare window another, and Chromium kept its own spare beside them. With the default-off feature
 /// `chromiumOneSpareRenderer` there is one: while placeholders hold a renderer, Chromium's own spare is

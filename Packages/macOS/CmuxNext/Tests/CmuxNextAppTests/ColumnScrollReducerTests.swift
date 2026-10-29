@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// The strip pan resampled at the frame's time (p04-input-041, feature `stripPanResampling`): a frame shows the
+/// The strip pan resampled at the frame's time (feature `stripPanResampling`): a frame shows the
 /// gesture's offset between the two newest real samples or past the newest within Chromium's cap
 /// (`ui/base/prediction/linear_resampling.cc`: 5 ms behind the frame, at most min(8 ms, dt / 2) ahead), and the
 /// snap and the fling read the real samples only.

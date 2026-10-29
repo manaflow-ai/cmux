@@ -37,6 +37,8 @@ pub mod places;
 pub mod recipes;
 pub mod run;
 
+use crate::no_panic::JsonExt;
+use crate::no_panic::StrExt;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -233,22 +235,26 @@ impl From<CompleteError> for RpcError {
     fn from(e: CompleteError) -> Self {
         let mut data = json!({"reason": e.reason()});
         match &e {
-            CompleteError::UnknownHarness(h) => data["harness"] = json!(h),
+            CompleteError::UnknownHarness(h) => {
+                data.set("harness", json!(h));
+            }
             CompleteError::Unsupported { harness, .. }
             | CompleteError::NotInstalled { harness, .. }
             | CompleteError::SignedOut { harness }
             | CompleteError::EmptyOutput { harness }
-            | CompleteError::Failed { harness, .. } => data["harness"] = json!(harness),
+            | CompleteError::Failed { harness, .. } => {
+                data.set("harness", json!(harness));
+            }
             CompleteError::Timeout { harness, ms } => {
-                data["harness"] = json!(harness);
-                data["timeoutMs"] = json!(ms);
+                data.set("harness", json!(harness));
+                data.set("timeoutMs", json!(ms));
             }
             CompleteError::InvalidParams(_)
             | CompleteError::PromptTooLarge { .. }
             | CompleteError::LocalOnly => {}
         }
         if let CompleteError::PromptTooLarge { .. } = &e {
-            data["maxBytes"] = json!(MAX_PROMPT_BYTES);
+            data.set("maxBytes", json!(MAX_PROMPT_BYTES));
         }
         RpcError::new(e.code(), e.message()).with_data(data)
     }
@@ -288,14 +294,7 @@ pub fn finish(
 
 /// `s` cut to at most `max` bytes on a character boundary.
 pub fn cut(s: &str, max: usize) -> &str {
-    if s.len() <= max {
-        return s;
-    }
-    let mut end = max;
-    while end > 0 && !s.is_char_boundary(end) {
-        end -= 1;
-    }
-    &s[..end]
+    s.head(max)
 }
 
 #[cfg(test)]

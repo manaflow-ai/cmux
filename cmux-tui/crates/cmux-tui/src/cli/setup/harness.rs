@@ -206,7 +206,7 @@ async fn ask(cfg: &Config, mut row: HarnessHealth) -> HarnessHealth {
 /// The daemon's last check (`<acpmux home>/harness-health.json`), for the
 /// newest versions it read; empty when it never ran.
 fn saved() -> Vec<HarnessHealth> {
-    std::fs::read(acpmux::config::home().join("harness-health.json"))
+    cmux_blocking::fs::read(acpmux::config::home().join("harness-health.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()

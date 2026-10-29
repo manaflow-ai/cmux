@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use notify::Watcher as _;
 
 use super::ChatService;
+use crate::supervised::{Fatal, ShutdownBehavior, Supervisor};
 
 /// A burst ends after this much quiet...
 const QUIET: Duration = Duration::from_millis(300);
@@ -31,6 +32,7 @@ type Events = Receiver<notify::Result<notify::Event>>;
 pub(super) fn start(
     roots: &[PathBuf],
     service: Weak<ChatService>,
+    supervisor: &Supervisor,
 ) -> (Option<RootWatcher>, Vec<String>) {
     if roots.is_empty() {
         return (None, Vec::new());
@@ -48,9 +50,17 @@ pub(super) fn start(
             errors.push(format!("{}: {e}", root.display()));
         }
     }
-    if let Err(e) =
-        std::thread::Builder::new().name(THREAD.into()).spawn(move || run(&rx, &service))
-    {
+    // The thread updates the shared chat index: a panic in it is fatal. It ends when the
+    // watcher drops (its channel closes), so shutdown does not wait for it.
+    let thread = crate::supervised::thread(
+        supervisor,
+        THREAD,
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move |_stop| run(&rx, &service),
+    );
+    if let Err(e) = thread {
         errors.push(format!("the chat watcher thread cannot start: {e}"));
         return (None, errors);
     }

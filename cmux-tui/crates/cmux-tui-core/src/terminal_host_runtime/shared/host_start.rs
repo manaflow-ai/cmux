@@ -5,13 +5,13 @@
 //! waker and the PTY readiness wait.
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
 
 use cmux_kitty_media::KittyMediaRewriter;
 use cmux_pty::MasterPty;
@@ -131,6 +131,7 @@ pub(crate) fn start_host_runtime(
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
         last_input_flow: Default::default(),
+        input_stages: Default::default(),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(false),
         launch_owner_stream_ready: AtomicBool::new(false),
@@ -224,52 +225,63 @@ pub(crate) fn start_host_runtime(
         },
     )?;
     let child_host = shared.clone();
-    thread::Builder::new().name("terminal-host-child".into()).spawn(move || {
-        let observed_without_reaping = child.wait_exit_observed();
-        if observed_without_reaping {
-            child_host.mark_child_waitable();
-            let mut drain = exited_drain::ExitedDrain::start();
-            loop {
-                let signal = child_host.child_signal_lock.lock().recover_poison();
-                let escalation_complete =
-                    child_host.group_escalation_complete.load(Ordering::Acquire);
-                #[cfg(unix)]
-                let escalation_failed = child_host.group_escalation_failed.load(Ordering::Acquire);
-                #[cfg(not(unix))]
-                let escalation_failed = false;
-                let termination_started = child_host.termination_started.load(Ordering::Acquire);
-                let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
-                if escalation_complete || escalation_failed || (!termination_started && pty_drained)
-                {
-                    let mut exit = child.wait_and_disarm();
+    supervised::spawn_at(
+        "terminal-host-child",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let observed_without_reaping = child.wait_exit_observed();
+            if observed_without_reaping {
+                child_host.mark_child_waitable();
+                let mut drain = exited_drain::ExitedDrain::start();
+                loop {
+                    let signal = child_host.child_signal_lock.lock().recover_poison();
+                    let escalation_complete =
+                        child_host.group_escalation_complete.load(Ordering::Acquire);
                     #[cfg(unix)]
-                    if escalation_failed {
-                        exit =
-                            TerminalExit::unknown(session_cleanup::SESSION_CLEANUP_FAILED_REASON);
+                    let escalation_failed =
+                        child_host.group_escalation_failed.load(Ordering::Acquire);
+                    #[cfg(not(unix))]
+                    let escalation_failed = false;
+                    let termination_started =
+                        child_host.termination_started.load(Ordering::Acquire);
+                    let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
+                    if escalation_complete
+                        || escalation_failed
+                        || (!termination_started && pty_drained)
+                    {
+                        let mut exit = child.wait_and_disarm();
+                        #[cfg(unix)]
+                        if escalation_failed {
+                            exit = TerminalExit::unknown(
+                                session_cleanup::SESSION_CLEANUP_FAILED_REASON,
+                            );
+                        }
+                        child_host.child_reaped.store(true, Ordering::Release);
+                        drop(signal);
+                        *child_host.child_exit.0.lock().recover_poison() = Some(exit);
+                        break;
                     }
-                    child_host.child_reaped.store(true, Ordering::Release);
                     drop(signal);
-                    *child_host.child_exit.0.lock().recover_poison() = Some(exit);
-                    break;
+                    let state = child_host.child_exit.0.lock().recover_poison();
+                    drain.wait(&child_host, state);
                 }
-                drop(signal);
-                let state = child_host.child_exit.0.lock().recover_poison();
-                drain.wait(&child_host, state);
+                child_host.child_exit.1.notify_all();
+                child_host.publish_exit_if_drained();
+            } else {
+                // Native Unix PTYs always expose a PID and support waitid;
+                // retain a conservative fallback for alternate backends.
+                let exit = child.wait_and_disarm();
+                child_host.child_reaped.store(true, Ordering::Release);
+                child_host.mark_child_waitable();
+                let mut exited = child_host.child_exit.0.lock().recover_poison();
+                *exited = Some(exit);
+                child_host.child_exit.1.notify_all();
+                child_host.publish_exit_if_drained();
             }
-            child_host.child_exit.1.notify_all();
-            child_host.publish_exit_if_drained();
-        } else {
-            // Native Unix PTYs always expose a PID and support waitid;
-            // retain a conservative fallback for alternate backends.
-            let exit = child.wait_and_disarm();
-            child_host.child_reaped.store(true, Ordering::Release);
-            child_host.mark_child_waitable();
-            let mut exited = child_host.child_exit.0.lock().recover_poison();
-            *exited = Some(exit);
-            child_host.child_exit.1.notify_all();
-            child_host.publish_exit_if_drained();
-        }
-    })?;
+        },
+    )?;
     Ok(shared)
 }
 
@@ -321,6 +333,9 @@ pub(crate) fn read_pty_once(
         Ok(count) => {
             // The key press this read echoes goes with its output to the clients.
             let flow = host.last_input_flow.take();
+            if flow != 0 {
+                host.input_stages.echoed(flow, crate::input_stages::now_ns());
+            }
             cmux_flow_trace::hop_id("host.pty.read", flow, host.terminal_id.as_bytes());
             let read = buffer.get(..count).unwrap_or(&*buffer);
             let published = publish_pty_output_flow(
@@ -366,11 +381,15 @@ fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>, flow: u64) -> bool {
     host.parser_budget.reserve(count);
     // The smart stream's frame carries the flow; the writer of a client that
     // did not negotiate it strips it (`client_wire_frame`).
+    // A flow's frame also carries the host's write and read of the press; the
+    // writer of a client that negotiated only the flow turns it into the flow trailer.
     let frame = if flow == 0 {
         Frame::new(MessageKind::Output, bytes.clone())
     } else {
-        let mut frame = Frame::new(MessageKind::Output, flow_trailer_payload(&bytes, flow));
-        frame.flags = FLAG_INPUT_FLOW;
+        let stages = host.input_stages.stages(flow).unwrap_or_default();
+        let payload = stages_trailer_payload(&bytes, flow, stages.written_ns, stages.read_ns);
+        let mut frame = Frame::new(MessageKind::Output, payload);
+        frame.flags = FLAG_INPUT_FLOW | FLAG_INPUT_STAGES;
         frame
     };
     // Publication deliberately precedes parser enqueue. The bounded queue

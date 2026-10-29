@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compiles the shim's find id table (CEFShim/src/find_ids.h, no CEF needed) and
-# runs its cases (p01-process-048): FIND_RESULT carries the caller's find id.
+# runs its cases: FIND_RESULT carries the caller's find id.
 # Small: one clang++ call.
 #
 # Not a scripts/cmux-next/test-*-cpp.sh, so cmux-next-shim-cpp.yml does not run

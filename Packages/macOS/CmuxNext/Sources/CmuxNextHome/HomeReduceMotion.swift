@@ -7,10 +7,10 @@ import MessagesLabSidebar
 /// The vendored Home transcript and conversation list cannot see `Motion` (they are
 /// MessagesLab's code), so their Reduce Motion reads a value their host pushes. This pushes
 /// `Motion.reduceMotion` (the system setting, calm mode and the tests' pin, cx-sya4n) and their
-/// loop gate (`hostStillsLoops` = `!animatesLoops`: Energy Saver, the speed or the category off,
-/// p14-energy-027) and, on a change, re-applies them to the live views, so a change stills or
+/// loop gate (`hostStillsLoops` = `!animatesLoops`: Energy Saver, the speed or the category off)
+/// and, on a change, re-applies them to the live views, so a change stills or
 /// restarts their loops as it does every cmux loop. Its one ``AppearanceSignals`` subscription is the only
-/// listener: the views observe nothing themselves (p06-scheduler-043). Installed by the views that
+/// listener: the views observe nothing themselves. Installed by the views that
 /// host them, before their first frame.
 @MainActor
 final class HomeReduceMotion {
@@ -24,7 +24,7 @@ final class HomeReduceMotion {
         // The list's pin drag reads the gate when a movement starts (speed off, Reduce Motion, settings).
         CmuxSidebarView.movementGate = { Motion.sidebar.animatesMovement }
         // The message box's dictation waveform follows the person's voice: it moves unless Reduce
-        // Motion or Home's motion is off, Energy Saver or not (person-started motion, p14-energy-027).
+        // Motion or Home's motion is off, Energy Saver or not (person-started motion).
         MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesBlinks }
         // `.motion` too: Energy Saver, the speed and the motion switches still or restart the loops.
         observer = DesignSettings.shared.signals.subscribe([.reduceMotion, .motion], owner: "HomeReduceMotion") { [weak self] in

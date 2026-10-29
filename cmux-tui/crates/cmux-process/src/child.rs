@@ -126,12 +126,21 @@ impl Child {
     /// child that fills one pipe cannot block on it), then wait.
     pub fn wait_with_output(mut self) -> io::Result<Output> {
         drop(self.stdin.take());
-        let stderr = self.stderr.take().map(|mut stderr| {
-            std::thread::spawn(move || {
-                let mut bytes = Vec::new();
-                stderr.read_to_end(&mut bytes).map(|_| bytes)
+        let stderr = self
+            .stderr
+            .take()
+            .map(|mut stderr| {
+                // supervise-allow: joined below in this function; a panic is returned as an error.
+                cmux_threads::spawn(
+                    "cmux-process-stderr",
+                    cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+                    move || {
+                        let mut bytes = Vec::new();
+                        stderr.read_to_end(&mut bytes).map(|_| bytes)
+                    },
+                )
             })
-        });
+            .transpose()?;
         let mut stdout = Vec::new();
         if let Some(mut pipe) = self.stdout.take() {
             pipe.read_to_end(&mut stdout)?;
@@ -276,7 +285,8 @@ pub(crate) fn exit_event_within(pid: libc::pid_t, limit: Duration) -> io::Result
 #[cfg(target_os = "linux")]
 fn spawn_exit_waiter(pid: u32) -> io::Result<std::os::fd::OwnedFd> {
     let (reader, writer) = io::pipe()?;
-    std::thread::Builder::new().name("cmux-process-exit".into()).spawn(move || {
+    // supervise-allow: one child's exit signal, ending with the child; a panic drops `writer`, which reads as the exit event, and the caller's own wait reports the real status.
+    cmux_threads::spawn("cmux-process-exit", cmux_threads::ThreadQos::Utility, move || {
         loop {
             // SAFETY: zeroed siginfo_t is valid output storage.
             let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };

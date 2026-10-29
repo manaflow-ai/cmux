@@ -4,7 +4,7 @@ import AppKit
 import CmuxNextInput
 import Testing
 
-/// Swipes over a hosted page (task p01-process-234): the page view hands each scroll to the swipe first, and
+/// Swipes over a hosted page: the page view hands each scroll to the swipe first, and
 /// on a host that acks wheels the gesture decides from the WHEEL_ACKs of its own wheels, with no page probe
 /// (no control request); acks of earlier wheels or of another page are not its own. A host without acks is
 /// probed as in process.

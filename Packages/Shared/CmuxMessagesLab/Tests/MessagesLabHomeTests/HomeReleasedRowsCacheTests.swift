@@ -3,7 +3,7 @@ import CmuxHomeCore
 import Testing
 @testable import MessagesLabHome
 
-/// A hidden conversation that gives back its rows (`MessagesWindowView.releaseRows`, p07-memory-030) also gives back
+/// A hidden conversation that gives back its rows (`MessagesWindowView.releaseRows`) also gives back
 /// the pixels they drew in the process-wide caches: their row bitmaps (`RowBitmaps`), long-text tiles (`TileCache`)
 /// and decoded media (`MediaCache`). What another live transcript still lays out keeps its pixels.
 @MainActor @Suite(.serialized) struct HomeReleasedRowsCacheTests {

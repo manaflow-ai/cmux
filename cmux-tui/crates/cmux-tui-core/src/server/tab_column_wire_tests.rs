@@ -1,10 +1,13 @@
-//! The lines the macOS app sends for its Layout and TabMove requests reach the daemon as sent
-//! (p05-ipc-038). spec/fixtures/layout-tab-move-requests/lines.json records them before their
+//! The lines the macOS app sends for its Layout and TabMove requests reach the daemon as sent.
+//! Spec/fixtures/layout-tab-move-requests/lines.json records them before their
 //! migration to the generated `<Name>Request` types; LayoutTabMoveRequestWireGoldenTests
 //! (CmuxNextDaemonTests) proves the app encodes exactly these lines. Here every line goes through
 //! the server's own `Request` parse, and the fullest lines read back field by field. Chromium keeps
 //! the same idea in mojo/public/tools/bindings golden tests: one recorded message checked on both
 //! ends.
+use super::super::tabs_wire::{
+    MoveTabParams, MoveTabToNewWorkspaceParams, MoveTabToSplitParams, MoveTabToWorkspaceParams,
+};
 use super::super::*;
 use super::MoveTabToColumnParams;
 use crate::model::{ColumnDock, DockEdge, DockMode, DockRole};
@@ -108,20 +111,25 @@ fn layout_lines_fill_their_params() {
 
 #[test]
 fn tab_move_lines_fill_their_params() {
-    let Command::MoveTab { surface, pane, index, transaction } =
+    let Command::MoveTab(MoveTabParams { surface, pane, index, transaction }) =
         parse("move-tab in a drag transaction")
     else {
         panic!("not move-tab")
     };
     assert_eq!((surface, pane, index, transaction.as_deref()), (7, 4, 0, Some("drag-1")));
-    let Command::MoveTabToWorkspace { surface, workspace, transaction } =
+    let Command::MoveTabToWorkspace(MoveTabToWorkspaceParams { surface, workspace, transaction }) =
         parse("move-tab-to-workspace with every field")
     else {
         panic!("not move-tab-to-workspace")
     };
     assert_eq!((surface, workspace, transaction.as_deref()), (7, Some(3), Some("drag-1")));
-    let Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } =
-        parse("move-tab-to-new-workspace with every field")
+    let Command::MoveTabToNewWorkspace(MoveTabToNewWorkspaceParams {
+        surface,
+        group,
+        index,
+        name,
+        transaction,
+    }) = parse("move-tab-to-new-workspace with every field")
     else {
         panic!("not move-tab-to-new-workspace")
     };
@@ -129,8 +137,14 @@ fn tab_move_lines_fill_their_params() {
         (surface, group.as_deref(), index, name.as_deref(), transaction.as_deref()),
         (7, Some("grp_1"), Some(0), Some("Logs"), Some("drag-1"))
     );
-    let Command::MoveTabToSplit { edge, ratio, respawn, keep_focus, transaction, .. } =
-        parse("move-tab-to-split keeping focus with every field")
+    let Command::MoveTabToSplit(MoveTabToSplitParams {
+        edge,
+        ratio,
+        respawn,
+        keep_focus,
+        transaction,
+        ..
+    }) = parse("move-tab-to-split keeping focus with every field")
     else {
         panic!("not move-tab-to-split")
     };
@@ -139,7 +153,8 @@ fn tab_move_lines_fill_their_params() {
         ("top", Some(0.5), true, Some("drag-1"))
     );
     assert!(respawn.is_none());
-    let Command::MoveTabToSplit { keep_focus, .. } = parse("move-tab-to-split with every field")
+    let Command::MoveTabToSplit(MoveTabToSplitParams { keep_focus, .. }) =
+        parse("move-tab-to-split with every field")
     else {
         panic!("not move-tab-to-split")
     };
@@ -195,7 +210,7 @@ fn every_respawn_line_becomes_its_fresh_tab() {
     let mut seen = 0;
     for (name, line) in entries() {
         let respawn = match parse_line(&name, &line) {
-            Command::MoveTabToSplit { respawn: Some(respawn), .. } => respawn,
+            Command::MoveTabToSplit(MoveTabToSplitParams { respawn: Some(respawn), .. }) => respawn,
             Command::MoveTabToColumn(MoveTabToColumnParams { respawn: Some(respawn), .. }) => {
                 respawn
             }

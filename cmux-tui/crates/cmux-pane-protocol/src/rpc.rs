@@ -45,6 +45,7 @@ pub fn bounded_events(
     capacity: usize,
 ) -> mpsc::Receiver<EventItem> {
     let (tx, rx) = mpsc::channel(capacity.max(1));
+    // supervise-allow: one subscription's pump; its end, a panic included, drops `tx`, which ends that subscription only.
     tokio::spawn(async move {
         let mut dropped = false;
         while let Some(data) = source.recv().await {

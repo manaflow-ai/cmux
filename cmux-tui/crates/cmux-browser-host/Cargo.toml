@@ -19,12 +19,16 @@ revision = 1
 workspace = true
 
 [dependencies]
+# Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
+cmux-threads.workspace = true
 serde.workspace = true
 # raw_value only (a9): script values keep the page's key order. Never
 # preserve_order, which would change every map in the crate.
 serde_json = { workspace = true, features = ["raw_value"] }
 url = "2.5"
 hmac.workspace = true
+# The Chromium Host relay credential (provider.rs, HMAC-SHA256).
+sha2.workspace = true
 # Undoable cookie clears: encrypted backups (src/cookie_backups.rs).
 chacha20poly1305 = "0.10"
 getrandom.workspace = true
@@ -32,6 +36,13 @@ sha1 = "0.10"
 rquickjs = "0.14"
 
 [target.'cfg(unix)'.dependencies]
+# `serve --panic-log` (src/bin/cmux-browser-host.rs).
+cmux-panic-log.workspace = true
 libc.workspace = true
 # The host's black box (src/bin/cmux-browser-host.rs); std and libc only.
 cmux-trace.workspace = true
+
+# The relay link's peer check (src/provider_link/relay_peer.rs): audit token
+# and code signature, as the link sockets check them.
+[target.'cfg(target_os = "macos")'.dependencies]
+cmux-link.workspace = true

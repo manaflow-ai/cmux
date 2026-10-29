@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl Mux {
     pub(crate) fn claim_render_attachment(&self) -> Option<RenderAttachmentPermit> {
@@ -231,10 +232,15 @@ impl Mux {
             return;
         }
         let mux = Arc::downgrade(self);
-        if let Err(error) = std::thread::Builder::new()
-            .name("kitty-image-budget".into())
-            .spawn(move || Self::run_kitty_image_budget_worker(mux))
-        {
+        if let Err(error) = supervised::spawn_at(
+            "kitty-image-budget",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                Self::run_kitty_image_budget_worker(mux);
+            },
+        ) {
             self.kitty_image_budget.lock().recover_poison().worker_running = false;
             self.kitty_image_budget_changed.notify_all();
             self.emit(MuxEvent::GraphicsStatus(

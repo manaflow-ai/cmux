@@ -16,6 +16,7 @@
 
 use super::transfer_out::{bundle_files, transfers_dir};
 use super::*;
+use crate::no_panic::JsonExt;
 
 /// How long a move may go without its client before the source ends it.
 pub(super) const TRANSFER_LEASE: std::time::Duration = std::time::Duration::from_secs(300);
@@ -97,7 +98,7 @@ async fn ask_target(socket: &Path, session_id: &str, transfer_id: &str) -> Optio
         client.request(crate::rpc::method::INITIALIZE, hello).await.ok()?;
         let forget = json!({"transferId": transfer_id, "sessionId": session_id});
         let answer = client.request("_acpmux/transfer_forget", forget).await.ok()?;
-        answer["landed"].as_bool()
+        answer.field("landed").as_bool()
     };
     tokio::time::timeout(ASK_TIMEOUT, ask).await.ok().flatten()
 }
@@ -116,7 +117,9 @@ impl Hub {
             return;
         }
         let (hub, session, transfer_id) = (self.clone(), session.clone(), transfer_id.to_owned());
-        tokio::spawn(async move { hub.transfer_watch(&session, &transfer_id).await });
+        self.supervise("hub.transfer-watch", Fatal, ShutdownBehavior::Skip, async move {
+            hub.transfer_watch(&session, &transfer_id).await
+        });
     }
 
     /// Every move a chat here is in, once the daemon starts.

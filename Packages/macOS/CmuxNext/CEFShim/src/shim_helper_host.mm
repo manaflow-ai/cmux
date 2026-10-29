@@ -3,9 +3,12 @@
 // its key state, input on the user-input queue, wheel phases, the text input
 // watch, the remote accessibility token and page drags. Fork API 31 (task
 // 227): the app's own choosers, screen-share picker and locks, a detached
-// page's display and page state per entry. Each returns 0 (or does nothing)
+// page's display and page state per entry; a detached page's IME and
+// composition bounds. Each returns 0 (or does nothing)
 // when the fork lacks the call. UI thread only unless noted.
 
+#include <cstddef>
+#include <string>
 #include <vector>
 
 #include "include/cef_drag_data.h"
@@ -103,6 +106,78 @@ CefMouseEvent DragEvent(int x, int y, int modifiers) {
   event.y = y;
   event.modifiers = static_cast<uint32_t>(modifiers);
   return event;
+}
+
+// The fork reads these spans as its cmux_ime_span_t {int start, end, thick;
+// uint32_t underline_color, background_color} (include/cef_cmux.h).
+static_assert(sizeof(ForkImeSpan) == 20 && offsetof(ForkImeSpan, thick) == 8 &&
+                  offsetof(ForkImeSpan, underline_color) == 12 && offsetof(ForkImeSpan, background_color) == 16,
+              "ForkImeSpan must keep the fork's cmux_ime_span_t layout");
+
+// Fork API 31: IME of a detached page, used from the
+// release that declares API 31 (task 178), as cef_cmux.h's history says.
+bool HasDetachedIme() {
+  return fork_api().version >= kDetachedImeForkApi;
+}
+
+// The kIme frame's UTF-16LE text as the fork's NUL-terminated UTF-8. A lone
+// surrogate becomes U+FFFD, one UTF-16 unit as before, so the composition's
+// offsets still count the same units. False for an odd byte count.
+bool Utf8FromUtf16LE(const uint8_t* bytes, int length, std::string* out) {
+  out->clear();
+  if (length < 0 || length % 2 != 0 || (length > 0 && !bytes)) return false;
+  const int count = length / 2;
+  auto unit = [bytes](int i) {
+    return static_cast<uint32_t>(bytes[2 * i]) | (static_cast<uint32_t>(bytes[2 * i + 1]) << 8);
+  };
+  out->reserve(static_cast<size_t>(length) * 3 / 2);
+  for (int i = 0; i < count; ++i) {
+    uint32_t c = unit(i);
+    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < count && unit(i + 1) >= 0xDC00 && unit(i + 1) <= 0xDFFF) {
+      c = 0x10000 + ((c - 0xD800) << 10) + (unit(i + 1) - 0xDC00);
+      ++i;
+    } else if (c >= 0xD800 && c <= 0xDFFF) {
+      c = 0xFFFD;
+    }
+    if (c < 0x80) {
+      out->push_back(static_cast<char>(c));
+    } else if (c < 0x800) {
+      out->push_back(static_cast<char>(0xC0 | (c >> 6)));
+      out->push_back(static_cast<char>(0x80 | (c & 0x3F)));
+    } else if (c < 0x10000) {
+      out->push_back(static_cast<char>(0xE0 | (c >> 12)));
+      out->push_back(static_cast<char>(0x80 | ((c >> 6) & 0x3F)));
+      out->push_back(static_cast<char>(0x80 | (c & 0x3F)));
+    } else {
+      out->push_back(static_cast<char>(0xF0 | (c >> 18)));
+      out->push_back(static_cast<char>(0x80 | ((c >> 12) & 0x3F)));
+      out->push_back(static_cast<char>(0x80 | ((c >> 6) & 0x3F)));
+      out->push_back(static_cast<char>(0x80 | (c & 0x3F)));
+    }
+  }
+  return true;
+}
+
+// The kIme frame's clauses (per clause i32 start, i32 end, u32 color, u32
+// thick, little endian) as the fork's spans. False for a partial clause.
+bool SpansFromClauses(const uint8_t* bytes, int length, std::vector<ForkImeSpan>* out) {
+  constexpr int kClauseBytes = 16;
+  out->clear();
+  if (length < 0 || length % kClauseBytes != 0 || (length > 0 && !bytes)) return false;
+  auto word = [](const uint8_t* p) {
+    return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) | (static_cast<uint32_t>(p[2]) << 16) |
+           (static_cast<uint32_t>(p[3]) << 24);
+  };
+  for (int at = 0; at < length; at += kClauseBytes) {
+    const uint8_t* clause = bytes + at;
+    ForkImeSpan span{};
+    span.start = static_cast<int>(word(clause));
+    span.end = static_cast<int>(word(clause + 4));
+    span.underline_color = word(clause + 8);
+    span.thick = word(clause + 12) != 0 ? 1 : 0;
+    out->push_back(span);
+  }
+  return true;
 }
 
 }  // namespace
@@ -302,6 +377,50 @@ int cmux_shim_tab_restore_entries(int browser_id, const cmux_shim_restore_entry*
   const RestoreEntries copies(entries, count);
   if (copies.count() == 0) return -3;  // as the fork answers no entries
   return fork_api().tab_restore_entries(browser_id, copies.data(), copies.count(), current);
+}
+
+// A detached page's IME: the four calls Chrome's
+// RenderWidgetHostViewCocoa makes on its RenderWidgetHostNSViewHost, for the
+// page view's NSTextInputClient in the app; the fork sends them to the widget
+// that has the text input (an out-of-process iframe too). The Chromium Host
+// runs them in input order (task p04-input-064's kIme ops).
+
+void cmux_shim_browser_ime_set_composition(int browser_id, const uint8_t* text, int text_length,
+                                           const uint8_t* clauses, int clauses_length, int selection_start,
+                                           int selection_end, int replace_start, int replace_end) {
+  if (!HasDetachedIme() || !fork_api().browser_ime_set_composition) return;
+  std::string utf8;
+  std::vector<ForkImeSpan> spans;
+  if (!Utf8FromUtf16LE(text, text_length, &utf8) || !SpansFromClauses(clauses, clauses_length, &spans)) return;
+  // No spans is one thin underline over the whole text; empty text cancels the composition.
+  fork_api().browser_ime_set_composition(browser_id, utf8.c_str(), spans.empty() ? nullptr : spans.data(),
+                                         static_cast<int>(spans.size()), replace_start, replace_end,
+                                         selection_start, selection_end);
+}
+
+void cmux_shim_browser_ime_commit_text(int browser_id, const uint8_t* text, int text_length, int replace_start,
+                                       int replace_end) {
+  if (!HasDetachedIme() || !fork_api().browser_ime_commit_text) return;
+  std::string utf8;
+  if (!Utf8FromUtf16LE(text, text_length, &utf8)) return;
+  fork_api().browser_ime_commit_text(browser_id, utf8.c_str(), replace_start, replace_end);
+}
+
+void cmux_shim_browser_ime_finish_composing(int browser_id) {
+  if (!HasDetachedIme() || !fork_api().browser_ime_finish_composing) return;
+  fork_api().browser_ime_finish_composing(browser_id);
+}
+
+void cmux_shim_browser_ime_cancel_composition(int browser_id) {
+  if (!HasDetachedIme() || !fork_api().browser_ime_cancel) return;
+  fork_api().browser_ime_cancel(browser_id);
+}
+
+int cmux_shim_browser_composition_bounds_watch(int browser_id,
+                                               void (*fn)(void* context, int browser_id, const void* bounds),
+                                               void* context) {
+  if (!HasDetachedIme() || !fork_api().browser_composition_bounds_watch) return 0;
+  return fork_api().browser_composition_bounds_watch(browser_id, fn, context);
 }
 
 }  // extern "C"

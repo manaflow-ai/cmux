@@ -120,7 +120,8 @@ impl Surface {
         Ok(pty.stream_progress.revision())
     }
 
-    /// Capture the viewport, generic terminal metadata, and stream revision
+    /// Capture the live screen (whatever the viewport scroll), generic
+    /// terminal metadata, and stream revision
     /// while the parser lock is held. This is the only screen-read path that
     /// can safely use the revision as a scheduling watermark.
     pub(crate) fn terminal_screen_snapshot(&self) -> anyhow::Result<TerminalScreenSnapshot> {
@@ -128,7 +129,7 @@ impl Surface {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let mut term = pty.term.lock().recover_poison();
-        let text = term.viewport_text()?;
+        let text = term.active_text()?;
         let (cursor_col, cursor_row) = term.cursor_position().unwrap_or((0, 0));
         let cursor_visible = term.mode(25, false);
         // Match the parser's lock order, term -> metadata -> stream progress.

@@ -64,7 +64,7 @@ public final class ControlService {
     }
 
     /// Resolves path and access mode and builds the router, which takes method registrations, but
-    /// accepts no connection until ``serve(adopting:)`` (p08-startup-019): a request never reaches a
+    /// accepts no connection until ``serve(adopting:)``: a request never reaches a
     /// router whose methods are not all registered. Throws `disabled` when the mode is `off`.
     public static func prepare(
         registry: ActionRegistry,

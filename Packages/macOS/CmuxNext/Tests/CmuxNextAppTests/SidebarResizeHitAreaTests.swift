@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// The sidebar's resize edge is easy to grab (Lawrence 2026-10-19, u2255: "right now there isn't
@@ -16,7 +17,7 @@ import Testing
         _ = NSApplication.shared
         let model = SidebarModel()
         if sidebarHidden { model.presentation = .hidden }
-        let root = WindowRootView(sidebar: SidebarContainerView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget())), revealDeadlines: .testing())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)

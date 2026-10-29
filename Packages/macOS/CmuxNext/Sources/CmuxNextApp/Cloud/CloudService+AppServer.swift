@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextCloud
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDaemon
 import CmuxNextSidebar
 import CmuxNextWakeups

@@ -69,6 +69,14 @@ public final class UpdaterService {
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
     @ObservationIgnored let tipCheck: TipUpdateCheck
+    /// Where the signed feature document goes (``fetchFlagsDocument()``); nil fetches nothing.
+    @ObservationIgnored let flagsReceiver: (any FlagsDocumentReceiving)?
+    /// The flags document's transport; nil uses ``URLSessionConditionalFetcher``.
+    @ObservationIgnored let flagsFetcher: (any ConditionalFetching)?
+    /// The launch's one flags fetch, once ``start()`` began it.
+    @ObservationIgnored var flagsFetchTask: Task<FlagsDocumentFetch.Outcome, Never>?
+    /// `DisableRemoteFeatureFlags` from the managed policy (set by the App before ``start()``).
+    @ObservationIgnored public var remoteFeatureFlagsPolicy = FlagsFetchPolicy.enabled
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -203,6 +211,9 @@ public final class UpdaterService {
     /// - Parameter deadlines: the app's deadline scheduler (`AppServices.mainDeadlines`); a test passes a rig's.
     /// - Parameter checkNode: the app's visibility node: the feed checks align to its hidden wakes
     ///   (whole seconds, a minute after 5 hidden minutes); nil keeps them flexible.
+    /// - Parameter flagsReceiver: where ``start()``'s signed feature document fetch hands a verified
+    ///   document (the features' remote store); nil fetches nothing.
+    /// - Parameter flagsFetcher: that fetch's transport (a test's fake); nil uses ``URLSessionConditionalFetcher``.
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
@@ -213,8 +224,12 @@ public final class UpdaterService {
                 now: @escaping () -> Date = Date.init,
                 work: BackgroundWork,
                 deadlines: MainDeadlineScheduler,
-                checkNode: VisibilityNode? = nil) {
+                checkNode: VisibilityNode? = nil,
+                flagsReceiver: (any FlagsDocumentReceiving)? = nil,
+                flagsFetcher: (any ConditionalFetching)? = nil) {
         self.now = now
+        self.flagsReceiver = flagsReceiver
+        self.flagsFetcher = flagsFetcher
         self.work = work
         self.deadlines = deadlines
         cardTimer = MainDeadline(owner: "UpdaterService.card", workClass: .visible, scheduler: deadlines)
@@ -288,6 +303,8 @@ public final class UpdaterService {
         started = true
         observeFlowPhase()
         refreshAnnouncements()
+        // Before the Sparkle guard: kill switches arrive with Sparkle or automatic checks off.
+        fetchFlagsDocument()
         refreshTip()
         refreshUpdateSnooze()
         tipCheck.refresh(self)

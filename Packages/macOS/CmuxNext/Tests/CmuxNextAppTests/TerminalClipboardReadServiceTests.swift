@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The clipboard-read service follows the local store with one `.sameTurn` FrameObservation (p04-input-026): the
+/// The clipboard-read service follows the local store with one `.sameTurn` FrameObservation: the
 /// changes of one turn reach the broker once, on the next main run loop pass, with no display frame and no `Task`
 /// per change; a side event in the change's own turn flushes them to the broker first; after `stop()` nothing
 /// reaches it.
@@ -56,7 +56,7 @@ struct TerminalClipboardReadServiceTests {
         #expect(service.handOffs == 1)
     }
 
-    /// The prompt's scope reads the tab's node, not a walk up its views (p06-scheduler-320, recipe R-vis): a tab in an
+    /// The prompt's scope reads the tab's node, not a walk up its views (recipe R-vis): a tab in an
     /// occluded window (covered, or cmux behind another app) still gets the tab-scoped dialog, as the view walk gave it;
     /// a hidden tab (unselected, parked, miniaturized) gets the active window.
     @Test func aTabInAnOccludedWindowKeepsItsTabScopedPrompt() {

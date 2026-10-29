@@ -9,7 +9,10 @@
 // browser_main_loop.cc), it runs CefRunMessageLoop itself: no external pump.
 //
 // Launched by cmux with the control socket on fd 3:
-//   <host> --framework=<CEF framework dir>
+//   <host> --framework=<CEF framework dir> [--input-doorbell=<name>]
+// With --input-doorbell, fd 5 holds the input ring (chromium_host_input_ring.h): keys, clicks,
+// pointer moves and wheel ticks, dispatched on Chromium's user-input queue and acked there
+// (host_input.h).
 // Order on the wire: each side's HELLO (the host's after the fork
 // capabilities' MIRRORs); cmux's queued preinit ops, applied in order; INITIALIZE, which runs
 // cmux_shim_initialize (CefInitialize) with an event_fn that forwards each
@@ -28,14 +31,21 @@
 // INITIALIZE, the set the app runs in process with (CEFSwitches); the host
 // fits them to its own message loop and adds TimerSlackMac (host_switches.h).
 //
+// No window of the host is ever on screen: from
+// initialize on, every Chromium widget of a detached page is blocked by the
+// fork and dismissed here, a permission prompt held unanswered
+// (host_blocked_widgets.h), and a host window that
+// still shows (a window-modal sheet, an AppKit panel) is ordered out and
+// logged (ObserveHostWindows).
+//
 // App Nap: no window of the host is on screen, so macOS may nap it. The host
 // holds a user-initiated activity while cmux shows one of its pages, latency
 // critical too while cmux is the active app, and lets App Nap apply when cmux
-// is hidden or every page is (host_page_activity.h, tasks p14-energy-128 and
-// p01-process-222). Its main thread runs user-interactive.
+// is hidden or every page is (host_page_activity.h).
+// Its main thread runs user-interactive.
 //
 // Hangs: each turn of the main run loop is a hang watch scope
-// (host_hang_watcher.h, task p01-process-084). A turn of 250 ms or more goes
+// (host_hang_watcher.h). A turn of 250 ms or more goes
 // to cmux's hang reports, one still running at 10 s gets a dump without
 // crashing, and the input a turn dispatched is acked at its end, so cmux
 // shows "Chromium is busy" when the UI thread takes no input for 2 s.
@@ -71,9 +81,12 @@
 #include "chromium_host_input_ring.h"
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
+#include "host_blocked_widgets.h"
 #include "host_dispatch.h"
 #include "host_hang_watcher.h"
+#include "host_input.h"
 #include "host_page_activity.h"
+#include "host_provider_link.h"
 #include "host_switches.h"
 #include "host_user_input.h"
 #include "shim_internal.h"
@@ -171,7 +184,7 @@ void PostToMain(std::function<void()> task) {
   CFRunLoopWakeUp(main);
 }
 
-// The fork's input calls (host_user_input.h, task p04-input-065), looked up
+// The fork's input calls (host_user_input.h), looked up
 // once at start; nullptr when the fork does not have one.
 struct ForkInputCalls {
   cmux_host::PostTaskFn post_user_input_task = nullptr;  // API 30
@@ -193,6 +206,28 @@ ForkInputCalls ResolveForkInputCalls(const std::string& framework_binary) {
   calls.set_wheel_ack_handler =
       reinterpret_cast<cmux_host::SetWheelAckHandlerFn>(dlsym(image, "cmux_set_wheel_ack_handler"));
   return calls;
+}
+
+// The fork's blocked widget calls (fork API 31, host_blocked_widgets.h),
+// looked up as ResolveForkInputCalls does; nullptr below API 31.
+struct ForkBlockedWidgetCalls {
+  cmux_host::SetBlockedWidgetHandlerFn set_handler = nullptr;
+  cmux_host::BlockedWidgetCloseFn close = nullptr;
+};
+
+ForkBlockedWidgetCalls ResolveForkBlockedWidgetCalls(const std::string& framework_binary) {
+  ForkBlockedWidgetCalls calls;
+  void* image = dlopen(framework_binary.c_str(), RTLD_NOLOAD | RTLD_LAZY);
+  if (!image) return calls;
+  calls.set_handler =
+      reinterpret_cast<cmux_host::SetBlockedWidgetHandlerFn>(dlsym(image, "cmux_set_blocked_widget_handler"));
+  calls.close = reinterpret_cast<cmux_host::BlockedWidgetCloseFn>(dlsym(image, "cmux_blocked_widget_close"));
+  return calls;
+}
+
+// One line of the host's log (its stderr: cmux's app log).
+void HostLog(const std::string& line) {
+  fprintf(stderr, "cmux-chromium-host: %s\n", line.c_str());
 }
 
 // A task for CefPostTask(TID_UI): the default UI queue, for a fork without
@@ -258,7 +293,7 @@ void SetCrashDumpLocation(const std::string& root_cache) {
   setenv("BREAKPAD_DUMP_LOCATION", database.c_str(), 1);
 }
 
-// A kWheel frame to its page (task p04-input-063), with its scroll phase,
+// A kWheel frame to its page, with its scroll phase,
 // momentum phase and precise flag through the fork's wheel call, so
 // Chromium's MouseWheelPhaseHandler latches the gesture and hands the
 // momentum to the page as Chrome does with the NSEvent. Both paths get pixel
@@ -268,11 +303,11 @@ void SetCrashDumpLocation(const std::string& root_cache) {
 // is not sent there, as WebMouseWheelEventBuilder's note on zero-tick wheels
 // asks. UI thread.
 void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, const cmux_host::Header& frame) {
-  const int browser_id = host.Browser(cmux_host::BrowserOf(frame));
+  const int browser_id = host.Browser(cmux_host::input_ring::BrowserOf(frame));
   const cmux_host::Wheel wheel = cmux_host::WheelOf(frame);
   if (cmux_shim_browser_send_wheel(browser_id, wheel.x, wheel.y, wheel.dx, wheel.dy, wheel.precise ? 1 : 0,
                                    wheel.phase, wheel.momentum_phase, wheel.modifiers)) {
-    // The fork's ack of this wheel goes back as WHEEL_ACK with its seq (task p01-process-234).
+    // The fork's ack of this wheel goes back as WHEEL_ACK with its seq.
     host.WheelSent(browser_id, frame.seq, wheel.momentum_phase != cmux_host::kWheelPhaseNone);
     return;
   }
@@ -288,16 +323,20 @@ void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, 
 }
 
 // One input ring frame, in the ordered stream's order, with its NSEvent's
-// time as the event time Chromium sees (EventTimeOf, task p04-input-065).
+// time as the event time Chromium sees (EventTimeOf).
 // A page's geometry moves its page view only when it changed, in this order,
 // so a click after a resize hits the resized page (HostContext::PlaceFrame,
-// task 053); wheels go to Chromium here; task p01-process-042 adds the other
-// kinds with the ring's reader, and until it starts the reader no frame comes.
+// task 053); wheels go to Chromium here, keys, clicks, moves and Edit
+// commands through DispatchInputFrame (host_input.mm).
 void DispatchInput(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry,
                    cmux_host::SetEventTimeFn set_event_time, const cmux_host::Header& frame) {
   if (host.PlaceFrame(frame)) return;
   const cmux_host::ScopedEventTime event_time(set_event_time, cmux_host::EventTimeOf(frame, UptimeNowNs()));
-  if (frame.kind == cmux_host::kWheel) SendWheel(host, carry, frame);
+  if (frame.kind == cmux_host::kWheel) {
+    SendWheel(host, carry, frame);
+    return;
+  }
+  cmux_host::DispatchInputFrame(host.Browser(cmux_host::input_ring::BrowserOf(frame)), frame);
 }
 
 }  // namespace
@@ -435,6 +474,45 @@ class HostMain : public cmux_host::HostDelegate {
   int exit_status_ = 0;
 };
 
+// The backstop for a host window that shows although the fork blocks
+// Chromium's widgets: a window-modal sheet, which
+// AppKit's -beginSheet: shows outside headless mode, or an AppKit panel. A
+// window ordered in with alpha above 0 is taken off screen (a sheet ended
+// through its parent, as its own Escape would, so Chromium's completion
+// handler closes the widget) and logged as UNEXPECTED_WINDOW. The host's own
+// page windows are never ordered in, and Chromium's detached page windows
+// have alpha 0. Main thread.
+void TakeOffScreen(NSWindow* window) {
+  if (!window || !window.isVisible || window.alphaValue <= 0) return;
+  NSWindow* parent = window.sheetParent;
+  const char* title = window.title.UTF8String;
+  HostLog(cmux_host::UnexpectedWindowLine(object_getClassName(window), title ? title : "", parent != nil));
+  if (parent) {
+    [parent endSheet:window];
+  } else {
+    [window orderOut:nil];
+  }
+}
+
+// AppKit posts nothing when a window is ordered in: occlusion changes only
+// for a window nothing covers, and the host, never the active app, orders
+// its windows in behind cmux's, where they stay occluded and never become
+// key. So every time the main run loop is about to wait, in every mode
+// (Chromium's tasks, menu tracking, a modal session), the host checks its
+// windows: an ordered-in window is off screen again before the run loop
+// sleeps, at most one pass after it came. A sheet or panel that takes the
+// keyboard is also caught as it becomes key (ObserveActivation).
+void ObserveHostWindows() {
+  CFRunLoopObserverRef idle = CFRunLoopObserverCreateWithHandler(
+      kCFAllocatorDefault, kCFRunLoopBeforeWaiting, true, 0, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+        @autoreleasepool {
+          for (NSWindow* window in NSApp.windows) TakeOffScreen(window);
+        }
+      });
+  CFRunLoopAddObserver(CFRunLoopGetMain(), idle, kCFRunLoopCommonModes);
+  CFRelease(idle);
+}
+
 void ObserveActivation() {
   // The host shares cmux's bundle id and is never the app a person uses:
   // if anything activates it (a click or an accessibility focus on a page
@@ -454,6 +532,7 @@ void ObserveActivation() {
                     NSWindow* key = NSApp.keyWindow;
                     fprintf(stderr, "cmux-chromium-host: a window became key: %s\n",
                             key ? object_getClassName(key) : "none");
+                    TakeOffScreen(key);
                     ReturnActivationToParent();
                   }];
 }
@@ -573,11 +652,23 @@ int main(int argc, char* argv[]) {
   const std::string framework = Arg(args, "framework");
   const std::string binary = framework + "/Chromium Embedded Framework";
   SetCrashDumpLocation(Arg(args, "root-cache"));
+  // The input ring and its doorbell, checked in before the HELLO, when cmux passed them.
+  const std::string doorbell_name = Arg(args, "input-doorbell");
+  void* ring = nullptr;
+  cmux_host::input_ring::MachDoorbell doorbell;
+  if (!doorbell_name.empty()) {
+    ring = cmux_host::input_ring::MapRegion(cmux_host::input_ring::kRingFd);
+    if (ring == nullptr || !doorbell.CheckIn(doorbell_name.c_str())) {
+      fprintf(stderr, "cmux-chromium-host: the input ring or its doorbell %s cannot be used\n", doorbell_name.c_str());
+      return cmux_host::kExitNoWire;
+    }
+  }
 
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
     ObserveActivation();
+    ObserveHostWindows();
   }
   // Held from here, through Chromium's start, until the first shown page
   // count after initialize (HostContext::Resume); then while cmux is active
@@ -601,6 +692,7 @@ int main(int argc, char* argv[]) {
     return cmux_host::kExitForkAPI;
   }
   const ForkInputCalls fork_input = ResolveForkInputCalls(binary);
+  const ForkBlockedWidgetCalls fork_blocked = ResolveForkBlockedWidgetCalls(binary);
   if (!cmux_shim_prepare_application()) {
     fprintf(stderr, "cmux-chromium-host: NSApp does not implement CefAppProtocol\n");
     return cmux_host::kExitInitialize;
@@ -614,6 +706,8 @@ int main(int argc, char* argv[]) {
   HostMain host_main;
   cmux_host::HostPageViews page_views;
   std::unique_ptr<cmux_host::control::Channel> channel;
+  // The browser host's provider link (host_provider_link.h); made with its relays below.
+  std::unique_ptr<cmux_host::ProviderLink> provider_link;
   // Outlives `host`, whose text input flushes it runs.
   struct FrameClock {
     ChromiumHostFrameClock* clock = [[ChromiumHostFrameClock alloc] init];
@@ -633,7 +727,7 @@ int main(int argc, char* argv[]) {
       cmux_host::CheckInFenceInbox(Arg(args, cmux_host::kResizeFenceSwitch));
   cmux_host::PageResizes page_resizes(fence_inbox.get(), &cmux_shim_browser_set_resize_fence);
   host.SetPageResizes(&page_resizes);
-  // cmux_shim_load bound the fork's cmux_cef_set_energy_saver (p14-energy-029) when it has
+  // cmux_shim_load bound the fork's cmux_cef_set_energy_saver when it has
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
   // The fork's lock delegate (API 31, task 227): cmux locks its own cursor and keys for the page
@@ -648,39 +742,95 @@ int main(int argc, char* argv[]) {
   cmux_host::hang::HostHangWatch hang_watch(
       [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); });
   host.SetHangWatch(true);
-  // Main thread only, like `host`. The input ring (task 041) attaches its
-  // dispatch here (AttachInput) and hands each frame to AddInput; until then
-  // no frame comes and cmux stamps no ordered op with an input seq. Each
-  // ordered input frame dispatched is acked at the end of its turn (the host's
-  // ack is its dispatch, p01-process.md 3.1); a kPing's or kStats' seq is its
-  // request id and is never acked.
+  // Agent CDP from the browser host straight to the pages here:
+  // the link's frames reach this thread in batches, and
+  // what the pages answer goes back on the link's writer, never through cmux.
+  cmux_host::AgentRelays agent_relays(cmux_host::AgentRelays::Calls{
+      [&host](int32_t client) { return host.Browser(client); },
+      [](int browser, const char* message) { return cmux_shim_devtools_send(browser, message); },
+      [](int browser, int enabled) { cmux_shim_devtools_watch_events(browser, enabled); },
+      [&provider_link](std::string json) { provider_link->Write(std::move(json)); }});
+  provider_link = std::make_unique<cmux_host::ProviderLink>(
+      &PostToMain,
+      [&agent_relays](std::vector<cmux_host::RelayFrame> frames) {
+        for (const cmux_host::RelayFrame& frame : frames) agent_relays.OnFrame(frame);
+      },
+      [&agent_relays] { agent_relays.LinkEnded(); }, &cmux_host::ProviderLinkPeerSignedAsCmux);
+  host.SetProviderLink(&agent_relays, [&agent_relays, &provider_link](
+                                          const cmux_host::ProviderLinkConfig& config) {
+    if (provider_link->Dials(config)) return;  // the same browser host: the link and its relays stay
+    agent_relays.LinkEnded();
+    provider_link->Connect(config);
+  });
+  // Main thread only, like `host`. Ring frames (task 041) go in through
+  // `ordered_input` and are dispatched (DispatchInput), then acked, only when
+  // the stream lets them run (task 042 on 092's barrier): each paced move or
+  // wheel tick by kOpInputAck (host_input.h), and each ordered input frame by
+  // the hang watch at the end of its turn (the host's ack is its dispatch,
+  // p01-process.md 3.1); a kPing's or kStats' seq is its request id and is
+  // never acked.
   cmux_host::WheelPixelCarry wheel_carry;
   cmux_host::control::OrderedStream ordered(
       [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
-  ordered.AttachInput([&host, &wheel_carry, &hang_watch, set_event_time = fork_input.set_input_event_time](
-                          const cmux_host::Header& frame) {
-    DispatchInput(host, wheel_carry, set_event_time, frame);
-    hang_watch.FrameDispatched(frame);
-  });
+  cmux_host::OrderedInput ordered_input(
+      ordered,
+      [&host, &wheel_carry, &hang_watch, set_event_time = fork_input.set_input_event_time](
+          const cmux_host::Header& frame) {
+        DispatchInput(host, wheel_carry, set_event_time, frame);
+        hang_watch.FrameDispatched(frame);
+      },
+      [&channel](cmux_host::control::Message acks) {
+        if (channel) channel->Send(acks);
+      },
+      [&host_main](const char* what) { host_main.BadMessage(what ? what : "the ordered input stream"); });
   // The host's one input queue (host_user_input.h): Chromium's user-input
   // queue, or CefPostTask(TID_UI) on a fork without it, chosen here once; the
-  // main run loop until CefInitialize returned. HostInput's Post when task
-  // p01-process-042 starts the ring's reader:
-  // `[&input_tasks](std::function<void()> task) { input_tasks.Post(std::move(task)); }`.
+  // main run loop until CefInitialize returned. HostInput's Post (below).
   cmux_host::InputTasks input_tasks(UserInputQueue(fork_input.post_user_input_task), &PostDefaultUITask,
                                     &PostToMain);
-  auto check = [&host_main, &ordered](cmux_host::control::OrderedStream::Result result) {
-    if (result == cmux_host::control::OrderedStream::Result::kMalformed) host_main.BadMessage(ordered.what());
+  using HostInput = cmux_host::input_ring::HostInput<cmux_host::input_ring::MachDoorbell>;
+  std::unique_ptr<HostInput> input;
+  // Each control batch or the input's opening may let held frames run, and a
+  // batch the stream took in part is offered again (the rest waited in the
+  // ring meanwhile).
+  auto after = [&ordered_input, &input](cmux_host::control::OrderedStream::Result result) {
+    ordered_input.After(result);
+    if (input) input->Retry();
   };
   // The reader thread starts here, after the framework load.
   channel = std::make_unique<cmux_host::control::Channel>(
       kControlFd, &PostToMain,
-      [&ordered, &check](std::vector<cmux_host::control::Message> messages) {
-        check(ordered.AddControl(std::move(messages)));
+      [&ordered, &after](std::vector<cmux_host::control::Message> messages) {
+        after(ordered.AddControl(std::move(messages)));
       },
       [&host_main](cmux_host::control::End) { host_main.Quit(); });
-  // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK, task p01-process-234).
+
+  // The input reader starts here too, after the framework load. Frames that
+  // come before initialize wait in the stream (input opens after Resume). Its
+  // batches go through InputTasks: the main run loop until CefInitialize
+  // returned, then the queue chosen at start; a refused batch is dropped and
+  // keeps the BatchGate shut until Stop (host_user_input.h).
+  if (ring != nullptr) {
+    input = std::make_unique<HostInput>(ring, doorbell);
+    input->Start(
+        [&input_tasks](std::function<void()> task) { input_tasks.Post(std::move(task)); },
+        [&ordered_input](const HostInput::Frames& frames, size_t from) { return ordered_input.Take(frames, from); },
+        [&host_main](cmux_host::input_ring::Reader::End end) {
+          if (end == cmux_host::input_ring::Reader::End::kBroken) {
+            host_main.BadMessage("input ring: a position or a frame no writer makes");
+            return;
+          }
+          fprintf(stderr, "cmux-chromium-host: the input doorbell failed; no input can arrive\n");
+          host_main.Quit();
+        });
+  }
+  // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK).
   host.SetWheelAckHandler(fork_input.set_wheel_ack_handler);
+  // Each helper's end goes to cmux's debug.crashes (HELPER_EXIT). Declared after
+  // `host`, so the watch stops before `host` goes; started once initialize returned.
+  cmux_host::HelperExitWatcher helper_exits([&host](const cmux_host::HelperExit& ended) {
+    PostToMain([&host, ended] { host.HelperExited(ended); });
+  });
   host.Attach();
 
   // Preinit ops apply as they arrive; INITIALIZE (or the channel's end) stops
@@ -694,6 +844,12 @@ int main(int argc, char* argv[]) {
   CFRunLoopRun();
   CFRunLoopRemoveSource(CFRunLoopGetMain(), keep_alive, kCFRunLoopCommonModes);
   CFRelease(keep_alive);
+  // Chromium's widgets of detached pages, from initialize on: each is
+  // dismissed in a UI task after its report and logged. Outlives
+  // cmux_shim_shutdown, so a dismissal posted during shutdown finds it.
+  cmux_host::BlockedWidgets blocked_widgets(
+      [close = fork_blocked.close](int widget_id) { return close ? close(widget_id) : 0; }, &PostDefaultUITask,
+      &HostLog);
   int status = host_main.exit_status();
   if (!host_main.quit_before_start() && host_main.request()) {
     const cmux_host::InitializeRequest& request = *host_main.request();
@@ -731,18 +887,28 @@ int main(int argc, char* argv[]) {
       }
     }
     host_main.set_running();
+    // Before Resume runs cmux's first op, so before any page is detached.
+    if (!blocked_widgets.Install(fork_blocked.set_handler)) {
+      HostLog("no blocked widget handler (fork API " + std::to_string(fork_api) +
+              "): Chromium's own widgets of a page can show");
+    }
     input_tasks.Start();
-    PostToMain([&host, &ordered, &check] {
+    PostToMain([&host, &ordered, &after, &helper_exits] {
       host.Resume();
-      check(ordered.OpenInput());  // the messages that waited for initialize ran first
+      after(ordered.OpenInput());  // the messages that waited for initialize ran first
+      helper_exits.Start();  // after the INITIALIZE ack: no HELPER_EXIT reaches cmux before it
     });
     CefRunMessageLoop();
-    hang_watch.Stop();  // before Chromium shuts down: no dump of its shutdown
+    if (input) input->Stop();  // no batch runs after this, so none reaches a shut down Chromium
+    hang_watch.Stop();         // before Chromium shuts down: no dump of its shutdown
     channel->Close();
+    provider_link->Close();  // the browser host relays through cmux again
     cmux_shim_shutdown();
     status = host_main.exit_status();
   } else {
     channel->Close();
   }
+  input.reset();
+  cmux_host::input_ring::UnmapRegion(ring);
   return status;
 }

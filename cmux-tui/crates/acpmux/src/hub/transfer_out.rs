@@ -28,6 +28,7 @@
 //! entry, not this one.
 
 use super::*;
+use crate::no_panic::JsonExt;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 
@@ -343,7 +344,7 @@ impl Hub {
         }
         let mut record = json!({"transferId": transfer_id});
         if let Some(reason) = reason {
-            record["reason"] = json!(reason);
+            record.set("reason", json!(reason));
         }
         self.end_move(session);
         self.append(session, "mux", "transfer_aborted", record);
@@ -357,7 +358,7 @@ impl Hub {
     fn end_move(self: &Arc<Self>, session: &Arc<Session>) {
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let (hub, followed) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.supervise("hub.move-end", Fatal, ShutdownBehavior::Skip, async move {
             hub.follow_policy(&followed).await;
             followed.queue_moved.notify_waiters();
         });

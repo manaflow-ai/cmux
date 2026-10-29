@@ -4,8 +4,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The browser chrome's sweep onto the main-thread scheduler (p06-scheduler-321,
-/// plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9): one case per migrated owner class.
+/// The browser chrome's sweep onto the main-thread scheduler
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9): one case per migrated owner class.
 /// - A hidden tab's chrome, address bar and toolbar do no repaint while hidden and repaint once on
 ///   show (R-appear, R-hide on the tab's node, Chromium's per-WebContents visibility).
 /// - A chrome with no tab node (a debug window) repaints at once, as before.

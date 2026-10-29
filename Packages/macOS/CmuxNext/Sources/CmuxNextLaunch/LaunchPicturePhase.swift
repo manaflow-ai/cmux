@@ -1,14 +1,14 @@
 public import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextDesign
 public import CmuxNextWakeups
 
-/// The launch window while its saved picture is its first frame (p08-startup-059, plans/cmux-next/chrome-parity/
+/// The launch window while its saved picture is its first frame (plans/cmux-next/chrome-parity/
 /// p08-startup.md section 3A, P2): the window at its saved frame, its live `WindowMaterialView` and one
 /// ``LaunchPictureView``. Nothing else of the window exists in that frame; once it is committed the window's
 /// controller is built in the same window behind the picture (afterFirstFrame posts, `LaunchWindowBuild`), and the
-/// picture leaves region by region at each region's first meaningful content (``LaunchPictureRegions``,
-/// p08-startup-060), all of it at most ``bound`` later.
+/// picture leaves region by region at each region's first meaningful content (``LaunchPictureRegions``),
+/// all of it at most ``bound`` later.
 ///
 /// Chrome shows the first restored tab's saved capture until its live page paints and lets the tab load as usual
 /// when the capture is not ready (chrome/android/java/src/org/chromium/chrome/browser/paint_preview/

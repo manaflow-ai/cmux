@@ -97,7 +97,7 @@ extension TerminalSession {
 
     /// Runs `drawn` once at the first frame this terminal draws after its first content (the daemon's snapshot, a
     /// replay or output) is applied, or when its surface went first: the launch picture's part over the terminal leaves
-    /// there (p08-startup-060). A frame on screen when the content was queued may still present on the next tick, so
+    /// there. A frame on screen when the content was queued may still present on the next tick, so
     /// only a frame seen two ticks on counts, as ``TerminalFrameHold`` does. Returns what cancels the wait.
     public func whenContentFrameDrawn(_ drawn: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
         let mark = ContentFrameMark()

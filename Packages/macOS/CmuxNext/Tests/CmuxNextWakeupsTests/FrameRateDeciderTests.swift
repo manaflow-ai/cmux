@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 
-/// Frame rate classes (p03-rendering-013): a display's link runs at the highest ``FrameRate`` its
+/// Frame rate classes: a display's link runs at the highest ``FrameRate`` its
 /// armed clients ask for, as Chrome's viz picks the display interval from its frame sinks'
 /// preferred intervals (components/viz/service/display/frame_rate_decider.cc).
 @MainActor @Suite(.timeLimit(.minutes(1))) struct FrameRateDeciderTests {
@@ -207,7 +207,8 @@ import Testing
     @Test func clientsDefaultToMotion() {
         let displays = DisplayClock(makeLink: RateLinks().make, displayOf: { _ in 1 }, clock: ManualClock())
         let scheduler = FrameScheduler(name: "w", host: .screen, displays: displays, budget: nil)
-        let work = MainWorkScheduler(budget: MainFrameBudget(uptimeNanos: { 1_000_000_000 }), displays: displays)
+        let work = MainWorkScheduler(budget: MainFrameBudget(uptimeNanos: { 1_000_000_000 }), displays: displays,
+                                 wakeUps: MainWakeUpQueue(energy: EnergyPolicySource()))
         let plain = FrameClient(owner: "plain", on: scheduler) { _ in false }
         let batch = FrameClient(owner: "batch", isAnimation: false, on: scheduler) { _ in false }
         let budgeted = FrameClient(owner: "budgeted", budgeted: .automation, on: work) { _, _ in false }

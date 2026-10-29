@@ -44,7 +44,7 @@ extension DaemonLanePolicy {
         "get-frontend-projection": ["frontend", "scope", "subject_key"],
         "get-host-size-policy": ["surface"],
         "get-size-state": ["surface"],
-        "identify": ["machine_metadata", "revisions"],
+        "identify": ["machine_metadata", "revisions", "startup_marks"],
         "ids": ["kind"],
         "list-agents": ["state", "surface"],
         "list-clients": [],

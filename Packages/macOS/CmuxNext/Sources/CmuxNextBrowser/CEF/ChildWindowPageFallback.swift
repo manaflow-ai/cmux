@@ -6,7 +6,7 @@ import CmuxNextDesign
 /// page window over it (p03-rendering R3). A child window sits above every view of the cmux window, so
 /// no view order puts a pane in front of it and no layer mask reaches it: the tracker asks the host view
 /// for a clip shape (`-cmuxClipPath`) and for holes (`-cmuxOcclusionRects`), and re-places the page
-/// window when the window asks its pages to (`BrowserPageUpdates`). The clip shape leaves out what the
+/// window when the window asks its pages to (`ChildPageGeometryRegistry`). The clip shape leaves out what the
 /// panes stacked in front of its pane cover (a zoom growing over it, an overlay dock's pane over a strip pane).
 ///
 /// A page hosted in the window's layer tree (`CEFLayerHosting.page`) draws with the views, as Chrome's
@@ -40,7 +40,7 @@ nonisolated enum ChildWindowPageFallback {
     }
 
     /// Whether the page window over `host` hides while its pane shows a render-server move with the
-    /// `pageSpringResizeOnce` feature (p03-rendering-036, `RestingPlacement.showsRenderMove`): a page in its own
+    /// `pageSpringResizeOnce` feature (`RestingPlacement.showsRenderMove`): a page in its own
     /// window is placed from the pane's frame, which a render-server spring sets at rest in its first turn, so it
     /// would show at the rest place for the whole spring. It hides through an occlusion hole over all of the host
     /// (`ChildWindowPageGeometry.occlusionRects()`, the fork's way to keep a page from showing) in the turn the spring starts,
@@ -62,7 +62,7 @@ extension CEFHostView: ChildWindowContent {
     var drawsInChildWindow: Bool { !layerHosting.drawsWithViews || pageWindowWidgets.isShowingPageWindow }
 }
 
-/// The per-widget fallback of an attached page (p03-rendering-046): the widgets the fork shows on a Chromium
+/// The per-widget fallback of an attached page: the widgets the fork shows on a Chromium
 /// window's page window (``CEFNativeWidgetRoute/pageWindow``: autofill, print preview) order that window in,
 /// transparent, ignoring the mouse and over the host view, for as long as one is open. Chrome hangs those on
 /// the Browser's widget; the page's pixels, input and the rest of its native UI stay in the attached view.
@@ -132,9 +132,9 @@ extension CEFRuntime {
 @MainActor
 final class ChildWindowPageGeometry {
     weak var view: CEFHostView?
-    /// The window's page update requests on the view's center (`CEFHostView.pageUpdateCenter`), while
-    /// the view is in a window.
-    private var pageUpdates: MainActorObservation?
+    /// The view's place in its window's page update requests (`ChildPageGeometryRegistry`), while the
+    /// view is in a window.
+    private var pageUpdates: ChildPageGeometryRegistry.Registration?
     /// What the fork read on its last update of this page (`-cmuxOcclusionRects`);
     /// nil before its first read and after a window change.
     private var readGeometry: CEFHostGeometry?
@@ -164,8 +164,8 @@ final class ChildWindowPageGeometry {
             pageUpdates = nil
             return
         }
-        pageUpdates = BrowserPageUpdates.observe(of: window, center: view.pageUpdateCenter) { [weak self] update in
-            self?.pagesNeedUpdate(force: update.force)
+        pageUpdates = ChildPageGeometryRegistry.of(window).register { [weak self] force in
+            self?.pagesNeedUpdate(force: force) ?? false
         }
     }
 
@@ -181,18 +181,20 @@ final class ChildWindowPageGeometry {
     /// motion frame the static pages have nothing to re-place, re-clip or
     /// re-mask (Lawrence 2026-10-23: splits lag more with Chromium pages).
     /// `force`: a page window moved by something other than the fork must be
-    /// put back over its host even though the host did not move.
-    func pagesNeedUpdate(force: Bool) {
-        guard let view else { return }
+    /// put back over its host even though the host did not move. Returns whether the fork was told.
+    @discardableResult
+    func pagesNeedUpdate(force: Bool) -> Bool {
+        guard let view else { return false }
         let now = CEFHostGeometry(of: view)
         guard force || readGeometry != now else {
             CEFHostView.trackerStats.geometrySkips += 1
-            return
+            return false
         }
         view.postGeometryChange()
         // The fork updates inside the post; a hidden or not yet created page reads nothing
         // there, so what it was told is recorded here (a still hidden page has nothing new).
         readGeometry = now
+        return true
     }
 
     /// The clip shape now, from the memo while its inputs hold.

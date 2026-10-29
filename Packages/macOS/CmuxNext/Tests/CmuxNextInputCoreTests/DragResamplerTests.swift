@@ -1,7 +1,7 @@
 import CmuxNextInputCore
 import Testing
 
-/// DragResampler (p04-input-040): a drag delivery's real point is always the newest OS sample, and its
+/// DragResampler: a drag delivery's real point is always the newest OS sample, and its
 /// drawn point is that pointer resampled at the frame's time with InputResampler (Chromium's
 /// LinearResampling, `ui/base/prediction/linear_resampling.cc`).
 struct DragResamplerTests {

@@ -2,7 +2,7 @@
 //! (the command history worker) and `set-cell-pixels` (the terminal hosts).
 //! The request thread checks the request, hands the work to the mux and
 //! returns; the answer is sent from where the work finishes, through an
-//! [`AsyncReply`] (p02-threads-221). Chrome replies the same way from a posted
+//! [`AsyncReply`]. Chrome replies the same way from a posted
 //! task (base/task/thread_pool.h `PostTaskAndReplyWithResult`).
 //!
 //! A remote client never takes this path: `remote_relay::intercept` refuses

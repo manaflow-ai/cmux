@@ -16,9 +16,8 @@
    "cmux-browser-host": 1,
    "cmux-mux2": 42,
    "cmux-remote": 44,
-   "cmux-terminal-client": 1,
    "cmux-tui": 76,
-   "cmux-tui-core": 190,
+   "cmux-tui-core": 172,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
    "cmux-tui-remote-access": 1,
@@ -29,14 +28,13 @@
    "acpmux": 2,
    "cmux-remote": 11,
    "cmux-tui": 33,
-   "cmux-tui-core": 26
+   "cmux-tui-core": 23
   },
   "unwrap": {
    "acpmux": 139,
    "cmux-remote": 4,
-   "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1132,
+   "cmux-tui-core": 950,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -72,9 +70,7 @@
   },
   "unchecked": {
    "CmuxMobileSupport": 1,
-   "CmuxNextBrowser": 4,
-   "CmuxNextBrowserAutomation": 1,
-   "CmuxNextBrowserImport": 1
+   "CmuxNextBrowser": 1
   }
  },
  "waived": {
@@ -89,6 +85,7 @@
     "cmux-config": 2,
     "cmux-layout-reducer": 9,
     "cmux-local-auth": 2,
+    "cmux-terminal-client": 1,
     "cmux-terminal-sizing": 6,
     "cmux-tui-core": 11,
     "cmux-unix-socket": 1
@@ -133,7 +130,8 @@
     "CmuxNextBrowser": 1,
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
-    "CmuxNextCompat": 11,
+    "CmuxNextCompat": 10,
+    "CmuxNextCompatAppKit": 1,
     "CmuxNextControl": 2,
     "CmuxNextCrashReporting": 4,
     "CmuxNextDaemon": 2,

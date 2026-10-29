@@ -357,7 +357,7 @@ struct ErrorJournalTests {
         #expect(await journal.entries(ErrorQuery(limit: 1)).first?.source == "crash")
     }
 
-    /// p10-stability-095: `errors.list {"since_ms":1e300}` (or `"since":"1e300s"`) made `since`
+    /// `errors.list {"since_ms":1e300}` (or `"since":"1e300s"`) made `since`
     /// a date past Int64 milliseconds, and `Int64(_:)` trapped on a journal with an entry. A date
     /// past every entry matches none, one before every entry matches all.
     @Test func aSinceOutsideInt64MillisecondsMatchesWithoutTrapping() async {

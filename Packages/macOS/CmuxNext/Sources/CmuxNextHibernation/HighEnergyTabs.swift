@@ -1,6 +1,6 @@
 package import CmuxNextWakeups
 
-/// Which hidden tabs use high energy (p14-energy-125), Chrome's CPU rule for its performance detection
+/// Which hidden tabs use high energy, Chrome's CPU rule for its performance detection
 /// (`CpuHealthTracker`, chrome/browser/performance_manager/user_tuning/cpu_health_tracker.cc, which feeds
 /// `PerformanceDetectionManager`, chrome/browser/performance_manager/public/user_tuning/performance_detection_manager.h):
 /// a tab counts when its renderers used more than ``threshold`` of one core over a whole window, and only a tab
@@ -118,7 +118,7 @@ package nonisolated struct HighEnergyTabs: Sendable {
     }
 }
 
-/// The app's side of ``HighEnergyTabs`` (feature `highEnergyTabs`, p14-energy-125). It has no timer: the browser
+/// The app's side of ``HighEnergyTabs`` (feature `highEnergyTabs`). It has no timer: the browser
 /// hibernation's replans (a tab hides or shows, a deadline, a pressure change) and a tab card's question are its
 /// wakes. A reading of the hidden tabs' renderers goes through `measure` (off the main actor; it lands on it); a card
 /// that asked while it was out refreshes then. Discard is the App's (the person's Hibernate Tab).

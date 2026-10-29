@@ -9,7 +9,7 @@ import Testing
 /// `(unknown context at $...)` segment.
 private final class PrivateDocument: NSView {}
 
-/// `debug.input scroll_views` (p04-input-048): the audit lists every scroll view under a window with
+/// `debug.input scroll_views`: the audit lists every scroll view under a window with
 /// its classes, AppKit's responsive-scrolling flags and which views override `scrollWheel(_:)`, finds
 /// SwiftUI hosting, keeps a stable JSON schema and stable class names, and reads only when asked.
 @MainActor @Suite

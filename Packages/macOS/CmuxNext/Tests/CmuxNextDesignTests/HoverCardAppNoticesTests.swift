@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// p06-scheduler-326: the hover card coordinator hears the app going inactive and a Space change through the
+/// The hover card coordinator hears the app going inactive and a Space change through the
 /// app's one AppEvents per center (recipe R-notif), made with its first source; a coordinator with no fan-outs
 /// (a strip's default) subscribes to nothing.
 @MainActor @Suite(.serialized) struct HoverCardAppNoticesTests {

@@ -276,12 +276,11 @@ impl JournalRestoreCursor {
         let mut records = Vec::with_capacity(limit);
         while records.len() < limit {
             if let Some(decoded) = self.decoded_segment.as_ref() {
-                if self.record_offset == decoded.records.len() {
+                let Some(record) = decoded.records.get(self.record_offset).cloned() else {
                     self.decoded_segment = None;
                     self.record_offset = 0;
                     continue;
-                }
-                let record = decoded.records[self.record_offset].clone();
+                };
                 self.record_offset += 1;
                 if record.sequence <= self.source_sequence {
                     continue;
@@ -1020,14 +1019,15 @@ fn append_resource_journal_record_at(
     expand_topology_subjects(transaction, &mut subjects)?;
     let subjects = subjects.into_iter().collect::<Vec<_>>();
     let producer = JournalProducer { kind: "resource_operation".into(), id: origin.into() };
-    let mut payload = serde_json::json!({
-        "idempotency_key": idempotency_key,
-        "result": result,
-        "changes": changes,
-    });
+    let mut payload = serde_json::Map::from_iter([
+        ("idempotency_key".to_string(), Value::from(idempotency_key)),
+        ("result".to_string(), result.clone()),
+        ("changes".to_string(), changes.clone()),
+    ]);
     if let Some(shift) = placement_shift {
-        payload[crate::state::placement_shift::PAYLOAD_KEY] = shift.to_value();
+        payload.insert(crate::state::placement_shift::PAYLOAD_KEY.to_string(), shift.to_value());
     }
+    let payload = Value::Object(payload);
     let event_id = format!("event_resource_{revision:020}");
     let actor = resource_record_actor(transaction, origin, idempotency_key, with_current_state)?;
     append_journal_record(
@@ -1878,8 +1878,9 @@ pub(crate) fn decode_journal_segment(
         if count == 0 {
             break;
         }
+        let tail = trailing.get(..count).context("journal segment read past its buffer")?;
         anyhow::ensure!(
-            trailing[..count].iter().all(|byte| matches!(byte, b' ' | b'\n' | b'\r' | b'\t')),
+            tail.iter().all(|byte| matches!(byte, b' ' | b'\n' | b'\r' | b'\t')),
             "journal segment {segment_id} contains trailing data"
         );
     }
@@ -1908,9 +1909,9 @@ pub(crate) fn decode_journal_segment(
             && records.last().map(|record| record.sequence) == Some(end_sequence),
         "journal segment {segment_id} sequence range is invalid"
     );
-    for pair in records.windows(2) {
+    for (earlier, later) in records.iter().zip(records.iter().skip(1)) {
         anyhow::ensure!(
-            pair[1].sequence == pair[0].sequence.saturating_add(1),
+            later.sequence == earlier.sequence.saturating_add(1),
             "journal segment {segment_id} contains a sequence gap"
         );
     }
@@ -2097,12 +2098,12 @@ fn normalize_terminal_output(
         return Ok(());
     }
     anyhow::ensure!(
-        record.payload["format"].as_str() == Some("cmux.terminal-output.v1"),
+        payload_str(&record.payload, "format") == Some("cmux.terminal-output.v1"),
         "terminal output record has an invalid format"
     );
     let bytes = if let Some(bytes) = stored_content {
         anyhow::ensure!(
-            record.payload["encoding"].as_str() == Some("raw"),
+            payload_str(&record.payload, "encoding") == Some("raw"),
             "stored terminal output record has an invalid encoding"
         );
         anyhow::ensure!(
@@ -2112,7 +2113,7 @@ fn normalize_terminal_output(
         bytes
     } else {
         anyhow::ensure!(
-            record.payload["encoding"].as_str() == Some("base64"),
+            payload_str(&record.payload, "encoding") == Some("base64"),
             "archived terminal output record has an invalid encoding"
         );
         let data = record
@@ -2124,7 +2125,11 @@ fn normalize_terminal_output(
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(data)
             .context("decode archived terminal output")?;
-        record.payload["encoding"] = Value::String("raw".into());
+        record
+            .payload
+            .as_object_mut()
+            .context("archived terminal output record payload is not an object")?
+            .insert("encoding".into(), Value::String("raw".into()));
         bytes
     };
     anyhow::ensure!(!bytes.is_empty(), "terminal output record is empty");
@@ -2144,7 +2149,7 @@ fn normalize_terminal_output(
         "terminal output stream offsets do not match its content"
     );
     let expected_digest =
-        record.payload["sha256"].as_str().context("terminal output record omitted sha256")?;
+        payload_str(&record.payload, "sha256").context("terminal output record omitted sha256")?;
     anyhow::ensure!(
         expected_digest == encode_bytes_hex(Sha256::digest(&bytes).as_slice()),
         "terminal output content digest is invalid"
@@ -2154,21 +2159,18 @@ fn normalize_terminal_output(
 }
 
 fn decimal_payload_u64(payload: &Value, field: &str) -> anyhow::Result<u64> {
-    payload[field]
-        .as_str()
+    payload_str(payload, field)
         .with_context(|| format!("terminal output record omitted {field}"))?
         .parse()
         .with_context(|| format!("terminal output record has an invalid {field}"))
 }
 
+fn payload_str<'a>(payload: &'a Value, field: &str) -> Option<&'a str> {
+    payload.get(field).and_then(Value::as_str)
+}
+
 fn encode_bytes_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
+    hex_bytes(bytes)
 }
 
 pub(crate) fn journal_record_for_archive(record: &SessionJournalRecord) -> SessionJournalRecord {

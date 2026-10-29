@@ -1,4 +1,4 @@
-// A hidden Markdown tab's page may be discarded (`memoryDiscardInternalPages`, p07-memory-026): the
+// A hidden Markdown tab's page may be discarded (`memoryDiscardInternalPages`): the
 // host asks `cmux.markdown.viewState` first, and the next page's config carries the answer back as
 // `viewState`. The place is anchored to the heading above the top of the view (Chrome's scroll
 // anchoring, scroll_anchor.cc), so content that moves above it does not lose the reader's place.

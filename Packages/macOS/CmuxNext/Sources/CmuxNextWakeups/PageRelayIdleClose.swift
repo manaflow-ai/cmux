@@ -9,7 +9,7 @@ public protocol PageRelayIdleDeadline: AnyObject {
 
 extension MainDeadline: PageRelayIdleDeadline {}
 
-/// When a page relay closes its daemon connection (p13-webui-066): ``delay`` after its last use
+/// When a page relay closes its daemon connection: ``delay`` after its last use
 /// ends. A call is a use while it runs, a listener while it is live (not paused by a frozen page).
 /// 30 s is the idle timeout after which Chrome stops a service worker with no work
 /// (content/browser/service_worker/service_worker_version.cc, `kIdleWorkerTimeout`): a tab switched

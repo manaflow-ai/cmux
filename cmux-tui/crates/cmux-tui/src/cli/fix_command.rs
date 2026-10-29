@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 /// command must run this build, not whichever `cmux` PATH finds first.
 pub(super) fn this_cli() -> PathBuf {
     std::env::current_exe()
-        .and_then(std::fs::canonicalize)
+        .and_then(cmux_blocking::fs::canonicalize)
         .unwrap_or_else(|_| PathBuf::from("cmux"))
 }
 

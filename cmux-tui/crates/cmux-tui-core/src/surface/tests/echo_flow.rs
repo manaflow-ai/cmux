@@ -1,5 +1,5 @@
-//! Exact echo flows on terminals whose master the daemon writes itself
-//! (p09-observability-018): a holder terminal tells a holder that granted
+//! Exact echo flows on terminals whose master the daemon writes itself:
+//! a holder terminal tells a holder that granted
 //! WRITE_FLOW about the key press before its bytes, and the output the
 //! holder streams next is that key's echo on the attach stream, once. A
 //! holder older than the capability gets no mark. A write that never
@@ -176,6 +176,64 @@ fn echo_flow_a_failed_write_arms_nothing() {
     assert!(surface.write_bytes_flow(b"a", 42).is_err());
     child.write_all(b"unrelated").unwrap();
     assert_eq!(next_output(&attach), AttachFrame::Output(Bytes::from_static(b"unrelated")));
+
+    drop(child);
+    end_tx.send(()).unwrap();
+    let pty = surface.as_pty().unwrap();
+    assert!(pty.reader_completion.wait_until(Instant::now() + WAIT));
+}
+
+/// A local terminal's key press records the daemon's receive
+/// and PTY write before its echo, the read that echoes it stamps the read,
+/// and the press's stamps are there for the attach writer once echoed.
+#[test]
+fn input_stages_a_local_key_press_stamps_receive_write_and_read() {
+    let (reader, mut child) = UnixStream::pair().unwrap();
+    child.set_read_timeout(Some(WAIT)).unwrap();
+    let master = File::from(OwnedFd::from(reader.try_clone().unwrap()));
+    let writer = reader.try_clone().unwrap();
+    let geometry = PtyGeometry { cols: 20, rows: 4, cell_width: 8, cell_height: 16 };
+    let (end_tx, end_rx) = std::sync::mpsc::channel::<()>();
+    let surface = Surface::spawn_local(
+        spawn_options(),
+        LocalLaunch {
+            master: Box::new(FdMasterPty { file: master, size: Mutex::new(geometry.pty_size()) }),
+            reader: Box::new(reader),
+            writer: Box::new(writer),
+            killer: Box::new(TestChildKiller),
+            end: LocalEnd::Wait(Box::new(move || {
+                let _ = end_rx.recv();
+                TerminalEnd::ProcessEnded(TerminalExit::unknown("test ended"))
+            })),
+            pid: None,
+            command: Vec::new(),
+            cwd: None,
+            supports_clear_history_key_fallback: false,
+            holder: None,
+        },
+    )
+    .unwrap();
+    let attach = surface.attach_stream().unwrap();
+    let stages = surface.input_stages().unwrap();
+
+    let received = crate::input_stages::now_ns();
+    surface.write_key_flow(b"a", 42, received).unwrap();
+    let mut key = [0u8; 1];
+    child.read_exact(&mut key).unwrap();
+    assert_eq!(&key, b"a");
+    assert_eq!(stages.stages(42), None, "no echo yet");
+
+    child.write_all(b"a").unwrap();
+    assert_eq!(next_output(&attach).flow(), 42);
+    let stamped = stages.stages(42).expect("the echo's stages");
+    assert_eq!(stamped.received_ns, received);
+    assert!(stamped.written_ns >= received, "{stamped:?}");
+    assert!(stamped.read_ns >= stamped.written_ns, "{stamped:?}");
+
+    // A send with no flow arms nothing.
+    surface.write_key_flow(b"b", 0, received).unwrap();
+    child.read_exact(&mut key).unwrap();
+    assert_eq!(stages.stages(0), None);
 
     drop(child);
     end_tx.send(()).unwrap();

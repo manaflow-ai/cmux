@@ -32,7 +32,7 @@ final class InputVerificationService {
     private weak var services: AppServices?
 
     /// Configures the journal, subscribes it to the input tap and installs the
-    /// monitor's triggers (the `InputVerification.start` launch post, p08-startup-031).
+    /// monitor's triggers (the `InputVerification.start` launch post).
     /// The no-activate keyboard guard is an NSApp input hook: `AppServices.init`
     /// installs it (`startNoActivateGuard(tap:appEvents:mainWork:work:)`), before the app activates.
     func start(services: AppServices) {
@@ -41,7 +41,7 @@ final class InputVerificationService {
         let tag = services.environment.tag
         journal.configure(InputJournalPolicy.resolve(isDebugBuild: ControlService.isDebugBuild, tag: tag,
                                                      environment: ProcessInfo.processInfo.environment))
-        let monitor = InputInvariantMonitor(tag: tag, deadlines: services.mainDeadlines)
+        let monitor = InputInvariantMonitor(tag: tag, deadlines: services.mainDeadlines, runner: services.work)
         monitor.services = services
         self.monitor = monitor
         journalSubscription = Self.subscribeJournal(journal, to: services.inputTap) { monitor.noteChange() }
@@ -108,8 +108,9 @@ final class InputVerificationService {
     /// asks the monitor to check once they settle.
     func observeFocus(of controller: WindowController) {
         let journal = InputJournal.shared
-        let monitor = self.monitor
-        let services = self.services
+        // `services` and `monitor` are read when an observer runs, never captured here: the launch window installs its
+        // observers before the `InputVerification.start` post (afterFirstFrame) sets them, and a nil captured then
+        // dropped that window's settles for the whole session.
         var sinceCheckpoint = Int.max - 1
         // The notification and location-trail observers act on the settled
         // keyboard target: each runs only when what it reads changed. The
@@ -118,7 +119,8 @@ final class InputVerificationService {
         // once the page hides).
         var notified: FocusState.SettleKey?
         var trailed: TrailSettleKey?
-        controller.focus.settledObserver = { [weak services, weak controller] state in
+        controller.focus.settledObserver = { [weak self, weak controller] state in
+            let services = self?.services
             services?.keyRouter.focusDidSettle(state, in: controller?.window)
             guard let controller else { return }
             // Chips shown for a held modifier follow the new focus (pane navigation while held).
@@ -138,10 +140,10 @@ final class InputVerificationService {
                 services?.locationTrail.focusDidSettle(state, in: controller)
             }
         }
-        controller.focus.observer = { [weak state = controller.state, weak focus = controller.focus] observation in
+        controller.focus.observer = { [weak self, weak state = controller.state, weak focus = controller.focus] observation in
             // A no-op reduction (a responder report of the focus the window
             // already has) changes nothing the monitor checks.
-            if case .reduced(_, _, _, false) = observation {} else { monitor?.noteChange() }
+            if case .reduced(_, _, _, false) = observation {} else { self?.monitor?.noteChange() }
             guard journal.isEnabled else { return }
             let window = state?.id
             switch observation {

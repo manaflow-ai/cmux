@@ -88,7 +88,7 @@ public final class StartupScheduler {
     /// The completion, once startup completed.
     public private(set) var completion: Completion?
     /// Called with each main task's name as it begins, until completion or quit (the run marker's last task,
-    /// p08-startup-089: Chrome's crash keys name the task a crash ran in, base/task/common/task_annotator.h).
+    /// Chrome's crash keys name the task a crash ran in, base/task/common/task_annotator.h).
     public var taskStarted: (@MainActor (StaticString) -> Void)?
 
     private nonisolated let background: BackgroundWork

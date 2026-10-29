@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 
-/// The drain's tail (p06-scheduler-223; plans/cmux-next/chrome-parity/p06-scheduler.md section D,
+/// The drain's tail (plans/cmux-next/chrome-parity/p06-scheduler.md section D,
 /// "Drain, ordered by cause"): the daemon transactions after the last one a person or the app's
 /// frontend caused, in order.
 ///

@@ -34,7 +34,7 @@ function cancel() {
   timer = undefined;
 }
 
-/// The clock ticks only while the page is active (pages/shared/pageLifecycle.ts, p13-webui-035): a
+/// The clock ticks only while the page is active (pages/shared/pageLifecycle.ts): a
 /// hidden or frozen page arms no timer, where Chrome throttles a hidden page's timers
 /// (third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc). On show it
 /// reads the minute once, so the ages are the ones a page that never hid shows; it reads no data.

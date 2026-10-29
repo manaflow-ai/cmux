@@ -10,7 +10,7 @@ import QuartzCore
 /// One view; chips are CALayers in one content layer that scrolls
 /// horizontally (trackpad or wheel) when the chips overflow: a scroll sets
 /// that layer's bounds origin and lays out no chip, at most twice per frame
-/// with `scrollFrameInput` (p04-input-087, as Chrome's layer-backed
+/// with `scrollFrameInput` (as Chrome's layer-backed
 /// `views::ScrollView`, ui/views/controls/scroll_view.cc). Click reopens a
 /// group; right-click asks `contextMenuProvider` with `.savedGroup(id)`.
 public final class SavedGroupsBarView: NSView {

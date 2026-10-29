@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 
 /// The keys a session's env may set. Every key added here needs a comment
@@ -41,7 +42,7 @@ pub const MAX_VALUE_BYTES: usize = 256;
 fn refusal(reason: &str, message: String, key: Option<&str>) -> RpcError {
     let mut data = json!({"reason": reason});
     if let Some(key) = key {
-        data["key"] = json!(key);
+        data.set("key", json!(key));
     }
     RpcError::invalid_params(message).with_data(data)
 }
