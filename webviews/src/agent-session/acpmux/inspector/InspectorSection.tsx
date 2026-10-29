@@ -40,7 +40,7 @@ export function InspectorFold({
 }
 
 /// Six dots, drawn here: the icon pack has no grip glyph.
-const GRIP_DOTS = [3, 7, 11].flatMap((y) => [2, 6].map((x) => ({ x, y })));
+const GRIP_DOTS = [3, 7, 11].flatMap((y) => [1.25, 4.75].map((x) => ({ x, y })));
 
 function ReorderHandle({ id, title }: { id: InspectorSectionId; title: string }) {
   const reorder = useReorder();
@@ -62,9 +62,9 @@ function ReorderHandle({ id, title }: { id: InspectorSectionId; title: string })
         reorder.step(id, event.key === "ArrowUp" ? -1 : 1);
       }}
     >
-      <svg width="8" height="14" viewBox="0 0 8 14" aria-hidden="true">
+      <svg width="6" height="14" viewBox="0 0 6 14" aria-hidden="true">
         {GRIP_DOTS.map(({ x, y }) => (
-          <circle key={`${x}-${y}`} cx={x} cy={y} r="1" fill="currentColor" />
+          <circle key={`${x}-${y}`} cx={x} cy={y} r="0.9" fill="currentColor" />
         ))}
       </svg>
     </button>

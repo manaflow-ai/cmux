@@ -257,8 +257,9 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  left: -10px;
-  width: 10px;
+  /* The body's 6px side padding (data-layout). */
+  left: -6px;
+  width: 6px;
   height: 28px;
   display: flex;
   align-items: center;
