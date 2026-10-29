@@ -204,6 +204,13 @@ impl TerminalWorkPool {
     }
 }
 
+/// Tests: a full terminal work pool ([`Mux::fill_terminal_work_for_test`]);
+/// its workers are free again once it drops.
+#[cfg(test)]
+pub(crate) struct TerminalWorkFull {
+    _release: std::sync::mpsc::Sender<()>,
+}
+
 /// A host launched for a creation that has not committed yet.
 #[cfg(any(unix, windows))]
 pub(crate) struct PrelaunchedTerminal {
@@ -238,6 +245,33 @@ impl Mux {
         job: Box<dyn FnOnce() + Send>,
     ) -> Result<(), Box<dyn FnOnce() + Send>> {
         self.terminal_work.try_submit(job)
+    }
+
+    /// Tests: holds every terminal worker and fills the queue, so the next
+    /// [`Self::submit_terminal_work`] hands its job back (the load at which
+    /// a caller runs it inline), until the returned guard drops.
+    #[cfg(test)]
+    pub(crate) fn fill_terminal_work_for_test(&self) -> TerminalWorkFull {
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let released = Arc::new(Mutex::new(released));
+        let started = Arc::new(AtomicUsize::new(0));
+        for _ in 0..MAX_TERMINAL_WORKERS {
+            let (released, started) = (released.clone(), started.clone());
+            let job = Box::new(move || {
+                started.fetch_add(1, Ordering::AcqRel);
+                // Each holder waits for the guard's sender to drop; the
+                // lock passes the end on from one holder to the next.
+                let _ = released.lock().unwrap_or_else(PoisonError::into_inner).recv();
+            });
+            assert!(self.submit_terminal_work(job).is_ok(), "the terminal pool took a holder");
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while started.load(Ordering::Acquire) < MAX_TERMINAL_WORKERS {
+            assert!(Instant::now() < deadline, "the terminal workers never started");
+            std::thread::yield_now();
+        }
+        while self.submit_terminal_work(Box::new(|| {})).is_ok() {}
+        TerminalWorkFull { _release: release }
     }
 
     /// Launch the host of a `new-tab` into `pane` (the active pane when
