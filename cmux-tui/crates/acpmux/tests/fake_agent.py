@@ -67,6 +67,7 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+cap_failures = {}
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
@@ -295,6 +296,9 @@ def run_gh_pr_create(rid, sid):
 
 def handle_prompt(rid, params):
     sid = params["sessionId"]
+    # Model a harness that scopes an interrupt to the prompt it is processing.
+    if os.environ.get("FAKE_RESET_CANCEL_ON_PROMPT") == "1":
+        cancelled.discard(sid)
     blocks = params.get("prompt", [])
     text = "".join(b.get("text", "") for b in blocks)
     if text.startswith("envs:"):
@@ -351,6 +355,13 @@ def handle_prompt(rid, params):
     if text.startswith("cap-fail-once:") and sid not in failed_once:
         failed_once.add(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (127.0.0.1:4016). (error type server_error, HTTP 503)"}})
+        return
+    # "cap-fail-three: X" keeps the SR2 capacity error across the first three
+    # turns.  The fourth prompt succeeds so liveness tests can verify that a
+    # successful turn clears a session's stuck state.
+    if (text.startswith("cap-fail-three:") or sid in cap_failures) and cap_failures.get(sid, 0) < 3:
+        cap_failures[sid] = cap_failures.get(sid, 0) + 1
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://user:secret@example.invalid/inference. (error type server_error, HTTP 503)"}})
         return
     if text.startswith("net-down"):
         net_down.add(sid)
@@ -903,6 +914,20 @@ def handle_prompt(rid, params):
             update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
         update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Reconnecting... 1", "willRetry": True, "additionalDetails": "stream disconnected"}}}})
         update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m2", "content": {"type": "text", "text": "partial answer"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text == "orchestration-fields":
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": [
+            {"id": "reasoning_effort", "name": "Reasoning", "type": "select", "category": "thought_level",
+             "currentValue": "high", "options": [{"value": "high", "name": "High"}]}]})
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "orch-child",
+                     "model": "gpt-6", "effort": "high", "name": "Review"})
+        update("orch-child", {"sessionUpdate": "agent_message_chunk", "messageId": "first",
+                             "content": {"type": "text", "text": "old answer"}})
+        update("orch-child", {"sessionUpdate": "agent_message_chunk", "messageId": "last",
+                             "content": {"type": "text", "text": "é" * 300}})
+        update("orch-child", {"sessionUpdate": "usage_update", "used": 1234, "size": 200000})
+        update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "orch-child", "state": "completed"})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "codex-subagents" starts two subagents as codex-acp 1.10.0 does: with native

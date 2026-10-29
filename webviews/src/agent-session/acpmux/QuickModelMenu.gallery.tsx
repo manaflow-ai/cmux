@@ -19,6 +19,7 @@ type Props = {
   inlineEffort?: boolean;
   anchorTop?: boolean;
   anchorMiddle?: boolean;
+  routeLayout?: QuickMenu["routeLayout"];
 };
 
 const models = (family: string, names: string[]) =>
@@ -66,7 +67,10 @@ const families: QuickFamily[] = [
 
 const extras: Pick<QuickMenu, "effort" | "fast"> = {
   effort: {
-    levels: ["low", "medium", "high", "xhigh", "max"].map((id) => ({ id, name: id[0]!.toUpperCase() + id.slice(1) })),
+    levels: ["low", "medium", "high", "xhigh", "max"].map((id) => ({
+      id,
+      name: id[0]!.toUpperCase() + id.slice(1),
+    })),
     current: "high",
     onPick: () => undefined,
   },
@@ -100,6 +104,7 @@ export default componentEntry<Props>({
           placement = "left",
           stress,
           inlineEffort = false,
+          routeLayout,
         }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
@@ -124,7 +129,10 @@ export default componentEntry<Props>({
           return (
             <OnNewTab.Provider value={!chat}>
               <div
-                style={{ padding: 16, paddingTop: anchorMiddle ? 280 : chat && !anchorTop ? 400 : 16 }}
+                style={{
+                  padding: 16,
+                  paddingTop: anchorMiddle ? 280 : chat && !anchorTop ? 400 : 16,
+                }}
                 data-expand={expand ? "" : undefined}
                 data-selection={selection}
               >
@@ -143,6 +151,7 @@ export default componentEntry<Props>({
                       : {}),
                     inlineEffort,
                     harnessPlacement: placement,
+                    routeLayout,
                     search: {
                       find: (query) =>
                         list
@@ -155,8 +164,13 @@ export default componentEntry<Props>({
                       accounts: {
                         list: async () => ({
                           accounts: [
-                            { id: "subscription", name: "Claude subscription", kind: "direct-subscription" },
+                            {
+                              id: "subscription",
+                              name: "Claude subscription",
+                              kind: "direct-subscription",
+                            },
                             { id: "api", name: "API key", kind: "direct-api-key" },
+                            { id: "cmux", name: "Cmux", kind: "cmux-router" },
                           ],
                           active: "subscription",
                         }),
@@ -183,6 +197,23 @@ export default componentEntry<Props>({
         },
     ),
   variants: {
+    "provider-submenu": {
+      props: { chat: true, routeLayout: "submenu" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.press("Enter");
+      },
+    },
+    "provider-inline": { props: { chat: true, routeLayout: "inline" }, play: open },
+    "provider-grouped": {
+      props: { chat: true, routeLayout: "grouped" },
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.press("Enter");
+      },
+    },
     "roomy-more-models": {
       height: 1000,
       props: { tab: "opencode" },

@@ -156,7 +156,8 @@ impl Mux {
             if state.workspace_by_key(&key).is_some() {
                 anyhow::bail!("workspace key already exists: {key}");
             }
-            let name_source = crate::resource_name::NameSource::for_requested(name.is_some());
+            let name_source =
+                crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
             let name = name.unwrap_or_else(|| self.default_workspace_name(&state));
             let index = state.workspaces.len();
             let selection_resync = !state.workspaces.is_empty();
