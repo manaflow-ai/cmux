@@ -122,6 +122,10 @@ pub(super) enum Step {
     NoRetry,
     /// A failed turn's automatic continuation is scheduled (`auto_resume_scheduled`).
     RetryScheduled,
+    /// A retry restored after a daemon restart, before the reporter has seen its
+    /// original failed turn. Carries the named hand-off turn and failure summary
+    /// so terminal skip/stop events can close the hand-off after reporter restart.
+    RetryRestored { turn: u64, why: String },
     /// The session was closed.
     Closed,
     /// A closed session was opened again.
@@ -156,7 +160,16 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
         | "auto_resume_exhausted"
         | "auto_resume_skipped"
         | "auto_resume_stopped" => Some(Step::NoRetry),
-        "auto_resume_scheduled" | "auto_resume_restored" => Some(Step::RetryScheduled),
+        "auto_resume_scheduled" => Some(Step::RetryScheduled),
+        "auto_resume_restored" => {
+            let turn = named_turn(msg["promptId"].as_str())?;
+            let why = match msg["reason"].as_str().unwrap_or("transport") {
+                "capacity" => "The provider had no capacity.".to_owned(),
+                "agent_exited" => "The agent exited before finishing.".to_owned(),
+                _ => "The connection was interrupted.".to_owned(),
+            };
+            Some(Step::RetryRestored { turn, why })
+        }
         "permission_request" => Some(Step::Asks(ask_text(&msg["request"]))),
         "reopened" => Some(Step::Reopened),
         "status" => match msg["status"].as_str()? {
@@ -421,6 +434,14 @@ impl<I: Io> Reporter<I> {
             }
             (Step::NoRetry, Now::Retrying { turn, .. }) => self.give_up_retry(session, turn).await,
             (Step::RetryScheduled, Now::Retrying { turn, why, .. }) => {
+                let until = queued + RETRY_WAIT_MAX;
+                self.set_now(session, Now::Retrying { turn, why, until });
+            }
+            (Step::RetryRestored { turn, why }, Now::Quiet) => {
+                let until = queued + RETRY_WAIT_MAX;
+                self.set_now(session, Now::Retrying { turn, why, until });
+            }
+            (Step::RetryRestored { turn, why }, Now::Retrying { .. }) => {
                 let until = queued + RETRY_WAIT_MAX;
                 self.set_now(session, Now::Retrying { turn, why, until });
             }

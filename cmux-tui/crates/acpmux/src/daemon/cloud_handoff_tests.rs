@@ -99,6 +99,10 @@ fn records_map_to_steps() {
         step_of("turn_started", &json!({"prompt": "hi", "promptId": "p1"})),
         Some(Step::Began(None))
     );
+    assert_eq!(
+        step_of("auto_resume_restored", &json!({"promptId": "handoff-9-a", "reason": "transport"})),
+        Some(Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() })
+    );
     assert_eq!(step_of("reopened", &json!({})), Some(Step::Reopened));
     let bash = json!({"request": {"toolCall": {"title": "Run npm install", "kind": "execute"}}});
     assert_eq!(
@@ -189,6 +193,23 @@ async fn a_turn_reports_running_needs_you_running_and_done() {
             s(1, "done", Some("Fixed the flaky test. It was a race.")),
         ]
     );
+}
+
+/// A reporter can restart after the failed turn and observe only the durable restored
+/// marker. It must still retain the hand-off turn so a subsequent skip/stop closes it.
+#[tokio::test(start_paused = true)]
+async fn a_restored_retry_rehydrates_quiet_tracking_for_terminal_skip() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "failed")]);
+    r.step(
+        S,
+        Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() },
+    )
+    .await;
+    assert!(r.holds(S, Some(9)));
+    r.step(S, Step::NoRetry).await;
+    assert_eq!(fake.take(), [s(9, "failed", Some("The connection was interrupted."))]);
+    assert!(!r.holds(S, Some(9)));
 }
 
 /// Each turn reports on the turn its prompt names, never one learned from an earlier answer.
