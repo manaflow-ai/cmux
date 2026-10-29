@@ -58,8 +58,12 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// A permission request that maps to a question (AskUserQuestion, Codex user input).
     case question(AgentQuestion)
     /// `permission_decision`: the prompt was resolved (here or by another client).
-    case permissionDecision(permissionId: String, optionId: String?)
+    /// `answers`: a question's answers as the owner recorded them (harness-shaped).
+    case permissionDecision(permissionId: String, optionId: String?, answers: AgentQuestionJSON? = nil)
     case questionAnswered(questionId: String, answer: AgentQuestionAnswer)
+    /// The history a chat opened on leaves out older records (the attach's cap): its first
+    /// turn is not where the session started.
+    case earlierHistory(Bool)
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
     /// Whether this phone's Full-access setting on the Mac covers it (acpmux `initialize`
@@ -82,7 +86,7 @@ public enum AgentSessionEvent: Hashable, Sendable {
 }
 
 /// A person's action in the chat, encoded by the source into acpmux calls:
-/// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model`,
+/// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model` (and Retry with another model),
 /// `session/set_mode`, `session/set_config_option`, `_acpmux/queue_remove`, `_acpmux/queue_edit`.
 public enum AgentClientIntent: Hashable, Sendable {
     /// `promptID`: `_meta.acpmux.promptId`, which acpmux runs once; `resend`: the same prompt
@@ -93,6 +97,9 @@ public enum AgentClientIntent: Hashable, Sendable {
     case respondPermission(permissionId: String, optionId: String?)
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
     case setModel(String)
+    /// Retry with another model (the Mac's turn menu, cx-ncc.62): `session/set_model`, then
+    /// the prompt again under `promptID`. A refused model sends nothing (the chat says why).
+    case retryWithModel(model: String, text: String, promptID: String)
     case setMode(String)
     case setConfigOption(id: String, value: String)
     case removeQueued(promptId: String)

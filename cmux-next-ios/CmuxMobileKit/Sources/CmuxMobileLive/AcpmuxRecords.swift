@@ -89,7 +89,9 @@ struct AcpmuxRecords {
             guard let permissionID = msg["permissionId"]?.stringValue else { return [] }
             let outcome = msg["outcome"]
             let optionID = outcome?["outcome"]?.stringValue == "selected" ? outcome?["optionId"]?.stringValue : nil
-            return [.permissionDecision(permissionId: permissionID, optionId: optionID)]
+            // A question's answers, as acpmux put them into the tool's input.
+            let answers = outcome?["_meta"]?["updatedInput"]?["answers"].flatMap { try? Self.convert($0, to: AgentQuestionJSON.self) }
+            return [.permissionDecision(permissionId: permissionID, optionId: optionID, answers: answers)]
         default:
             return []
         }
@@ -121,6 +123,8 @@ public struct AcpmuxSession: Hashable, Sendable {
     public var name: String
     public var harness: String
     public var cwd: String
+    /// `peer`: the acpmux peer (another machine) the session runs on; nil for this Mac's own.
+    public var peer: String?
     public var status: String
     public var indicator: String?
     public var preview: String?
@@ -142,6 +146,7 @@ public struct AcpmuxSession: Hashable, Sendable {
         name = value["name"]?.stringValue ?? ""
         harness = value["harness"]?.stringValue ?? "agent"
         cwd = value["cwd"]?.stringValue ?? ""
+        peer = value["peer"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         status = value["status"]?.stringValue ?? "idle"
         indicator = value["indicator"]?.stringValue
         preview = value["preview"]?.stringValue
