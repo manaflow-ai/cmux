@@ -209,7 +209,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
 
     /// The selected agent page's model, for native controls owned by the page.
-    var agentPaneModel: AgentPaneModel? { (visibleContent as? AgentPaneView)?.model }
+    var displayedAgentPaneView: AgentPaneView? { visibleContent as? AgentPaneView }
+    var agentPaneModel: AgentPaneModel? { displayedAgentPaneView?.model }
 
     var paneFramesContent: Bool { !(visibleContent is AgentPaneView) }
 
