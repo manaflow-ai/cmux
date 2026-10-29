@@ -47,6 +47,7 @@ impl Hub {
             return;
         }
         let (mut retry, mut from) = (None::<RetrySummary>, None::<String>);
+        let mut has_retry_marker = false;
         let (mut control, mut trust_gate) = (Control::Web, true);
         let (mut ended, mut floor_cancelled) = (false, false);
         let kinds = [
@@ -82,13 +83,18 @@ impl Hub {
                 "remote_control_restored" => ended = false,
                 "remote_floor_cancel" if is_cut => floor_cancelled = true,
                 "auto_resume_scheduled" if is_cut => {
+                    has_retry_marker = true;
                     // daemon_restart records are queued continuations, not waiting retries.
                     retry = serde_json::from_value(e.msg).ok();
                 }
-                "auto_resume_stopped" => retry = None,
+                "auto_resume_stopped" => {
+                    has_retry_marker = true;
+                    retry = None
+                }
                 "auto_resume_skipped" | "auto_resume_settled" | "auto_resume_exhausted"
                     if is_cut =>
                 {
+                    has_retry_marker = true;
                     retry = None
                 }
                 _ => {}
@@ -98,7 +104,7 @@ impl Hub {
         // `turn_result` is durable before the asynchronous scheduler runs. If restart cuts
         // that small window, synthesize its first retry now instead of losing the transient
         // failure forever.
-        if retry.is_none() && last.msg["status"] == "failed" {
+        if retry.is_none() && !has_retry_marker && last.msg["status"] == "failed" {
             if let Some(reason) = super::super::turn_errors::resume_cause(&error, &error)
                 .and_then(RetryReason::from_cause)
             {
