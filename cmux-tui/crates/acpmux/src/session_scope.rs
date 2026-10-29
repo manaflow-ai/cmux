@@ -19,9 +19,11 @@
 //!
 //! The per-session limits come from the profile's env, then the daemon's:
 //! `ACPMUX_SESSION_MEMORY_MB` (default half the machine's memory),
+//! `ACPMUX_SESSION_SWAP_MB` (default one quarter of the machine's swap),
 //! `ACPMUX_SESSION_MEMORY_HIGH_MB` (default nine tenths of that),
 //! `ACPMUX_SESSION_TASKS_MAX` (default 4096) and `ACPMUX_SESSION_CPU_WEIGHT`
-//! (default 50; systemd's own is 100). 0 turns one off. Where `systemd-run` is
+//! (default 50; systemd's own is 100). 0 turns one off. The sessions slice
+//! uses `ACPMUX_SESSIONS_SWAP_MAX` (default 75% of the machine's swap). Where `systemd-run` is
 //! missing or cannot make a scope (no user manager, as in a container), the
 //! harness starts as before; that answer is asked once per `systemd-run` and
 //! limits. macOS gets the process-group half of the valve on the holder track
@@ -45,7 +47,8 @@ pub(crate) fn command(
     if remote {
         return Command::new(program);
     }
-    match session.and_then(|id| prefix(id, env)) {
+    let limits = daemon_limits();
+    match session.and_then(|id| prefix(id, env, limits)) {
         Some(prefix) => {
             let mut cmd = Command::new(&prefix[0]);
             cmd.args(&prefix[1..]).arg(program);
@@ -56,14 +59,23 @@ pub(crate) fn command(
 }
 
 #[cfg(not(target_os = "linux"))]
-fn prefix(_session: &str, _env: &BTreeMap<String, String>) -> Option<Vec<String>> {
+fn prefix(
+    _session: &str,
+    _env: &BTreeMap<String, String>,
+    _limits: SessionLimits,
+) -> Option<Vec<String>> {
     None
 }
 
 /// `systemd-run … --` for the session's scope, when it can make one.
 #[cfg(target_os = "linux")]
-fn prefix(session: &str, env: &BTreeMap<String, String>) -> Option<Vec<String>> {
-    let properties = properties(&knob_reader(env), physical_memory());
+fn prefix(
+    session: &str,
+    env: &BTreeMap<String, String>,
+    limits: SessionLimits,
+) -> Option<Vec<String>> {
+    let properties =
+        properties_with_swap(&knob_reader(env, limits), physical_memory(), swap_memory());
     if properties.is_empty() {
         return None;
     }
@@ -73,7 +85,10 @@ fn prefix(session: &str, env: &BTreeMap<String, String>) -> Option<Vec<String>> 
     // refuses the property, and its scopes already continue.
     let mut continued = properties.clone();
     continued.extend(["-p".to_owned(), "OOMPolicy=continue".to_owned()]);
-    let properties = [continued, properties]
+    let without_swap = without_swap(&properties);
+    let mut continued_without_swap = without_swap.clone();
+    continued_without_swap.extend(["-p".to_owned(), "OOMPolicy=continue".to_owned()]);
+    let properties = [continued, properties.clone(), continued_without_swap, without_swap]
         .into_iter()
         .find(|properties| can_scope(&runner, properties, env))?;
     let description = format!("acpmux session {session}");
@@ -83,6 +98,29 @@ fn prefix(session: &str, env: &BTreeMap<String, String>) -> Option<Vec<String>> 
 /// The slice every session scope joins. Dash-free: systemd reads dashes in a
 /// slice name as nesting (`agent_host/scope.rs` `HOST_SLICE` likewise).
 pub(crate) const SESSIONS_SLICE: &str = "acpmuxsessions.slice";
+
+/// The daemon's `systemd-run`, when one is installed and executable. This is
+/// shared with the daemon launcher so it follows the same PATH rules as a
+/// harness scope.
+#[cfg(target_os = "linux")]
+pub(crate) fn scope_runner() -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    ["/usr/bin/systemd-run", "/bin/systemd-run"]
+        .into_iter()
+        .map(std::path::PathBuf::from)
+        .find(|path| {
+            std::fs::metadata(path)
+                .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        })
+        .or_else(|| runner(&BTreeMap::new()))
+}
+
+/// Whether a user manager can create an unscoped transient scope. This probe
+/// has no properties and therefore does not alter the sessions slice.
+#[cfg(target_os = "linux")]
+pub(crate) fn can_make_scope(runner: &std::path::Path) -> bool {
+    probe(runner, &[], &BTreeMap::new())
+}
 
 /// `runner --user --scope … --` with `properties`, in `slice` when given.
 fn scope_argv(
@@ -105,9 +143,41 @@ fn scope_argv(
     argv
 }
 
-/// A knob's value: the profile's env, then the daemon's.
-fn knob_reader(env: &BTreeMap<String, String>) -> impl Fn(&str) -> Option<String> + '_ {
-    |key| env.get(key).cloned().or_else(|| std::env::var(key).ok())
+/// Host-wide values loaded from the daemon config.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct SessionLimits {
+    pub memory_mb: Option<u64>,
+    pub swap_mb: Option<u64>,
+}
+
+fn daemon_limits() -> SessionLimits {
+    #[cfg(not(target_os = "linux"))]
+    return SessionLimits::default();
+    #[cfg(target_os = "linux")]
+    crate::config::Config::load().map_or_else(|_| SessionLimits::default(), |config| {
+        session_limits_from_config(&config)
+    })
+}
+
+fn session_limits_from_config(config: &crate::config::Config) -> SessionLimits {
+    SessionLimits { memory_mb: config.session.memory_mb, swap_mb: config.session.swap_mb }
+}
+
+/// A knob's value: the profile's env, then daemon config, then daemon env.
+fn knob_reader(
+    env: &BTreeMap<String, String>,
+    limits: SessionLimits,
+) -> impl Fn(&str) -> Option<String> + '_ {
+    move |key| {
+        env.get(key)
+            .cloned()
+            .or_else(|| match key {
+                "ACPMUX_SESSION_MEMORY_MB" => limits.memory_mb.map(|n| n.to_string()),
+                "ACPMUX_SESSION_SWAP_MB" => limits.swap_mb.map(|n| n.to_string()),
+                _ => None,
+            })
+            .or_else(|| std::env::var(key).ok())
+    }
 }
 
 /// The default `TasksMax` of a session scope: processes and threads
@@ -124,21 +194,33 @@ pub(crate) fn tasks_max(get: &dyn Fn(&str) -> Option<String>) -> Option<u64> {
     (n > 0).then_some(n)
 }
 
-/// `-p` pairs for the scope's limits on a machine with `memory` bytes;
-/// empty when every one is off.
+/// `-p` pairs for the scope's limits on a machine with `memory` and `swap`
+/// bytes; empty when every one is off. The two argument form is kept for
+/// deterministic tests and callers that do not know the host's swap.
+#[cfg(test)]
 fn properties(get: &dyn Fn(&str) -> Option<String>, memory: u64) -> Vec<String> {
+    properties_with_swap(get, memory, 0)
+}
+
+fn properties_with_swap(
+    get: &dyn Fn(&str) -> Option<String>,
+    memory: u64,
+    swap: u64,
+) -> Vec<String> {
     let knob = |key: &str| get(key).and_then(|v| v.trim().parse::<u64>().ok());
     let mb = |n: u64| n.saturating_mul(1024 * 1024);
     let max = knob("ACPMUX_SESSION_MEMORY_MB").map_or(memory / 2, mb);
     // Throttled (reclaim, slower allocation) a little before it is killed.
     let high = knob("ACPMUX_SESSION_MEMORY_HIGH_MB").map_or(max / 10 * 9, mb);
     let high = if max > 0 { high.min(max) } else { high };
+    let swap_max = knob("ACPMUX_SESSION_SWAP_MB").map_or(swap / 4, mb);
     let weight = knob("ACPMUX_SESSION_CPU_WEIGHT").unwrap_or(50).min(10_000);
     let tasks = tasks_max(get);
     let on = |value: u64| (value > 0).then(|| value.to_string());
     let limits = [
         ("MemoryMax", on(max)),
         ("MemoryHigh", on(high)),
+        ("MemorySwapMax", on(swap_max)),
         ("TasksMax", tasks.map(|n| n.to_string())),
         ("CPUWeight", on(weight)),
     ];
@@ -159,8 +241,17 @@ fn properties(get: &dyn Fn(&str) -> Option<String>, memory: u64) -> Vec<String> 
     out
 }
 
+fn without_swap(properties: &[String]) -> Vec<String> {
+    properties
+        .chunks_exact(2)
+        .filter(|pair| !pair[1].starts_with("MemorySwapMax="))
+        .flat_map(|pair| pair.iter().cloned())
+        .collect()
+}
+
 /// What [`SESSIONS_SLICE`] caps for all sessions together, on a machine
-/// with `memory` bytes, from the daemon's env: `ACPMUX_SESSIONS_MEMORY_MAX`
+/// with `memory` bytes, from the profile's env, then the daemon's:
+/// `ACPMUX_SESSIONS_MEMORY_MAX`
 /// (default 85% of the memory), `ACPMUX_SESSIONS_MEMORY_HIGH` (default 80%)
 /// and `ACPMUX_SESSIONS_TASKS_MAX` (default 16384). A memory value is bytes,
 /// optionally with `K`/`M`/`G`/`T` (powers of 1024) or `%` (1 to 100), a
@@ -169,17 +260,26 @@ fn properties(get: &dyn Fn(&str) -> Option<String>, memory: u64) -> Vec<String> 
 /// default. Values are absolute (bytes, counts), as `systemctl show` prints
 /// them, so a slice already set is never written again ([`slice_changes`]).
 /// A percentage on a machine of unknown memory leaves that property as it is.
+#[cfg(test)]
 fn slice_settings(
     get: &dyn Fn(&str) -> Option<String>,
     memory: u64,
 ) -> Vec<(&'static str, String)> {
-    let bytes = |v: &str| -> Option<String> {
+    slice_settings_with_swap(get, memory, 0)
+}
+
+fn slice_settings_with_swap(
+    get: &dyn Fn(&str) -> Option<String>,
+    memory: u64,
+    swap_bytes: u64,
+) -> Vec<(&'static str, String)> {
+    let size = |total: u64, v: &str| -> Option<String> {
         if v == "infinity" || v == "0" {
             return Some("infinity".to_owned());
         }
         if let Some(pct) = v.strip_suffix('%') {
             let pct = pct.parse::<u64>().ok().filter(|p| (1..=100).contains(p))?;
-            return (memory > 0).then(|| (u128::from(memory) * u128::from(pct) / 100).to_string());
+            return (total > 0).then(|| (u128::from(total) * u128::from(pct) / 100).to_string());
         }
         let (digits, unit) = match v.strip_suffix(['K', 'M', 'G', 'T']) {
             Some(digits) => (digits, 1u64 << (10 * (1 + "KMGT".find(v.chars().last()?)?))),
@@ -188,6 +288,7 @@ fn slice_settings(
         let n = digits.parse::<u64>().ok().filter(|n| *n > 0)?.checked_mul(unit)?;
         Some(n.to_string())
     };
+    let bytes = |v: &str| size(memory, v);
     let count = |v: &str| -> Option<String> {
         if v == "infinity" || v == "0" {
             return Some("infinity".to_owned());
@@ -206,6 +307,10 @@ fn slice_settings(
     }
     if let Some(v) = pick("ACPMUX_SESSIONS_TASKS_MAX", &count, "16384") {
         out.push(("TasksMax", v));
+    }
+    let swap_value = |v: &str| size(swap_bytes, v);
+    if let Some(v) = pick("ACPMUX_SESSIONS_SWAP_MAX", &swap_value, "75%") {
+        out.push(("MemorySwapMax", v));
     }
     out
 }
@@ -247,18 +352,32 @@ fn can_scope(
 ) -> bool {
     use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
-    type Answers = Mutex<BTreeMap<(std::path::PathBuf, Vec<String>), (bool, Instant)>>;
+    type Answers = Mutex<
+        BTreeMap<(std::path::PathBuf, Vec<String>, Vec<(String, Option<String>)>), (bool, Instant)>,
+    >;
     static ANSWERS: OnceLock<Answers> = OnceLock::new();
     let answers = ANSWERS.get_or_init(Default::default);
-    let key = (runner.to_path_buf(), properties.to_vec());
-    if let Some((known, at)) = answers.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
-        && at.elapsed() < ANSWER_TTL
-    {
-        return *known;
-    }
+    let slice_key = [
+        "ACPMUX_SESSIONS_MEMORY_MAX",
+        "ACPMUX_SESSIONS_MEMORY_HIGH",
+        "ACPMUX_SESSIONS_TASKS_MAX",
+        "ACPMUX_SESSIONS_SWAP_MAX",
+    ]
+    .into_iter()
+    .map(|name| (name.to_owned(), env.get(name).cloned().or_else(|| std::env::var(name).ok())))
+    .collect();
+    let key = (runner.to_path_buf(), properties.to_vec(), slice_key);
+    let cached = answers
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&key)
+        .filter(|(_, at)| at.elapsed() < ANSWER_TTL)
+        .map(|(known, _)| *known);
     let probe = || {
-        let ok = probe(runner, properties, env);
+        let ok = cached.unwrap_or_else(|| probe(runner, properties, env));
         if ok {
+            // The capability is cached; the shared slice's current settings
+            // are not. Another profile may have changed them since our probe.
             limit_sessions_slice(runner, env);
         }
         ok
@@ -266,7 +385,9 @@ fn can_scope(
     let multi_thread = tokio::runtime::Handle::try_current()
         .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
     let ok = if multi_thread { tokio::task::block_in_place(probe) } else { probe() };
-    answers.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (ok, Instant::now()));
+    if cached.is_none() {
+        answers.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (ok, Instant::now()));
+    }
     ok
 }
 
@@ -276,7 +397,11 @@ fn can_scope(
 /// failure is logged, and each session still has its own scope's limits.
 #[cfg(target_os = "linux")]
 fn limit_sessions_slice(runner: &std::path::Path, env: &BTreeMap<String, String>) {
-    let wanted = slice_settings(&|key| std::env::var(key).ok(), physical_memory());
+    let wanted = slice_settings_with_swap(
+        &|key| env.get(key).cloned().or_else(|| std::env::var(key).ok()),
+        physical_memory(),
+        swap_memory(),
+    );
     let systemctl = runner.with_file_name("systemctl");
     if !systemctl.is_file() {
         tracing::warn!(
@@ -332,9 +457,25 @@ fn limit_slice(
     let mut set: Vec<String> =
         ["--user", "set-property", "--runtime", slice].into_iter().map(str::to_owned).collect();
     set.extend(changes.iter().cloned());
-    run_bounded(systemctl, &set, env, false)
-        .ok_or_else(|| format!("systemctl {} failed", set.join(" ")))?;
-    Ok(changes.len())
+    if run_bounded(systemctl, &set, env, false).is_some() {
+        return Ok(changes.len());
+    }
+    // MemorySwapMax was added after the other cgroup properties. An older
+    // systemd can still apply the memory and task limits, so retry without
+    // the unsupported property instead of dropping the whole slice update.
+    let without_swap: Vec<String> =
+        changes.iter().filter(|change| !change.starts_with("MemorySwapMax=")).cloned().collect();
+    if without_swap.len() < changes.len() {
+        let mut retry = ["--user", "set-property", "--runtime", slice]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        retry.extend(without_swap.iter().cloned());
+        if without_swap.is_empty() || run_bounded(systemctl, &retry, env, false).is_some() {
+            return Ok(without_swap.len());
+        }
+    }
+    Err(format!("systemctl {} failed", set.join(" ")))
 }
 
 /// How long a probe's answer holds.
@@ -434,6 +575,23 @@ fn physical_memory() -> u64 {
     u64::try_from(pages).unwrap_or(0).saturating_mul(u64::try_from(size).unwrap_or(0))
 }
 
+/// The machine's total swap in bytes. A missing or unreadable `/proc` entry
+/// means swap limits stay off, just like an unknown physical memory size.
+#[cfg(target_os = "linux")]
+fn swap_memory() -> u64 {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|text| {
+            text.lines().find_map(|line| {
+                let (key, value) = line.split_once(':')?;
+                (key == "SwapTotal")
+                    .then(|| value.split_whitespace().next()?.parse::<u64>().ok())?
+            })
+        })
+        .unwrap_or(0)
+        .saturating_mul(1024)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,6 +623,60 @@ mod tests {
                 "-p MemoryMax={half} -p MemoryHigh={} -p TasksMax=4096 -p CPUWeight=50",
                 half / 10 * 9
             )
+        );
+    }
+
+    #[test]
+    fn a_session_gets_a_fraction_of_swap_and_can_override_or_disable_it() {
+        let props = properties_with_swap(&from(&[]), 8 * GIB, 4 * GIB);
+        assert!(joined(&props).contains(&format!("-p MemorySwapMax={}", GIB)));
+        let explicit = from(&[("ACPMUX_SESSION_SWAP_MB", "512")]);
+        assert!(
+            joined(&properties_with_swap(&explicit, 0, 4 * GIB))
+                .contains("-p MemorySwapMax=536870912")
+        );
+        let off = from(&[("ACPMUX_SESSION_SWAP_MB", "0")]);
+        assert!(!joined(&properties_with_swap(&off, 0, 4 * GIB)).contains("MemorySwapMax"));
+    }
+
+    #[test]
+    fn profile_env_wins_over_daemon_config_then_daemon_env() {
+        let config = SessionLimits { memory_mb: Some(6144), swap_mb: Some(2048) };
+        let profile =
+            BTreeMap::from([(String::from("ACPMUX_SESSION_MEMORY_MB"), String::from("4096"))]);
+        let get = knob_reader(&profile, config);
+        let props = properties_with_swap(&get, 32 * GIB, 8 * GIB);
+        assert!(joined(&props).contains("MemoryMax=4294967296"));
+        assert!(joined(&props).contains("MemorySwapMax=2147483648"));
+    }
+
+    #[test]
+    fn cli_session_budget_reaches_a_new_scope() {
+        let mut config = crate::config::Config::default();
+        config.set_session_resource("session.memory_mb", "6144").unwrap();
+        config.set_session_resource("session.swap_mb", "2048").unwrap();
+        let profile = BTreeMap::new();
+        let get = knob_reader(&profile, session_limits_from_config(&config));
+        let props = properties_with_swap(&get, 32 * GIB, 8 * GIB);
+        assert!(joined(&props).contains("MemoryMax=6442450944"));
+        assert!(joined(&props).contains("MemorySwapMax=2147483648"));
+    }
+
+    #[test]
+    fn the_sessions_slice_gets_a_larger_fraction_of_swap() {
+        let got = slice_settings_with_swap(&from(&[]), 8 * GIB, 4 * GIB);
+        assert!(
+            got.iter()
+                .any(|(key, value)| *key == "MemorySwapMax" && value == &(3 * GIB).to_string())
+        );
+        let off = slice_settings_with_swap(&from(&[("ACPMUX_SESSIONS_SWAP_MAX", "0")]), 0, 4 * GIB);
+        assert!(off.iter().any(|(key, value)| *key == "MemorySwapMax" && value == "infinity"));
+        let sized =
+            slice_settings_with_swap(&from(&[("ACPMUX_SESSIONS_SWAP_MAX", "4G")]), 0, 8 * GIB);
+        assert!(
+            sized
+                .iter()
+                .any(|(key, value)| *key == "MemorySwapMax" && value == &(4 * GIB).to_string())
         );
     }
 
@@ -681,5 +893,33 @@ mod tests {
         assert_eq!(tasks_max(&from(&[])), Some(SESSION_TASKS_MAX));
         assert_eq!(tasks_max(&from(&[("ACPMUX_SESSION_TASKS_MAX", "8192")])), Some(8192));
         assert_eq!(tasks_max(&from(&[("ACPMUX_SESSION_TASKS_MAX", "0")])), None);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn cached_scope_capability_still_reconciles_shared_slice_limits() {
+        let _serial = SLICE_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let root = tempfile::tempdir().unwrap();
+        let runner = root.path().join("systemd-run");
+        let log = root.path().join("slice.log");
+        crate::test_exec::write_executable(&runner, "#!/bin/sh\nexit 0\n");
+        crate::test_exec::write_executable(
+            &root.path().join("systemctl"),
+            "#!/bin/sh\necho \"$*\" >> \"$FAKE_SCOPE_LOG\"\n",
+        );
+        let mut env = BTreeMap::from([
+            ("FAKE_SCOPE_LOG".to_owned(), log.to_string_lossy().into_owned()),
+            ("ACPMUX_SESSIONS_SWAP_MAX".to_owned(), "1M".to_owned()),
+        ]);
+        assert!(can_scope(&runner, &[], &env));
+        env.insert("ACPMUX_SESSIONS_SWAP_MAX".to_owned(), "0".to_owned());
+        assert!(can_scope(&runner, &[], &env));
+        env.insert("ACPMUX_SESSIONS_SWAP_MAX".to_owned(), "1M".to_owned());
+        assert!(can_scope(&runner, &[], &env));
+        let calls = std::fs::read_to_string(log).unwrap();
+        let sets: Vec<_> = calls.lines().filter(|line| line.contains("set-property")).collect();
+        assert_eq!(sets.len(), 3, "a cache hit must still reconcile: {calls}");
+        assert!(sets[1].ends_with("MemorySwapMax=infinity"));
+        assert!(sets[2].ends_with("MemorySwapMax=1048576"));
     }
 }
