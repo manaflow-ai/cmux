@@ -102,7 +102,14 @@ public final class PlaceholderTerminalTabContent: TerminalTabContent {
     func retry(_ workspace: Workspace) async { await reload?(workspace) }
 
     public func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
-        AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets, retry: reload.map { _ in { await self.retry(workspace) } }))
+        var retryAction: (@MainActor () async -> Void)?
+        if reload != nil {
+            retryAction = { [weak self] in
+                guard let self else { return }
+                await self.retry(workspace)
+            }
+        }
+        return AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets, retry: retryAction))
     }
 
     public func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
