@@ -881,7 +881,7 @@ fn frame_dispatch_bench_ops_equal_as_lines_and_frames() {
         assert_eq!(framed["id"], line["id"], "{name}");
         assert_eq!(framed["error"], line["error"], "{name}: line {line}, frame {framed}");
         assert_eq!(shape(&framed), shape(&line), "{name}: line {line}, frame {framed}");
-        if matches!(name.as_str(), "ping" | "list-workspaces") {
+        if matches!(name, "ping" | "list-workspaces") {
             assert_eq!(framed, line, "{name}");
         }
     }
