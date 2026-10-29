@@ -28,6 +28,10 @@ export type DisclosureRowProps = {
   actions?: ReactNode;
   /// The row's own class, next to `cv-disclosure`.
   className?: string;
+  /// The open button's tooltip and accessible name, when it says more than `openLabel`.
+  openTitle?: string;
+  /// Whether opening fades the panel in (default: yes); false moves its height alone.
+  fadeIn?: boolean;
 };
 
 export function DisclosureRow({
@@ -45,8 +49,10 @@ export function DisclosureRow({
   toggleLabel,
   actions,
   className,
+  openTitle,
+  fadeIn,
 }: DisclosureRowProps) {
-  const collapse = useAnchoredCollapse({ defaultOpen, open, onOpenChange, animates });
+  const collapse = useAnchoredCollapse({ defaultOpen, open, onOpenChange, animates, fadeIn });
   const bodyId = useId();
   return (
     <div className={className ? `cv-disclosure ${className}` : "cv-disclosure"} data-open={collapse.open || undefined}>
@@ -69,7 +75,13 @@ export function DisclosureRow({
           <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />
         </button>
         {onOpen && (
-          <button type="button" className="cv-disclosure__open" onClick={onOpen}>
+          <button
+            type="button"
+            className="cv-disclosure__open"
+            title={openTitle}
+            aria-label={openTitle}
+            onClick={onOpen}
+          >
             {openLabel}
           </button>
         )}

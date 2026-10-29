@@ -130,6 +130,10 @@ export function IncomingMessageLine({
   const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
   const preview = useMemo(() => messagePreview(body), [body]);
+  // "Open chief-ui (huge-blue)": the chat Open chat opens, and the other machine it runs on.
+  const openTitle = sender.host
+    ? t("subagents.openOnHost", { name: message.name, host: sender.host })
+    : t("subagents.open", { name: message.name });
   // A sub-session family's sender says who it is to this chat.
   const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
@@ -188,6 +192,9 @@ export function IncomingMessageLine({
       }
       onOpen={sessionId ? () => onOpen(sessionId) : undefined}
       openLabel={sessionId ? t("subsession.openChat") : undefined}
+      openTitle={sessionId ? openTitle : undefined}
+      // It opens at once, its height alone moving, as the message's card always did; closing fades.
+      fadeIn={false}
       actions={
         <>
           {replies && !editing && (
