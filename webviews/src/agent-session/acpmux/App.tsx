@@ -416,9 +416,11 @@ import { AcpmuxRestartGate, hostIsReconnecting, offersAcpmuxRestart } from "./ho
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { AgentRunCard } from "./subagents/AgentRunCard";
+import { SubagentEmptyRow } from "./subagents/SubagentEmptyRow";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
   SUBAGENT_DONE,
+  SUBAGENT_EMPTY,
   SUBAGENT_OF,
   SUBAGENT_ROW,
   WORKFLOW_CARD,
@@ -1476,6 +1478,7 @@ const defaultRegistry: NativeRegistry = {
   [SUBAGENT_ROW]: SubagentRow,
   [SUBAGENT_DONE]: SubagentDoneRow,
   [SUBAGENT_OF]: SubagentOfPillRow,
+  [SUBAGENT_EMPTY]: SubagentEmptyRow,
   [WORKFLOW_CARD]: WorkflowCardRow,
 };
 

@@ -15,7 +15,14 @@ import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMes
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { isRunGroup, SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW, WORKFLOW_CARD } from "./subagents/subagentRows";
+import {
+  isRunGroup,
+  SUBAGENT_DONE,
+  SUBAGENT_EMPTY,
+  SUBAGENT_OF,
+  SUBAGENT_ROW,
+  WORKFLOW_CARD,
+} from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
@@ -1148,6 +1155,8 @@ function fallbackRowHeight(
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
   // The child view's 28px "Subagent of" pill with 8px above and below it.
   if (row.kind === SUBAGENT_OF) return finish(44);
+  // Empty child copy is measured on mount; start with two body lines.
+  if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
   // The running turn's line as its last row is the footer's height (META_ROW, conversation.css
   // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.

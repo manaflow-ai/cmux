@@ -67,7 +67,7 @@ const group: AcpmuxRow = {
   at: 1,
   subagents: [{ id: "reviewer", parent: null, name: "Reviewer", state: "completed", startedAt: 1 }],
 };
-const reply: AcpmuxRow = { id: "reply", kind: "reply", version: 1, at: 2, text: "The review is complete." };
+const reply: AcpmuxRow = { id: "reply", kind: "assistant", version: 1, at: 2, text: "The review is complete." };
 
 test("an empty known child's transcript explains itself and keeps parent navigation", async () => {
   const root = createRoot(document.getElementById("root")!);
