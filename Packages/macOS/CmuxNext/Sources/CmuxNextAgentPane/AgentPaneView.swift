@@ -206,7 +206,9 @@ public final class AgentPaneView: NSView {
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
-            self?.pageEvents?.publish(.tabRowToolInvoked(id: id, menuItemId: menuItemID))
+            guard let self else { return }
+            AgentPanePersonInput.record(model.transport.gestures)
+            self.pageEvents?.publish(.tabRowToolInvoked(id: id, menuItemId: menuItemID))
         }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
