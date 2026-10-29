@@ -14,6 +14,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     var fields: [String: NSTextField] = [:]
     var inputState = NativePopupInputState()
     var lastEditSequence: Int? { inputState.lastSequence }
+    var emittingRevision: Int?
     private var editableControls: [String: NSControl] = [:]
     var selected: String?
     var searchHasInput = false
@@ -33,6 +34,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         searchHasInput = false; pendingCompositionModel = nil
         typeahead = ""; typeaheadTime = 0
         inputState = NativePopupInputState()
+        emittingRevision = nil
         // A replacement cannot inherit the old field editor or deferred IME commit.
         for field in fields.values { field.delegate = nil; _ = field.abortEditing() }
         subviews.forEach { $0.removeFromSuperview() }
@@ -45,9 +47,24 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         let next = inputState.preservingLocalEdits(in: incoming)
         let focused = fields.first { $0.value.currentEditor() != nil }
         let focusedID = focused?.key ?? editableControls.first(where: { $0.value === window?.firstResponder })?.key
+        var retireComposition = false
         if let editor = focused?.value.currentEditor() as? NSTextView, editor.hasMarkedText() {
-            pendingCompositionModel = next
-            return
+            let keepsField: Bool
+            if focused?.value === search {
+                keepsField = next.search?.id == focusedID && next.search?.disabled != true
+            } else {
+                keepsField = ((next.rail ?? []) + next.rows + (next.footer ?? [])).contains {
+                    $0.id == focusedID && $0.kind == .textField && $0.disabled != true
+                }
+            }
+            if keepsField { pendingCompositionModel = next; return }
+            pendingCompositionModel = nil
+            if let focused {
+                fields.removeValue(forKey: focused.key)
+                focused.value.delegate = nil
+                _ = focused.value.abortEditing()
+            }
+            retireComposition = true
         }
         let selection = (focused?.value.currentEditor() as? NSTextView)?.selectedRange()
         let reset = next.search?.autoHighlight != model?.search?.autoHighlight ||
@@ -55,7 +72,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         if reset { selected = nil; selectionReason = "none"; searchHasInput = false }
         let priorSelection = next.id == model?.id ? selected : nil
         if next.id != model?.id || next.search?.id != model?.search?.id { searchHasInput = false }
-        if next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer || next.title != model?.title || next.search?.id != model?.search?.id {
+        if retireComposition || next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer || next.title != model?.title || next.search?.id != model?.search?.id {
             rebuild(next)
             if let focusedID, let replacement = editableControls[focusedID] ?? fields[focusedID] {
                 window?.makeFirstResponder(replacement)

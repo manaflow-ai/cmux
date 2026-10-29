@@ -44,6 +44,8 @@ extension NativePopupContent {
               field.isEnabled,
               let id = fields.first(where: { $0.value === field })?.key else { return }
         if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
+        emittingRevision = model?.revision
+        defer { emittingRevision = nil }
         let value = field.stringValue
         inputState.record(id: id, value: value, model: model)
         let isSearch = field === search

@@ -127,6 +127,8 @@ test("an in-flight descriptor update keeps valid displayed actions but fences ch
   });
   h.receive({ ...pick, revision: h.updates.at(-1)!.revision });
   expect(h.events).toHaveLength(1);
+  h.receive({ type: "dismiss", popupId: first.id, revision: first.revision, reason: "pick" });
+  expect(h.dismissed).toEqual(["pick"]);
   h.render(false);
   h.render(true, "Reopened", { rows });
   h.receive(pick);

@@ -169,6 +169,7 @@ final class DeclarativePopupHost {
         if parent != nil { hide(); return }
         let event = NativePopupEvent(type: .dismiss, popupId: model.id, revision: model.revision, reason: reason)
         deliver(event)
+        guard self.model?.id == model.id, self.model?.revision == model.revision else { return }
         hide()
     }
 
@@ -200,10 +201,13 @@ final class DeclarativePopupHost {
         case .dismiss: return
         }
         let editSequence: Int? = type == .search || (type == .change && row?.kind == .textField) ? content.lastEditSequence : nil
-        deliver(NativePopupEvent(type: type, popupId: model.id, revision: content.model?.revision ?? model.revision, id: id, value: value,
+        deliver(NativePopupEvent(type: type, popupId: model.id, revision: content.emittingRevision ?? content.model?.revision ?? model.revision, id: id, value: value,
                                  reason: type == .submit || type == .highlight ? reason : nil,
                                  editSequence: editSequence))
-        if type == .pick, (action?.keepOpen ?? row?.keepOpen) != true { root.hide() }
+        if type == .pick, (action?.keepOpen ?? row?.keepOpen) != true,
+           root.model?.id == current.id, root.model?.revision == current.revision {
+            root.dismiss(reason: "pick")
+        }
     }
 
     private func deliver(_ event: NativePopupEvent) {
