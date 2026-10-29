@@ -46,24 +46,30 @@ const MAX_OMITTED_TOOL_IDS: usize = 64;
 #[derive(Default)]
 struct OmittedTools {
     ids: HashSet<[u8; 32]>,
-    unknown: bool,
+    // Overflow IDs beyond the bounded digest set. Keep only a count: retaining their
+    // identities would make restart recovery's memory use proportional to journal size.
+    unknown: usize,
 }
 
 impl OmittedTools {
     fn len(&self) -> usize {
-        self.ids.len() + usize::from(self.unknown)
+        self.ids.len() + self.unknown
     }
     fn contains(&self, id: &[u8; 32]) -> bool {
         self.ids.contains(id)
     }
     fn remove(&mut self, id: &[u8; 32]) {
-        self.ids.remove(id);
+        if !self.ids.remove(id) && self.unknown > 0 {
+            // Overflow calls are folded in journal order. Their terminal update is
+            // the only identity we need to settle the bounded count.
+            self.unknown -= 1;
+        }
     }
     fn insert(&mut self, id: [u8; 32]) {
         if self.ids.len() < MAX_OMITTED_TOOL_IDS {
             self.ids.insert(id);
         } else {
-            self.unknown = true;
+            self.unknown = self.unknown.saturating_add(1);
         }
     }
 }
@@ -156,23 +162,30 @@ impl serde::Serialize for MaskedInput<'_> {
             Value::Object(values) => {
                 let mut map = serializer.serialize_map(Some(values.len()))?;
                 for (key, value) in values {
-                    let context =
-                        if sensitive_key(key) { Some(key.as_str()) } else { self.context };
+                    let context = sensitive_context(key).or_else(|| self.context.map(str::to_owned));
                     map.serialize_entry(
                         &masked_scan(key),
-                        &MaskedInput::with_context(value, context),
+                        &MaskedInput::with_context(value, context.as_deref()),
                     )?;
                 }
                 map.end()
             }
+            // Sensitive fields must not leak even when their value is not a string.
+            // Preserve JSON shape only for non-sensitive scalars.
+            Value::Null | Value::Bool(_) | Value::Number(_)
+                if self.context.is_some() => serializer.serialize_str("[secret]"),
             value => serde::Serialize::serialize(value, serializer),
         }
     }
 }
 
-fn sensitive_key(key: &str) -> bool {
-    let key: String = key.chars().take(MAX_TOOL_FIELD_CHARS).flat_map(char::to_lowercase).collect();
-    key.contains("pass") || key.contains("secret") || key.contains("token")
+fn sensitive_context(key: &str) -> Option<String> {
+    // Keep the original spelling for the scanner, but never retain an unbounded
+    // object key in the serializer context.
+    let bounded: String = key.chars().take(MAX_TOOL_FIELD_CHARS).collect();
+    let lowered: String = bounded.chars().flat_map(char::to_lowercase).collect();
+    (lowered.contains("pass") || lowered.contains("secret") || lowered.contains("token"))
+        .then_some(bounded)
 }
 
 struct BoundedJsonWriter<'a> {
@@ -634,8 +647,8 @@ mod tests {
         records.push(update(MAX_UNFINISHED_TOOLS, "completed"));
         let (tools, omitted) = unfinished_tools(&records);
         assert!(tools.is_empty());
-        assert_eq!(omitted, 1);
-        assert!(continue_text(&[], &tools, omitted).contains("unfinished tool calls omitted"));
+        assert_eq!(omitted, 0);
+        assert!(!continue_text(&[], &tools, omitted).contains("Tool calls started"));
         records.push(update(MAX_UNFINISHED_TOOLS + 1, "failed"));
         let (tools, omitted) = unfinished_tools(&records);
         assert_eq!(omitted, 0, "completed overflow must not leave a permanent warning");
@@ -707,6 +720,17 @@ mod tests {
         }))
         .unwrap();
         assert!(!masked.contains(password), "nested structured password leaked: {masked}");
+    }
+
+    #[test]
+    fn restart_inputs_mask_sensitive_numeric_and_boolean_fields() {
+        let masked = input_prefix(&json!({
+            "rawInput": {"password": 12345678, "token": true, "secret": null}
+        }))
+        .unwrap();
+        assert!(!masked.contains("12345678"), "numeric password leaked: {masked}");
+        assert!(!masked.contains("true"), "boolean token leaked: {masked}");
+        assert!(masked.matches("[secret]").count() >= 3, "{masked}");
     }
 
     #[test]
