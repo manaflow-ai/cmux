@@ -1,0 +1,7 @@
+# glaeda runner hooks (sha256 of scripts/glaeda-cmux-runner-hook in teamleaderleo/glaeda) whose whole-mini claim
+# an owned-Mac signing job accepts: each one waits out an earlier job's leftover processes. A job admitted by any
+# other hook fails its first step (CLAIM_GATE) and the run's Blacksmith twin signs. Every sha is one glaeda-disk
+# pins in CMUX_NEXT_DRAIN_HOOK_SHA256 (tests/test_ci_signing_owned_mac.py). Add a new hook's sha when glaeda
+# releases it; signing stays on Blacksmith for minis on it until then.
+2695209c13db5fe7514daf76d3e8e547b9569ad9a545225e52f7e07dd83d69e4 glaeda cb2186b0 (#1738), the leftover-process check
+41e29cd9dca8cdee88ce069b61956674bb79c2c3da90af5520e3e397bfbedeef glaeda #1739, the claim names its hook (GLAEDA_HOOK_SHA256)
