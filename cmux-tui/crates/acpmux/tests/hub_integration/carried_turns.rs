@@ -143,6 +143,20 @@ async fn a_steer_claude_reads_after_end_turn_starts_a_new_turn() {
     assert_eq!(ended[1]["status"], "completed", "{}", ended[1]);
     assert!(info(&mut c, &id).await.get("turn").is_none_or(Value::is_null));
     assert_eq!(records(&hub, &id, "turn_started").len(), 2);
+    // What Claude said in the new turn is logged in it: after the first turn's end and the new
+    // turn's start, before its end (`reply_of_turn` reads a turn's reply between those).
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let mux = |kind: &str, n: usize| {
+        let mut of = events.iter().filter(|e| e.dir == "mux" && e.kind == kind);
+        of.nth(n).unwrap_or_else(|| panic!("no {kind} {n}")).seq
+    };
+    let said = events
+        .iter()
+        .find(|e| e.dir == "in" && e.msg.to_string().contains("read: LATE-1"))
+        .expect("Claude's words in the new turn are logged")
+        .seq;
+    assert!(said > mux("turn_result", 0), "logged in the turn that ended");
+    assert!(said > mux("turn_started", 1) && said < mux("turn_result", 1), "not in its turn");
 }
 
 /// Claude ends turn after turn while steers keep coming: each is a turn of the daemon's.

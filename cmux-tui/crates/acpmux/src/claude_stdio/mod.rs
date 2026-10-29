@@ -224,6 +224,7 @@ mod agent_transcript_tests;
 mod background_output_tests;
 // A turn ends when Claude Code ends it; a steer it reads after is the next turn's (`carry.rs`).
 mod carry;
+pub use carry::HOLD_MAX as CARRY_HOLD_MAX;
 #[cfg(test)]
 mod carry_tests;
 #[cfg(test)]
@@ -438,6 +439,8 @@ pub struct Translator {
     /// Turns Claude Code runs on steers it read after its turn ended (`carry.rs`). Taken before
     /// `pending`, and after `batches`, `steers` and `steer_lines`.
     carry: Mutex<carry::Carry>,
+    /// Carried turns whose prompt has not come yet (`carry.rs` `holding`).
+    carry_owed: tokio::sync::watch::Sender<usize>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -589,6 +592,7 @@ impl Translator {
             steer_lines: Mutex::new(HashMap::new()),
             batches: Mutex::new(Default::default()),
             carry: Mutex::new(carry::Carry::new()),
+            carry_owed: tokio::sync::watch::channel(0).0,
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -648,8 +652,8 @@ impl Translator {
         self.steer_lines.lock().await.clear();
         drop(steers);
         drop(batches);
-        // Its answers are lost too: no carried turn is owed one (`carry.rs`).
-        self.clear_carry().await;
+        // A carried turn whose prompt has not come yet lost its answer too (`carry.rs`).
+        self.carry.lock().await.fail_owed(message);
         held.extend(ids.into_iter().map(|id| {
             let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
             Message::err(id, RpcError::internal(message))

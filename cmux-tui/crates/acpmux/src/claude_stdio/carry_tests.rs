@@ -188,3 +188,19 @@ async fn a_steer_written_during_a_carried_turn_names_it() {
         json!({"stopReason": "steered"})
     );
 }
+
+/// The carried turn's result was lost (an answer over the size limit, `fail_pending`) before its
+/// prompt came: the prompt ends failed, never as a success.
+#[tokio::test]
+async fn a_carried_turn_whose_result_was_lost_fails_its_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let line = turn_with_a_steer(&t).await;
+    assert!(answer(&t.inbound(&done("first")).await, 1).is_some());
+    assert!(t.holding(), "Claude Code's output waits for the carried turn's prompt");
+    t.inbound(&echo(&line)).await;
+    t.fail_pending("agent answer was over the size limit").await;
+    let Outbound::Reply(reply) = t.outbound(&carried(3)).await else { panic!("it waited") };
+    let Message::Response { error, .. } = &reply else { panic!("{reply:?}") };
+    assert!(error.as_ref().is_some_and(|e| e.message.contains("size limit")), "{reply:?}");
+    assert!(!t.holding());
+}

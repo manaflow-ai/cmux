@@ -830,11 +830,7 @@ impl Translator {
                 if waiting.is_empty() {
                     carry.keep(answer.clone());
                 }
-                if carried.is_some() {
-                    carry.owe();
-                } else {
-                    carry.ended();
-                }
+                self.carry_settled(&mut carry, carried.is_some());
                 for k in waiting {
                     self.pending.lock().await.remove(&k);
                     let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k.clone()));

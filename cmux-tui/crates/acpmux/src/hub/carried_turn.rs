@@ -109,6 +109,12 @@ impl Hub {
         while now.carries.len() > CARRIES_KEPT {
             now.carries.pop_front();
         }
+        if let Some(from) = from {
+            now.successors.push_back((from.turn_id.clone(), turn_id.clone()));
+            while now.successors.len() > CARRIES_KEPT {
+                now.successors.pop_front();
+            }
+        }
         drop(now);
         let from_control = from.map_or(Control::Local, |t| t.control);
         let control = match &sent {
@@ -227,6 +233,25 @@ impl Hub {
         drop(guard);
     }
 
+    /// The session's turn if it is `turn` or a turn carried on from it (`carried_turn`), else
+    /// `None`: a Stop that saw `turn` stops what its agent runs now (`cancel.rs`).
+    pub(super) fn carried_on(session: &Session, turn: &TurnInfo) -> Option<TurnInfo> {
+        let current = session.turn()?;
+        let now = session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut id = turn.turn_id.clone();
+        // Each step moves to a newer entry, so this ends within the kept entries.
+        for _ in 0..=now.successors.len() {
+            if id == current.turn_id {
+                return Some(current);
+            }
+            match now.successors.iter().find(|(from, _)| *from == id) {
+                Some((_, to)) => id = to.clone(),
+                None => return None,
+            }
+        }
+        None
+    }
+
     /// The turn a steer read in carry `seq`'s turn went into, once the turn before named it
     /// (`carried_turn`): `None` past [`CARRIED_WAIT`].
     pub(super) async fn carried_into(session: &Session, seq: u64) -> Option<String> {
@@ -269,6 +294,38 @@ mod tests {
         assert_eq!(carried(&plain), None);
         assert_eq!(carried(&Ok(json!({"stopReason": "end_turn"}))), None);
         assert_eq!(carried(&Err(RpcError::internal("agent process closed"))), None);
+    }
+
+    /// A Stop captures the turn, then waits for the writer: if that turn carried on meanwhile,
+    /// the Stop is for the turn its agent runs now, never for one that started on its own.
+    #[tokio::test]
+    async fn a_stop_that_saw_the_turn_before_a_carry_stops_the_carried_turn() {
+        use crate::config::{Config, StoreMode};
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let cfg =
+            json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake"});
+        let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let s = hub.new_session(req).await.unwrap();
+        let set = |t: Option<TurnInfo>| *s.turn.lock().unwrap_or_else(|e| e.into_inner()) = t;
+        let one = TurnInfo::prompted("test", "work", "t-1", "p-1", Control::Local);
+        set(Some(one.clone()));
+        let on = |t: &TurnInfo| Hub::carried_on(&s, t).map(|t| t.turn_id);
+        assert_eq!(on(&one).as_deref(), Some("t-1"));
+        let two = hub.carried_turn(&s, Some(&one), &Carried { seq: 1, prompt_ids: vec![] });
+        set(Some(two.clone()));
+        let three = hub.carried_turn(&s, Some(&two), &Carried { seq: 2, prompt_ids: vec![] });
+        set(Some(three.clone()));
+        assert_eq!(on(&one), Some(three.turn_id.clone()), "carried on twice");
+        assert_eq!(on(&two), Some(three.turn_id.clone()));
+        // A queued prompt's turn started on its own: not the work that Stop saw.
+        set(Some(TurnInfo::prompted("test", "next", "t-queued", "p-q", Control::Local)));
+        assert_eq!(on(&one), None);
+        set(None);
+        assert_eq!(on(&one), None);
     }
 
     #[test]

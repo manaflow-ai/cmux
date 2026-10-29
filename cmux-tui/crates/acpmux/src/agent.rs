@@ -974,6 +974,14 @@ impl ChildAgent {
                             }
                         }
                     }
+                    // Claude Code ended its turn and runs on with steers it had not read: its next
+                    // line waits until the hub logged that turn's end and the next one's start
+                    // (the next turn's prompt), bounded (`claude_stdio/carry.rs`).
+                    if let Some(tr) = &agent_for_exit.translator
+                        && tr.holding()
+                    {
+                        tr.wait_unheld(crate::claude_stdio::CARRY_HOLD_MAX).await;
+                    }
                 }
                 // Claude's background shells ended with it (cx-ncc.84).
                 if let Some(tr) = &agent_for_exit.translator {

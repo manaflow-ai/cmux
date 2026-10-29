@@ -15,10 +15,18 @@
 //! that result came first. A steer read after the carry is answered `steered` with
 //! `_meta.claude.carried: seq`, so the hub names the turn it went into.
 //!
+//! Until that prompt comes, what Claude Code writes next is not read (`holding`): the hub logs the
+//! turn's end and the next one's start before it sends the prompt, so the next turn's output is
+//! logged inside the next turn (`agent.rs` reader, `agent_host/host.rs` `on_stdout`). The hold is
+//! bounded ([`HOLD_MAX`]).
+//!
 //! A stopped turn, a failed one, and the step a Send now interrupts keep the old way: the
 //! unread line runs as one more turn of the same prompt (`steer_now.rs`).
 
 use super::*;
+
+/// The longest the output after a carry waits for the next turn's prompt: past it, it is read.
+pub const HOLD_MAX: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The carried turns of a Claude Code process.
 #[derive(Debug, Default)]
@@ -61,6 +69,16 @@ impl Carry {
     /// A carry's turn is owed its prompt.
     pub(super) fn owe(&mut self) {
         self.owed += 1;
+    }
+
+    /// Answers were lost (`fail_pending`): each carried turn whose prompt has not come yet ends
+    /// with `message` when it comes, never as a success.
+    pub(super) fn fail_owed(&mut self, message: &str) {
+        while self.answers.len() < self.owed {
+            self.answers.push_back(Err(RpcError::internal(message)));
+        }
+        self.steers.clear();
+        self.current = None;
     }
 }
 
@@ -120,6 +138,7 @@ impl Translator {
         let mut carry = self.carry.lock().await;
         if let Some(answer) = carry.answers.pop_front() {
             carry.owed = carry.owed.saturating_sub(1);
+            self.carry_owed.send_replace(carry.owed);
             return Outbound::Reply(match answer {
                 Ok(v) => Message::ok(id.clone(), v),
                 Err(e) => Message::err(id.clone(), e),
@@ -131,15 +150,38 @@ impl Translator {
         carry.owed -= 1;
         // Taken while the carry lock is held: the result that answers it takes that lock first.
         self.pending.lock().await.insert(id.to_string(), Pending::Prompt);
+        self.carry_owed.send_replace(carry.owed);
         Outbound::Lines(Vec::new())
     }
 
-    /// A new prompt of the hub's, or answers that are lost: no carried turn is owed any more.
+    /// The output after a carry is held: the next turn's prompt has not come yet.
+    pub fn holding(&self) -> bool {
+        *self.carry_owed.borrow() > 0
+    }
+
+    /// Waits, at most `max`, until no carried turn waits for its prompt.
+    pub async fn wait_unheld(&self, max: std::time::Duration) {
+        let mut owed = self.carry_owed.subscribe();
+        let _ = tokio::time::timeout(max, owed.wait_for(|n| *n == 0)).await;
+    }
+
+    /// A result carried (`carried`) or not: the carry state after it, under its lock.
+    pub(super) fn carry_settled(&self, carry: &mut Carry, carried: bool) {
+        if carried {
+            carry.owe();
+        } else {
+            carry.ended();
+        }
+        self.carry_owed.send_replace(carry.owed);
+    }
+
+    /// A new prompt of the hub's: no carried turn is owed any more.
     pub(super) async fn clear_carry(&self) {
         let mut carry = self.carry.lock().await;
         carry.owed = 0;
         carry.current = None;
         carry.answers.clear();
         carry.steers.clear();
+        self.carry_owed.send_replace(0);
     }
 }

@@ -90,10 +90,17 @@ impl Hub {
         })
         .await;
         // Another Stop or a natural result may have ended the captured turn while this
-        // caller prepared. Never settle or send its session-wide interrupt into a different turn.
-        if session.turn().as_ref().map(|t| &t.turn_id) != turn.as_ref().map(|t| &t.turn_id) {
-            return Ok(());
-        }
+        // caller prepared. Never settle or send its session-wide interrupt into a different turn,
+        // except the turn its agent runs on into after it ended (`carried_turn.rs`): that is
+        // the work the Stop was for.
+        let turn = match turn {
+            Some(turn) => match Self::carried_on(session, &turn) {
+                Some(current) => Some(current),
+                None => return Ok(()),
+            },
+            None if session.turn().is_some() => return Ok(()),
+            None => None,
+        };
         // End the logical turn before waiting on a hosted writer. A compacting
         // Claude process can ignore the interrupt, and the first Stop must
         // still settle the UI immediately.

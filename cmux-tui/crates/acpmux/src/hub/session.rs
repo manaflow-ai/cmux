@@ -16,6 +16,9 @@ pub(super) struct SteerNow {
     /// The turns the agent's latest carries started, newest last, by the carry's number: a
     /// steer it reads in one names it (`carried_turn.rs`).
     pub(super) carries: std::collections::VecDeque<(u64, String)>,
+    /// Each carried turn after the turn it took the place of (from, to), newest last: a Stop
+    /// that saw the turn before still stops the one its agent runs now (`cancel.rs`).
+    pub(super) successors: std::collections::VecDeque<(String, String)>,
 }
 
 pub struct Session {
