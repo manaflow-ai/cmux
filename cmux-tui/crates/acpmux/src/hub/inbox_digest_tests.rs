@@ -193,3 +193,21 @@ fn a_digests_record_names_the_messages_it_took() {
     let other = json!({"promptId": "x", "_meta": {"provenance": {"kind": "agent_message", "parts": [{"promptId": "p1"}]}}});
     assert!(took(&other).is_empty());
 }
+
+/// A cmux agent message (`prompt_provenance.rs` `render`) wraps its words in an envelope that
+/// names its sender: the digest shows the words, as the sidebar does (`prompt_line.rs`).
+#[test]
+fn a_cmux_agent_message_shows_its_words_not_its_envelope() {
+    let envelope = "[cmux agent message] from builder (acp:a)\nMessage id: m-1\nNote\n---\n\
+                    heads up: CI is slow\nmore\n--- end of message m-1 ---";
+    let mut q = queued("p1", Some("builder"), Some(Class::Fyi), envelope);
+    let mut run = q.run.clone_run();
+    let from =
+        json!({"kind": "agent_message", "from": "acp:a", "fromName": "builder", "msgId": "m-1"});
+    run.provenance = Some(from);
+    q.run = Arc::new(run);
+    let part = part_of(&q);
+    assert_eq!(part.text, "heads up: CI is slow\nmore");
+    let text = render("d", &[part]).text;
+    assert!(text.ends_with("- builder (promptId p1): heads up: CI is slow…"), "{text}");
+}

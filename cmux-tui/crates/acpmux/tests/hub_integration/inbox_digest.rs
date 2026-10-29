@@ -365,8 +365,8 @@ fn durable_hub(dir: &std::path::Path) -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
-/// Drops every line of the logs under `dir` that contains `needle`: a stop that cut them off.
-fn cut_lines(dir: &std::path::Path, needle: &str) -> usize {
+/// Drops every line of the logs under `dir` that `cut` picks: a stop that cut them off.
+fn cut_lines(dir: &std::path::Path, cut: impl Fn(&str) -> bool) -> usize {
     let mut cut = 0;
     let mut dirs = vec![dir.to_path_buf()];
     while let Some(d) = dirs.pop() {
@@ -375,7 +375,7 @@ fn cut_lines(dir: &std::path::Path, needle: &str) -> usize {
                 dirs.push(path);
             } else if path.extension().is_some_and(|e| e == "ndjson") {
                 let log = std::fs::read_to_string(&path).unwrap();
-                let kept: Vec<&str> = log.lines().filter(|l| !l.contains(needle)).collect();
+                let kept: Vec<&str> = log.lines().filter(|l| !cut(l)).collect();
                 cut += log.lines().count() - kept.len();
                 std::fs::write(&path, kept.iter().map(|l| format!("{l}\n")).collect::<String>())
                     .unwrap();
@@ -385,15 +385,17 @@ fn cut_lines(dir: &std::path::Path, needle: &str) -> usize {
     cut
 }
 
-/// The digest's `queued` record is logged before the originals' `dequeued` ones. A stop between
-/// them leaves the originals' `queued` records with nothing after them: the digest's record names
-/// them, so the restart runs the digest and never them again.
+/// The digest's `queued` record is logged first, then the queue's order and the originals'
+/// `dequeued` records. A stop right after it leaves the originals' `queued` records with nothing
+/// after them: the digest's record names them and holds the order, so the restart runs the digest
+/// in its place, ahead of an agent message it left (a slash command), and never them again.
 #[tokio::test]
 async fn a_restart_never_runs_a_message_a_digest_took_even_when_the_stop_cut_its_dequeued() {
     let dir = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
     let hub = durable_hub(&dir);
     let mut c = connect(&hub).await;
     let (id, _) = busy(&mut c).await;
+    queue(&mut c, from_agent(&id, "p-slash", "lane-x", "/compact")).await;
     queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
     queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
     let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
@@ -401,21 +403,32 @@ async fn a_restart_never_runs_a_message_a_digest_took_even_when_the_stop_cut_its
     hub.shutdown_all().await;
     drop(c);
     drop(hub);
-    assert_eq!(cut_lines(&dir, "\"digestPromptId\""), 2);
+    let stop = |l: &str| {
+        l.contains("\"digestPromptId\"")
+            || (l.contains("\"kind\":\"queue_order\"") && l.contains(digest.as_str()))
+    };
+    assert_eq!(cut_lines(&dir, stop), 3);
 
     let hub = durable_hub(&dir);
     let mut c = connect(&hub).await;
     let order = queue_order(&mut c, &id).await;
-    assert!(order.contains(&digest), "the digest still waits: {order:?}");
-    assert!(!order.iter().any(|p| p == "p-a" || p == "p-b"), "{order:?}");
+    let at = |p: &str| order.iter().position(|q| q == p);
+    assert!(at(&digest).is_some() && at(&digest) < at("p-slash"), "{order:?}");
+    assert!(at("p-a").is_none() && at("p-b").is_none(), "{order:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A message a digest took, sent again (`resend`) after a restart, answers from the digest's
-/// turn: it went in there, so it is neither run again nor `interrupted`.
+/// turn: it went in there, so it is neither run again nor `interrupted`. Also when the stop cut
+/// its `dequeued` record: the digest's own record names it.
 #[tokio::test]
 async fn after_a_restart_a_resent_message_a_digest_took_answers_from_the_digests_turn() {
+    resent_after_a_restart(false).await;
+    resent_after_a_restart(true).await;
+}
+
+async fn resent_after_a_restart(cut_dequeued: bool) {
     let dir = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
     let hub = durable_hub(&dir);
     let mut c = connect(&hub).await;
@@ -428,17 +441,53 @@ async fn after_a_restart_a_resent_message_a_digest_took_answers_from_the_digests
     hub.shutdown_all().await;
     drop(c);
     drop(hub);
+    if cut_dequeued {
+        assert_eq!(cut_lines(&dir, |l| l.contains("\"digestPromptId\"")), 1);
+    }
 
     let hub = durable_hub(&dir);
     let mut c = connect(&hub).await;
     let mut again = from_agent(&id, "p-a", "lane-a", "from a");
     again["_meta"]["acpmux"]["resend"] = json!(true);
     let again = c.request(method::SESSION_PROMPT, again).await.unwrap();
-    assert_eq!(again["_meta"]["acpmux"]["turnId"], made["turnId"], "{again}");
+    assert_eq!(again["_meta"]["acpmux"]["turnId"], made["turnId"], "cut {cut_dequeued}: {again}");
     assert_ne!(again["_meta"]["acpmux"]["status"], "interrupted", "{again}");
     let events = hub.events(&id, 0, 10_000).unwrap();
     let ran = find(&events, "user_message").into_iter().filter(|e| e.msg["promptId"] == "p-a");
     assert_eq!(ran.count(), 0, "the resend ran it on its own");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A steered digest leaves the queue (`dequeued`) before its steer is written (`user_message`).
+/// A stop between them must not lose it: the originals are gone, so the restart queues it again.
+#[tokio::test]
+async fn a_restart_queues_again_a_steered_digest_the_stop_cut_before_it_was_written() {
+    let dir = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&dir);
+    let steers = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
+    hub.config.write().await.harnesses.get_mut("fake").unwrap().env = steers;
+    let mut c = connect(&hub).await;
+    let (id, _) = busy(&mut c).await;
+    queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(made["delivery"], "steer", "{made}");
+    let digest = made["promptId"].as_str().unwrap().to_owned();
+    c.wait_for(method::SESSION_UPDATE, |p| {
+        p["update"]["content"]["text"].as_str().is_some_and(|t| t.starts_with("steer: "))
+    })
+    .await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let written = |l: &str| l.contains("\"kind\":\"user_message\"") && l.contains(digest.as_str());
+    assert_eq!(cut_lines(&dir, written), 1);
+
+    let hub = durable_hub(&dir);
+    let mut c = connect(&hub).await;
+    let order = queue_order(&mut c, &id).await;
+    assert!(order.contains(&digest), "the steered digest was lost: {order:?}");
+    assert!(!order.iter().any(|p| p == "p-a"), "{order:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
