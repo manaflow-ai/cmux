@@ -171,6 +171,47 @@ import Testing
     }
 
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func numberedActionsRespectKeepOpenAndDisabledAncestors() throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        var events: [[String: Any]] = []
+        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
+        defer { host.hide() }
+        var model = NativePopupModel(schemaVersion: 1, id: "numbered", revision: 1,
+                                     anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
+                                     side: .bottom, align: .start, width: 240, rows: [])
+        model.rows = (1...9).map { number in
+            NativePopupRow(id: "pick-\(number)", kind: .action, label: "Pick \(number)", shortcut: "\(number)", keepOpen: true)
+        }
+        #expect(host.show(model)["shown"] as? Bool == true)
+        let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        let content = try #require(panel.firstResponder as? NativePopupContent)
+        func key(_ number: Int) throws {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                     windowNumber: panel.windowNumber, context: nil, characters: "\(number)",
+                                                     charactersIgnoringModifiers: "\(number)", isARepeat: false, keyCode: 18))
+            content.keyDown(with: event)
+        }
+        for number in 1...9 {
+            try key(number)
+            #expect(events.count == number)
+            #expect(events.last?["id"] as? String == "pick-\(number)")
+            #expect(host.activeID == model.id)
+        }
+        model.revision += 1
+        model.rows[0].disabled = true
+        host.update(model)
+        try key(1)
+        #expect(events.count == 9)
+        model.revision += 1
+        model.rows[1].keepOpen = false
+        host.update(model)
+        try key(2)
+        #expect(events.count == 10)
+        #expect(host.activeID == nil)
+    }
+
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
     func aTrailingRootSubmenuFlipsAtTheScreenEdgeOnUpdate() throws {
         let (window, page) = try Self.page()
         defer { window.orderOut(nil) }

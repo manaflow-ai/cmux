@@ -27,6 +27,23 @@ import Testing
         #expect(content.subviews.allSatisfy { $0.frame.maxX <= viewport.bounds.width })
     }
 
+    @Test func sliderFitsInsideANarrowRow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 100),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        defer { window.orderOut(nil) }
+        var model = Self.model()
+        model.width = 120
+        model.rows = [NativePopupRow(id: "slider", kind: .slider, label: "Value", value: "0.5", minimum: 0, maximum: 1)]
+        content.update(model)
+        content.layoutSubtreeIfNeeded()
+        let slider = try #require(Self.descendants(of: content).compactMap { $0 as? NSSlider }.first)
+        let frame = content.convert(slider.bounds, from: slider)
+        #expect(frame.minX >= 0 && frame.maxX <= content.bounds.width)
+        #expect(frame.width > 0)
+    }
+
     @Test(arguments: ["rows", "rail", "footer"])
     func committedCompositionSurvivesADeferredDescriptorUpdate(location: String) throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
