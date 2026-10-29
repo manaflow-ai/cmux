@@ -637,16 +637,9 @@ export class SubagentFold {
     }
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
-    // Optional orchestration fields may be removed explicitly when a resumed harness no longer
-    // reports them. Keep omitted fields unchanged, but do not leave stale values after `null`.
-    for (const key of ["model", "effort", "lastMessage"] as const) {
-      if (!Object.prototype.hasOwnProperty.call(change, key)) continue;
-      if (change[key] === null) delete agent[key];
-      else {
-        const value = text(change[key]);
-        if (value !== undefined) agent[key] = value;
-      }
-    }
+    agent.model = text(change.model) ?? agent.model;
+    agent.effort = text(change.effort) ?? agent.effort;
+    agent.lastMessage = text(change.lastMessage) ?? agent.lastMessage;
     if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);
