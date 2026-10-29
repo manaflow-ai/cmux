@@ -1,24 +1,25 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
 import { type ConfigOption, optionValueName } from "./agentOptions";
-import { ChevronIcon } from "./ComposerPickers";
+import { ChevronIcon, unrestricted } from "./ComposerPickers";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
-import {
-  useComposerPopup,
-  popupChoice,
-  popupSection,
-} from "./nativeComposerPopup";
+import { useComposerPopup, popupChoice, popupSection, popupIdentity } from "./nativeComposerPopup";
 import type { NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
 
 /** Native-only menu for harness config options. Choice IDs remain scoped to their config option. */
 export function AgentOptionsMenu({
   options,
+  managed = false,
+  managedReason,
   onPick,
 }: {
   options: ConfigOption[];
+  managed?: boolean;
+  managedReason?: string;
   onPick(configId: string, value: string): void;
 }) {
+  const blocked = (value: string) => managed && unrestricted(value);
   const t = useT();
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
@@ -26,26 +27,23 @@ export function AgentOptionsMenu({
   const label = t("picker.options");
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
   const only = options.length === 1 ? options[0] : undefined;
-  const face = only
-    ? `${only.name ?? only.id}: ${optionValueName(only) ?? ""}`
-    : label;
+  const face = only ? `${only.name ?? only.id}: ${optionValueName(only) ?? ""}` : label;
   const tooltip = [
-    ...options.map(
-      (option) =>
-        `${option.name ?? option.id}: ${optionValueName(option) ?? ""}`,
-    ),
+    ...options.map((option) => `${option.name ?? option.id}: ${optionValueName(option) ?? ""}`),
     t("picker.optionsHelp"),
   ].join("\n");
   const choiceById = new Map<string, { configId: string; value: string }>();
-  const rows: NativePopupRow[] = options.flatMap((option, optionIndex) =>
+  const rows: NativePopupRow[] = options.flatMap((option) =>
     popupSection(
-      `option:${optionIndex}`,
+      popupIdentity("option-heading", option.id),
       option.name ?? option.id,
-      option.options.map((choice, choiceIndex) => {
-        const id = `option:${optionIndex}:${choiceIndex}`;
+      option.options.map((choice) => {
+        const id = popupIdentity("option", option.id, choice.value);
         choiceById.set(id, { configId: option.id, value: choice.value });
         return popupChoice(id, choice.name ?? choice.value, {
-          description: choice.description,
+          description: blocked(choice.value) ? managedReason : choice.description,
+          disabled: blocked(choice.value),
+          disabledReason: blocked(choice.value) ? managedReason : undefined,
           checked: choice.value === option.currentValue,
         });
       }),
@@ -65,17 +63,14 @@ export function AgentOptionsMenu({
       if (event.type !== "pick" || !event.id) return;
       const choice = choiceById.get(event.id);
       const option = choice && options.find((item) => item.id === choice.configId);
-      if (choice && option && option.currentValue !== choice.value) onPick(choice.configId, choice.value);
+      if (choice && !blocked(choice.value) && option && option.currentValue !== choice.value)
+        onPick(choice.configId, choice.value);
     },
     onDismiss: () => setOpen(false),
   });
   if (options.length === 0) return null;
   return (
-    <span
-      className="acpmux-picker acpmux-options"
-      data-fit-title={face}
-      data-fit-title-unit="options"
-    >
+    <span className="acpmux-picker acpmux-options" data-fit-title={face} data-fit-title-unit="options">
       <button
         ref={trigger}
         type="button"

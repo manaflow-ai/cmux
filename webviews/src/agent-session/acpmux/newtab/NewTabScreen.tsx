@@ -1166,7 +1166,7 @@ export function NewTabScreen(props: Props) {
         returnFocus={false}
         sections={[
           {
-            choices: [{ id: "attach", name: t("composer.attach"), icon: <PaperclipIcon /> }],
+            choices: [{ id: "attach", name: t("composer.attach"), icon: <PaperclipIcon />, nativeIcon: "paperclip" }],
             onPick: (id) => {
               if (id === "attach") chooser.current?.click();
             },

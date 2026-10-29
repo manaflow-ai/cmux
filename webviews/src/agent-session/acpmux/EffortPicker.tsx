@@ -4,11 +4,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { OnNewTab } from "./newTabComposer";
-import {
-  useComposerPopup,
-  popupChoice,
-  popupSection,
-} from "./nativeComposerPopup";
+import { useComposerPopup, popupChoice, popupSection, popupIdentity } from "./nativeComposerPopup";
 import type { NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
 import type { ReasoningSliderStyle } from "./composerSettings";
 
@@ -51,17 +47,12 @@ export function EffortPicker({
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const visibleEfforts = efforts.filter((choice) => !isDefaultChoice(choice));
-  const selectedVisible = visibleEfforts.find(
-    (choice) => choice.id === current,
-  );
+  const selectedVisible = visibleEfforts.find((choice) => choice.id === current);
   const level =
     ultracode && ultracode.current === ultracode.on
       ? ultracode.title
       : (selectedVisible?.name ?? t("picker.reasoning"));
-  const sliderShown =
-    selectedVisible ??
-    visibleEfforts.find((choice) => choice.recommended) ??
-    visibleEfforts[0];
+  const sliderShown = selectedVisible ?? visibleEfforts.find((choice) => choice.recommended) ?? visibleEfforts[0];
 
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
 
@@ -83,16 +74,14 @@ export function EffortPicker({
       });
     } else {
       rows.push(
-        popupSection(
+        ...popupSection(
           "reasoning",
           t("picker.reasoning"),
           visibleEfforts.map((choice) =>
-            popupChoice(choice.id, choice.name, {
+            popupChoice(popupIdentity("effort", choice.id), choice.name, {
               description: choice.description,
               checked: choice.id === selectedVisible?.id,
-              ...(defaulted && choice.id === selectedVisible?.id
-                ? { value: t("picker.default") }
-                : {}),
+              shortcut: defaulted && choice.id === selectedVisible?.id ? t("picker.default") : undefined,
             }),
           ),
         ),
@@ -103,11 +92,11 @@ export function EffortPicker({
     if (!section) continue;
     rows.push({ id: `separator-${index}`, kind: "separator", label: "" });
     rows.push(
-      popupSection(
-        `section-${section.title}`,
+      ...popupSection(
+        `section-${index}`,
         section.title,
         section.choices.map((choice) =>
-          popupChoice(choice.id, choice.name, {
+          popupChoice(popupIdentity(index === 0 ? "ultracode" : "speed", choice.id), choice.name, {
             description: choice.description,
             checked: choice.id === section.current,
           }),
@@ -115,16 +104,15 @@ export function EffortPicker({
       ),
     );
   }
-  const choiceById = new Map<
-    string,
-    { value: string; onPick(value: string): void }
-  >();
-  for (const choice of visibleEfforts)
-    choiceById.set(choice.id, { value: choice.id, onPick });
-  for (const section of [ultracode, speed]) {
+  const choiceById = new Map<string, { value: string; onPick(value: string): void }>();
+  visibleEfforts.forEach((choice) => choiceById.set(popupIdentity("effort", choice.id), { value: choice.id, onPick }));
+  for (const [index, section] of [ultracode, speed].entries()) {
     if (!section) continue;
     for (const choice of section.choices)
-      choiceById.set(choice.id, { value: choice.id, onPick: section.onPick });
+      choiceById.set(popupIdentity(index === 0 ? "ultracode" : "speed", choice.id), {
+        value: choice.id,
+        onPick: section.onPick,
+      });
   }
 
   useComposerPopup({
@@ -136,14 +124,12 @@ export function EffortPicker({
       width: 280,
       title: label,
       rows,
-      highlighted: selectedVisible?.id,
+      highlighted: selectedVisible ? popupIdentity("effort", selectedVisible.id) : undefined,
     },
     onEvent: (event: NativePopupEvent) => {
       if (event.type === "change" && event.id === "reasoning-slider") {
         const index = Number(event.value);
-        const choice = Number.isInteger(index)
-          ? visibleEfforts[index]
-          : undefined;
+        const choice = Number.isInteger(index) ? visibleEfforts[index] : undefined;
         if (choice) onPick(choice.id);
         return;
       }
@@ -166,35 +152,21 @@ export function EffortPicker({
         aria-expanded={open}
         onClick={() => setOpen((was) => !was)}
       >
-        <EffortLabel
-          label={level}
-          short={short && short !== level ? short : undefined}
-        />
+        <EffortLabel label={level} short={short && short !== level ? short : undefined} />
         {chevron}
       </button>
     </span>
   );
 }
 
-function EffortLabel({
-  label,
-  short,
-}: {
-  label: string;
-  short?: string | undefined;
-}) {
+function EffortLabel({ label, short }: { label: string; short?: string | undefined }) {
   if (!short) return <span>{label}</span>;
   return (
     <>
       <span data-fit-part="effort" data-fit-forms="full">
         {label}
       </span>
-      <span
-        className="acpmux-fit-label"
-        data-fit-part="effort"
-        data-fit-forms="short"
-        data-label={short}
-      />
+      <span className="acpmux-fit-label" data-fit-part="effort" data-fit-forms="short" data-label={short} />
     </>
   );
 }

@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useEffect, useRef } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { useT } from "./i18n";
 import { tooltipProps } from "./shortcuts";
-import { useComposerPopup, popupChoice } from "./nativeComposerPopup";
+import { useComposerPopup, popupChoice, popupIdentity } from "./nativeComposerPopup";
 import type { NativePopupEvent } from "../../ui/nativePopup";
 
 /// Codex's speed toggle (Leo 2026-10-21: "REMOVE it for Claude, where Fast mode lives inside the
@@ -10,9 +10,7 @@ import type { NativePopupEvent } from "../../ui/nativePopup";
 /// (QuickModelMenu.tsx), so a Claude chat draws no bolt. The chips own the session's speed option,
 /// so they hand it up through this setter and the composer draws the bolt before the mic
 /// (Composer.tsx). A composer without the setter draws none.
-export const SpeedToggleHost = createContext<
-  ((speed: SpeedTiers | undefined) => void) | null
->(null);
+export const SpeedToggleHost = createContext<((speed: SpeedTiers | undefined) => void) | null>(null);
 
 /// The session's speed option (Codex's service tier): its off value and the faster tiers it offers,
 /// in the agent's order (Fast, then Ultrafast where one is offered).
@@ -59,13 +57,7 @@ export function useSpeedToggle(speed: SpeedTiers | undefined): boolean {
 /// disc, no fill at rest; hover draws the row's soft pill (composerLocation.css `.acpmux-fast`). A
 /// click steps to the next offered tier, and from the last one back to off; with one tier it is
 /// on/off.
-export function FastToggle({
-  speed,
-  inline = false,
-}: {
-  speed: SpeedTiers;
-  inline?: boolean;
-}) {
+export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inline?: boolean }) {
   const t = useT();
   const offered = speed.tiers.length > 0;
   const at = speed.tiers.indexOf(speed.current ?? "");
@@ -73,8 +65,7 @@ export function FastToggle({
   const name = (index: number) => {
     const value = speed.tiers[index] ?? "";
     if (index < 0) return t("picker.tierStandard");
-    if (/^(priority|fast|on|true|enabled)$/i.test(value))
-      return t("picker.tierFast");
+    if (/^(priority|fast|on|true|enabled)$/i.test(value)) return t("picker.tierFast");
     if (/^ultra[-_ ]?fast$/i.test(value)) return t("picker.tierUltrafast");
     return speed.names?.[value] ?? value;
   };
@@ -90,13 +81,16 @@ export function FastToggle({
       width: 220,
       title: label,
       rows: [speed.off, ...speed.tiers].map((value, index) =>
-        popupChoice(value, name(index - 1), {
+        popupChoice(popupIdentity("speed", value), name(index - 1), {
           checked: value === (speed.current ?? speed.off),
         }),
       ),
     },
     onEvent: (event: NativePopupEvent) => {
-      if (event.type === "pick" && event.id) speed.onPick(event.id);
+      if (event.type === "pick") {
+        const value = [speed.off, ...speed.tiers].find((value) => popupIdentity("speed", value) === event.id);
+        if (value !== undefined) speed.onPick(value);
+      }
     },
     onDismiss: () => setOpen(false),
   });
@@ -110,10 +104,7 @@ export function FastToggle({
           data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
           aria-pressed={at >= 0}
           aria-label={label}
-          {...tooltipProps(
-            t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }),
-            undefined,
-          )}
+          {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
           onPointerDown={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -138,11 +129,10 @@ export function FastToggle({
           className="acpmux-fast"
           data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
           aria-pressed={at >= 0}
+          aria-haspopup="menu"
+          aria-expanded={open}
           aria-label={label}
-          {...tooltipProps(
-            t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }),
-            undefined,
-          )}
+          {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => setOpen((was) => !was)}
         >

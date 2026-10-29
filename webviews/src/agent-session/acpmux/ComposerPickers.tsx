@@ -43,7 +43,6 @@ import {
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { useModelCatalogState } from "./modelCatalogHost";
-import { focusWithRing } from "../../ui/focusWithRing";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT } from "../../ui/hoverIntent";
 import { useHoverCard } from "./chips/useHoverCard";
@@ -52,7 +51,7 @@ import { contextBreakdown } from "./inspector/ContextSection";
 import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import type { NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
-import { useComposerPopup, popupAction, popupChoice, popupSection } from "./nativeComposerPopup";
+import { useComposerPopup, popupAction, popupChoice, popupSection, popupIdentity } from "./nativeComposerPopup";
 import { registerPicker } from "./pickerOpeners";
 import {
   type ModeIconName,
@@ -128,6 +127,8 @@ export type Choice = {
   name: string;
   description?: string;
   icon?: React.ReactNode;
+  /** Native popup icon name; React icons remain for the web button surface. */
+  nativeIcon?: string;
   hint?: string;
   /// The level the model recommends (its catalog default): the effort slider marks it.
   recommended?: boolean;
@@ -1096,6 +1097,8 @@ function AccessMenu({
   current,
   sessionId,
   warning,
+  managed,
+  managedReason,
   help,
   refusedReason,
   permissionAccess,
@@ -1108,6 +1111,8 @@ function AccessMenu({
   current?: string;
   sessionId?: string;
   warning: string;
+  managed: boolean;
+  managedReason: string;
   help: string;
   refusedReason: string;
   permissionAccess?: ComposerPermissionAccess;
@@ -1137,11 +1142,12 @@ function AccessMenu({
   const refusedIds = refused.sessionId === sessionId ? refused.ids : [];
   // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
   // and every mode, the first included, is a pick.
+  const blocked = (id: string) => refusedIds.includes(id) || (managed && unrestricted(id));
   const value = optimisticMode ?? current ?? "";
   const currentMode = modes.find((choice) => choice.id === value);
   const grants = permissionAccess?.grants ?? [];
   const pick = (next: string) => {
-    if (refusedIds.includes(next)) return;
+    if (blocked(next)) return;
     setOptimistic({ sessionId, modeId: next });
     setOpen(false);
     void settle(() => onMode(next)).then((applied) => {
@@ -1156,43 +1162,116 @@ function AccessMenu({
   const tooltip = `${label}: ${currentMode?.name ?? label}\n${help}`;
   // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
   // button keeps the mode's symbol.
-  const fixed = refusedIds.length > 0 && grants.length === 0 && modes.every((choice) => choice.id === value || refusedIds.includes(choice.id));
+  const fixed =
+    refusedIds.length > 0 &&
+    grants.length === 0 &&
+    modes.every(
+      (choice) => !(managed && unrestricted(choice.id)) && (choice.id === value || refusedIds.includes(choice.id)),
+    );
   const trigger = useRef<HTMLButtonElement>(null);
   const rows: NativePopupRow[] = [];
   const modeByPopupId = new Map<string, string>();
-  if (modes.length > 0) rows.push(...popupSection("modes", heading ?? label, modes.map((choice, index) => {
-    const id = `mode:${index}`;
-    modeByPopupId.set(id, choice.id);
-    return popupChoice(id, `${numbered && !newTab && index < 9 ? `${index + 1}. ` : ""}${choice.name}${choice.recommended ? ` (${t(RECOMMENDED_BADGE)})` : ""}`, { description: refusedIds.includes(choice.id) ? refusedReason : choice.description ?? (unrestricted(choice.id) ? warning : undefined), checked: choice.id === value, disabled: refusedIds.includes(choice.id) });
-  })));
-  const grantByPopupId = new Map<string, typeof grants[number]>();
-  if (grants.length > 0) rows.push(...popupSection("grants", t("permission.grants"), grants.map((grant, index) => {
-    const id = `grant:${index}`;
-    grantByPopupId.set(id, grant);
-    return popupAction(id, `${t("permission.revoke")}: ${grant.label}`);
-  })));
-  useComposerPopup({ open, anchor: () => trigger.current, model: { side: newTab ? "bottom" : "top", align: "start", width: 320, title: heading ?? label, rows, highlighted: modes.some((choice) => choice.id === value) ? `mode:${modes.findIndex((choice) => choice.id === value)}` : undefined }, onEvent: (event: NativePopupEvent) => {
-    if (event.type !== "pick" || !event.id) return;
-    const grant = grantByPopupId.get(event.id);
-    if (grant) { grant.onRemove(); return; }
-    const mode = modeByPopupId.get(event.id);
-    if (mode !== undefined && !refusedIds.includes(mode) && mode !== value) pick(mode);
-  }, onDismiss: () => setOpen(false) });
-  if (fixed) return (
-      <span className={`acpmux-mode acpmux-access acpmux-access-fixed${unrestricted(value) ? " acpmux-unrestricted" : ""}`} data-fit-title={currentMode?.name ?? label} data-fit-title-unit="access" title={`${tooltip}\n${refusedReason}`}>
+  if (modes.length > 0)
+    rows.push(
+      ...popupSection(
+        "modes",
+        heading ?? label,
+        modes.map((choice, index) => {
+          const id = popupIdentity("mode", choice.id);
+          modeByPopupId.set(id, choice.id);
+          return popupChoice(id, `${choice.name}${choice.recommended ? ` (${t(RECOMMENDED_BADGE)})` : ""}`, {
+            description:
+              managed && unrestricted(choice.id)
+                ? managedReason
+                : refusedIds.includes(choice.id)
+                  ? refusedReason
+                  : (choice.description ?? (unrestricted(choice.id) ? warning : undefined)),
+            checked: choice.id === value,
+            disabled: blocked(choice.id),
+            shortcut: numbered && !newTab && index < 9 ? String(index + 1) : undefined,
+            icon: typeof choice.icon === "string" ? choice.icon : choice.nativeIcon,
+          });
+        }),
+      ),
+    );
+  const grantByPopupId = new Map<string, (typeof grants)[number]>();
+  if (grants.length > 0)
+    rows.push(
+      ...popupSection(
+        "grants",
+        t("permission.grants"),
+        grants.map((grant) => {
+          const id = popupIdentity("grant", grant.id);
+          grantByPopupId.set(id, grant);
+          return popupAction(id, `${t("permission.revoke")}: ${grant.label}`);
+        }),
+      ),
+    );
+  useComposerPopup({
+    open,
+    anchor: () => trigger.current,
+    model: {
+      side: newTab ? "bottom" : "top",
+      align: "start",
+      width: 320,
+      title: heading ?? label,
+      rows,
+      highlighted: modes.some((choice) => choice.id === value) ? popupIdentity("mode", value) : undefined,
+    },
+    onEvent: (event: NativePopupEvent) => {
+      if (event.type !== "pick" || !event.id) return;
+      const grant = grantByPopupId.get(event.id);
+      if (grant) {
+        grant.onRemove();
+        return;
+      }
+      const mode = modeByPopupId.get(event.id);
+      if (mode !== undefined && !blocked(mode) && mode !== value) pick(mode);
+    },
+    onDismiss: () => setOpen(false),
+  });
+  if (fixed)
+    return (
+      <span
+        className={`acpmux-mode acpmux-access acpmux-access-fixed${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
+        data-fit-title={currentMode?.name ?? label}
+        data-fit-title-unit="access"
+        title={`${tooltip}\n${refusedReason}`}
+      >
         <ModeIcon modeId={value} icon={currentMode?.icon} />
-        <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">{currentMode?.name ?? label}</span>
+        <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
+          {currentMode?.name ?? label}
+        </span>
       </span>
     );
   return (
-    <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`} data-fit-title={currentMode?.name ?? label} data-fit-title-unit="access">
-      <button ref={trigger} type="button" className="acpmux-picker-button acpmux-access-trigger" aria-label={label} title={tooltip} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((was) => !was)} onKeyDown={(event) => {
-        if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
-        const choice = modes[Number(event.key) - 1];
-        if (choice) { event.preventDefault(); pick(choice.id); }
-      }}>
+    <span
+      className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
+      data-fit-title={currentMode?.name ?? label}
+      data-fit-title-unit="access"
+    >
+      <button
+        ref={trigger}
+        type="button"
+        className="acpmux-picker-button acpmux-access-trigger"
+        aria-label={label}
+        title={tooltip}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+        onKeyDown={(event) => {
+          if (!open || event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
+          const choice = modes[Number(event.key) - 1];
+          if (choice) {
+            event.preventDefault();
+            pick(choice.id);
+          }
+        }}
+      >
         {modes.length > 0 ? <ModeIcon modeId={value} icon={currentMode?.icon} /> : <LockIcon />}
-        <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">{currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}</span>
+        <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
+          {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
+        </span>
         <ChevronIcon />
       </button>
     </span>
@@ -1447,9 +1526,25 @@ export type Section = { title?: string; choices: Choice[]; current?: string; onP
 /// a group with a check on its current choice; arrows move, Enter, Space or a
 /// click picks, and Escape, a click elsewhere or focus leaving the pane closes.
 export function Picker({
-  label, className, button, sections, align, warnUnrestricted: _warnUnrestricted = false, returnFocus = true, heading, tooltip,
+  label,
+  className,
+  button,
+  sections,
+  align,
+  warnUnrestricted: _warnUnrestricted = false,
+  returnFocus = true,
+  heading,
+  tooltip,
 }: {
-  label: string; className: string; button: React.ReactNode; sections: Section[]; align: "start" | "end"; warnUnrestricted?: boolean; returnFocus?: boolean; heading?: string; tooltip?: string;
+  label: string;
+  className: string;
+  button: React.ReactNode;
+  sections: Section[];
+  align: "start" | "end";
+  warnUnrestricted?: boolean;
+  returnFocus?: boolean;
+  heading?: string;
+  tooltip?: string;
 }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -1457,21 +1552,53 @@ export function Picker({
   const choiceByPopupId = new Map<string, { section: Section; id: string }>();
   const rows: NativePopupRow[] = sections.flatMap((section, index) => [
     ...(index > 0 ? [{ id: `separator-${index}`, kind: "separator" as const, label: "" }] : []),
-    ...popupSection(`section-${index}`, section.title ?? (sections.length > 1 ? label : ""), section.choices.map((choice, choiceIndex) => {
-      const id = `choice:${index}:${choiceIndex}`;
-      choiceByPopupId.set(id, { section, id: choice.id });
-      return popupChoice(id, choice.name, { description: choice.description, checked: choice.id === section.current });
-    })),
+    ...popupSection(
+      `section-${index}`,
+      section.title ?? (sections.length > 1 ? label : ""),
+      section.choices.map((choice) => {
+        const id = popupIdentity("picker", String(index), choice.id);
+        choiceByPopupId.set(id, { section, id: choice.id });
+        return popupChoice(id, choice.name, {
+          description: choice.description,
+          checked: choice.id === section.current,
+          shortcut: choice.hint,
+          keepOpen: true,
+          icon: choice.nativeIcon,
+        });
+      }),
+    ),
   ]);
-  useComposerPopup({ open, anchor: () => trigger.current, model: { side: "top", align, width: 300, title: heading ?? label, rows }, onEvent: (event: NativePopupEvent) => {
-    if (event.type !== "pick" || !event.id) return;
-    const choice = choiceByPopupId.get(event.id);
-    const result = choice?.section.onPick(choice.id);
-    if (result !== "keep" && returnFocus) setOpen(false);
-  }, onDismiss: () => setOpen(false) });
+  useComposerPopup({
+    open,
+    anchor: () => trigger.current,
+    model: { side: "top", align, width: 300, title: heading ?? label, rows },
+    onEvent: (event: NativePopupEvent) => {
+      if (event.type !== "pick" || !event.id) return;
+      const choice = choiceByPopupId.get(event.id);
+      if (!choice) return;
+      const result = choice.section.onPick(choice.id);
+      if (result !== "keep") {
+        setOpen(false);
+        if (returnFocus) trigger.current?.focus({ preventScroll: true });
+      }
+    },
+    onDismiss: () => setOpen(false),
+  });
   return (
     <span className={`acpmux-picker ${className}`}>
-      <button ref={trigger} type="button" role="combobox" className="acpmux-picker-button" data-menu={label} aria-label={label} title={tooltip} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((was) => !was)}>{button}</button>
+      <button
+        ref={trigger}
+        type="button"
+        className="acpmux-picker-button"
+        data-menu={label}
+        aria-label={label}
+        title={tooltip}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((was) => !was)}
+      >
+        {button}
+      </button>
     </span>
   );
 }
