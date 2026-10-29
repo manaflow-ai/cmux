@@ -12,7 +12,7 @@ the same terminal and the same process kept counting through the swap. `Agent` s
 turn that waits on a FIFO (acpmux's own test agent), and checks after the relaunch that the same
 agent process was adopted and its turn completes once released.
 """
-import json, os, re, select, socket, stat, subprocess, threading, time
+import json, os, re, select, signal, socket, stat, subprocess, threading, time
 
 HEX = "0123456789abcdef"
 
@@ -73,6 +73,41 @@ def wait_path(path, predicate, timeout):
             kq.control(None, 1, min(left, 1.0))
     finally:
         os.close(fd)
+
+
+class Owned:
+    """The session processes this run started (agent harnesses and hosts, terminal counters), each by pid and identity
+    (start time and command, from `table`: TagTeardown._table). The cleanup ends exactly these, also when every daemon
+    that knew them has exited (a cancellation during the handoff), and never a reused pid."""
+
+    def __init__(self, table):
+        self.table = table
+        self.identities = {}
+
+    def add(self, pid):
+        row = self.table().get(pid) if pid else None
+        if row:
+            self.identities[pid] = row[1:]
+
+    def alive(self):
+        rows = self.table()
+        return sorted(pid for pid, identity in self.identities.items() if pid in rows and rows[pid][1:] == identity)
+
+    def end(self, log, grace=5):
+        """TERM, then KILL, each recorded process that still runs, by its exact pid. Returns the pids left."""
+        for signum in (signal.SIGTERM, signal.SIGKILL):
+            for pid in self.alive():
+                log("stopping session process", pid, signal.Signals(signum).name)
+                try:
+                    os.kill(pid, signum)  # an exact pid this run started, never a pattern
+                except ProcessLookupError:
+                    pass
+            deadline = time.monotonic() + grace
+            while self.alive() and time.monotonic() < deadline:
+                time.sleep(0.1)
+            if not self.alive():
+                break
+        return self.alive()
 
 
 def alive(pid):

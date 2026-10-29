@@ -29,7 +29,7 @@ import re
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from sessions import Agent, Terminal, bundle_commit, patch_build_stamp, wait_path  # noqa: E402
+from sessions import Agent, Owned, Terminal, bundle_commit, patch_build_stamp, wait_path  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -175,6 +175,23 @@ def sessions_alive(pid):
         return True
     except OSError:
         return False
+
+
+def end_tag(teardowns, owned, acp_home, remove_home, log):
+    """Ends the tag with the TagTeardowns kept for the whole run (they remembered every daemon and state root, old and
+    relaunched, so they find hosts and holders whose daemon already exited), then each session process this run
+    started that still runs, by its recorded pid. Deletes acp_home only when none of those is left. Returns the pids
+    left."""
+    for teardown in teardowns:
+        if os.path.isdir(teardown.app):
+            teardown.end()
+    left = owned.end(log)
+    if remove_home:
+        if left:
+            log("keeping", acp_home, "while session processes run:", left)
+        else:
+            shutil.rmtree(acp_home, ignore_errors=True)
+    return left
 
 
 def processes_under(root):
@@ -452,17 +469,27 @@ def main():
     sock = f"/tmp/cmux-debug-{a.tag}.sock"
     server = app = None
     owned_apps = {}
+    owned = Owned(TagTeardown._table)
     def remember_app(pid):
         row = TagTeardown._table().get(pid)
-        if row and any(TagTeardown(copy).in_bundle(row[2]) for copy in (v1, v2)):
+        if row and any(teardown.in_bundle(row[2]) for teardown in teardowns):
             owned_apps[pid] = row[1:]  # start time and command; the Sparkle parent may exit
+    def remember_tag():
+        # One TagTeardown per copy for the whole run: each remember() records the daemons and state roots that run
+        # now, so a cancellation after the old daemons exited still finds their hosts and holders.
+        for teardown in teardowns:
+            if os.path.isdir(teardown.app):
+                teardown.remember()
     result = {"tag": a.tag, "app": name}
     slug = "-".join(filter(None, "".join(c if c.isalnum() else " " for c in a.tag.lower()).split()))
     acp_home = os.path.join(os.environ["HOME"], ".acpmux/builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug.lower()).strip("."))
     terminals, agents = [], []
+    teardowns = [TagTeardown(copy, acpmux_home=acp_home, acpmux_socket=os.path.join(acp_home, "acpmux.sock"), log=log)
+                 for copy in (v1, v2)]
     try:
-        # A CI timeout or cancellation must enter the same ownership-scoped teardown.
-        TagTeardown(v1, acpmux_home=acp_home, log=log).install()
+        # A CI timeout or cancellation must enter the same ownership-scoped teardown (the finally below, with these
+        # same instances).
+        teardowns[0].install()
         public_key = run(["swift", os.path.join(HERE, "keys.swift"), "generate", keys])
         run(["/usr/bin/ditto", a.app, v1])
         run(["/usr/bin/ditto", a.app, v2])
@@ -576,6 +603,7 @@ def main():
                                stdout=open(os.path.join(out, "v1.log"), "w"), stderr=subprocess.STDOUT, start_new_session=True)
         v1_pid = app.pid
         remember_app(v1_pid)
+        remember_tag()
         result["v1_pid"] = v1_pid
         log("v1 pid", v1_pid, "build", i1["CFBundleVersion"])
         if not marks.wait(lambda rows: first(rows, "launch.first_window_frame_committed", pid=v1_pid), 120):
@@ -647,8 +675,13 @@ def main():
         if terminals:
             for terminal in terminals:
                 terminal.start(v1)
+                owned.add(terminal.pid)
+            remember_tag()  # the tag's cmux-tui daemon runs the counters' terminals
             for agent in agents:
                 agent.start()
+                owned.add(agent.harness_pid)
+                owned.add(agent.host_before.get("host_pid"))
+            remember_tag()
             result["busy_before_install"] = {
                 "agents": [{"session": agent.session, "host": agent.identity(), "daemon": agent.daemon_pid,
                             "turn_results": sum(e.get("kind") == "turn_result" for e in agent.events())}
@@ -729,6 +762,7 @@ def main():
         rows = marks.read()
         v2_pid = next(r["pid"] for r in rows if r["pid"] != v1_pid)
         remember_app(v2_pid)
+        remember_tag()
         result["v2_pid"] = v2_pid
         with open(os.path.join(v1, "Contents/Info.plist"), "rb") as f:
             result["installed_build"] = plistlib.load(f)["CFBundleVersion"]
@@ -744,6 +778,7 @@ def main():
                 {"path": os.path.join(out, "busy-after-relaunch.png")})
             result["terminal_survivals"] = [terminal.check(v1, click / 1000, relaunched, handoff=a.handoff)
                                             for terminal in terminals]
+            remember_tag()  # the relaunched daemons run now
             result["agent_survivals"] = [agent.check(handoff=a.handoff) for agent in agents]
             # Keep the original single-session keys for existing receipt consumers.
             result["terminal_survival"] = result["terminal_survivals"][0]
@@ -804,6 +839,7 @@ def main():
         if a.second_hop:
             result["second_hop"] = second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock, v1,
                                               (v1_pid, v2_pid), click_after_keep=not a.click_at_stage)
+            remember_tag()
             log("second hop", json.dumps(result["second_hop"]))
     finally:
         if a.readonly_install and os.path.isdir(os.path.dirname(v1)):
@@ -820,9 +856,7 @@ def main():
                     pass
         # End the tag's sessions: acpmux (its agents with it), the cmux-tui session (its terminals
         # with it), then any process left inside the bundle copies, by exact pid.
-        for copy in (v1, v2):
-            if os.path.isdir(copy):
-                TagTeardown(copy, acpmux_home=acp_home, acpmux_socket=os.path.join(acp_home, "acpmux.sock"), log=log).end()
+        result["session_processes_left"] = end_tag(teardowns, owned, acp_home, a.sessions, log)
         if server:
             server.terminate()
             server.wait(10)
@@ -831,8 +865,6 @@ def main():
         log("LEFTOVERS", result["leftovers"])
         with open(os.path.join(out, "timeline.json"), "w") as f:
             json.dump(result, f, indent=1)
-        if a.sessions:
-            shutil.rmtree(acp_home, ignore_errors=True)
         if server:
             server.terminate()
             server.wait(10)
