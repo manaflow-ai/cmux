@@ -84,8 +84,12 @@ main() {
   if [[ -n "$bench_switch" ]] && ! [[ "$bench_switch" =~ ^CMUX_[A-Z0-9]+(_[A-Z0-9]+)*_BENCH$ ]]; then
     echo "swift-test-bench.sh: enable= takes one benchmark switch CMUX_<NAME>_BENCH (got '$bench_switch')" >&2; exit 2
   fi
+  # Release: the package-test-lane.sh flags (its CMUX_SWIFT_SUITE_CONFIGURATION=release), so a bench
+  # measures the same build as a release suite there: @testable imports need -enable-testing, DEBUG stays
+  # defined for #if DEBUG test helpers, and the Xcode 26.6 optimizer's CopyPropagation crash is avoided.
   local config_args=()
-  [[ "$config" != release ]] || config_args=(-c release)
+  [[ "$config" != release ]] ||
+    config_args=(-c release -Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
   local sha
   for sha in "$source_sha" "$restore_sha"; do
     [[ -z "$sha" || "$sha" =~ ^[0-9a-f]{40}$ ]] ||

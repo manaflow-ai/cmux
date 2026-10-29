@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # swift-test-bench.sh config=release enable=CMUX_<NAME>_BENCH: the build and the run both use
-# `-c release`, and the run (only) sees NAME=1. A Release benchmark such as MainTurnMeterBench
+# package-test-lane.sh's release flags (`-c release -Xswiftc -enable-testing ...`: @testable imports), and the
+# run (only) sees NAME=1. A Release benchmark such as MainTurnMeterBench
 # (2026-10-29) is skipped by its suite unless enabled, and measures Debug code without -c release.
 # Runs the script on a copy of the repo's own scripts with stand-in swift, git, xcodebuild and
 # sysctl that record their calls; builds nothing. Run: bash scripts/measure/tests/swift-test-bench-release.test.sh
@@ -44,8 +45,8 @@ want() { grep -qF -- "$1" "$log" || { echo "FAIL: no call like: $1"; sed 's/^/  
 none() { ! grep -qF -- "$1" "$log" || { echo "FAIL: unexpected call like: $1"; sed 's/^/    /' "$log"; fail=1; }; }
 
 run Packages/macOS/CmuxNext MainTurnMeterBench config=release enable=CMUX_MAIN_TURN_BENCH
-want "swift build --package-path Packages/macOS/CmuxNext --build-tests -c release | bench=unset"
-want "swift test --package-path Packages/macOS/CmuxNext --skip-build --filter MainTurnMeterBench -c release | bench=1"
+want "swift build --package-path Packages/macOS/CmuxNext --build-tests -c release -Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation | bench=unset"
+want "swift test --package-path Packages/macOS/CmuxNext --skip-build --filter MainTurnMeterBench -c release -Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation | bench=1"
 
 run Packages/macOS/CmuxNext SomeSuite
 want "swift build --package-path Packages/macOS/CmuxNext --build-tests | bench=unset"
