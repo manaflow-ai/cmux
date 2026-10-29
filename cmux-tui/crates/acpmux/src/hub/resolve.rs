@@ -365,5 +365,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         subsession_limits: Default::default(),
         lineage: None,
         subagent_retry_open: false,
+        turn_cap_ms: None,
+        turn_cap_noticed: None,
     }
 }
