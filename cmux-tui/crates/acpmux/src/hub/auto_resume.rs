@@ -438,7 +438,11 @@ impl Hub {
         // A lazy startup may not have installed the saved retry's mark yet. Journal the
         // cancellation boundary under the same lock as recovery: only schedules before
         // this record are stopped, never a later turn after an earlier idle Stop.
-        self.append(session, "mux", "auto_resume_stopped", json!({}));
+        // The first close records this boundary while the chat is still open. A closed
+        // chat cannot restore a retry, and stopping it again must not refresh its age.
+        if session.status() != SessionStatus::Closed {
+            self.append(session, "mux", "auto_resume_stopped", json!({}));
+        }
         let settles = settled_by_stop(pending.get(&session.id));
         let (ending, fired) = match pending.get(&session.id) {
             Some(Mark::Ending(t)) => (Some(t.clone()), false),

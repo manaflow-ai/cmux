@@ -240,6 +240,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn retry_restore_first_close_stops_the_retry_but_repeated_close_logs_nothing() {
+        let (hub, session) = idle_chat();
+        failed_retry(&hub, &session);
+        // No in-memory retry mark yet: close must still persist its cancellation.
+        hub.kill(&session, false).await.unwrap();
+        let records = hub.events(&session.id, 0, 100).unwrap();
+        assert_eq!(records.iter().filter(|e| e.kind == "auto_resume_stopped").count(), 1);
+        let closed_at = session.meta().updated_at;
+        hub.kill(&session, false).await.unwrap();
+        assert!(hub.cancel(&session).await.is_err());
+        assert_eq!(hub.events(&session.id, 0, 100).unwrap().len(), records.len());
+        assert_eq!(session.meta().updated_at, closed_at);
+
+        // Reopening does not erase the first close's journal boundary. Recovery must
+        // not resurrect the failed turn's wait, even after the chat is open again.
+        assert!(hub.reopen(&session, session.stops.load(std::sync::atomic::Ordering::SeqCst)));
+        hub.restore_auto_resume(&session);
+        assert_eq!(hub.session_summary(&session)["retry"], Value::Null);
+    }
+
+    #[tokio::test]
     async fn retry_restore_preserves_a_cancel_after_scheduling_before_the_mark_is_restored() {
         let (hub, session) = idle_chat();
         failed_retry(&hub, &session);
