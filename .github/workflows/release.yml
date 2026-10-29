@@ -1065,8 +1065,10 @@ jobs:
   # published release, so every update check failed
   # (https://github.com/manaflow-ai/cmux/issues/26729). Its own job: the
   # Homebrew cask gates on build-sign-notarize alone, so a red check here stays
-  # visible without holding the cask. A tag cut from an older branch runs that
-  # branch's workflow, so stable-feed-watch.yml repeats this hourly from main.
+  # visible without holding the cask. stable-feed-watch.yml checks the default
+  # feeds hourly from main regardless of which branch published them; it does
+  # not check non-latest backports' own tag feeds. Those are covered only by
+  # each tag's release workflow when it includes this job.
   verify-stable-feed:
     needs: build-sign-notarize
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')

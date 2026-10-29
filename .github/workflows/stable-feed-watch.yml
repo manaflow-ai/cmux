@@ -6,10 +6,12 @@ name: Stable feed watch
 # assets, every feed URL 404ed, and every 0.65.2 install showed "error
 # retrieving update information" behind a green release run
 # (https://github.com/manaflow-ai/cmux/issues/26729). A tag runs the workflow
-# file at that tag, so release.yml's own feed check cannot cover a tag cut from
-# an older branch. A schedule runs only from main, so this one can. It fetches
-# each stable feed and every enclosure it lists (scripts/ci/verify_stable_feed.py,
-# tested by tests/test_verify_stable_feed.py) and goes red on any problem.
+# file at that tag, so an older branch may omit release.yml's feed check. This
+# schedule runs from main and checks the default stable feeds regardless of
+# which branch published them. A non-latest backport's own tag feeds are checked
+# only by its release workflow when it includes the check. The script probes
+# every listed enclosure (scripts/ci/verify_stable_feed.py, tested by
+# tests/test_verify_stable_feed.py) and goes red on any problem.
 on:
   schedule:
     - cron: "23 * * * *"

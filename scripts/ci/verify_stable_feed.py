@@ -9,16 +9,20 @@ assets while all 12 sat on a hidden draft, so every latest/download feed URL
 404ed and every 0.65.2 install showed "error retrieving update information"
 (https://github.com/manaflow-ai/cmux/issues/26729). The release run was green.
 
-This check reads each feed the way Sparkle does: the feed must load, parse,
-and list at least one item whose enclosure carries an EdDSA signature, and
-every enclosure must download (HTTP 200) with the exact length the feed
-declares. release.yml runs it after publishing with --tag, which adds the new
-release's own feed URLs, and stable-feed-watch.yml runs it hourly from main,
-because a tag runs the workflow file at that tag, so only a scheduled run on
-main covers a release cut from an older branch.
+Each feed must load, parse, and list at least one enclosure carrying an EdDSA
+signature. Every enclosure must return the requested byte. Its reported full
+size must match the feed's declared length; when the response reports no full
+size, the enclosure passes without a length comparison. This probe does not
+verify complete DMG contents or cryptographically validate the signature.
+release.yml runs it after publishing with --tag, which adds the new release's
+own feed URLs. stable-feed-watch.yml checks the default feeds hourly from main,
+regardless of which branch published the release. A non-latest backport's own
+feeds are checked only by its release workflow when it includes this check.
 
 Right after an upload GitHub can serve a cached 404 for a few minutes, so
---settle-seconds keeps retrying every failure, 404 included, until it passes.
+--settle-seconds retries failing feeds in rounds, 404 included, within one
+shared window. The deadline limits retry starts; HTTP calls already running
+can finish afterward, and the workflows enforce their own job timeouts.
 
 usage: verify_stable_feed.py [--feed URL ...] [--tag vX.Y.Z [--tag-only]] [--attempts 3] [--settle-seconds 0]
 Exits 1 with one line per problem.
@@ -79,6 +83,8 @@ def http_content_length(url: str) -> int | None:
     request = urllib.request.Request(url, headers={"Range": "bytes=0-0", "User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
+            if not response.read(1):
+                raise FetchError("response closed before the requested byte")
             return served_length(response.status, response.headers.get("Content-Range"),
                                  response.headers.get("Content-Length"))
     except urllib.error.HTTPError as error:
@@ -138,7 +144,11 @@ def check_feed(feed_url: str, attempts: int, get=http_get, content_length=http_c
             continue
         if not item["signature"]:
             problems.append(f"{feed_url}: {url} has no sparkle:edSignature")
-        if not item["length"].isdigit():
+        try:
+            if not (item["length"].isascii() and item["length"].isdigit()):
+                raise ValueError("length must contain ASCII digits")
+            declared_length = int(item["length"])
+        except ValueError:
             problems.append(f"{feed_url}: {url} has no numeric length")
             continue
         try:
@@ -146,7 +156,7 @@ def check_feed(feed_url: str, attempts: int, get=http_get, content_length=http_c
         except FetchError as error:
             problems.append(f"{feed_url}: {url} does not download ({error})")
             continue
-        if served is not None and served != int(item["length"]):
+        if served is not None and served != declared_length:
             problems.append(f"{feed_url}: {url} serves {served} bytes, the feed declares {item['length']}")
     return problems
 
@@ -159,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", default="manaflow-ai/cmux")
     parser.add_argument("--attempts", type=int, default=3)
     parser.add_argument("--settle-seconds", type=int, default=0,
-                        help="retry every failing feed, 404 included, for this long")
+                        help="retry failing feeds in rounds within this shared window (404 included)")
     args = parser.parse_args(argv)
     if args.tag_only and not args.tag:
         parser.error("--tag-only needs --tag")
@@ -167,13 +177,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.tag:
         feeds += [f"https://github.com/{args.repo}/releases/download/{args.tag}/{name}" for name in FEED_NAMES]
     deadline = time.monotonic() + max(0, args.settle_seconds)
+    results = [check_feed(feed_url, max(1, args.attempts)) for feed_url in feeds]
+    while any(results):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(15, remaining))
+        for index, feed_url in enumerate(feeds):
+            if results[index] and time.monotonic() < deadline:
+                print(f"wait {feed_url}: {results[index][0]}")
+                results[index] = check_feed(feed_url, max(1, args.attempts))
     problems = []
-    for feed_url in feeds:
-        found = check_feed(feed_url, max(1, args.attempts))
-        while found and time.monotonic() < deadline:
-            print(f"wait {feed_url}: {found[0]}")
-            time.sleep(15)
-            found = check_feed(feed_url, max(1, args.attempts))
+    for feed_url, found in zip(feeds, results):
         print(f"{'FAIL' if found else 'ok  '} {feed_url}")
         problems.extend(found)
     for problem in problems:
