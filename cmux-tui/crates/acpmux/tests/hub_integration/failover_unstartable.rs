@@ -125,6 +125,10 @@ async fn a_failover_never_moves_a_chat_onto_a_fallback_that_cannot_start() {
     assert!(err.starts_with("agent process closed"), "{err}");
     assert!(err.contains("the fallback profile direct cannot start"), "{err}");
     assert!(err.contains("CodeRouter is not running"), "{err}");
+    // The dead primary's own last stderr line still comes first: the note is added after the
+    // turn's end reads the error as a dead process's.
+    let reason = err.find("proxy down").expect(&err);
+    assert!(reason < err.find("the fallback profile").unwrap(), "{err}");
     let skipped = records(&hub, &id, "failover_skipped");
     assert_eq!(skipped.len(), 1, "{skipped:?}");
     assert_eq!(skipped[0]["to"], "direct");
