@@ -90,8 +90,8 @@ struct TerminalNewTabResizeTests {
         return Array(content.panes.values)
     }
 
-    /// Each pane's shown terminal and where its surface stands in the visibility tree (the size work
-    /// of a surface that is not shown waits on its window node).
+    /// Each pane's shown terminal and where its surface stands in the visibility tree (a surface that is not
+    /// shown does no size work; its edge to shown sizes it from its bounds, `reconcileShown`).
     private static func describe(_ services: AppServices, _ controller: WindowController) -> String {
         let panes = controller.workspaceContent.map { Array($0.panes.values) } ?? []
         let frame = controller.window.map { "window \(Int($0.frame.width))x\(Int($0.frame.height)) key=\($0.isKeyWindow)\n" } ?? ""

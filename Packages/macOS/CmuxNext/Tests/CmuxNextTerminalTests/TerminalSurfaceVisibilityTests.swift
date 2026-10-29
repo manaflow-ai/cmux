@@ -96,7 +96,7 @@ struct TerminalSurfaceVisibilityTests {
         tab.set(.visible)
         #expect(reports.grids.count == before + 1, "a new owner and two resizes sent \(reports.grids.count - before) grids on show")
         #expect(reports.grids.last == Self.fit(surface), "the grid sent on show is not the one its bounds fit")
-        #expect(surface.restingGridMismatch(onScreen: true, ownerSettled: false) == nil)
+        #expect(surface.restingGridMismatch(onScreen: true, ownerGrid: nil) == nil)
         #expect(surface.windowNode.deferredCount == 0 && surface.visibilityNode.deferredCount == 0)
 
         tab.set(.hidden)

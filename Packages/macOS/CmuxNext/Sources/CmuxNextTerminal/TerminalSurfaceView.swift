@@ -379,7 +379,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         // take its scale and the view's size in it.
         if windowNode.effective == before {
             syncWindowState()
-            if isShown { reconcileShown() }
+            if sizesToBounds { reconcileShown() }
         }
     }
 
@@ -404,8 +404,11 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     let windowNode: VisibilityNode
     /// Runs ``syncWindowState()`` on each flip of ``windowNode``.
     private var shownWatch: VisibilitySubscription?
-    /// Whether ``syncWindowState()`` last saw the terminal shown: its edge to shown runs ``reconcileShown()`` once.
-    var reconciledShown = false
+    /// Whether the view sizes its surface to its bounds: the shown state ``syncWindowState()`` was last told.
+    /// Size work follows this told state, not ``isShown`` read at the call, so the two cannot disagree: a node that
+    /// hides and shows again in one delivery pass tells no subscriber, and the view keeps sizing through it (R2).
+    /// Its edge to true runs ``reconcileShown()`` once.
+    private(set) var sizesToBounds = false
     /// Runs ``syncPlacement()`` when ``visibilityNode`` shows.
     private var placementWatch: VisibilitySubscription?
     /// In a window, its nodes not hidden and no container above parked (``windowNode``). A layout change of
@@ -451,7 +454,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// surface's renderer thread, which stays parked while the surface is paused and GPU-released.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard isShown else { return }
+        guard sizesToBounds else { return }
         updateContentScale()
         updateSurfaceSize()
     }
@@ -532,7 +535,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// (plans principled-audit R2: PL-script A3's hidden resizes cost nothing, and no missed show can
     /// leave a stale grid).
     func updateSurfaceSize() {
-        guard let surface, isShown else { return }
+        guard let surface, sizesToBounds else { return }
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
