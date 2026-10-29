@@ -1,0 +1,851 @@
+{
+ "pr": 27356,
+ "head": "e3797024ad76b9c24149c18cb647a2137ff6cefc",
+ "parent": "2e845378d2628e53beb10796fabd7ab1372bf58b",
+ "engine": "Chromium (Playwright, headless, Linux)",
+ "scope": "gallery fixtures only, not the native app",
+ "viewports": [
+  280,
+  320,
+  760
+ ],
+ "themes": [
+  "light",
+  "dark"
+ ],
+ "check": {
+  "command": "bun run check (webviews)",
+  "exit": 1,
+  "failing": "vp fmt --check: src/prototypes/table-chart/shared.tsx (x-axis <text> element should be on one line)",
+  "passing": [
+   "check:effect-cleanup",
+   "check:browser-lanes",
+   "check:fixed-waits",
+   "check:design-tokens",
+   "check:layers",
+   "check:type-scale",
+   "check:motion-scale",
+   "check:status-glyphs",
+   "check:system-blue",
+   "check:text-focus",
+   "check:dialog-keys",
+   "check:switch-fetches",
+   "check:catalog-keys",
+   "vp lint",
+   "vp check --no-fmt --no-lint",
+   "acpmux-protocol:check"
+  ]
+ },
+ "gallery_build": {
+  "exit": 0
+ },
+ "capture": {
+  "cases": 30,
+  "failures": 0,
+  "page_errors": 0
+ },
+ "label_probe": {
+  "cases": [
+   {
+    "variant": "inline",
+    "theme": "light",
+    "width": 280,
+    "fixture": "week",
+    "svgW": 214,
+    "fontPx": 11,
+    "count": 3,
+    "labels": [
+     "Mon",
+     "Thu",
+     "Sun"
+    ],
+    "minGap": 43.1,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "light",
+    "width": 280,
+    "fixture": "large",
+    "svgW": 214,
+    "fontPx": 11,
+    "count": 3,
+    "labels": [
+     "D1",
+     "D335",
+     "D669"
+    ],
+    "minGap": 21.1,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "light",
+    "width": 320,
+    "fixture": "week",
+    "svgW": 254,
+    "fontPx": 11,
+    "count": 4,
+    "labels": [
+     "Mon",
+     "Wed",
+     "Fri",
+     "Sun"
+    ],
+    "minGap": 31.04,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "light",
+    "width": 320,
+    "fixture": "large",
+    "svgW": 254,
+    "fontPx": 11,
+    "count": 4,
+    "labels": [
+     "D1",
+     "D251",
+     "D501",
+     "D751"
+    ],
+    "minGap": 22.16,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "light",
+    "width": 760,
+    "fixture": "week",
+    "svgW": 662,
+    "fontPx": 11,
+    "count": 7,
+    "labels": [
+     "Mon",
+     "Tue",
+     "Wed",
+     "Thu",
+     "Fri",
+     "Sat",
+     "Sun"
+    ],
+    "minGap": 63.6,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "light",
+    "width": 760,
+    "fixture": "large",
+    "svgW": 662,
+    "fontPx": 11,
+    "count": 7,
+    "labels": [
+     "D1",
+     "D144",
+     "D287",
+     "D430",
+     "D573",
+     "D716",
+     "D859"
+    ],
+    "minGap": 56.21,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "light",
+    "width": 280,
+    "fixture": "week",
+    "svgW": 214,
+    "fontPx": 11,
+    "count": 3,
+    "labels": [
+     "Mon",
+     "Thu",
+     "Sun"
+    ],
+    "minGap": 43.1,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "light",
+    "width": 280,
+    "fixture": "large",
+    "svgW": 214,
+    "fontPx": 11,
+    "count": 3,
+    "labels": [
+     "D1",
+     "D335",
+     "D669"
+    ],
+    "minGap": 21.1,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "light",
+    "width": 320,
+    "fixture": "week",
+    "svgW": 254,
+    "fontPx": 11,
+    "count": 4,
+    "labels": [
+     "Mon",
+     "Wed",
+     "Fri",
+     "Sun"
+    ],
+    "minGap": 31.04,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "light",
+    "width": 320,
+    "fixture": "large",
+    "svgW": 254,
+    "fontPx": 11,
+    "count": 4,
+    "labels": [
+     "D1",
+     "D251",
+     "D501",
+     "D751"
+    ],
+    "minGap": 22.16,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "light",
+    "width": 760,
+    "fixture": "week",
+    "svgW": 349.7,
+    "fontPx": 11,
+    "count": 7,
+    "labels": [
+     "Mon",
+     "Tue",
+     "Wed",
+     "Thu",
+     "Fri",
+     "Sat",
+     "Sun"
+    ],
+    "minGap": 18.99,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "light",
+    "width": 760,
+    "fixture": "large",
+    "svgW": 349.7,
+    "fontPx": 11,
+    "count": 7,
+    "labels": [
+     "D1",
+     "D144",
+     "D287",
+     "D430",
+     "D573",
+     "D716",
+     "D859"
+    ],
+    "minGap": 11.56,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "dark",
+    "width": 280,
+    "fixture": "week",
+    "svgW": 214,
+    "fontPx": 11,
+    "count": 3,
+    "labels": [
+     "Mon",
+     "Thu",
+     "Sun"
+    ],
+    "minGap": 43.1,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "dark",
+    "width": 280,
+    "fixture": "large",
+    "svgW": 214,
+    "fontPx": 11,
+    "count": 3,
+    "labels": [
+     "D1",
+     "D335",
+     "D669"
+    ],
+    "minGap": 21.1,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "dark",
+    "width": 320,
+    "fixture": "week",
+    "svgW": 254,
+    "fontPx": 11,
+    "count": 4,
+    "labels": [
+     "Mon",
+     "Wed",
+     "Fri",
+     "Sun"
+    ],
+    "minGap": 31.04,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "dark",
+    "width": 320,
+    "fixture": "large",
+    "svgW": 254,
+    "fontPx": 11,
+    "count": 4,
+    "labels": [
+     "D1",
+     "D251",
+     "D501",
+     "D751"
+    ],
+    "minGap": 22.16,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "dark",
+    "width": 760,
+    "fixture": "week",
+    "svgW": 662,
+    "fontPx": 11,
+    "count": 7,
+    "labels": [
+     "Mon",
+     "Tue",
+     "Wed",
+     "Thu",
+     "Fri",
+     "Sat",
+     "Sun"
+    ],
+    "minGap": 63.6,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "theme": "dark",
+    "width": 760,
+    "fixture": "large",
+    "svgW": 662,
+    "fontPx": 11,
+    "count": 7,
+    "labels": [
+     "D1",
+     "D144",
+     "D287",
+     "D430",
+     "D573",
+     "D716",
+     "D859"
+    ],
+    "minGap": 56.21,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "dark",
+    "width": 280,
+    "fixture": "week",
+    "svgW": 214,
+    "fontPx": 11,
+    "count": 3,
+    "labels": [
+     "Mon",
+     "Thu",
+     "Sun"
+    ],
+    "minGap": 43.1,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "dark",
+    "width": 280,
+    "fixture": "large",
+    "svgW": 214,
+    "fontPx": 11,
+    "count": 3,
+    "labels": [
+     "D1",
+     "D335",
+     "D669"
+    ],
+    "minGap": 21.1,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "dark",
+    "width": 320,
+    "fixture": "week",
+    "svgW": 254,
+    "fontPx": 11,
+    "count": 4,
+    "labels": [
+     "Mon",
+     "Wed",
+     "Fri",
+     "Sun"
+    ],
+    "minGap": 31.04,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "dark",
+    "width": 320,
+    "fixture": "large",
+    "svgW": 254,
+    "fontPx": 11,
+    "count": 4,
+    "labels": [
+     "D1",
+     "D251",
+     "D501",
+     "D751"
+    ],
+    "minGap": 22.16,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "dark",
+    "width": 760,
+    "fixture": "week",
+    "svgW": 349.7,
+    "fontPx": 11,
+    "count": 7,
+    "labels": [
+     "Mon",
+     "Tue",
+     "Wed",
+     "Thu",
+     "Fri",
+     "Sat",
+     "Sun"
+    ],
+    "minGap": 18.99,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "theme": "dark",
+    "width": 760,
+    "fixture": "large",
+    "svgW": 349.7,
+    "fontPx": 11,
+    "count": 7,
+    "labels": [
+     "D1",
+     "D144",
+     "D287",
+     "D430",
+     "D573",
+     "D716",
+     "D859"
+    ],
+    "minGap": 11.56,
+    "inside": true
+   }
+  ],
+  "failures": 0,
+  "console_errors": 0,
+  "rule": "tickCount=max(1,min(7,floor(innerPlotWidth/40))); stride=ceil(rows/tickCount)",
+  "min_gap_px_overall": 11.56,
+  "all_inside_svg": true,
+  "tick_font_px": [
+   11
+  ],
+  "resize_760_280_760": [
+   {
+    "variant": "inline",
+    "fixture": "week",
+    "step": 760,
+    "labels": [
+     "Mon",
+     "Tue",
+     "Wed",
+     "Thu",
+     "Fri",
+     "Sat",
+     "Sun"
+    ],
+    "minGap": 63.6,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "fixture": "week",
+    "step": 280,
+    "labels": [
+     "Mon",
+     "Thu",
+     "Sun"
+    ],
+    "minGap": 43.1,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "fixture": "week",
+    "step": 760,
+    "labels": [
+     "Mon",
+     "Tue",
+     "Wed",
+     "Thu",
+     "Fri",
+     "Sat",
+     "Sun"
+    ],
+    "minGap": 63.6,
+    "inside": true
+   },
+   {
+    "updated": true,
+    "consoleErrorsDuring": 0
+   },
+   {
+    "variant": "inline",
+    "fixture": "large",
+    "step": 760,
+    "labels": [
+     "D1",
+     "D144",
+     "D287",
+     "D430",
+     "D573",
+     "D716",
+     "D859"
+    ],
+    "minGap": 56.21,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "fixture": "large",
+    "step": 280,
+    "labels": [
+     "D1",
+     "D335",
+     "D669"
+    ],
+    "minGap": 21.1,
+    "inside": true
+   },
+   {
+    "variant": "inline",
+    "fixture": "large",
+    "step": 760,
+    "labels": [
+     "D1",
+     "D144",
+     "D287",
+     "D430",
+     "D573",
+     "D716",
+     "D859"
+    ],
+    "minGap": 56.21,
+    "inside": true
+   },
+   {
+    "updated": true,
+    "consoleErrorsDuring": 0
+   },
+   {
+    "variant": "split",
+    "fixture": "week",
+    "step": 760,
+    "labels": [
+     "Mon",
+     "Tue",
+     "Wed",
+     "Thu",
+     "Fri",
+     "Sat",
+     "Sun"
+    ],
+    "minGap": 18.99,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "fixture": "week",
+    "step": 280,
+    "labels": [
+     "Mon",
+     "Thu",
+     "Sun"
+    ],
+    "minGap": 43.1,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "fixture": "week",
+    "step": 760,
+    "labels": [
+     "Mon",
+     "Tue",
+     "Wed",
+     "Thu",
+     "Fri",
+     "Sat",
+     "Sun"
+    ],
+    "minGap": 18.99,
+    "inside": true
+   },
+   {
+    "updated": true,
+    "consoleErrorsDuring": 0
+   },
+   {
+    "variant": "split",
+    "fixture": "large",
+    "step": 760,
+    "labels": [
+     "D1",
+     "D144",
+     "D287",
+     "D430",
+     "D573",
+     "D716",
+     "D859"
+    ],
+    "minGap": 11.56,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "fixture": "large",
+    "step": 280,
+    "labels": [
+     "D1",
+     "D335",
+     "D669"
+    ],
+    "minGap": 21.1,
+    "inside": true
+   },
+   {
+    "variant": "split",
+    "fixture": "large",
+    "step": 760,
+    "labels": [
+     "D1",
+     "D144",
+     "D287",
+     "D430",
+     "D573",
+     "D716",
+     "D859"
+    ],
+    "minGap": 11.56,
+    "inside": true
+   },
+   {
+    "updated": true,
+    "consoleErrorsDuring": 0
+   }
+  ]
+ },
+ "resize_observer": {
+  "failures": 0,
+  "console_errors": 0,
+  "viewbox_tracks": [
+   {
+    "variant": "inline",
+    "step": 760,
+    "svgW": 662,
+    "viewBoxW": 662,
+    "tracks": true
+   },
+   {
+    "variant": "inline",
+    "step": 320,
+    "svgW": 254,
+    "viewBoxW": 254,
+    "tracks": true
+   },
+   {
+    "variant": "inline",
+    "step": 280,
+    "svgW": 214,
+    "viewBoxW": 214,
+    "tracks": true
+   },
+   {
+    "variant": "inline",
+    "step": 760,
+    "svgW": 662,
+    "viewBoxW": 662,
+    "tracks": true
+   },
+   {
+    "variant": "split",
+    "step": 760,
+    "svgW": 349.7,
+    "viewBoxW": 349.7,
+    "tracks": true
+   },
+   {
+    "variant": "split",
+    "step": 320,
+    "svgW": 254,
+    "viewBoxW": 254,
+    "tracks": true
+   },
+   {
+    "variant": "split",
+    "step": 280,
+    "svgW": 214,
+    "viewBoxW": 214,
+    "tracks": true
+   },
+   {
+    "variant": "split",
+    "step": 760,
+    "svgW": 349.7,
+    "viewBoxW": 349.7,
+    "tracks": true
+   }
+  ],
+  "observers_live": [
+   {
+    "step": "start",
+    "live": 1,
+    "svgLive": 1
+   },
+   {
+    "step": "round-1",
+    "live": 1,
+    "svgLive": 1
+   },
+   {
+    "step": "round-2",
+    "live": 1,
+    "svgLive": 1
+   },
+   {
+    "step": "round-3",
+    "live": 1,
+    "svgLive": 1
+   },
+   {
+    "step": "round-4",
+    "live": 1,
+    "svgLive": 1
+   },
+   {
+    "step": "round-5",
+    "live": 1,
+    "svgLive": 1
+   },
+   {
+    "step": "after-5-source-toggles",
+    "live": 1,
+    "svgLive": 1
+   },
+   {
+    "step": "empty-fixture",
+    "live": 0,
+    "svgLive": 0
+   }
+  ]
+ },
+ "reduced_transparency": {
+  "method": "CDP Emulation.setEmulatedMedia",
+  "failures": 0,
+  "results": [
+   {
+    "theme": "dark",
+    "reduce": false,
+    "styles": [
+     {
+      "selector": ".proto-picker",
+      "backdropFilter": "blur(12px) saturate(1.4)",
+      "alpha": 0.82
+     },
+     {
+      "selector": ".proto-picker-highlight",
+      "backdropFilter": "none",
+      "alpha": 0.12
+     }
+    ]
+   },
+   {
+    "theme": "dark",
+    "reduce": true,
+    "styles": [
+     {
+      "selector": ".proto-picker",
+      "backdropFilter": "none",
+      "alpha": 1
+     },
+     {
+      "selector": ".proto-picker-highlight",
+      "backdropFilter": "none",
+      "alpha": 0.12
+     }
+    ]
+   },
+   {
+    "theme": "light",
+    "reduce": false,
+    "styles": [
+     {
+      "selector": ".proto-picker",
+      "backdropFilter": "blur(12px) saturate(1.4)",
+      "alpha": 0.82
+     },
+     {
+      "selector": ".proto-picker-highlight",
+      "backdropFilter": "none",
+      "alpha": 0.12
+     }
+    ]
+   },
+   {
+    "theme": "light",
+    "reduce": true,
+    "styles": [
+     {
+      "selector": ".proto-picker",
+      "backdropFilter": "none",
+      "alpha": 1
+     },
+     {
+      "selector": ".proto-picker-highlight",
+      "backdropFilter": "none",
+      "alpha": 0.12
+     }
+    ]
+   }
+  ]
+ }
+}
