@@ -503,6 +503,7 @@ struct AgentChatEmptyState: View {
 struct AgentChatJumpButton: View {
     let store: AgentChatStore
     let surface: AgentChatSurface
+    private let metrics = CmuxMobileTheme.standard.metrics
 
     var body: some View {
         ZStack {
@@ -513,17 +514,23 @@ struct AgentChatJumpButton: View {
                     Image(systemName: "arrow.down")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.primary)
-                        .frame(width: 36, height: 36)
-                        .overlay {
-                            if store.isRunning {
-                                PulsingRing()
-                            }
-                        }
+                        .frame(width: metrics.smallCircle, height: metrics.smallCircle)
                         .background(Color.cmuxMobileBackground.opacity(0.72), in: .circle)
                         // A tinted glass disc, so transcript text under it never reads through the arrow.
                         .glassEffect(.regular.tint(Color.cmuxMobileBackground.opacity(0.35)).interactive(), in: .circle)
                         // The 36 pt disc in a 44 pt target.
-                        .frame(width: 44, height: 44)
+                        .frame(width: metrics.glassButton, height: metrics.glassButton)
+                        .overlay(alignment: .topTrailing) {
+                            if store.isRunning {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .tint(.primary)
+                                    .frame(width: metrics.workingIndicatorBadge, height: metrics.workingIndicatorBadge)
+                                    .background(Color.cmuxMobileBackground, in: .circle)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
@@ -533,7 +540,7 @@ struct AgentChatJumpButton: View {
         }
         // The host's fixed size (`ChatTranscriptController.jumpHostSize`):
         // the circle appears in place, centered, from its first frame.
-        .frame(width: 44, height: 44)
+        .frame(width: metrics.glassButton, height: metrics.glassButton)
     }
 }
 
@@ -689,19 +696,6 @@ nonisolated struct DrawnHeightReporter: ViewModifier, Animatable {
 
     @MainActor func body(content: Content) -> some View {
         content.onAppear { if height > 0 { report(height) } }
-    }
-}
-
-struct PulsingRing: View {
-    @State private var on = false
-
-    var body: some View {
-        Circle()
-            .strokeBorder(Color.primary, lineWidth: 2)
-            .opacity(on ? 0.9 : 0.2)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { on = true }
-            }
     }
 }
 
