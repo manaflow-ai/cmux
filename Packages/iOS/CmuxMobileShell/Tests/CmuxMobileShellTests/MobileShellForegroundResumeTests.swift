@@ -287,6 +287,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
     await indicatorClock.waitForSleep()
     let indicatorTask = try #require(store.foregroundProbeIndicatorTask)
     indicatorClock.advance(by: .milliseconds(399))
+    #expect(indicatorClock.sleeperCount == 1)
     #expect(!store.isRecoveringConnection)
     indicatorClock.advance(by: .milliseconds(1))
     await indicatorTask.value
@@ -332,6 +333,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
     await indicatorClock.waitForSleep()
     let indicatorTask = try #require(store.foregroundProbeIndicatorTask)
     indicatorClock.advance(by: .milliseconds(399))
+    #expect(indicatorClock.sleeperCount == 1)
     #expect(!store.isRecoveringConnection)
     indicatorClock.advance(by: .milliseconds(1))
     await indicatorTask.value
