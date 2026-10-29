@@ -202,6 +202,23 @@ import Testing
         #expect(h.recorder.sets == ["device true", "vm true"])
     }
 
+    /// Under ``SettingsPageProvider/PersonGatePolicy/alwaysConfirm`` the HID system's click asks too, and
+    /// only a success turns it on.
+    @Test func alwaysConfirmAsksEvenForTheHIDSystemsClick() async throws {
+        let owner = FakeOwner()
+        let h = try await make(owner: owner)
+        defer { h.cleanUp() }
+        h.page.gatePolicy = .alwaysConfirm
+        for op in Switch.allCases {
+            owner.answer = false
+            #expect(try await h.refused(op, on: true, h.click(0)))
+            owner.answer = true
+            #expect(try await !h.refused(op, on: true, h.click(0)))
+        }
+        #expect(owner.reasons == [Switch.fullAccess.reason, Switch.fullAccess.reason, Switch.vmHost.reason, Switch.vmHost.reason])
+        #expect(h.recorder.sets == ["device true", "vm true"])
+    }
+
     /// Screen Sharing, Universal Control, the Accessibility Keyboard or a posted click: the owner confirms
     /// with Touch ID or the password, with the switch's own reason; only a success turns it on.
     @Test func aClickThatIsNotTheHIDSystemsAsksTheOwnerAndOnlyASuccessTurnsItOn() async throws {
