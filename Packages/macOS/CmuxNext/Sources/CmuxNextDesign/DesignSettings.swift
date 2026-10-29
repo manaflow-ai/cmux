@@ -128,6 +128,9 @@ public final class DesignSettings {
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
     /// default) keeps iMessage's blue and grey. The Home transcript follows it (`HomeNativeTranscriptView.bubbleStyle`).
     public var homeChiefBubblesThemed = false
+    /// `home.bubbleColors.*`: the bubble colours every Home chat starts with, `#RRGGBB` by role (`sent`,
+    /// `sentText`, `received`, `receivedText`); empty keeps the bubble style's. A chat's own Chat Colors… go over it.
+    public var homeBubbleColors: [String: String] = [:]
     /// `home.chiefPetEnabled`: the floating Chief pet shows; the empty Chief conversation's pet row follows it.
     public var homeChiefPetEnabled = false
     /// Per-metric overrides in points, clamped by `setOverride`.

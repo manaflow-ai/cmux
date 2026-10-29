@@ -1445,6 +1445,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_feat_publish_order.py
 
+      - name: Validate a feat-cmux-next push reaches its promotable cmux-tui tree in few runner queues
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_tree_critical_path.py
+
       - name: Validate cmux-tui publication retries a rate-limited attestation and a slow fetch
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_publish_retries.py
@@ -1733,6 +1737,7 @@ jobs:
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
           python3 tests/test_nightly_signer_jobs.py
+          python3 tests/test_signer_parity_compare.py
 
       - name: Validate the release app signer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
