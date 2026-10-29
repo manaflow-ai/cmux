@@ -1029,6 +1029,16 @@ impl Hub {
     }
 }
 
+/// Whether `key` names the peer's session `r` (listed under `id`): its name, a prefix of its id,
+/// or `PEER/NAME`.
+fn names_remote(id: &str, r: &RemoteSession, key: &str) -> bool {
+    let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
+    name == key
+        || r.receipt.mux_session_id.starts_with(key)
+        || id.starts_with(key)
+        || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1257,14 +1267,4 @@ mod tests {
         assert!(some["solo"].get("peer").is_none(), "{:?}", some["solo"]);
         assert_eq!(some.len(), 3, "{some:?}");
     }
-}
-
-/// Whether `key` names the peer's session `r` (listed under `id`): its name, a prefix of its id,
-/// or `PEER/NAME`.
-fn names_remote(id: &str, r: &RemoteSession, key: &str) -> bool {
-    let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
-    name == key
-        || r.receipt.mux_session_id.starts_with(key)
-        || id.starts_with(key)
-        || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
 }
