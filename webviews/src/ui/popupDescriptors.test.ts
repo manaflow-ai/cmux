@@ -19,9 +19,9 @@ test("select descriptors preserve stable choice ids and selection", () => {
   });
   expect(d.title).toBe("Theme");
   expect(d.rows).toEqual([
-    { id: "system", kind: "choice", label: "System", shortcut: "⌘0", value: "system", checked: false },
-    { id: "dark", kind: "choice", label: "Dark", value: "dark", checked: true },
-    { id: "light", kind: "choice", label: "Light", value: "light", disabled: true, checked: false },
+    { id: "system", kind: "action", label: "System", shortcut: "⌘0", value: "system", checked: false },
+    { id: "dark", kind: "action", label: "Dark", value: "dark", checked: true },
+    { id: "light", kind: "action", label: "Light", value: "light", disabled: true, checked: false },
   ]);
 });
 test("combobox descriptors keep pinned actions at the end of keyboard order", () => {
@@ -33,6 +33,9 @@ test("combobox descriptors keep pinned actions at the end of keyboard order", ()
   });
   expect(d.search).toEqual({ id: "query", value: "a", placeholder: "Projects" });
   expect(d.rows.map((row) => row.id)).toEqual(["alpha", "beta", "New project"]);
+  // Native `choice` means a segmented control with its own options. A suggestion is a
+  // pickable action, with an optional checkmark for the committed selection.
+  expect(d.rows.every((row) => row.kind === "action")).toBe(true);
 });
 test("context descriptors preserve separators, toggles, and icon metadata", () => {
   const d = contextDescription([
@@ -42,7 +45,7 @@ test("context descriptors preserve separators, toggles, and icon metadata", () =
   expect(d.rows).toEqual([
     { id: "copy", kind: "action", label: "Copy", icon: "doc.on.doc" },
     { id: separatorId("wrap"), kind: "separator", label: "" },
-    { id: "wrap", kind: "toggle", label: "Wrap", checked: true },
+    { id: "wrap", kind: "action", label: "Wrap", checked: true },
   ]);
 });
 
