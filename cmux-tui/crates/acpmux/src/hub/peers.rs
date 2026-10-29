@@ -1203,6 +1203,19 @@ mod tests {
         assert_eq!(summary["sessionReceipt"]["generation"], 23);
     }
 
+    #[test]
+    fn compact_remote_change_keeps_the_cached_tool_inventory() {
+        let previous = json!({
+            "sessionId": "mux-1",
+            "tools": [{"id": "mcp:github"}],
+            "toolsMutable": true,
+        });
+        let compact = json!({"sessionId": "mux-1", "status": "running"});
+        let retained = Hub::retain_summary_tools(compact, Some(&previous));
+        assert_eq!(retained["tools"], previous["tools"]);
+        assert_eq!(retained["toolsMutable"], true);
+    }
+
     /// hq#2509: a peer from before the lane's step and title sends a lane without them;
     /// this daemon decides the lane again so the peer's lanes show a masked step.
     #[test]
