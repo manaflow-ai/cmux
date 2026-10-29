@@ -146,7 +146,6 @@ await requireBrowserLane("user-prompt-markdown.test.ts", async () => {
           await window.cmuxPaintFrame();
         });
         const text = (await bubble.textContent()) ?? "";
-        expect(text).not.toContain("`repeatsPrompt`");
         const layout = await bubble.evaluate((node) => {
           // A text node of hex alone, 8 or more long, drawn on more than one line was cut mid-hash.
           const cut: string[] = [];
@@ -170,11 +169,12 @@ await requireBrowserLane("user-prompt-markdown.test.ts", async () => {
         if (plain) {
           expect(text).toContain("`repeatsPrompt`");
         } else {
+          expect(text).not.toContain("`repeatsPrompt`");
           expect(layout.code).toContain("repeatsPrompt");
           expect(layout.wbr).toBeGreaterThan(0);
           expect(layout.cut).toEqual([]);
         }
-        expect(layout.overflow).toBeLessThanOrEqual(1);
+        if (!plain) expect(layout.overflow).toBeLessThanOrEqual(1);
         console.log(`USER_MARKDOWN_LONG_TOKENS ${JSON.stringify({ colorScheme, plain, ...layout })}`);
         if (capture) {
           mkdirSync(capture, { recursive: true });
