@@ -259,6 +259,7 @@ where
         super::pairing::Admitted::Ticket(secret) => {
             let close = tokio::select! {
                 biased;
+                () = restart.normal() => Some(false),
                 () = restart.closing() => Some(true),
                 _ = stopped(&mut stop) => Some(false),
                 _ = super::pairing::serve_redeem(hub, &mut ws, secret) => None,

@@ -930,13 +930,14 @@ pub async fn serve_ws_until(
             let admitted = std::mem::take(&mut *admitted.lock().unwrap_or_else(|e| e.into_inner()));
             let device = match admitted {
                 pairing::Admitted::Ticket(secret) => {
-                    let restarting = tokio::select! {
+                    let close = tokio::select! {
                         biased;
-                        () = shutdown.closing() => true,
-                        () = pairing::serve_redeem(hub, &mut ws, secret) => false,
+                        () = shutdown.normal() => Some(false),
+                        () = shutdown.closing() => Some(true),
+                        () = pairing::serve_redeem(hub, &mut ws, secret) => None,
                     };
-                    if restarting {
-                        ws_shutdown::close(&mut ws, true).await;
+                    if let Some(restarting) = close {
+                        ws_shutdown::close(&mut ws, restarting).await;
                     }
                     return;
                 }
