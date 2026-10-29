@@ -88,7 +88,9 @@ def step_zoom_layout(j, step):
     end = D.now() + float(step.get("timeout", 30))
     kinds = {}
     while D.now() < end:
-        rows = [r for r in _rows(j) if r.get("workspace") == _workspace(j)]
+        # The panes this step made, and the journey's terminal; not a pane the workspace had before (its own Home).
+        rows = [r for r in _rows(j) if r.get("workspace") == _workspace(j)
+                and (r.get("pane") == j.pane or r.get("pane") not in before)]
         kinds = {}
         for r in rows:
             kinds.setdefault(_kind(r), r.get("pane"))
