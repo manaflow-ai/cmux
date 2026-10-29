@@ -44,6 +44,7 @@ extension TabStripView {
             cell.isSelected = true
             cell.showsZoom = input.zoomsSelected // the zoom indicator follows the selection
         }
+        dropStaleZoomHover()
         let multiChanged = input.multiSelection != lastSyncedInput?.multiSelection
         if multiChanged { applyMultiSelection() }
         lastSyncedInput = input
@@ -171,6 +172,7 @@ extension TabStripView {
             cell?.showsZoom = model.zoomsSelected && item.id == model.selectedID
             cell?.style = model.style
         }
+        dropStaleZoomHover()
         applyMultiSelection()
         if newTabButton.isHidden == model.showsNewTabButton {
             newTabButton.isHidden = !model.showsNewTabButton
@@ -187,6 +189,13 @@ extension TabStripView {
         lastSelectedID = selected
         refreshHoverCard()
         hasSynced = true
+    }
+
+    /// The zoom indicator under a still pointer went (an unzoom, a selection): its tooltip and hover
+    /// go too, so the next one under the pointer starts unhovered.
+    private func dropStaleZoomHover() {
+        guard let zoomHoveredID, cells[zoomHoveredID]?.showsZoom != true else { return }
+        setAudioHovered(audioHoveredID, zoom: nil)
     }
 
     /// Creates the layers for a new tab and returns its id.

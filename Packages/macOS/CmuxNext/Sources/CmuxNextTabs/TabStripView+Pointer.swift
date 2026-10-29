@@ -184,6 +184,11 @@ extension TabStripView {
                 return
             }
             // So is a zoomed pane's indicator: its release restores the layout (cmux classic).
+            // A double-click on it is one restore: its second press, on the indicator or on the tab
+            // the indicator left, toggles nothing again.
+            let afterZoomClick = event.clickCount >= 2 && zoomClickedID == id
+            zoomClickedID = nil
+            if afterZoomClick { return }
             if isInZoomButton(id, point) {
                 pressedZoomID = id
                 cells[id]?.isZoomPressed = true
@@ -260,7 +265,10 @@ extension TabStripView {
         if let id = pressedZoomID {
             pressedZoomID = nil
             cells[id]?.isZoomPressed = false
-            if isInZoomButton(id, point) { model.send(.toggleZoom(id)) }
+            if isInZoomButton(id, point) {
+                zoomClickedID = id
+                model.send(.toggleZoom(id))
+            }
             updateHover(at: point, moved: false)
             return
         }
