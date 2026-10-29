@@ -224,6 +224,33 @@ async fn a_digest_steers_once_into_the_running_turn_of_an_agent_that_steers() {
     assert_eq!(steer, 1);
 }
 
+/// A turn past its cap (`turn_cap.rs`) takes no digest: the digest waits for the next turn, as
+/// the agent messages it took would have.
+#[tokio::test]
+async fn a_digest_waits_for_the_next_turn_when_the_running_one_is_past_its_cap() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let mut agents = connect(&hub).await;
+    let (id, _) = busy(&mut c).await;
+    let cap = json!({"sessionId": id, "turnCapMs": 1});
+    c.request(method::MUX_SET_TURN_CAP, cap).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    queue(&mut agents, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    queue(&mut agents, from_agent(&id, "p-b", "lane-b", "from b")).await;
+
+    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!((made["digested"].clone(), made["delivery"].clone()), (json!(2), json!("queued")));
+    let digest = made["promptId"].as_str().unwrap().to_owned();
+    assert_eq!(queue_order(&mut c, &id).await, [digest.clone()]);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let steered = find(&events, "user_message")
+        .into_iter()
+        .any(|e| e.msg["promptId"] == *digest && e.msg["steer"] == true);
+    assert!(!steered, "the digest steered into a turn past its cap");
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+}
+
 #[tokio::test]
 async fn a_digest_groups_results_by_sender_folds_repeats_and_a_dry_run_changes_nothing() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
