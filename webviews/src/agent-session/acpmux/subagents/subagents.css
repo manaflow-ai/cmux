@@ -427,6 +427,9 @@ button.cv-subagent > :last-child {
    No padding: a line's hover fills it to the tray's own edges, which round it (one inset, never a
    pill inside the strip; Leo 2026-10-21). */
 .acpmux-running-tray {
+  --acpmux-tray-time-width: 52px;
+  --acpmux-tray-status-width: 96px;
+  --acpmux-tray-stop-width: 24px;
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
@@ -477,9 +480,58 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__list + .acpmux-running-tray__finished {
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
-.acpmux-running-tray__head > svg {
+.acpmux-running-tray__status > svg {
   flex: none;
   color: var(--agent-muted);
+}
+.acpmux-running-tray__time,
+.acpmux-running-tray .acpmux-agent-line__time {
+  box-sizing: border-box;
+  flex: 0 0 var(--acpmux-tray-time-width);
+  min-width: var(--acpmux-tray-time-width);
+  text-align: right;
+}
+.acpmux-running-tray__status,
+.acpmux-running-tray .acpmux-agent-line__status {
+  box-sizing: border-box;
+  flex: 0 0 var(--acpmux-tray-status-width);
+  min-width: var(--acpmux-tray-status-width);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.acpmux-running-tray .acpmux-summary-agent__state {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-running-tray__stop-slot {
+  box-sizing: border-box;
+  flex: 0 0 var(--acpmux-tray-stop-width);
+  min-width: var(--acpmux-tray-stop-width);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.acpmux-running-tray .acpmux-agent-line__stop-slot {
+  box-sizing: border-box;
+  position: absolute;
+  top: 0;
+  right: 8px;
+  bottom: 0;
+  width: var(--acpmux-tray-stop-width);
+  min-width: var(--acpmux-tray-stop-width);
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.acpmux-running-tray .acpmux-agent-line__stop-slot > button {
+  pointer-events: auto;
 }
 /* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
 .acpmux-running-tray__head + .acpmux-running-tray__fold > .acpmux-running-tray__list {
@@ -506,6 +558,7 @@ button.cv-subagent > :last-child {
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
    stop button (SubagentGroup.tsx, inspector/TasksSection.tsx). */
 .acpmux-agent-line {
+  position: relative;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -514,13 +567,17 @@ button.cv-subagent > :last-child {
   flex: 1;
   min-width: 0;
 }
-.acpmux-agent-line > .cv-subagent__stop {
+.acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
+  /* Reserve the final track while keeping the stop control outside the button. */
+  padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
+}
+.acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop {
   position: static;
   flex: none;
-  margin-left: 2px;
+  margin: 0;
 }
-.acpmux-agent-line > .acpmux-chat-inspector-stop {
-  margin: 0 4px 0 2px;
+.acpmux-agent-line > .acpmux-agent-line__stop-slot > .acpmux-chat-inspector-stop {
+  margin: 0;
 }
 /* Quiet at rest. The line is the tray's main control, so its wash covers the whole line
    while that control is hovered; Stop has no box of its own. A disabled main button has
