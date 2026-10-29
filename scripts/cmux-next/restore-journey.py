@@ -659,6 +659,7 @@ def restore_acpmux_config():
 REPORTS = {}  # page name -> latest {path, scrollY, at}
 LIVE_READ = {}  # the seeded history page's outside-folder read probe, before the first quit
 SINCE = 0.0  # when the last quit ended: reports older than this are stale
+CHAT_CONNECT_BOUND = 10  # seconds a shown chat page may take to connect after a relaunch
 SERVED = set()
 REPORT_LOG = []  # (page name, time) of every report: when each page first reported after a relaunch
 PAGE_LOADS = []  # (page name, time) of every page the server sent: a reopened page loads once
@@ -1687,13 +1688,26 @@ def snapshot(label):
         # The chat's page shows only while its workspace is shown: visit it.
         with visiting("rj-agent"):
             # A page still connecting to acpmux has no session yet: wait for it to connect.
-            shown_at = time.time()
-            state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r and r.get("connection") != "connecting" else None)(
-                rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)), 45, 1) \
-                or rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)
+            # Each ask is short (5 s): one call that hangs must not count as the page's connect time.
+            shown_at, asks = time.time(), []
+            def connected():
+                answer = rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=5)
+                asks.append([round(time.time() - shown_at, 1), (answer.get("error") or answer.get("connection")) if isinstance(answer, dict) else str(answer)])
+                return answer if isinstance(answer, dict) and "error" not in answer and answer.get("connection") != "connecting" else None
+            state = wait(connected, 90, 0.25)
+            connect_seconds = round(time.time() - shown_at, 1)
+            state = state or rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=10)
         raw["agent_pane.chat_state"] = state
-        raw["agent_pane.connect_seconds"] = round(time.time() - shown_at, 1)
+        raw["agent_pane.connect_seconds"] = connect_seconds
+        raw["agent_pane.connect_asks"] = asks[-40:]
         say(f"  chat page {state.get('connection') if isinstance(state, dict) else state} {raw['agent_pane.connect_seconds']} s after it was shown")
+        if label.endswith("-after"):
+            # A person who opens the chat after a relaunch waits this long for it (before: 61 s, one
+            # 60 s debug call that hung, not the page).
+            RESULTS.append((f"{label[:-len('-after')]}: the chat page connects within {CHAT_CONNECT_BOUND} s after it is shown",
+                            isinstance(state, dict) and state.get("connection") == "connected" and connect_seconds <= CHAT_CONNECT_BOUND,
+                            f"{state.get('connection') if isinstance(state, dict) else state} after {connect_seconds} s; asks {json.dumps(asks[:6])[:200]}",
+                            "agent chat"))
         if isinstance(state, dict) and "error" not in state:
             items["agent.page.session"] = state.get("sessionId")
             items["agent.page.last_assistant"] = state.get("lastAssistant")
@@ -1904,6 +1918,11 @@ def compare(variant, before, after):
         if variant == "reboot" and (item.startswith(("counter.", "top.")) or item == "agent.status"):
             # A reboot ends every process: running programs and their screens cannot come back.
             RESULTS.append((f"{variant}: {item}", NA, "n/a: a reboot ends every running program", area_of(item)))
+            continue
+        if item == "agent.status" and {b, a} <= {"ready", "idle"}:
+            # acpmux hibernates a chat whose agent sat idle 2 min (`idle`: no agent process, the next
+            # prompt resumes it): the same live session as `ready`, not a lost one.
+            RESULTS.append((f"{variant}: {item}", True, f"{json.dumps(b)} -> {json.dumps(a)} (idle: hibernated, resumes on the next prompt)", area_of(item)))
             continue
         if item.startswith(("chat[", "tagent[")) and item.endswith((".live", ".signed_in", ".running", ".page.picked")) or item.startswith("tagent[") and item.endswith(".transcript"):
             ok = a is True and b is True
@@ -2294,7 +2313,12 @@ def finish_turn_in_flight(variant, turn):
     if tab:
         with visiting("rj-chats"):
             pane = place_of(tab.get("id"), topo)[1]
-            shown = wait(lambda: "after-gate" in str(((page(pane, "chat_state") or {}).get("lastAssistant") or {}).get("text")), 20, 0.5)
+            # Its pane holds another chat too: show this chat's tab, and read only its own page.
+            cli("tab", tab["id"], "focus", quiet=True)
+            def own_page_shows():
+                state = page(pane, "chat_state") or {}
+                return state.get("sessionId") == turn["chat"]["session"] and "after-gate" in str((state.get("lastAssistant") or {}).get("text"))
+            shown = wait(own_page_shows, 20, 0.5)
     RESULTS.append((f"{variant}: the turn in flight finishes and its page shows it", stop == "end_turn" and bool(shown),
                     f"stopReason {stop}, page {'shows' if shown else 'does not show'} after-gate"
                     + (f"; {json.dumps(answer)[:200]}" if stop != "end_turn" else ""), "agents"))
