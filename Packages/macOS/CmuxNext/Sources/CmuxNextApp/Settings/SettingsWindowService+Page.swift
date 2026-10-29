@@ -133,22 +133,33 @@ extension SettingsWindowService {
 
     /// A Cloud machine's row with its "Dedicated agent machine" switch (`vm_host`: `on`, `busy`,
     /// `error`), once the machine answered (``CloudVmHostStore``): only a machine the legacy Cloud
-    /// API can exec on, and only one cmux made for its owner (or one already on). Personal and
-    /// SSH machines never get the switch. `busy` (the switch disabled) while a set runs or the
+    /// API can exec on, and only while the link in use says the signed-in caller owns it
+    /// (``CloudLinkOwnership``, the Cloud API's `vmKind`). The machine's own answer cannot tell:
+    /// `vmHost` is on by default on any Linux machine, team VMs included, and `cmuxVm` is a record
+    /// its agents can write. Personal and SSH machines never get the switch, and a machine the
+    /// caller does not own is never asked. `busy` (the switch disabled) while a set runs or the
     /// machine is not reachable now.
     func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
         guard case .object(var members) = row, let reach = vmHostReach(id) else { return row }
+        let owns = services.machines.session(id)?.link?.ownership.callerOwnsVM == true
         let store = services.cloudVmHost
+        let entry = owns ? store.state(id, readable: reach) : nil
+        guard let vm = Self.vmHostSwitch(entry, callerOwnsVM: owns, busy: !reach || store.setting.contains(id)) else { return row }
+        members["vm_host"] = vm
+        return .object(members)
+    }
+
+    /// The row's `vm_host` member, or nil for no switch (``vmHostRow(_:id:)``).
+    static func vmHostSwitch(_ entry: CloudVmHostStore.Entry?, callerOwnsVM: Bool, busy: Bool) -> JSONValue? {
+        guard callerOwnsVM else { return nil }
         let state: CloudVmHost.State?, error: String?
-        switch store.state(id, readable: reach) {
+        switch entry {
         case .known(let known): (state, error) = (known, nil)
         case .failed(let why, _, let last): (state, error) = (last, why)
-        case nil: return row
+        case nil: return nil
         }
-        guard let state, state.cmuxVM || state.on else { return row }
-        members["vm_host"] = ["on": .bool(state.on), "busy": .bool(!reach || store.setting.contains(id)),
-                              "error": error.map(JSONValue.string) ?? .null]
-        return .object(members)
+        guard let state else { return nil }
+        return ["on": .bool(state.on), "busy": .bool(busy), "error": error.map(JSONValue.string) ?? .null]
     }
 
     /// Whether `id`'s vmHost can be read or set over the Cloud exec now (true), only shown from

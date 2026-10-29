@@ -71,7 +71,8 @@ impl Mux {
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
         // A retry carries the same fields (the fingerprint), so the same source.
-        let name_source = crate::resource_name::NameSource::for_requested(name.is_some());
+        let name_source =
+            crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
         let reserved_name = name.unwrap_or_else(|| self.default_workspace_name(&state));
         let proposed_intent = json!({
             "workspace_public_id":WorkspacePublicId::random()?,

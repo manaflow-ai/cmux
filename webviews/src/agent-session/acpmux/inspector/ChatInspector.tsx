@@ -88,8 +88,8 @@ import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
-import { WorkflowTasks } from "./WorkflowTasks";
-import type { WorkflowSummary } from "../summary/workflow";
+import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
+import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
@@ -173,7 +173,7 @@ const SIDE_PANEL = ":scope > .acpmux-artifact";
 
 /// The Inspector starts right below the header: the pane's tab row when the header is in it.
 export function inspectorTopOffset(tabRowHeight: number): string {
-  return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
+  return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 28px)";
 }
 
 /// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
@@ -345,7 +345,11 @@ export function useChatInspector({
   /// `_acpmux/subsession/limits` (direct.ts setRunningLimit): chat `sessionId`'s running limit.
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
-  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
+  workflows?: {
+    list: readonly WorkflowSummary[];
+    onStop?: (id: string) => Promise<unknown>;
+    onOpenAgent?: (agent: WorkflowAgent) => void;
+  };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
@@ -558,7 +562,11 @@ function InspectorPresence({
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
-  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
+  workflows?: {
+    list: readonly WorkflowSummary[];
+    onStop?: (id: string) => Promise<unknown>;
+    onOpenAgent?: (agent: WorkflowAgent) => void;
+  };
   revealed?: { section: InspectorSectionId; at: number };
   onRevealed: () => void;
   onStopProcess?: (id: string) => Promise<unknown>;
@@ -600,19 +608,24 @@ function InspectorPresence({
       delete shell.dataset.inspectorChatPlacement;
       delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
+      shell.style.removeProperty("--acpmux-header-room");
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
     if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
     else delete shell.dataset.inspectorChatResizing;
     shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
-  }, [shell, drawn, push, chatShift, suppressShiftTransition]);
+    // Push always narrows the transcript, not the header: native tabs reserve the tools at the
+    // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
+    if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
+  }, [shell, drawn, push, chatShift, paneWidth, suppressShiftTransition]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
       delete shell.dataset.inspectorChatPlacement;
       delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
+      shell.style.removeProperty("--acpmux-header-room");
     };
   }, [shell]);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
@@ -722,6 +735,7 @@ function InspectorPresence({
         sessions={scope ? undefined : sessions?.list}
         workflows={scope ? undefined : workflows?.list}
         onStopWorkflow={workflows?.onStop}
+        onOpenWorkflowAgent={workflows?.onOpenAgent}
         onOpenSession={sessions?.onOpen}
         onSetRunningLimit={onSetRunningLimit}
         revealed={revealed}
@@ -904,6 +918,8 @@ export function ChatInspector({
   sessions = [],
   workflows = [],
   onStopWorkflow,
+  workflowAgentRowVariant,
+  onOpenWorkflowAgent,
   onOpenSession,
   onSetRunningLimit,
   revealed,
@@ -964,6 +980,10 @@ export function ChatInspector({
   /// The chat's Claude workflows (Labs): they head Background tasks, and leave Subagents.
   workflows?: readonly WorkflowSummary[];
   onStopWorkflow?: (id: string) => Promise<unknown>;
+  /// Gallery-only alternatives for the live workflow agent row.
+  workflowAgentRowVariant?: WorkflowAgentRowVariant;
+  /// Opens a workflow agent through its workflow transcript bridge.
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   /// The section a running line's count opened: scrolled into view (`at` tells one ask from the next).
   revealed?: { section: InspectorSectionId; at: number };
   /// The reveal has scrolled: the caller forgets it.
@@ -1191,7 +1211,14 @@ export function ChatInspector({
       onOpenChange={fold("tasks")}
       meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
     >
-      {workflows.length > 0 && <WorkflowTasks workflows={workflows} onStop={onStopWorkflow} />}
+      {workflows.length > 0 && (
+        <WorkflowTasks
+          workflows={workflows}
+          onStop={onStopWorkflow}
+          onOpenWorkflowAgent={onOpenWorkflowAgent}
+          agentRowVariant={workflowAgentRowVariant}
+        />
+      )}
       {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
       {commands.length + scheduled.length > 0 && (
         <TasksSection

@@ -551,7 +551,8 @@ enum Sizing {
             case "voiceMemo": return (CGSize(width: 196, height: 36), nil)
             case "contact": return (CGSize(width: 250, height: 56), nil)
             // File and audio rows (measured): 275 x 89.5, icon centred.
-            default: return (CGSize(width: 275, height: 89.5), nil)
+            // cmux: a file card is as wide as its text needs (HomeFileCard, #26395).
+            default: return (HomeFileCard.size(a, maxWidth: m.maxTextWidth + 2 * Fixture.bubblePadX), nil)
             }
         case let .location(lat, lon, _, _):
             // A map snapshot (macOS 26): 500 pt wide, caption inside; its
@@ -753,6 +754,7 @@ final class MeasureCache: @unchecked Sendable {
         case let .text(t, runs): h.combine(t); h.combine(runs.count); for r in runs { h.combine(r.start); h.combine(r.length); h.combine(r.style) }
         case let .link(url, title, site, image, theme): h.combine(url); h.combine(title); h.combine(site); h.combine(image); h.combine(theme)
         case let .attachment(a): h.combine(a.kind); h.combine(a.asset); h.combine(a.poster); h.combine(a.width); h.combine(a.height)
+            h.combine(a.fileName); h.combine(a.byteSize); h.combine(a.mimeType) // cmux: a file card's width follows its text (#26395)
         default: return 0
         }
         return h.finalize()
