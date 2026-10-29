@@ -65,7 +65,7 @@ impl FinishedMemo {
             })
             .unwrap_or_default();
         Self {
-            path: writer.as_ref().map(|_| path),
+            path: Some(path),
             answers: Mutex::new(answers),
             pending: AtomicUsize::new(0),
             _writer: writer,
@@ -76,6 +76,11 @@ impl FinishedMemo {
     /// interrupted pass retains completed checks across a daemon update.
     pub fn flush(&self) {
         let Some(path) = &self.path else { return };
+        // A reader retains the memo path for host-lock selection, but only
+        // the process that owns the writer lock may replace the file.
+        if self._writer.is_none() {
+            return;
+        }
         let memo = self.answers.lock().unwrap_or_else(|e| e.into_inner());
         let entries: Vec<_> = memo
             .clone()
