@@ -124,8 +124,8 @@ function GalleryInspector({
   );
 }
 
-/// Pull requests the chat opened or touched across repositories (oldest first, as sessionSummary
-/// reads them).
+/// Pull requests the chat opened or changed across repositories (oldest first, as sessionSummary
+/// reads them). Read-only references appear in Sources below.
 const pullRequests: NonNullable<Props["made"]>["pullRequests"] = [
   { n: 22217, title: "cmux NEXT: Cmd-W closes a pinned tab's split", opened: true, state: "merged" },
   { repo: "acme/billing", n: 7, title: "billing: retry webhooks on a 502", opened: false, state: "closed" },
@@ -303,7 +303,18 @@ const full: Props = {
   summary,
   machineName: "Studio",
   repository: "manaflow-ai/cmux",
-  made: { ...made, pullRequests },
+  made: {
+    ...made,
+    pullRequests,
+    sources: [
+      { url: "https://github.com/acme/billing/pull/7", label: "billing: retry webhooks on a 502", kind: "pullRequest" },
+      { label: "cmux.com/docs/session-info", url: "https://cmux.com/docs/session-info", kind: "url" },
+      { label: "src/net/fetch.ts", kind: "file" },
+      { label: "github · search issues", kind: "mcp" },
+      { label: "linear · get issue", kind: "mcp" },
+      { label: "teamleaderleo/leo-workspace #1056", kind: "issue" },
+    ],
+  },
   links: [
     { url: "https://cmux.com/docs/inspector", label: "cmux.com/docs/inspector" },
     { url: "https://claude.ai/artifact/inspector-plan", label: "claude.ai/artifact/inspector-plan" },
@@ -318,6 +329,7 @@ const full: Props = {
   onStopProcess: async () => undefined,
   onOpenUrl: () => undefined,
   onOpenOutput: () => undefined,
+  onOpenSourceFile: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
   onSetRunningLimit: async () => undefined,
@@ -496,6 +508,7 @@ const subagentPanel: Props = {
   agent: worktreeAgent,
   onOpenUrl: () => undefined,
   onOpenOutput: () => undefined,
+  onOpenSourceFile: () => undefined,
   onStopProcess: async () => undefined,
   scope: scopeOf(worktreeAgent),
 };
@@ -551,6 +564,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
+    "agent-session/acpmux/inspector/SourcesSection.tsx",
     "agent-session/acpmux/inspector/ConnectorsSection.tsx",
     "agent-session/acpmux/inspector/ContextSection.tsx",
     "agent-session/acpmux/inspector/PullRequestGlyph.tsx",
@@ -569,20 +583,8 @@ export default componentEntry<Props>({
   ],
   load: async () => GalleryInspector,
   variants: {
-    "subagents-done": {
-      note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",
-      props: {
-        ...full,
-        agents: agents.slice(3, 34).map((agent, index) => ({
-          ...agent,
-          state: "completed",
-          harness: index % 2 ? "codex" : "claude",
-        })),
-        sessions: [],
-      },
-    },
     full: {
-      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: eight pull requests across three repositories (five shown, then Show more) and its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
+      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: six session-owned pull requests, then Sources with read-only PRs, URLs, files and MCP tools, then its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
       props: full,
       play: checkTopBlockAlignment,
     },
@@ -673,7 +675,7 @@ export default componentEntry<Props>({
       },
     },
     "context-connectors-open": {
-      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status, the failed one with Reconnect.",
+      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
     },
     "context-breakdown": {

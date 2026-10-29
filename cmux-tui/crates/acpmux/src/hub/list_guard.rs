@@ -91,6 +91,9 @@ pub(crate) struct Snapshot {
     keys: Vec<Value>,
     /// Other results made from it, once each (masked for a peer, ACP's `session/list`).
     made: StdMutex<HashMap<&'static str, Arc<String>>>,
+    /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
+    /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
+    full: StdMutex<Option<Arc<String>>>,
 }
 
 type Built = (String, Vec<Range<usize>>, Vec<Value>);
@@ -98,7 +101,7 @@ type Built = (String, Vec<Range<usize>>, Vec<Value>);
 impl Snapshot {
     fn new(key: Key, serial: u64, window: Duration, (text, spans, keys): Built) -> Self {
         let (whole, made, started) = (Arc::new(text), Default::default(), Instant::now());
-        Self { key, serial, started, window, whole, spans, keys, made }
+        Self { key, serial, started, window, whole, spans, keys, made, full: Default::default() }
     }
 
     /// Keep only serialized bytes and paging keys as summaries are produced. A full
@@ -106,8 +109,19 @@ impl Snapshot {
     /// immediately after serialization.
     fn build(hub: &Hub) -> Built {
         let mut rows = Rows::default();
-        hub.visit_session_summaries(|row| rows.push(&row));
+        hub.visit_session_summaries(false, |row| rows.push(&row));
         rows.finish()
+    }
+
+    /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
+    pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
+        let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
+        full.get_or_insert_with(|| {
+            let mut rows = Rows::default();
+            hub.visit_session_summaries(true, |row| rows.push(&row));
+            Arc::new(rows.finish().0)
+        })
+        .clone()
     }
 
     #[cfg(test)]
@@ -133,7 +147,9 @@ impl Snapshot {
                 text.push(',');
             }
             let at = key["at"].as_u64().unwrap_or_default() as usize;
-            text.push_str(self.spans.get(at).map_or("null", |span| &self.whole[span.clone()]));
+            text.push_str(
+                self.spans.get(at).and_then(|span| self.whole.get(span.clone())).unwrap_or("null"),
+            );
         }
         text.push_str("]}");
         Ok(text)
@@ -141,7 +157,8 @@ impl Snapshot {
 
     /// Every summary, parsed back.
     pub(crate) fn values(&self) -> Vec<Value> {
-        let parse = |span: &Range<usize>| serde_json::from_str(&self.whole[span.clone()]);
+        let parse =
+            |span: &Range<usize>| serde_json::from_str(self.whole.get(span.clone()).unwrap_or(""));
         self.spans.iter().map(|span| parse(span).unwrap_or_default()).collect()
     }
 
@@ -215,7 +232,12 @@ impl Rows {
             }
             let source = key.at;
             let start = whole.len();
-            whole.extend_from_slice(&self.text[self.spans[source].clone()]);
+            whole.extend_from_slice(
+                self.spans
+                    .get(source)
+                    .and_then(|span| self.text.get(span.clone()))
+                    .unwrap_or_default(),
+            );
             spans.push(start..whole.len());
             let mut value = json!({"at": at});
             if let Some(session_id) = key.session_id {
