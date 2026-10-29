@@ -151,6 +151,11 @@ async fn a_sessions_own_cap_wins_and_zero_turns_it_off() {
     assert_eq!(turn_cap_ms(&meta), Some(60_000));
     meta.turn_cap_ms = Some(0);
     assert_eq!(turn_cap_ms(&meta), None);
+    // A coordinator's default is 20 minutes; its own cap, or 0, still wins.
+    meta.coordinator = true;
+    assert_eq!(turn_cap_ms(&meta), None);
+    meta.turn_cap_ms = None;
+    assert_eq!(turn_cap_ms(&meta), Some(COORDINATOR_TURN_CAP_MS));
     assert_eq!(
         notice_text(COORDINATOR_TURN_CAP_MS),
         "Turn cap reached (20 min): finish the current step and end your turn; your inbox digest comes next turn."
