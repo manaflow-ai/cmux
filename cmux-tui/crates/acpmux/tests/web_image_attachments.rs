@@ -1,12 +1,9 @@
-//! The dashboard keeps an image's original bytes for the prompt while using a
-//! bounded copy for its local preview.
-
+//! Execute the dashboard attachment code, including the remote-message boundary.
 #[test]
-fn large_images_are_accepted_and_keep_the_original_attachment() {
-    let page = include_str!("../web/index.html");
-
-    assert!(!page.contains("Image is larger than 8 MB"));
-    assert!(page.contains("async function previewImage"));
-    assert!(page.contains("data: url.slice(comma + 1)"));
-    assert!(page.contains("data: x.data"));
+fn web_image_attachments() {
+    let output = std::process::Command::new("node")
+        .args(["--test", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/web_image_attachments.mjs")])
+        .output()
+        .expect("Node is required for the dashboard behavioral regression");
+    assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
 }
