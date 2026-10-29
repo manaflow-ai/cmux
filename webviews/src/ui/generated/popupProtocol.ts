@@ -11,7 +11,7 @@ export type NativePopupRowKind =
   | "submenu"
   | "textField";
 
-export type NativePopupEventType = "pick" | "change" | "search" | "highlight" | "submit" | "dismiss";
+export type NativePopupEventType = "pick" | "change" | "search" | "highlight" | "submit" | "complete" | "dismiss";
 
 export type NativePopupSide = "top" | "bottom";
 
@@ -36,6 +36,7 @@ export interface NativePopupAction {
   icon?: string;
   disabled?: boolean;
   keepOpen?: boolean;
+  completion?: string;
 }
 
 export type NativePopupAutoHighlight = "none" | "first" | "always";
@@ -47,6 +48,7 @@ export interface NativePopupField {
   disabled?: boolean;
   submitOnReturn?: boolean;
   autoHighlight?: NativePopupAutoHighlight;
+  completeOnTab?: boolean;
 }
 
 export type NativePopupSliderStyle = "accent" | "minimal";
@@ -77,6 +79,7 @@ export interface NativePopupRow {
   description?: string;
   icon?: string;
   shortcut?: string;
+  completion?: string;
   disabled?: boolean;
   disabledReason?: string;
   checked?: boolean;
