@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// tab-switch-rewrite (u2873, a251's Cmd-T burst stalls): a tab switch changes its workspace's row
@@ -8,7 +9,7 @@ import Testing
 /// workspace's tabs listed (`showWorkspaceTabs`), the patch configured every tab row of the
 /// workspace again, so each switch cost one row configure per tab. A patch configures the
 /// workspace row and only the tab rows whose content changed.
-@MainActor @Suite(.serialized) struct SidebarTabSwitchPatchTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarTabSwitchPatchTests {
     @Test(arguments: [10, 24])
     func aTabSwitchPatchConfiguresOnlyTheRowsItChanges(_ count: Int) async throws {
         _ = NSApplication.shared

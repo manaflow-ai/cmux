@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Selecting a tab never moves or resizes any tab (Lawrence 2026-10-19, "changing tab changes tab
@@ -12,7 +13,7 @@ import Testing
 /// window's own page tab or a chat): the strip gave the "…" its width while it showed, so every tab
 /// shrank and grew as the selection moved. The second case was Chrome's crowded strip, where the
 /// selected tab kept a larger minimum than the others.
-@MainActor @Suite(.serialized) struct TabSelectionKeepsTabWidthsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabSelectionKeepsTabWidthsTests {
     private struct Geometry: Equatable, CustomStringConvertible {
         let strip: NSRect
         let slots: [String]

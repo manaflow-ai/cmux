@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// A pane-edge drop's target draws the layout that lands, pane for pane: the new pane's fill and
@@ -10,6 +11,7 @@ import Testing
 /// the target left that close sizing out: A|B|C with B's only tab dropped on A's bottom edge drew
 /// A over the new pane at a third and C at two thirds, and the panes landed at halves.
 @MainActor
+@Suite(.closesItsWindows)
 struct DropPreviewLandingParityTests {
     nonisolated static let layouts: [(name: String, root: SplitNode)] = [
         ("a|b|c", .split("x", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("a"),

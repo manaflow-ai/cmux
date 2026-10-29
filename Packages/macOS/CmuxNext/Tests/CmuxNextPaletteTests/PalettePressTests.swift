@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-19: "mouse down to immediately open", Cmd+P rows included. A press on a
 /// visible row runs it at once; the drag and release that follow run nothing more. A press off
 /// every visible row runs nothing.
 @MainActor
+@Suite(.closesItsWindows)
 struct PalettePressTests {
     private final class Rows: NSObject, NSTableViewDataSource {
         func numberOfRows(in tableView: NSTableView) -> Int { 3 }

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -9,7 +10,7 @@ import CmuxNextWakeupsTestSupport
 /// `NSInitialToolTipDelay`), a neighbor's then shows at once while the group
 /// is warm, and half a second away cools it again. A control whose own label
 /// already names it shows none (#20375's rule).
-@MainActor @Suite(.serialized) struct TooltipHoverIntentTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TooltipHoverIntentTests {
     /// Five icon buttons in a row, like a toolbar, on a presenter that runs on `clock`.
     private static func toolbar(clock: ManualClock) -> (NSWindow, [ChromeIconButton], TooltipPresenter) {
         _ = NSApplication.shared

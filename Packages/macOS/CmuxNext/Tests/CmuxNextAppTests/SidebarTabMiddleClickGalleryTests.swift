@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -11,7 +12,7 @@ import Testing
 /// just closing tabs fundamentally"). The sidebar stands alone, so the test drops a tab the sidebar asked to close, as
 /// the store does once Close Tab ran; the intent is matched by name, so the same test runs on a build without it.
 /// Artifact `sidebar-tab-middle-click-gallery.tar` (`CMUX_TEST_REQUIRE_GUI=1`).
-@MainActor @Suite(.serialized) struct SidebarTabMiddleClickGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarTabMiddleClickGalleryTests {
     typealias Fixture = SidebarTabGroupControlsTests
 
     /// The hovered row before the click, and the sidebar after it.

@@ -2,13 +2,14 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextIcons
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-27, on a workspace's listed tabs (Lawrence's f32ee25f): "it should also just slightly demarcate,
 /// you know, which pane you're focused on"; "if you just directly clicked on it, that it, like, showed and hid
 /// the thing, because that's what you can do on Chrome"; "when Chrome's chevron is closed, it goes upwards";
 /// and the ✕ "this one, not so much ... Here, I'll just highlight what Chrome has" (`SidebarRowCloseSpot`).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarTabGroupControlsTests {
     typealias Gaps = SidebarIncrementalMatchesRebuildGapsTests
     static let shown = WorkspaceID("tg-shown"), other = WorkspaceID("tg-other")

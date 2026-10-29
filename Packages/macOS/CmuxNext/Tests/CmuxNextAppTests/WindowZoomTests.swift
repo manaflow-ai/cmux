@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// `setFrame(_:display:animate: true)`, which runs the whole animation before it returns). The
 /// zoom returns at once and the window reaches its zoomed frame on the run loop; a second zoom
 /// goes back to the frame it came from.
-@MainActor @Suite(.serialized) struct WindowZoomTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct WindowZoomTests {
     private func shownWindow() throws -> (ShellWindow, NSRect) {
         _ = NSApplication.shared
         let screen = try #require(NSScreen.main, "zooming needs a screen")

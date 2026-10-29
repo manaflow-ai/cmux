@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextDesignTokens
 
@@ -7,7 +8,7 @@ import CmuxNextDesignTokens
 /// pointless?" A window that is not key looks exactly like the key one: the glass keeps its key look
 /// (``ActiveLookGlassEffectView``) and no wash covers it. Only `appearance.inactiveWindowDim`, 0 by
 /// default, dims a window that is not key.
-@MainActor @Suite struct InactiveWindowTintTests {
+@MainActor @Suite(.closesItsWindows) struct InactiveWindowTintTests {
     static let glassMaterials: [WindowMaterial] = [.glass(.regular), .glass(.clear)]
     static let materials: [WindowMaterial] = glassMaterials + [.frosted, .translucent, .opaque]
 

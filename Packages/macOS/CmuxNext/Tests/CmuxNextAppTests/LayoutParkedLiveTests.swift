@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A layout under a parked, unhidden workspace (`ParkingContainer`) is not live, as a hidden one is
 /// not: no event monitor, no frame driver, no overlay plane. Showing it makes it live again.
 @MainActor
+@Suite(.closesItsWindows)
 struct LayoutParkedLiveTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

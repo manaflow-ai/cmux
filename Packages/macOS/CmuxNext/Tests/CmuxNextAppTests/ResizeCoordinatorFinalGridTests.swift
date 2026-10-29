@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextTestSupport
 import struct CmuxNextDaemon.CellSize
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 /// caller's turn; the one-in-flight echo rule still keeps only the newest. A window's full screen
 /// transition holds its own terminals' grids, never another window's (PL-burst M6).
 @MainActor
-@Suite struct ResizeCoordinatorFinalGridTests {
+@Suite(.closesItsWindows) struct ResizeCoordinatorFinalGridTests {
     final class Terminal: ResizeTarget {
         var applied: [CellSize] = []
         var awaitsEcho = false

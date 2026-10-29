@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextActions
+import CmuxNextTestSupport
 import Testing
 import WebKit
 import CmuxNextScreenshots
@@ -10,7 +11,7 @@ import CmuxNextScreenshots
 /// host's secret mask (vault, TOTP and typed secrets on a page), so an automation run paints every
 /// area that draws web content the app does not own black before any pixel leaves the app; the
 /// app's own chat and page views stay visible.
-@MainActor @Suite struct ScreenshotPrivacyMaskTests {
+@MainActor @Suite(.closesItsWindows) struct ScreenshotPrivacyMaskTests {
     /// A window-sized root with `children` placed in it.
     func window(_ children: [NSView]) -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],

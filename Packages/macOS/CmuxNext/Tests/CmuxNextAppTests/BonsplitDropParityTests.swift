@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextTestSupport
 import enum CmuxNextDaemon.PaneEdge
 @testable import CmuxNextLayout
 import CmuxNextTabs
@@ -12,6 +13,7 @@ import Testing
 /// even split sizing, and no flicker. Band size and corners follow plans/cmux-next/drop-zones/DESIGN.md
 /// (`DropZoneRuleTests`).
 @MainActor
+@Suite(.closesItsWindows)
 struct BonsplitDropParityTests {
     // MARK: Zones
 

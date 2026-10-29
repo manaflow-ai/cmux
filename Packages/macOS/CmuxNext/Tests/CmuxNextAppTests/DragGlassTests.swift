@@ -5,6 +5,7 @@ import CmuxNextBridge
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo, 2026-10-19: "the dragged workspaces and dragged tabs turning from glassy to solid themed is
@@ -12,7 +13,7 @@ import Testing
 /// window's art and tint (`WindowBackdrop.dragsOnGlass`), not a flat theme card; a lifted sidebar row
 /// is the overlay glass (`DragLiftView`) and its ghost keeps it; a window opened for a torn-off
 /// workspace or tab gets the same backdrop as the window it left.
-@MainActor @Suite(.serialized) struct DragGlassTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct DragGlassTests {
     /// Runs `body` with the app theme translucent and frosted, as cmux.json's
     /// `appearance.backgroundOpacity` 0.65 and `backgroundBlur` "frosted" make it.
     func translucent<T>(_ body: () throws -> T) rethrows -> T {

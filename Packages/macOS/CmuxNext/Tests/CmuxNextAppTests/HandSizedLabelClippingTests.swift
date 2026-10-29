@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextHome
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// draws 2 pt inside the frame, so a frame that size cut the last glyph or truncated the text
 /// ("Running" became "Runn…", a count lost its digit's edge). Each view here has room for its
 /// text, so every shown label's frame must hold its text and its padding.
-@MainActor @Suite(.serialized) struct HandSizedLabelClippingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HandSizedLabelClippingTests {
     /// The labels under `root` whose frames are narrower than their text and padding, as
     /// "text: frame width < needed width".
     private static func clipped(in root: NSView) -> [String] {

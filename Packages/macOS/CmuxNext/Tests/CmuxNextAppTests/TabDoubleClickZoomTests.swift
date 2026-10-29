@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ typealias ZoomStripID = CmuxNextTabs.TabID
 /// #25624, cmux classic's pane zoom: double-clicking a tab zooms its pane to fill the workspace
 /// (Toggle Pane Zoom, Cmd-Shift-Return's action) and again restores the layout; while the pane is
 /// zoomed its tab bar shows a lit zoom button, pinned or not, whose click restores the layout.
-@MainActor @Suite(.serialized) struct TabDoubleClickZoomTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabDoubleClickZoomTests {
     final class StripHarness {
         let model: TabStripModel
         let strip: TabStripView

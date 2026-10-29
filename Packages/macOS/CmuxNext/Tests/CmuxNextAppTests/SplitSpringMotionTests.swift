@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 // Only the grid size: CmuxNextDaemon has its own PaneID and SplitID (the daemon's handles).
+import CmuxNextTestSupport
 import struct CmuxNextDaemon.CellSize
 import CmuxNextDesign
 @testable import CmuxNextLayout
@@ -12,6 +13,7 @@ import Testing
 /// from the first frame to rest; the daemon's reply, ~100 ms in, changes nothing on screen. Frames
 /// step at a fixed 120 Hz dt, so every assertion is about frame N, not wall time.
 @MainActor
+@Suite(.closesItsWindows)
 struct SplitSpringMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

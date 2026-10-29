@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// An input method composing in the palette's query (Japanese, Chinese,
@@ -9,6 +10,7 @@ import Testing
 /// candidate instead of moving the selection, as in a content window
 /// (`KeyRouter.belongsToInputMethod`).
 @MainActor
+@Suite(.closesItsWindows)
 struct PaletteInputMethodKeysTests {
     private static func palette() -> PaletteController {
         _ = NSApplication.shared

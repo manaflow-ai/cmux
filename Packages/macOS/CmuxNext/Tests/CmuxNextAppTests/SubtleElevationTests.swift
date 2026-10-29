@@ -6,6 +6,7 @@ import AppKit
 @testable import CmuxNextPalette
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Leo, 2026-10-14: no dramatic shadows. The tab drag ghost cast black at 28% with a 10 pt radius,
@@ -13,6 +14,7 @@ import Testing
 /// Every native shadow now comes from one scale, `PopupStyle.elevation1`/`elevation2` (the web's
 /// `--elevation-1`/`--elevation-2`): a tight, low-alpha drop, with the thin rim carrying the edge.
 @MainActor
+@Suite(.closesItsWindows)
 struct SubtleElevationTests {
     private let raised = PopupStyle.elevation2
     /// The largest blur any native shadow may cast (CSS terms), and the darkest alpha.

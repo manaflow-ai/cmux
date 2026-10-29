@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Testing
 
 /// `home.toggleChiefSettings` (the palette, `cmux action run`) opens the Chief Settings of the
 /// front window's Home only. It reached every Home on screen, so with Chiefs in two windows one
 /// palette run opened two popovers.
-@MainActor @Suite struct HomeChiefSettingsToggleTests {
+@MainActor @Suite(.closesItsWindows) struct HomeChiefSettingsToggleTests {
     static func window() -> NSWindow {
         NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
     }

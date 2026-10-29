@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextLayout
+import CmuxNextTestSupport
 import CoreGraphics
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// own view sees it. Momentum, a pane the layout scrolls itself, recent typing, a held mouse
 /// button and a background window leave focus where it was.
 @MainActor
+@Suite(.closesItsWindows)
 struct FocusFollowsMouseTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

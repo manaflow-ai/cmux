@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 @testable import CmuxNextPopups
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,7 +10,7 @@ import Testing
 /// window with all three traffic lights and the page title, the browser
 /// tab's omnibar as its location bar, the requested page size, and no close on Escape or with
 /// the opener.
-@MainActor @Suite(.serialized) struct BrowserPopupWindowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserPopupWindowTests {
     // MARK: Geometry (Blink `create_window.cc`, `WindowSizer`, `AdjustToFit`)
 
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 875)

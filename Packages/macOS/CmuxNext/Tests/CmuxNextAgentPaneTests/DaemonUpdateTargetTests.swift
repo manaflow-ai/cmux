@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
 /// The words of the daemon update (``DaemonUpdateTarget``): how a build string reads, the ledger
 /// that keeps one attempt per machine and build, the board, and the toggle.
-@Suite nonisolated struct DaemonUpdateTargetTests {
+@Suite(.closesItsWindows) nonisolated struct DaemonUpdateTargetTests {
     @Test func toggleIsOnByDefaultAndInDebugSettings() {
         #expect(AgentPaneTunables.updatePeersAutomatically.defaultValue)
         #expect(AgentPaneTunables.all.contains { $0.key == AgentPaneTunables.updatePeersAutomatically.key })

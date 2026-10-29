@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// POLISH audit, batch 3 (cx-2grmt): a page's menu shown past its window's edge (a `<select>`,
 /// WebPopupHost) drew the system window shadow and appeared and left in one frame. It casts the
 /// one popup shadow (`PopupStyle`, like the page's own menus) and opens and closes like every
 /// native popup (`openPopup` / `closePopup`).
-@MainActor @Suite(.serialized) struct PagePopupMotionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PagePopupMotionTests {
     /// Popup motion is observable only on an awake display with animations enabled. The tests pin
     /// Reduce Motion off around the operation, so the system Reduce Motion setting does not gate
     /// this predicate.

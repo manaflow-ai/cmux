@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -12,7 +13,7 @@ import Testing
 /// just see the other thing instead of that, you know, tilde."): one an older `cmux agent open` made (an idle
 /// "~" shell focused beside the chat), one it makes now (the chat alone). Artifact
 /// `sidebar-agent-open-gallery.tar` (`CMUX_TEST_REQUIRE_GUI=1`).
-@MainActor @Suite(.serialized) struct SidebarAgentOpenGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarAgentOpenGalleryTests {
     private static let host = "install:agent-open-gallery"
 
     private static func chat(_ surface: UInt64, session: String) -> TabSnapshot {

@@ -4,13 +4,14 @@ import CmuxNextActions
 @testable import CmuxNextApps
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar's edit mode (Leo 2026-10-20, as an iPhone's home screen): Edit Sidebar makes its items
 /// wiggle (through the sidebar's motion gate: still under Reduce Motion), a drag moves one, its ✕
 /// takes it out (the menu's Remove), a press opens nothing, Add Items opens App Store Features on
 /// Sidebar, where the built-in items are cards, and Done ends it.
-@MainActor @Suite(.serialized) struct SidebarEditModeTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarEditModeTests {
     static let link = LayoutItemID("itm_link"), app = LayoutItemID("itm_app")
 
     final class Band {

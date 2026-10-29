@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Review of #22659: a press on a tile while an earlier tile drag is still alive (its release went to
 /// another window, never here) left that drag held, its card lifted and its tile hidden. A new press
 /// means the old one ended: the stale drag is cancelled, as a press on the list's rows already does.
-@MainActor @Suite(.serialized) struct SidebarTilePressTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarTilePressTests {
     static let link = LayoutItemID("itm_link"), app = LayoutItemID("itm_app")
 
     final class Band {

@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextDesignTokens
 
 /// Lawrence, 2026-10-20: every Cmd-F bar (terminal, browser, Agent chat, diff viewer) is one
 /// Liquid Glass capsule that looks and behaves the same (plans/cmux-next/find-pill-gallery.html,
 /// variant A). These tests drive the one shared native pill through its public seams.
-@MainActor @Suite struct FindPillTests {
+@MainActor @Suite(.closesItsWindows) struct FindPillTests {
     private func makePill(matchCase: Bool = false) -> FindPillView {
         let image = NSImage(size: NSSize(width: 12, height: 12))
         let icons = FindPillIcons(search: image, previous: image, next: image, close: image)

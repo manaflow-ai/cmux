@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 @testable import CmuxNextLayout
@@ -14,7 +15,7 @@ import Testing
 /// gesture emitted for the daemon (the app sends one daemon command per
 /// intent, at most one in flight per gesture).
 @MainActor
-@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_DRAG_BENCH"] == "1"))
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_DRAG_BENCH"] == "1"), .closesItsWindows)
 struct LayoutDragBench {
     nonisolated static let rounds = Int(ProcessInfo.processInfo.environment["CMUX_DRAG_BENCH_ROUNDS"] ?? "") ?? 3
     static let moves = 360

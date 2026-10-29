@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Testing
 
 /// Layer hosting (fork API 26) of a page window, without Chromium: a fake fork call, a run-loop
@@ -8,7 +9,7 @@ import Testing
 /// the fork refused inside Chromium's creation stack; every tab switch called the fork; a closed
 /// hosted view stayed counted in `debug.cef`; a context nothing could show left the page blank.
 @MainActor
-@Suite struct CEFLayerHostingTests {
+@Suite(.closesItsWindows) struct CEFLayerHostingTests {
     /// The fork side: the context id it gives (0 refuses) and every call.
     final class FakeFork {
         var contextID: UInt32 = 7
@@ -244,7 +245,7 @@ import Testing
 /// size, so a page that is not layer hosted lagged its pane during the window's live resize, which Chromium had kept
 /// in sync. The window's live resize gives every page over the view a bounded wait for that time.
 @MainActor
-@Suite struct CEFLayerHostingLiveResizeTests {
+@Suite(.closesItsWindows) struct CEFLayerHostingLiveResizeTests {
     let fake = CEFLayerHostingTests.FakeFork()
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
 

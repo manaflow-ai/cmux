@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-23, on his sidebar's group line: "THE FUCKING THHIN PURPLE LIINE IS THE GROUP!!!! THE POINT IS WHY
@@ -8,7 +9,7 @@ import Testing
 /// The header's rail reach (Lawrence's ab905adeadd0) puts the line at the header bar's left edge; on it, Leo's
 /// 2026-10-19 Chrome reference: one color for bar and line, a small cut (about 6 pt) under the header, a 2 pt line,
 /// flat ends, and an option that joins the line to the header as one L. Every `sidebar.groupLineLayout` is pinned here.
-@MainActor @Suite(.serialized) struct SidebarGroupLineLayoutTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupLineLayoutTests {
     static let group = GroupID("g-codex-fleet")
     static let closed = GroupID("g-closed")
     static let looseID = WorkspaceID("ws-loose")

@@ -5,6 +5,7 @@ import CmuxNextBridge
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ typealias TabAudioStripID = CmuxNextTabs.TabID
 /// speaker, Chrome style; a sidebar workspace row shows a small speaker while any of its tabs
 /// plays sound and a click on it mutes them all; Mute Tab, Unmute Tab and Mute Other Tabs are
 /// commands in the palette, verbs of the CLI and tools of MCP.
-@MainActor @Suite(.serialized) struct TabAudioToggleTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabAudioToggleTests {
     final class StripHarness {
         let model: TabStripModel
         let strip: TabStripView

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Testing
 
 /// PANE-FOCUS (user 2026-10-20, "monaco editor on focus does not get focus"): the app gives a page's
@@ -9,6 +10,7 @@ import Testing
 /// becomes first responder, and the page focuses its primary input (Monaco's text area) when nothing
 /// in it has focus (plans/cmux-next/pane-focus-DESIGN.md row P1).
 @MainActor
+@Suite(.closesItsWindows)
 struct PageFocusContentTests {
     /// Every page kind takes `focusContent`: the shared commands carry it.
     @Test(arguments: ["editor", "markdown", "diff", "plain"])

@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Tab Overflow (cx-kp9b4) on a real strip in a window: crowded Shrink tabs stop at a minimum that keeps
 /// part of the title and then scroll; Scroll keeps tabs about 140 wide and scrolls; a crowded strip
 /// scrolls with no banner, and wheel, trackpad and selection move it.
-@MainActor @Suite(.serialized) struct TabStripOverflowTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabStripOverflowTests {
     private struct Harness {
         let window: NSWindow
         let strip: TabStripView

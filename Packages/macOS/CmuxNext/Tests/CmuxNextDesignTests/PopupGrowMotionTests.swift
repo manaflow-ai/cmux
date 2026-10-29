@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextDesignTokens
 
@@ -9,7 +10,7 @@ import CmuxNextDesignTokens
 /// did not show, and grew it from 0.97 on a 0.135 s spring, too small and short to read as
 /// coming out of the pill. Shared popup owners keep their grow/fade entrance by default; menu
 /// hosts opt out explicitly with `entrance: false`, and every close fades and shrinks faster.
-@MainActor @Suite(.serialized) struct PopupGrowMotionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PopupGrowMotionTests {
     private static let pivot = CGPoint(x: 150, y: 200)
 
     /// A borderless window on screen, at alpha 0 as a popup owner leaves it before an open.

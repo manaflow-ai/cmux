@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -13,7 +14,7 @@ import CmuxNextWakeupsTestSupport
 /// The dwell runs on a manual clock the test moves: on the macOS 27 lane a
 /// throttled runner stretched each 2 ms sleep of a wall-clock sweep past the
 /// dwell, so every row showed its card (`aSweepAcrossFiveRowsShowsNoCard`).
-@MainActor @Suite(.serialized) struct SidebarHoverCardDwellTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarHoverCardDwellTests {
     /// Five workspaces with a folder and a branch each (cards with facts),
     /// in an ordered-front window, on a coordinator that hit-tests that
     /// window.

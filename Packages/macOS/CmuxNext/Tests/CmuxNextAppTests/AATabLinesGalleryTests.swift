@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// look at what's useful"), light and dark: a lane workspace listing "~" and "host/its own name" (Leo's
 /// screenshot), and a workspace with two Claude chats, one working with status words, one waiting. Written
 /// under `tab-lines-gallery/` in the package and bundled to `tab-lines-gallery.tar` for `cmux-ci run --artifact`.
-@MainActor @Suite(.serialized) struct AATabLinesGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AATabLinesGalleryTests {
     static let packageRoot = AANestedGroupsGalleryTests.packageRoot
 
     private static func tab(_ id: String, _ title: String, kind: SidebarTabKind = .terminal, brand: String? = nil,

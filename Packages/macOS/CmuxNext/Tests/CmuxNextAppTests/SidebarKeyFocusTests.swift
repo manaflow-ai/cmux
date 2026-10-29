@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Keyboard focus on a sidebar item is the theme's tint, never macOS's blue focus ring (cx-wqn5,
 /// Leo's YouTube Music reference): the arrow-walked row takes the next tonal step over its resting
 /// fill, one step past hover, and draws no system ring.
 @MainActor
+@Suite(.closesItsWindows)
 struct SidebarKeyFocusTests {
     @Test func aKeyFocusedRowIsTintedNotRinged() {
         let row = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))

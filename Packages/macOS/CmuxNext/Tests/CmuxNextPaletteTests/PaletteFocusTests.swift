@@ -1,10 +1,12 @@
 import AppKit
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// A detached palette panel can become key after its content is attached. The query field must
 /// remain the panel's initial responder so AppKit gives it the keyboard during that handoff.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaletteFocusTests {
     @Test func queryFieldRegistersAsThePanelInitialResponder() throws {
         _ = NSApplication.shared

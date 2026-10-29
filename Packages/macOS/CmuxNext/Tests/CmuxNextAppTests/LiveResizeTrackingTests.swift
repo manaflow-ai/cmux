@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// cx-sqj3h (Leo 2026-10-13): during a window live resize the content must follow the edge every
@@ -16,7 +17,7 @@ import Testing
 /// A window enters a live resize through AppKit's `willStartLiveResize` notification, which a
 /// test posts for its own window (AppKit's resize tracking needs a real pointer). Every test is
 /// synchronous, so the process-wide motion state cannot leak into another test.
-@MainActor @Suite(.serialized) struct LiveResizeTrackingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct LiveResizeTrackingTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: CmuxNextLayout.PaneID) -> NSView { NSView() }
     }

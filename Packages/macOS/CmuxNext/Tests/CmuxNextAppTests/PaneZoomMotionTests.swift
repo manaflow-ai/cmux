@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Zoom and unzoom (Leo 2026-10-13, Lawrence 2026-10-18): the zooming pane owns the motion and is
@@ -8,6 +9,7 @@ import Testing
 /// covers the other panes, which never fade or move and are let go once it lands. Frames step at a
 /// fixed 120 Hz dt, so every assertion is about frame N, not wall time.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneZoomMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

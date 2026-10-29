@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// The Home Chief pane (the pinned left chat dock, `pinned-dock-v1`) cannot close (Lawrence 2026-10-20:
@@ -10,6 +11,7 @@ import Testing
 /// 2026-10-21), whose strip then shows. plans/cmux-next/home-chief-pane.md. The daemon keeps the
 /// pinned tab (cmux-tui `pinned_columns_tests.rs`); these cover what the app shows and asks.
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeChiefPaneUncloseableTests {
     static let home = DockColumn(edge: .left, mode: .docked, role: .agentChat, isPinned: true)
 

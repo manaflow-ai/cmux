@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
@@ -8,7 +9,7 @@ import CmuxNextDesignTokens
 /// are themed Liquid Glass, like iOS's menus, replacing the solid surface of 2026-10-12. Under
 /// Reduce Transparency they are the one solid popup surface (the theme's opaque overlay fill), and
 /// pages get the same color (`--cmux-popup-surface`) for their menus and tooltips.
-@MainActor @Suite(.serialized) struct PopupSurfaceTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PopupSurfaceTests {
     /// A see-through theme (60% background opacity): the window under a popup is translucent, the
     /// popup surface must not be.
     private let input = ThemeInput(background: ThemeRGB(hex: 0x2B1650), foreground: ThemeRGB(hex: 0xF4E3FF),

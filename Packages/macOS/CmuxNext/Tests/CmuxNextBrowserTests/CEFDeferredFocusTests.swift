@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 /// a moment before its Chromium window showed, `setFocused(true)` refused a hidden page, and only a
 /// browser's creation (`attach`) replayed that ask. The page then showed with no focus, and the
 /// focus applier, which had already asked, never asked again.
-@MainActor @Suite(.serialized) struct CEFDeferredFocusTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFDeferredFocusTests {
     /// A page with its browser asks for focus before its view is in a window; it gets it once it shows.
     @Test func focusAskedBeforeThePageShowsIsGrantedWhenItShows() throws {
         let (runtime, root) = try FocusSpyShim.runtime()

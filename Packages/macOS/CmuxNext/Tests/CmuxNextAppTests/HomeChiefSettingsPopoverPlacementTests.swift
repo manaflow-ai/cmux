@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-20 (a screenshot of the Chief Settings popover): the card hung off the "Chief"
 /// pill's leading edge and ran over the transcript beside it. It opens centered under the pill,
 /// as an `NSPopover` does.
-@MainActor @Suite(.serialized) struct HomeChiefSettingsPopoverPlacementTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeChiefSettingsPopoverPlacementTests {
     @Test func theCardOpensCenteredUnderThePill() throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 700), styleMask: [.titled],
                               backing: .buffered, defer: false)

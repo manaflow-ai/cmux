@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Some separator between tabs, minimal but noticeable (Leo 2026-10-14): a short 1 pt line in
@@ -9,7 +10,7 @@ import Testing
 /// hovered tab (Safari, Chrome), so it never cuts into the selected tab's shape. Read from the
 /// strip as drawn, in the default and the compact strip. Behind the Debug Settings toggle
 /// `tabs.separators`, off by default.
-@MainActor @Suite(.serialized) struct TabSeparatorTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabSeparatorTests {
     /// What the eye gets in the gap after each tab: the luminance step (0-255) a line there makes
     /// over the strip's background, 0 with no visible line. A line is a sublayer of the tab at most
     /// 1 pt wide, on the pixel grid, inside the gap after the pill, shown and colored.

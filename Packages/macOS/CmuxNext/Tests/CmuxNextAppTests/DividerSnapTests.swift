@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Dragging a split divider (cx-piioc): near a half, a third, two thirds or the equal share of its
 /// chain it snaps there, so panes line up without pixel hunting; past the snap distance it follows
 /// the pointer.
 @MainActor
+@Suite(.closesItsWindows)
 struct DividerSnapTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import CoreGraphics
 import Testing
 
@@ -12,6 +13,7 @@ import Testing
 /// strip still scrolls. This is the `layout.scrollModifier` `none` rule; with `command` (the
 /// default) every plain scroll over a pane is the pane's (LayoutScrollModifierTests).
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneHorizontalScrollClaimTests {
     /// Claims horizontal scroll over its left half only (a table there, plain text to the right).
     final class TableView: NSView, HorizontalScrollClaiming {

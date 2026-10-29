@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import CmuxNextWakeups
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// showed, the hidden workspace's clock stopped, and showing it again never restarted it. Hiding
 /// a layout now ends its motion where it was going.
 @MainActor
+@Suite(.closesItsWindows)
 struct LayoutHiddenMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

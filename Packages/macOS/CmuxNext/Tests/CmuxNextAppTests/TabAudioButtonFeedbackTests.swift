@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-19: "For the pane tab the audio mute button needs to be interactive and I
@@ -7,7 +8,7 @@ import Testing
 /// (`TabAudioToggleTests`); this suite covers what makes the speaker read as a button, as in
 /// Chrome: hovering it names what a click does in a tooltip (and the tab's hover card stays
 /// away so the two do not stack), and VoiceOver offers the same Mute tab / Unmute tab action.
-@MainActor @Suite(.serialized) struct TabAudioButtonFeedbackTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabAudioButtonFeedbackTests {
     final class Harness {
         let model: TabStripModel
         let strip: TabStripView

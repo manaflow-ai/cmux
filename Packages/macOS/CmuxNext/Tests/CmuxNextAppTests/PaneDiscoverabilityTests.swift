@@ -3,9 +3,10 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct PaneDiscoverabilityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneDiscoverabilityTests {
     @Test func aPlainPressOpensTheTypeMenuBeforeMouseUp() throws {
         let model = TabStripModel(tabs: [TabItem(id: TabID("sample"), title: "Chat")], selectedID: TabID("sample"))
         var intents: [TabStripIntent] = []

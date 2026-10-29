@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// A person's divider drag reaches the pane contents that follow it their own way
@@ -8,6 +9,7 @@ import Testing
 /// release's spring landed, with the pane at its final frame. A click on the divider tells nothing.
 /// Leo, 2026-10-26: "resizing the panes it propagates so fucking slowly to the right side browser tab thing".
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneResizeGestureTests {
     final class Follower: NSView, PaneResizeGestureFollowing {
         var heard: [Bool] = []

@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// A pane split to 280, 360 or 480 pt narrows its tab strip without a new selection: the strip
 /// relayouts, the tabs overflow and scroll, and the selected tab must stay in view. It scrolled
 /// off the trailing edge instead, so after a split the pane showed no selected tab at all.
-@MainActor @Suite(.serialized) struct TabStripNarrowPaneTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabStripNarrowPaneTests {
     @Test(arguments: [(10, 280.0), (20, 280.0), (20, 360.0), (20, 480.0)])
     func theSelectedTabStaysInViewWhenThePaneNarrows(count: Int, width: Double) throws {
         let tabs = (0..<count).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }

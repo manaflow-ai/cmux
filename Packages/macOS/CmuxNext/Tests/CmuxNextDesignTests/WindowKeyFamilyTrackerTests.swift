@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A4 (276b617df95): one key tracker per window decides the inactive wash. Before it, each
@@ -9,7 +10,7 @@ import Testing
 /// 3 to 6 notices in one turn), no view work when no window flips, view work only for the views of
 /// the window that flipped, and nothing for a window that has no material view.
 @MainActor
-@Suite struct WindowKeyFamilyTrackerTests {
+@Suite(.closesItsWindows) struct WindowKeyFamilyTrackerTests {
     /// The keyboard a test drives, and the checks the trackers left for the next turn.
     @MainActor
     final class Keyboard {

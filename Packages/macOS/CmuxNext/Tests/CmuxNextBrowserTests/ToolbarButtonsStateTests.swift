@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Toolbar buttons return to normal when their menu closes, the media button is not lit while a
 /// tab plays, and pinning animates, as in Chrome (u2426: "after clicking the Extensions button
 /// and the Music/audio button, both stay highlighted/active forever"). Prints the timings.
-@MainActor @Suite(.serialized) struct ToolbarButtonsStateTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ToolbarButtonsStateTests {
     static func window(_ view: NSView, width: CGFloat = 1000) -> NSWindow {
         // Inside the main screen, with room below for a menu (CI workers run small virtual displays).
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1024, height: 768)

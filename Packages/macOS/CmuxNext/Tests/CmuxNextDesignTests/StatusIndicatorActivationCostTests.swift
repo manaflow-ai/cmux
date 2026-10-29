@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Cmd-Tab back to cmux got slower with the session's size (user 2026-10-21: "when i cmd tab to
@@ -7,7 +8,7 @@ import Testing
 /// chat tabs"). Since #22802 every activation re-checks every status indicator the app ever made:
 /// each sidebar row of every workspace and the rows of hidden groups and parked workspaces. An
 /// activation must cost the indicators on screen; a hidden one catches up when it shows again.
-@MainActor @Suite(.serialized) struct StatusIndicatorActivationCostTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct StatusIndicatorActivationCostTests {
     private struct Fixture {
         let window: NSWindow
         let parked: NSView

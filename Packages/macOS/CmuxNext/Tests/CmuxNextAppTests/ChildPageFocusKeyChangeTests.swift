@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextFocusUI
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// the keys) without first handing the keys to the cmux window, and the cmux window takes the keys
 /// back only from another key window. Drives `ChildPageFocus` with a key-window recorder and pages
 /// whose grant makes their page window key, as CEF's `SetFocus` does.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct ChildPageFocusKeyChangeTests {
     /// The app's key window, with every change counted.
     final class Keys: KeyWindowSwitching {

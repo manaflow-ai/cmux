@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
 import AppKit
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -15,7 +16,7 @@ import Testing
 /// tab: showing the tab again builds a new page on the same session, which acpmux replays. A
 /// chat whose turn runs (acpmux's turn state), a New Tab page, and every chat with hibernation
 /// off keep their page.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct AgentPageHibernationTests {
     static let thisMac = "install:agent-page-hibernation-test"
 

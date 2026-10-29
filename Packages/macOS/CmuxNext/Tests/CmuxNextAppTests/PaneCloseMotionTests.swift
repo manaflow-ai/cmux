@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Closing a pane's last tab (or the pane) and closing a window
@@ -11,6 +12,7 @@ import Testing
 /// resize their PTYs once, at rest. A window fades out as a whole, then closes once. Reduce Motion
 /// closes at once. Frames step at a fixed 120 Hz dt.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneCloseMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

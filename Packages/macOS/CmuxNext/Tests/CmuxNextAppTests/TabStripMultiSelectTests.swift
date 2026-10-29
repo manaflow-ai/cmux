@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// The strip side of Chrome's tab multi-selection (Leo 2026-10-19): Cmd-click and Shift-click on
 /// a tab select several, the selected tabs that are not active draw a lighter fill, a right-click
 /// hands the App the whole selection, a plain click goes back to one tab, and dragging one
 /// selected tab drops them all together at its place.
-@MainActor @Suite(.serialized) struct TabStripMultiSelectTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabStripMultiSelectTests {
     @MainActor final class Harness {
         let model: TabStripModel
         let strip: TabStripView

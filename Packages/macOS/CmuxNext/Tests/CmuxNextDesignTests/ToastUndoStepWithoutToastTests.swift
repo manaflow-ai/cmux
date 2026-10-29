@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A move, pin or reorder is an undo step with no toast (Lawrence 2026-10-18: the "Move Undo"
 /// toast "keeps on showing up every single time"): Edit > Undo still runs its inverse once,
 /// and Redo after it.
 @MainActor
+@Suite(.closesItsWindows)
 struct ToastUndoStepWithoutToastTests {
     private static func window() -> NSWindow {
         NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],

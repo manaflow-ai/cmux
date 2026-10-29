@@ -2,13 +2,14 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextCompat
 import CmuxNextFiles
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextFilesUI
 
 /// The Files tree makes, renames and trashes items (classic's file explorer menu: New File, New
 /// Folder, Rename, Move to Trash) and shows each item's git state.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct FileExplorerEditTests {
     /// The real operator, except that Move to Trash deletes (a test leaves nothing in the Trash).
     struct DeletingTrash: FileOperating {

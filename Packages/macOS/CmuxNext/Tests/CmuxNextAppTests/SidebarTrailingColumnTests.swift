@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20 (screenshot of the sidebar's right edge): "Make sure this is the line ...
@@ -9,7 +10,7 @@ import Testing
 /// indicator (the unread dot, the working spinner), grouped or loose, centers on that same x at
 /// every density and sidebar width, and the dot and the spinner fill one slot of one size, so a
 /// row that swaps one for the other moves nothing.
-@MainActor @Suite(.serialized) struct SidebarTrailingColumnTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarTrailingColumnTests {
     private static let group = GroupID("grp-column")
     private static let groupedDot = WorkspaceID("ws-grouped-dot")
     private static let groupedSpinner = WorkspaceID("ws-grouped-spinner")

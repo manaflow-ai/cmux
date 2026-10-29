@@ -1,12 +1,13 @@
 import AppKit
 import Carbon.HIToolbox
 @testable import CmuxNextFileGrid
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// The selection rules of the Screenshots grid (cmux://screenshots), as in Finder and Photos:
 /// Lawrence 2026-10-23, "make shift click and cmd click in cmux://screenshots work".
-@Suite struct FileGridSelectionTests {
+@Suite(.closesItsWindows) struct FileGridSelectionTests {
     @Test func aPlainClickSelectsOneTileAndAnchorsIt() {
         let selection = FileGridSelection(indices: [0, 1, 4], anchor: 1).clicking(3, .select)
         #expect(selection.indices == [3])

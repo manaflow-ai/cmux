@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// A space dot dragged out of the window opens that space in a new window (Lawrence 14223,
 /// plans/cmux-next/spaces-overhaul-DESIGN.md rule 4), the action Open Space in New Window runs
 /// (`SidebarIntent.openProfileInNewWindow`, `space.openInNewWindow`). It never reorders, and a drop on
 /// the footer band still reorders as before. Real mouse events on the bar, as `ProfileBarDotReorderTests`.
-@MainActor @Suite(.serialized) struct ProfileBarDotTearOffTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ProfileBarDotTearOffTests {
     static let keys = (0..<3).map { ProfileKey("space\($0)") }
 
     final class Bar {

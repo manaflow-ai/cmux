@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Offender 4 of the 2026-10-21 GPU audit: hiding a parked workspace costs WindowServer about 30 ms per
 /// pane on each switch back. A workspace can instead stay unhidden and parked (`ParkingContainer`);
 /// the views below must stop drawing and hear the change, and hidden parking must walk nothing.
-@MainActor @Suite struct ParkedContentTests {
+@MainActor @Suite(.closesItsWindows) struct ParkedContentTests {
     final class Container: NSView, ParkingContainer {
         var isParkedOffScreen = false
     }

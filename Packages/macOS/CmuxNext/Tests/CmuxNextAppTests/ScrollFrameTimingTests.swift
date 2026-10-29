@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextFocusUI
 import CmuxNextLayout
 import CmuxNextSignposts
+import CmuxNextTestSupport
 import CoreGraphics
 import Testing
 
@@ -10,6 +11,7 @@ import Testing
 /// Chrome measures it). The timing starts with the event's own timestamp and ends with who took it: `layout`
 /// when the layout scrolled (a Command pan), `content` when it went on to the pane.
 @MainActor
+@Suite(.closesItsWindows)
 struct ScrollFrameTimingTests {
     /// Records each timed event and the target its end reported.
     final class Recorder: ScrollFrameTiming {

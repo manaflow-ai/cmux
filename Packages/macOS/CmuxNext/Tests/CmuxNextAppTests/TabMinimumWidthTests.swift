@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-20: the narrowest a tab gets is the room for its favicon and its close button,
 /// worked out from the parts (not a flat number), and Settings > Tabs > Minimum Tab Width still
 /// overrides it. A crowded strip's tabs sit at that width; a hovered one shows its favicon and its x
 /// whole, and the x's click target (Apple's 20 x 20 pt macOS minimum) never covers the favicon.
-@MainActor @Suite(.serialized) struct TabMinimumWidthTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabMinimumWidthTests {
     private struct Harness {
         let window: NSWindow
         let strip: TabStripView

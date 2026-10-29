@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,6 +9,7 @@ import Testing
 /// Manage Search Engines, site icons in rows, and the typed-address http
 /// fallback.
 @MainActor
+@Suite(.closesItsWindows)
 struct OmnibarChromeGapsTests {
     // MARK: Fixtures
 

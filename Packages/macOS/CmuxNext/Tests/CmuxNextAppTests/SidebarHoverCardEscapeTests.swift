@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -10,7 +11,7 @@ import CmuxNextWakeupsTestSupport
 /// row's upper half (#22473, Leo 2026-10-20 "trapped by the preview") is a Debug Settings layout
 /// now, covered by `HoverCardEscapeGeometryTests`. A pointer heading into the card keeps it, one
 /// going down past the row lets it go, and leaving both the row and the card dismisses it.
-@MainActor @Suite(.serialized) struct SidebarHoverCardEscapeTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarHoverCardEscapeTests {
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, [SidebarRow]) {
         _ = NSApplication.shared
         let workspaces = (1...4).map {

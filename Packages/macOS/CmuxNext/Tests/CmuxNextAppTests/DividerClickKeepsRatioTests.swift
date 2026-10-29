@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// A press and release on a split divider with no drag between them changes
@@ -9,6 +10,7 @@ import Testing
 /// person's split back (found by the 2026-10-21 QA spree, live in a tagged
 /// build). A real drag still saves its ratio on release.
 @MainActor
+@Suite(.closesItsWindows)
 struct DividerClickKeepsRatioTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

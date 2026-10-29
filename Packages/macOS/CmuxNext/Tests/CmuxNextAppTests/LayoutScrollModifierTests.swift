@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import CoreGraphics
 import Testing
 
@@ -13,6 +14,7 @@ import Testing
 /// gesture decides its owner through its momentum; a wheel decides per notch. `none` is the rule
 /// before it: sideways over a pane pans the strip, rows scroll over their gaps or with Command.
 @MainActor
+@Suite(.closesItsWindows)
 struct LayoutScrollModifierTests {
     final class Panes: LayoutPaneContentProvider {
         /// Each pane's content view, as the layout asked for it.

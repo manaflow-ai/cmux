@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Familiar first (Lawrence 2026-10-14): the default tab strip keeps the size people know, a
@@ -9,7 +10,7 @@ import Testing
 /// cx-ag5.12 (Leo 2026-10-12) is the Compact tabs toggle, off by default; there a tab is shorter
 /// than a sidebar row and starts closer to its icon, and the close and + buttons keep their size
 /// and still take a click.
-@MainActor @Suite(.serialized) struct CompactTabStripTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct CompactTabStripTests {
     @Test func theDefaultStripKeepsItsFamiliarSize() throws {
         let (strip, window) = Self.strip()
         defer { window.orderOut(nil) }

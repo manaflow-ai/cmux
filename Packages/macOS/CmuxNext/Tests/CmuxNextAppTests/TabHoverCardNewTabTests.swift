@@ -1,10 +1,12 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// A New Tab page's tab takes no hover card: the card would repeat its title over an empty
 /// frame (Leo 2026-10-11). Other tabs keep theirs.
 @MainActor
+@Suite(.closesItsWindows)
 struct TabHoverCardNewTabTests {
     @Test func aNewTabPageTakesNoHoverCard() throws {
         var newTab = TabItem(id: TabID("new"), title: "New Tab")

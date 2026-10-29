@@ -2,13 +2,14 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextPalette
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-27, on a workspace's listed tabs in the sidebar: "we need to be able to middle-click and, you know,
 /// just deal with the stuff here. Like just closing tabs fundamentally." A middle-click closes exactly the tab under
 /// it wherever a tab is listed: a sidebar tab row (`.closeTab`, which the App runs as Close Tab), and a Search Tabs
 /// row (its Cmd-W close). The tab strip's own middle-click is unchanged. A workspace row keeps closing its workspace.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarTabMiddleClickTests {
     typealias Fixture = SidebarTabGroupControlsTests
     typealias Gallery = SidebarTabMiddleClickGalleryTests

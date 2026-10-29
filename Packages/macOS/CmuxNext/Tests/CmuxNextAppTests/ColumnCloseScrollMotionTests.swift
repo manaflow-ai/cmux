@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Closing the last column or row of a scrolling strip (Lawrence 2026-10-20: "the pane closes
@@ -10,6 +11,7 @@ import Testing
 /// after the panes land), and ends where the new layout puts it. Frames step at a fixed 120 Hz dt,
 /// so every assertion is about frame N, not wall time.
 @MainActor
+@Suite(.closesItsWindows)
 struct ColumnCloseScrollMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

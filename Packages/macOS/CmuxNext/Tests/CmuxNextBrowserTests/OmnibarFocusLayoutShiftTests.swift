@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -7,6 +8,7 @@ import Testing
 /// omnibar there is layout shift"): the chip, the field, the badges and the
 /// address text keep their frames and pixels; only the fill and ring change.
 @MainActor
+@Suite(.closesItsWindows)
 struct OmnibarFocusLayoutShiftTests {
     private let address = "https://github.com/manaflow-ai/cmuxterm-hq"
 

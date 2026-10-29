@@ -1,10 +1,12 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Cmd-Z runs only the newest undo toast of a window (`CmuxToastStack.newestUndo`), so only that
 /// toast's Undo shows ⌘Z in its tooltip; when it goes, the next newest shows it again.
 @MainActor
+@Suite(.closesItsWindows)
 struct CmuxToastUndoKeyTests {
     @Test func onlyTheNewestUndoToastShowsCmdZ() throws {
         let host = UndoKeyToastHost()

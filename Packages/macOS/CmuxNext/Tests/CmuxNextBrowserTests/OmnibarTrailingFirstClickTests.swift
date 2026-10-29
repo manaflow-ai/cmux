@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// `hitTest` finds there only when that view accepts the first mouse; else the
 /// press only makes the window key and the second press acts.
 @MainActor
+@Suite(.closesItsWindows)
 struct OmnibarTrailingFirstClickTests {
     private func shownBar() -> (AddressBarView, NSWindow) {
         let bar = AddressBarView()

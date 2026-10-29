@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
 import CmuxNextTerminalGeometry
+import CmuxNextTestSupport
 import Testing
 
 /// Cmd-Shift-Enter was laggy and buggy on terminals (Lawrence 2026-10-20): the zooming pane is laid
@@ -10,6 +11,7 @@ import Testing
 /// landing frames behind the view made the text jump. The pane still moves live (its terminal
 /// draws the reflow preview at every size); the grid goes to the owner once, when the spring lands.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneZoomTerminalResizeTests {
     /// A pane's content that sizes like a terminal: each size it takes is a grid
     /// (``TerminalGridPolicy``), held while its pane is on a layout spring.

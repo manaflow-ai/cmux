@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextTestSupport
 import ObjectiveC
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// with `.invisible`. Every native field edits through an `NSTextView` (a field's field editor, or the
 /// text view itself), which now answers `.invisible` for cmux's own text. Asked through the
 /// Objective-C runtime, as AppKit asks.
-@MainActor @Suite struct NativeCaretAccessoryTests {
+@MainActor @Suite(.closesItsWindows) struct NativeCaretAccessoryTests {
     private typealias Getter = @convention(c) (AnyObject, Selector) -> Int
 
     init() { NativeCaretAccessory.install() }

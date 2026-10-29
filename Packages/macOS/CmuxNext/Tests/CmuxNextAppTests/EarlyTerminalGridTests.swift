@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-23: "for cmd d and then cmd w, we need to trigger TUI resize much faster, even
@@ -15,6 +16,7 @@ import Testing
 /// view's size now to the size it rests at (`bounds.size + sizeChange`), in the turn that starts the motion.
 /// Frames step at a fixed 120 Hz dt; the display link never ticks.
 @MainActor
+@Suite(.closesItsWindows)
 struct EarlyTerminalGridTests {
     /// A pane's content that records what the layout tells it.
     final class Content: NSView, PaneMotionSettling, PaneMotionTargeting {

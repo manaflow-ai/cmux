@@ -2,11 +2,13 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Dragging a pane by its tab bar's empty space onto another pane swaps the two (cx-8bv1j); a drop
 /// back on its own pane does nothing. The tab bar's tabs keep their own drag.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneSwapDragTests {
     final class Panes: LayoutPaneContentProvider {
         var strips: [PaneID: TabStripView] = [:]

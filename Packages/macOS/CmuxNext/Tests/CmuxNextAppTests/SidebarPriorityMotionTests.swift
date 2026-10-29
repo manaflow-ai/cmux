@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The Priority view's rows move on the sidebar's motion, which is on by default: a chat whose rank
@@ -9,6 +10,7 @@ import Testing
 /// workspace rows, so with it off every reorder snapped and a leaving row vanished over a gap.
 /// With motion off (Reduce Motion, the master switch) every change lands in one frame.
 @MainActor
+@Suite(.closesItsWindows)
 struct SidebarPriorityMotionTests {
     /// The motion-off check only needs a screen. A test that sees a row move needs a display
     /// that draws frames (`GUIAnimationTestSupport`): a Blacksmith VM can have a screen whose

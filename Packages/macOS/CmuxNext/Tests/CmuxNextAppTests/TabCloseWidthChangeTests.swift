@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// cx-y2uf5 (4): the tab strip relayouts at once on any width change, as a window resize wants,
 /// but a sidebar toggle or the new-tab button also changes the width, and that snapped a tab
 /// close in flight: the closing tab vanished in one frame. A close in flight keeps its spring.
-@MainActor @Suite(.serialized) struct TabCloseWidthChangeTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabCloseWidthChangeTests {
     static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
 
     /// The strip animates in a window on screen: with no screen nothing runs its springs.

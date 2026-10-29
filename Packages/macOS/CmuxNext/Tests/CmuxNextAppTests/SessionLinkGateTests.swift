@@ -1,11 +1,12 @@
 import AppKit
 import CmuxNextOnboarding
+import CmuxNextTestSupport
 import Testing
 
 /// A `cmux://session/<id>` link (any page or app can open one) only reveals a tab that already
 /// shows the session; a new tab on it opens only after the person answers a question that names
 /// the session, and a session acpmux does not have is refused without one.
-@MainActor @Suite struct SessionLinkGateTests {
+@MainActor @Suite(.closesItsWindows) struct SessionLinkGateTests {
     final class Probe {
         var events: [String] = []
         var askedIn: NSWindow?

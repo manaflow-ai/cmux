@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextFocus
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
@@ -13,7 +14,7 @@ import WebKit
 /// Before: in an agent chat Cmd-P ran the chat's own Search Files… (the page's file picker in the
 /// composer), and in the floating Start Agent chat (an `NSPanel` with a web view, which the key
 /// dispatcher never decided) Cmd-Shift-P reached the page, which kept the panel on top.
-@MainActor @Suite struct WebViewNativePaletteKeysTests {
+@MainActor @Suite(.closesItsWindows) struct WebViewNativePaletteKeysTests {
     /// The router holds the registry `unowned`; the suite keeps it.
     let registry: ActionRegistry
     let ran: Ran

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Modifier keys held while dragging a divider or a column edge pick how the drag resizes
@@ -8,6 +9,7 @@ import Testing
 /// moves at a quarter of the pointer's speed. A modifier pressed or let go mid-drag changes the mode
 /// at once, and Escape cancels the drag back to where it began.
 @MainActor
+@Suite(.closesItsWindows)
 struct DividerModifierDragTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

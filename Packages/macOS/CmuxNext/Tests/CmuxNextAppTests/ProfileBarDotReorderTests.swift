@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar footer's space dots reorder by drag (unimplemented audit row 14): a dot dragged
 /// along the footer band and dropped there moves its space with the same `move-profile` reorder
 /// as the space menu's Move Left / Move Right (`SidebarIntent.reorderProfile`); a drop off the
 /// band moves nothing, and a click still switches the space. Real mouse events on the bar.
-@MainActor @Suite(.serialized) struct ProfileBarDotReorderTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ProfileBarDotReorderTests {
     static let keys = (0..<3).map { ProfileKey("space\($0)") }
 
     /// A bar with three spaces (the first current) in a window, and the intents it sends.

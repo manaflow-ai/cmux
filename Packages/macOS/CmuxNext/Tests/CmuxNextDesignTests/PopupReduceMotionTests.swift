@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Reduce Motion keeps a popup's close to its fade (motion.md rule 7, motion pass 2026-10-12): the
 /// group editors, the Feed and Notifications panels and the palette's actions menu shrink toward
 /// their control while they fade out, and under Reduce Motion that shrink applied in one frame, so
 /// the panel jumped 2% smaller and then faded. It now fades at its size.
-@MainActor @Suite(.serialized) struct PopupReduceMotionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PopupReduceMotionTests {
     @Test func aPopupClosingUnderReduceMotionFadesAtItsSize() throws {
         // Synchronous from here to the reset: the override is process-wide.
         Motion.reduceMotionOverride = true

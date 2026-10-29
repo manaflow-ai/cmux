@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextPages
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
@@ -9,6 +10,7 @@ import WebKit
 /// them (each table in an `overflow: auto hidden` wrapper as wide as the column): a 20-column
 /// table, one long unbroken cell, code in cells, a 40-row table and a small table.
 @MainActor
+@Suite(.closesItsWindows)
 struct PageSidewaysScrollerTests {
     private static let html: String = {
         let row = { (cells: [String]) in "<tr>" + cells.map { "<td>\($0)</td>" }.joined() + "</tr>" }

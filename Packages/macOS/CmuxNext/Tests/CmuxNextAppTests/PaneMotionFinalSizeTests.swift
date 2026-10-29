@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Terminals resize at the start of a Cmd-D / Cmd-W, not after the spring (Lawrence 2026-10-23): when a split
 /// starts, each pane it resizes tells its content the size it will rest at, once, in the first motion frame,
 /// and the final size it gives (`bounds + sizeChange`) is the size the content has once the spring landed.
 @MainActor
-@Suite struct PaneMotionFinalSizeTests {
+@Suite(.closesItsWindows) struct PaneMotionFinalSizeTests {
     /// A terminal-like leaf under a fixed 30 pt header, as a pane's tab strip sits over its terminal.
     final class Leaf: NSView, PaneMotionTargeting {
         var announced: [CGSize] = []

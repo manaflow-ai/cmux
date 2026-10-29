@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Pinned tabs stay fixed at the strip's leading edge while an overflowing strip scrolls (cx-kp9b4,
 /// Safari/Arc): only the unpinned tabs scroll, under and after them, in both Tab Overflow modes. A
 /// scrolled strip moved its pinned tabs off the leading edge with the rest, so a click there hit
 /// an unpinned tab or nothing.
-@MainActor @Suite(.serialized) struct TabStripPinnedScrollTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabStripPinnedScrollTests {
     private struct Harness {
         let window: NSWindow
         let strip: TabStripView

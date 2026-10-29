@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// chip's label and the address keep every glyph pixel, focused or not,
 /// for http and file pages.
 @MainActor
+@Suite(.closesItsWindows)
 struct OmnibarTextClippingTests {
     /// The opaque glyph pixel box of `view`, in backing pixels from its top left.
     private func inkBox(_ view: NSView) -> (minX: Int, minY: Int, maxX: Int, maxY: Int, width: Int, height: Int)? {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -8,7 +9,7 @@ import Testing
 /// computer-use agent, a script) on the permission card reaches the page, but it is not the
 /// person's gesture, so the Allow it sends grants nothing and the prompt stays pending (cx-1l61).
 /// A click from the HID system (source pid 0) is the person's.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPanePostedClickTests {
     private actor NoHost: AgentPaneHostProviding {

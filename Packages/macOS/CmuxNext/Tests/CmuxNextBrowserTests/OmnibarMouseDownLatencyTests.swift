@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 /// it faster". The press that focuses the omnibar shows its whole result on the next frame, as in
 /// Chrome: the editing look with no fade left to run, the caret or selection, and no relayout of
 /// the bar (the bookmark star stays until the user types, so the field keeps its width).
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct OmnibarMouseDownLatencyTests {
     private func bar(star: BookmarkStarState = .off) -> (AddressBarView, NSWindow) {
         let bar = AddressBarView()

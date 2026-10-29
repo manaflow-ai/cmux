@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Toasts come back less often (Lawrence 2026-10-18: "we show the toast in cmux-next too
 /// often"): a notice the person closed stays quiet for a while, and the same toast again while
 /// it shows is not announced again.
 @MainActor
+@Suite(.closesItsWindows)
 struct CmuxToastQuietTests {
     private static func window() -> NSWindow {
         NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
