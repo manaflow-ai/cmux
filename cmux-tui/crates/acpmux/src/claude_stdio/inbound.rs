@@ -25,6 +25,12 @@ impl Translator {
             }
         } else if main_line && ((kind == "system" && sub == "compact_boundary") || kind == "result")
         {
+            if kind == "system"
+                && sub == "compact_boundary"
+                && self.cancelled_compaction.load(Ordering::SeqCst)
+            {
+                self.cancelled_compaction_boundary.store(true, Ordering::SeqCst);
+            }
             self.compacting.store(false, Ordering::SeqCst);
         }
         // A subagent's lines stream under its own session, ended or not (`subagent_route`).
@@ -629,8 +635,15 @@ impl Translator {
             "result" => {
                 // A compaction's summary comes before its turn's result.
                 self.awaiting_summary.store(false, Ordering::SeqCst);
-                let cancelled_compaction =
-                    main_line && self.cancelled_compaction.swap(false, Ordering::SeqCst);
+                let compact_result_shape = line.get("num_turns").and_then(Value::as_u64) == Some(0)
+                    && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0);
+                let cancelled_compaction = main_line
+                    && self.cancelled_compaction.load(Ordering::SeqCst)
+                    && (self.cancelled_compaction_boundary.swap(false, Ordering::SeqCst)
+                        || compact_result_shape);
+                if cancelled_compaction {
+                    self.cancelled_compaction.store(false, Ordering::SeqCst);
+                }
                 // `is_error` with a success subtype is how Claude reports a
                 // usage limit or an API refusal: a failed turn, not a reply.
                 let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
@@ -675,12 +688,22 @@ impl Translator {
                         || next_unread
                         || !self.turn_output.load(Ordering::SeqCst))
                 {
-                    for k in abandoned {
+                    for k in abandoned.iter().cloned() {
                         self.pending.lock().await.remove(&k);
                         let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
                         out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
                     }
                     return out;
+                }
+                // A normal result from the new prompt means the cancelled compaction did not
+                // produce a result. Resolve its abandoned request independently, then continue
+                // settling the new prompt; do not let the stale marker consume this result.
+                if !abandoned.is_empty() {
+                    for k in abandoned {
+                        self.pending.lock().await.remove(&k);
+                        let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                        out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
+                    }
                 }
                 // A steered line Claude Code has not read yet: it runs it as
                 // one more turn of this prompt, whose result ends it (when
