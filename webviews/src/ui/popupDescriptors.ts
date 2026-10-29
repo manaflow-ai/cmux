@@ -39,20 +39,21 @@ export function popupAction(model: PopupDescription, id: string | undefined): Re
   return findPopupAction(model, (action) => action.id === id);
 }
 
-/** Page-side Return resolves the same selection policy as a native ID-only pick. */
+/** Page-side Return resolves a suggestion row's explicit value, never an auxiliary action ID. */
 export function popupActionByValue(model: PopupDescription, value: string): ResolvedAction | undefined {
-  return findPopupAction(model, (action) => (action.value ?? action.id) === value);
+  return findPopupAction(model, (action) => action.value === value, false);
 }
 
 function findPopupAction(
   model: PopupDescription,
   matches: (action: ResolvedAction) => boolean,
+  includeAuxiliary = true,
 ): ResolvedAction | undefined {
   function find(rows: readonly PopupRow[]): ResolvedAction | undefined {
     for (const row of rows) {
       if (row.disabled) continue;
       if (row.kind === "action" && matches(row)) return row;
-      const action = row.actions?.find((candidate) => !candidate.disabled && matches(candidate));
+      const action = includeAuxiliary && row.actions?.find((candidate) => !candidate.disabled && matches(candidate));
       if (action) return action;
       const child = row.children && find(row.children);
       if (child) return child;

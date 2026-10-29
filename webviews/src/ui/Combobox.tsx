@@ -120,7 +120,9 @@ export function Combobox({
     onEvent: (event) => {
       native?.onEvent?.(event);
       const action = native && popupAction(native.model, event.id);
-      const suggestion = action ? (action.value ?? event.id) : undefined;
+      // Suggestions carry an explicit domain value. Auxiliary action IDs are protocol
+      // identities and may spell the same word without selecting that suggestion.
+      const suggestion = action?.value;
       if (event.type === "pick" && action && !action.keepOpen) setNativeSessionOpen(false);
       const query = native?.model.search;
       if (
