@@ -183,7 +183,7 @@ extension PaneController {
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent,
                                                                      earlyTab: daemon.queuesCreatingInput ? pending.tab : nil, tab: pending.tab)
         if let timing { services.cache.createTabs.expect(timing, tab: pending.tab, standIn: true) } // the stand-in's terminal is the tab's for good
-        selectWhenReported(surface: pending.surface)
+        showStandIn(surface: pending.surface, focus: .content, intent: intent)
         // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and selects in its reply's job
         services.registry.track(Task { [services] in
             var landed = false
