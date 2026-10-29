@@ -1,5 +1,6 @@
 // Long approval commands remain single-line and expose their distinct full paths on hover.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
@@ -53,17 +54,12 @@ await requireBrowserLane("home-inbox-detail-browser.test.ts", async () => {
           // Native title tooltips are outside headless page screenshots. Keep the rendered row
           // capture and full-title evidence together; never draw a stand-in tooltip in the page.
           if (process.env.HOME_INBOX_CAPTURE && width === 280) {
-            const png = await page.locator(".acpmux-home-inbox").screenshot();
-            console.log(
-              "HOME_INBOX_EVIDENCE=" +
-                JSON.stringify({
-                  phase: process.env.HOME_INBOX_CAPTURE,
-                  width,
-                  colorScheme,
-                  commands,
-                  png: png.toString("base64"),
-                }),
-            );
+            const output = path.resolve(process.env.HOME_INBOX_CAPTURE);
+            await mkdir(output, { recursive: true });
+            await page.locator(".acpmux-home-inbox").screenshot({ path: path.join(output, `${colorScheme}.png`) });
+            const evidence = { width, colorScheme, commands };
+            await writeFile(path.join(output, `${colorScheme}.json`), JSON.stringify(evidence, null, 2));
+            console.log("HOME_INBOX_EVIDENCE=" + JSON.stringify(evidence));
           }
           expect(commands).toHaveLength(2);
           expect(commands[0]!.text).not.toBe(commands[1]!.text);
