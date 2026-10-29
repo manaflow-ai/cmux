@@ -55,12 +55,11 @@ struct SceneNodeViewRenderingTests {
     @Test func jsonBundledImageHonorsSize() throws {
         let name = "AgentIcons/JSONSizingRegression"
         let image = NSImage(size: NSSize(width: 14, height: 14))
-        #expect(image.setName(name))
-        defer { image.setName(nil) }
+        let resolver = DSLBundledImageResolver(loadImage: { _ in image })
         var node = DSLNode(type: .image)
         node.systemName = name
         node.size = 32
-        let host = NSHostingController(rootView: DSLSidebarRenderer(node: node, onAction: { _ in }))
+        let host = NSHostingController(rootView: DSLSidebarRenderer(node: node, imageResolver: resolver, onAction: { _ in }))
         let size = host.sizeThatFits(in: CGSize(width: 100, height: 100))
         #expect(size.width == 32)
         #expect(size.height == 32)
