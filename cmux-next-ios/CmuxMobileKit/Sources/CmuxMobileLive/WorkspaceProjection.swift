@@ -191,7 +191,9 @@ public actor WorkspaceProjection {
         if changed { removedMetadata[rows[workspaceIndex].key] = metadata[rows[workspaceIndex].key] }
         refreshMetadata(for: rows[workspaceIndex].key, at: workspaceIndex)
         if !changed && (delta.kind.isAdd || delta.kind.isClose) { return ([], false) }
-        return (Set([id]), true)
+        // Renames and metadata replacements keep the row's topology intact;
+        // only add/close deltas need the full-tree publication path.
+        return (Set([id]), delta.kind.isAdd || delta.kind.isClose)
     }
 
     private func patchWorkspace(_ delta: DaemonTreeDelta) throws -> (ids: Set<String>, topology: Bool) {

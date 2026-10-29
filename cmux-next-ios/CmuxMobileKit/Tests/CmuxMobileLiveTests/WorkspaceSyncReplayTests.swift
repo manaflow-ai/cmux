@@ -37,7 +37,7 @@ import Testing
 /// leaving the event stream alive.
 private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
     let id: UInt32 = 1
-    private let snapshot: Data
+    private let snapshot: String
     private let replayTitle: String?
     private let failIdentify: Bool
     private let lock = NSLock()
@@ -47,7 +47,7 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
     private(set) var listWorkspaceRequests = 0
 
     init(snapshot: String, replayTitle: String? = nil, failIdentify: Bool = false) {
-        self.snapshot = Data(snapshot.utf8)
+        self.snapshot = snapshot
         self.replayTitle = replayTitle
         self.failIdentify = failIdentify
     }
@@ -64,7 +64,7 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
             if command == "list-workspaces" {
                 lock.withLock { listWorkspaceRequests += 1 }
                 if let replayTitle, lock.withLock({ listWorkspaceRequests == 1 }) {
-                    push(#"{"event":"title-changed","surface":1,"title":"#(replayTitle)"}"#)
+                    push(Data(("{\"event\":\"title-changed\",\"surface\":1,\"title\":\"\(replayTitle)\"}\n").utf8))
                 }
                 push(Self.withID(id, body: snapshot))
             } else if command == "identify" && failIdentify {

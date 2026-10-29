@@ -37,6 +37,16 @@ import Testing
         }
     }
 
+    @Test func nestedRenameIsMetadataOnly() async throws {
+        let projection = WorkspaceProjection()
+        _ = try await projection.reset(snapshot: Self.snapshot, macID: "m")
+        let rename = Self.delta(.tabRenamed, surface: 4,
+                                entity: ["surface": 4, "kind": "pty", "title": "renamed"])
+        let update = try await projection.apply(rename, agents: AgentStates(), activity: [:])
+        #expect(update?.topology == false)
+        #expect(update?.tree.workspaces.first?.tabs.first?.title == "renamed")
+    }
+
     @Test func workspaceInsertReindexesDisplacedSurfaces() async throws {
         let snapshot = Data(#"{"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":1,"key":"one","screens":[{"id":1,"panes":[{"id":1,"tabs":[{"surface":4,"title":"one"}]}]}]},{"id":2,"key":"two","screens":[{"id":2,"panes":[{"id":2,"tabs":[{"surface":5,"title":"two"}]}]}]}]}}"#.utf8)
         let projection = WorkspaceProjection()
