@@ -10,7 +10,7 @@ import CmuxNextSettings
 enum NotificationSettingsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let notifications = context.services.notifications
-        registry.bindEffect("notifications.toggleWorkspaceMute", effect: { invocation in
+        registry.bindEffect("notifications.toggleWorkspaceMute", requires: nil, effect: { invocation in
             guard let workspace = context.scope(invocation).workspace else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
             }
