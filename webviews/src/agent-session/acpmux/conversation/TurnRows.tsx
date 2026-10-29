@@ -3,7 +3,7 @@ import { PullRequestDock } from "../summary/PullRequestDock";
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
-import { useContext, useMemo, useState, type ReactNode } from "react";
+import { useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
@@ -35,6 +35,7 @@ import {
 } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
+import { errorMessage } from "../transportErrors";
 import { failureCopy, failureKind, failureRecovery, type FailureRoute } from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
@@ -319,6 +320,18 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // prompt row takes the button away first). A chat without the action (View Only, disconnected)
   // draws no Continue, so its footer is empty or not as it would be without one.
   const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState<string>();
+  useEffect(() => {
+    if (!resume) setResumeError(undefined);
+  }, [resume]);
+  const continueTurn = () => {
+    if (!resume) return;
+    setResumeError(undefined);
+    setResuming(true);
+    void resume()
+      .catch((error: unknown) => setResumeError(errorMessage(error) || t("notice.resumeFailed")))
+      .finally(() => setResuming(false));
+  };
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
   // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
   // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
@@ -360,18 +373,18 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             </span>
           )}
           {resumable && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-turn-continue"
-              disabled={resuming}
-              onClick={() => {
-                setResuming(true);
-                void resume().finally(() => setResuming(false));
-              }}
-            >
+            <button type="button" className="cv-iconbtn cv-turn-continue" disabled={resuming} onClick={continueTurn}>
               {t("turn.continue")}
               <ArrowRight size={ROW_ICON} aria-hidden="true" />
             </button>
+          )}
+          {resumeError && resumable && (
+            <span className="cv-turn-resume-error" role="alert">
+              {t("notice.resumeFailedReason", { reason: resumeError })}
+              <button type="button" className="cv-turn-resume-error__retry" onClick={continueTurn} disabled={resuming}>
+                {t("turn.retry")}
+              </button>
+            </span>
           )}
           <span className="cv-turn-action-group">
             {text && <MessageCopy text={text} />}

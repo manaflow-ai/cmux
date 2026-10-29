@@ -94,10 +94,7 @@ export const CONTINUE_PROMPT = "Continue";
 /// fails says so on its own row. Settles once the send does (when that turn ends, or it failed).
 export const resumeThrough =
   (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): Promise<void> =>
-    callNative("chat.send", { text: CONTINUE_PROMPT }).then(
-      () => undefined,
-      () => undefined,
-    );
+    callNative("chat.send", { text: CONTINUE_PROMPT }).then(() => undefined);
 
 /// The command that signs the chat's harness in, for Sign in again: its profile's `auth.login`, else
 /// the one acpmux's health check names (a CLI found on PATH has no profile, cx-gz0dz).

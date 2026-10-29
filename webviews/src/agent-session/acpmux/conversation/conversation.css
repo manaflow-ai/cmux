@@ -2882,6 +2882,25 @@ a.cv-sha:focus-visible {
   opacity: 0.5;
   pointer-events: none;
 }
+.cv-turn-resume-error {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  color: var(--agent-status-failure);
+  font-size: var(--text-caption);
+}
+.cv-turn-resume-error__retry {
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.cv-turn-resume-error__retry:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 /* Retry's model menu (TurnRows.tsx): a narrow chevron that sits against Retry. */
 .cv-iconbtn.cv-turn-retry-menu {
   width: 14px;

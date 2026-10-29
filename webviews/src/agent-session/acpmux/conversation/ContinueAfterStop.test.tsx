@@ -192,9 +192,29 @@ test("clicking Continue sends the continue prompt through chat.send", async () =
   expect(calls).toEqual([["chat.send", { text: CONTINUE_PROMPT }]]);
 });
 
-test("a refused continue send is swallowed; its row says why", async () => {
+test("a refused continue send rejects so the footer can show recovery", async () => {
   const resume = resumeThrough(() => Promise.reject(new Error("refused")));
-  await expect(resume()).resolves.toBeUndefined();
+  await expect(resume()).rejects.toThrow("refused");
+});
+
+test("a refused Continue shows the reason and lets the person try again", async () => {
+  let attempts = 0;
+  const resume = async () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("connection lost");
+  };
+  const container = await render(
+    <TurnActionsContext.Provider value={{ resume }}>
+      <TurnFooter row={footers(stoppedTurn)[0]!} />
+    </TurnActionsContext.Provider>,
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-turn-continue")!.click());
+  const alert = container.querySelector<HTMLElement>('[role="alert"]');
+  expect(alert).not.toBeNull();
+  expect(alert?.querySelector(".cv-turn-resume-error__retry")).not.toBeNull();
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-turn-resume-error__retry")!.click());
+  expect(attempts).toBe(2);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 
 test("a second click while the first send is in flight sends nothing more", async () => {
