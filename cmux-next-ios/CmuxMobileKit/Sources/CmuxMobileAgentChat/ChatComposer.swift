@@ -605,8 +605,7 @@ struct QueuedPromptsView: View {
                     Text(item.text).font(.subheadline).lineLimit(1)
                     Spacer()
                     Button {
-                        store.removeQueued(item.id)
-                        text = item.text
+                        if let restored = store.takeBackQueued(item.id, draft: text) { text = restored }
                     } label: {
                         Image(systemName: "xmark").font(.footnote.weight(.semibold))
                             .frame(width: 44, height: 44)
