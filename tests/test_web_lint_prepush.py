@@ -9,6 +9,7 @@ what runs.
 """
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -205,7 +206,7 @@ class WebLintPrePushTests(unittest.TestCase):
                                 capture_output=True)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("webviews: sh check-lanes.sh && sh check-format.sh", result.stdout)
+        self.assertIn("webviews: sh check-lanes.sh\nwebviews: sh check-format.sh\n", result.stdout)
         self.assertEqual(trees(), [])
 
     def remote_head(self):
@@ -579,6 +580,53 @@ class WebLintPrePushTests(unittest.TestCase):
                 self.assertLessEqual(set(seen), allowed, seen)
         code, seen = self.spawned(modes["--new-only on a red change"], heavy=False)
         self.assertEqual(code, 1, "with no base comparison the red stays the change's")
+
+    def test_a_dry_run_lists_exactly_what_a_run_spawns_on_a_host_that_runs_no_heavy_checks(self):
+        # Review of 91644bb: the dry run skipped light_plan(), so it listed areas a run drops (no node_modules).
+        # Both now build their commands with check_jobs(); a package without node_modules is in neither.
+        self.heavy_fixture()
+        self.write("web/app/page.tsx", "export const page = 4;\n")
+        self.write("webviews/src/app.ts", "export const app = 9;\n")
+        self.write("cmux-tui/frontends/web/package.json", '{"name": "tui", "scripts": {"check": "vp fmt --check"}}\n')
+        self.write("cmux-tui/frontends/web/src/main.ts", "export const main = 1;\n")  # no node_modules: dropped
+        self.commit("web, webviews and tui changes")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        lint = load_lint(self.repo)
+
+        def normal(area_or_cwd, words):
+            return (Path(area_or_cwd).name, " ".join([Path(words[0]).name, *words[1:]]))
+
+        for name, argv in {"checked-out head": ["--base", "HEAD~1", "--head", head],
+                           "another commit (lint tree)": ["--base", "HEAD~2", "--head", head]}.items():
+            with self.subTest(mode=name):
+                if name.startswith("another"):
+                    self.git("checkout", "--quiet", "HEAD~1")
+                real = subprocess.run
+                spawned = []
+
+                def spy(command, *args, **kwargs):
+                    words = command.split() if isinstance(command, str) else [str(w) for w in command]
+                    if words and Path(words[0]).name == "nice":
+                        words = words[3:]
+                    if Path(words[0]).name == "git":
+                        return real(command, *args, **kwargs)
+                    spawned.append(normal(kwargs["cwd"], words))
+                    return subprocess.CompletedProcess(command, 0, "", "")
+
+                env = {"CMUX_LOCAL_HEAVY_CHECKS": "0", "GITHUB_ACTIONS": "", "CI": ""}
+                with mock.patch.dict(os.environ, env), mock.patch.object(lint.subprocess, "run", spy), \
+                        mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                    lint.main(["--repo", str(self.repo), *argv])
+                dry = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--dry-run", *argv],
+                                     cwd=self.repo, env={**self.env, **env}, text=True, capture_output=True)
+                self.assertEqual(dry.returncode, 0, dry.stderr)
+                listed = [normal(line.split(": ", 1)[0], shlex.split(line.split(": ", 1)[1]))
+                          for line in dry.stdout.splitlines()]
+                self.assertEqual(sorted(listed), sorted(spawned))
+                self.assertEqual({area for area, _ in listed}, {"webviews", "web"}, listed)
+                self.assertIn(("webviews", "vp fmt --check"), listed)
+                self.assertNotIn("frontends", dry.stdout.replace("cmux-tui/frontends/web: not linted", ""))
+                self.git("checkout", "--quiet", "feat-cmux-next")
 
     def test_every_spawn_on_a_build_host_is_niced_and_capped(self):
         self.heavy_fixture()

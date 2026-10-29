@@ -565,13 +565,15 @@ def eslint_command(repo: Path, directory: str, files: list[str], fix: bool, cach
     return command + relative
 
 
-def light_plan(repo: Path, plan: Plan, mode: str) -> Plan:
+def light_plan(repo: Path, plan: Plan, mode: str, has_modules=None) -> Plan:
     """PLAN for a host that runs no heavy check: no package is installed or built, so one with no node_modules yet
-    is dropped with a note (CI checks it), and a package's local builds are skipped, said once."""
+    (HAS_MODULES(directory), default: in REPO) is dropped with a note (CI checks it), and a package's local builds
+    are skipped, said once."""
+    has_modules = has_modules or (lambda directory: (repo / directory / "node_modules").is_dir())
     kept = Plan(untrusted=plan.untrusted)
     ci = f"CI's `web lint` job and the pull request's fast gates check it ({LOCAL_HEAVY_ENV}=0: no install or build here)"
     for package in plan.script_packages:
-        if not (repo / package.directory / "node_modules").is_dir():
+        if not has_modules(package.directory):
             print(f"{mode}: {package.directory}: not linted here, it has no node_modules; {ci}.", file=sys.stderr)
             continue
         for build in package.builds:
@@ -579,11 +581,34 @@ def light_plan(repo: Path, plan: Plan, mode: str) -> Plan:
                   f"bindings it already has; {ci}.", file=sys.stderr)
         kept.script_packages.append(package)
     for directory, files in plan.eslint_files.items():
-        if not (repo / directory / "node_modules").is_dir():
+        if not has_modules(directory):
             print(f"{mode}: {directory}: not linted here, it has no node_modules; {ci}.", file=sys.stderr)
             continue
         kept.eslint_files[directory] = files
     return kept
+
+
+def check_jobs(repo: Path, plan: Plan, script: str, fix: bool, cache: bool, heavy: bool, mode: str,
+               read=None) -> list[tuple]:
+    """run()'s arguments for every command of PLAN's SCRIPT ("check" or "check:fix") and its ESLint runs: shell
+    strings, or with heavy checks off the allowlisted pieces as argument lists (no shell). The one list both a run
+    and a --dry-run use. With heavy checks off, PLAN is already light_plan()'s."""
+    jobs = []
+    for package in plan.script_packages:
+        pieces = (check_pieces(repo, package, script, read) if heavy
+                  else [light_argv(piece) for piece in light_pieces(repo, package, script, mode, read)])
+        for piece in pieces:
+            jobs.append((package.directory, piece, repo / package.directory, package_env(repo, package.directory)))
+    for directory, files in plan.eslint_files.items():
+        jobs.append((directory, eslint_command(repo, directory, files, fix, cache), repo / directory,
+                     package_env(repo, directory)))
+    return jobs
+
+
+def shown(job: tuple) -> str:
+    """How a check_jobs() job reads in a --dry-run and in a report: `<area>: <command>`."""
+    command = job[1] if isinstance(job[1], str) else shlex.join(job[1])
+    return f"{job[0]}: {command}"
 
 
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
@@ -602,29 +627,17 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool 
         # a package already has; a package with none is left to CI, named.
         plan = light_plan(repo, plan, mode)
 
-    def pieces(package: ScriptPackage, script: str) -> list:
-        """The commands to run: shell strings, or with heavy checks off the allowlisted pieces as argument lists
-        (no shell)."""
-        if heavy:
-            return check_pieces(repo, package, script)
-        return [light_argv(piece) for piece in light_pieces(repo, package, script, mode)]
-
     if fix:
-        for package in plan.script_packages:
-            for piece in pieces(package, "check:fix"):
-                run(package.directory, piece, repo / package.directory, package_env(repo, package.directory))
-        for directory, files in plan.eslint_files.items():
-            run(directory, eslint_command(repo, directory, files, True, cache), repo / directory,
-                package_env(repo, directory))
-    jobs = []
-    for package in plan.script_packages:
-        for piece in pieces(package, "check"):
-            jobs.append((package.directory, piece, repo / package.directory, package_env(repo, package.directory)))
-    for directory, files in plan.eslint_files.items():
-        jobs.append((directory, eslint_command(repo, directory, files, False, cache), repo / directory,
-                     package_env(repo, directory)))
+        for job in check_jobs(repo, plan, "check:fix", True, cache, heavy, mode):
+            run(*job)
+    jobs = check_jobs(repo, plan, "check", False, cache, heavy, mode)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
         return list(pool.map(lambda job: run(*job), jobs))
+
+
+def in_place_cache(repo: Path, head: str | None) -> bool:
+    """ESLint's cache is used only in the checkout itself, as run_plan's caller decides (cache=tree == repo)."""
+    return head is None or is_checked_out(repo, head)
 
 
 def is_checked_out(repo: Path, sha: str) -> bool:
@@ -820,14 +833,18 @@ def main(argv: list[str] | None = None) -> int:
                 print("nothing to lint")
             continue
         if args.dry_run:
-            for package in plan.script_packages:
-                for build in package.builds if heavy else ():
-                    print(f"{build.directory}: install and build, unless current (for {package.directory})")
-                pieces = (check_pieces(repo, package, "check", read) if heavy
-                          else light_pieces(repo, package, "check", mode, read))
-                print(f"{package.directory}: {' && '.join(pieces)}")
-            for directory, targets in plan.eslint_files.items():
-                print(f"{directory}: eslint {' '.join(targets)}")
+            # The run's own path: light_plan() over the node_modules the run would see (a lint tree shares the
+            # checkout's only where shares_deps() holds), then check_jobs(), one command per line.
+            if heavy:
+                for package in plan.script_packages:
+                    for build in package.builds:
+                        print(f"{build.directory}: install and build, unless current (for {package.directory})")
+            else:
+                in_place = head is None or is_checked_out(repo, head)
+                plan = light_plan(repo, plan, mode, lambda directory: (repo / directory / "node_modules").is_dir()
+                                  and (in_place or shares_deps(repo, head, directory)))
+            for job in check_jobs(repo, plan, "check", False, in_place_cache(repo, head), heavy, mode, read):
+                print(shown(job))
             continue
         # A package that imports a local build gets its own install in a lint tree: bun copies the build
         # into node_modules, so the checkout's copy holds the checkout's build, not this commit's.
