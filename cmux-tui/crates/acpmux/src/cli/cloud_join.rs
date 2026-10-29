@@ -197,7 +197,11 @@ pub fn require_consent(surface: &str) -> Result<()> {
 /// Computer Use and other host-control surfaces call this before serving a
 /// joined machine. Unjoined local daemons retain their existing app behavior.
 pub fn require_joined_consent(surface: &str) -> Result<()> {
-    if load().ok().flatten().is_some() { require_consent(surface) } else { Ok(()) }
+    match load() {
+        Ok(Some(_)) => require_consent(surface),
+        Ok(None) => Ok(()),
+        Err(_) => Err(anyhow!(CONSENT_REQUIRED)),
+    }
 }
 
 /// Record a local refusal for the app's one-time consent sheet. The file is
