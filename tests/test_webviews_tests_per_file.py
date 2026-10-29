@@ -361,6 +361,23 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(self.overlaps.read_text(encoding="utf-8"), "", output)
         self.assertEqual(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
 
+    def test_a_file_that_loads_the_machine_runs_alone_after_the_others(self):
+        # agent-pane-attach-huge-files (2 GB uploads) ran beside three composer files: they timed
+        # out and its own typing read 85 ms (run 40732464791). It declares cmux-web-test-alone and
+        # runs last, by itself, on its config's warm cache.
+        pane_server = 'spawn(vp, ["dev", "--config", "vite.config.acpmux-pane.mjs", "--port", String(port)]);\n'
+        contents = {f"test/agent-{name}.test.ts": pane_server for name in ("a", "b", "c", "d")}
+        contents["test/agent-huge.test.ts"] = "// cmux-web-test-alone\n" + pane_server
+        result, _, calls = self.run_runner(list(contents), contents=contents)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in contents), "each file runs once")
+        runs = [line.split() for line in self.dev.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(runs[-1][0], "./test/agent-huge.test.ts", runs)
+        self.assertNotEqual(runs[-1][2], "cold", "it starts from its config's warm cache")
+        self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
+        self.assertEqual(int(self.peak.read_text(encoding="utf-8").split()[-1]), 1, "it runs by itself")
+
     def test_a_file_can_declare_a_longer_limit_than_the_default(self):
         # editor-page runs 24 browser tests in two engines, about 115 s on the CI runner: the
         # 120 s default killed it mid-WebKit, and its later tests read "browser has been closed".
