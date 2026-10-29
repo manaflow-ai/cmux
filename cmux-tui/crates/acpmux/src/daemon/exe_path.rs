@@ -143,7 +143,7 @@ pub fn verdict(
     );
     match why {
         Unstable::RunnerWork | Unstable::Temp
-            if !allow && !bundled(exe) && !(why == Unstable::Temp && verified_clone) =>
+            if !(allow || bundled(exe) || why == Unstable::Temp && verified_clone) =>
         {
             Verdict::Refuse(format!(
                 "{line}. Refused for {}: install acpmux (`acpmux host setup HOST` from another machine, \
@@ -257,7 +257,7 @@ pub fn shutdown_refusal(
     } else {
         match classify(peer_exe, temp_dir) {
             Some(why @ (Unstable::RunnerWork | Unstable::Temp))
-                if !allow && !bundled(peer_exe) && !(why == Unstable::Temp && verified_clone) =>
+                if !(allow || bundled(peer_exe) || why == Unstable::Temp && verified_clone) =>
             {
                 Some(why.phrase())
             }
