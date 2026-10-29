@@ -602,6 +602,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return tabDragTransferRegistryStorage
         }
         let registry = TabDragTransferRegistry()
+        installDragOutCompletionHandler(on: registry)
+        tabDragTransferRegistryStorage = registry
+        return registry
+    }
+
+    private func installDragOutCompletionHandler(on registry: TabDragTransferRegistry) {
         _ = dragOutWindowCoordinator
         registry.onUnhandledNativeDragEnd = { [weak self] transfer, point, operation, beganAt in
             guard let self,
@@ -612,8 +618,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
         }
-        tabDragTransferRegistryStorage = registry
-        return registry
     }
     /// Caches live pane-transfer resolution for pointer hit-testing paths.
     lazy var liveTabDragCapabilityResolver = LiveTabDragCapabilityResolver(
@@ -2699,6 +2703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         tabDragTransferRegistryStorage = tabManager.tabDragTransferRegistry
+        installDragOutCompletionHandler(on: tabManager.tabDragTransferRegistry)
         // Adopt the bootstrap manager's coordinators so later windows share them.
         pullRequestProbeService = tabManager.pullRequestProbeService
         self.settingsRuntime = settingsRuntime
