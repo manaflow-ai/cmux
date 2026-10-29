@@ -1,5 +1,5 @@
 // Chief messages stay outside the run disclosure, with the agent pane's message rows.
-import { useContext } from "react";
+import { memo, useContext } from "react";
 import { useT } from "../../agent-session/acpmux/i18n";
 import { AgentMessageRow, messagePreview } from "../../agent-session/acpmux/conversation/AgentMessageRow";
 import { AgentMessageBody } from "../../agent-session/acpmux/conversation/AgentMessageBody";
@@ -9,7 +9,7 @@ import { Envelope } from "../../agent-session/acpmux/conversation/icons";
 import { useTranscriptDisclosure } from "../../agent-session/acpmux/conversation/transcriptDisclosure";
 import type { RunAgentMessage } from "./runMessages";
 
-export function RunMessage({
+export const RunMessage = memo(function RunMessage({
   id,
   message,
   at,
@@ -45,4 +45,4 @@ export function RunMessage({
       body={<AgentMessageBody text={message.text} messageAt={at} />}
     />
   );
-}
+});

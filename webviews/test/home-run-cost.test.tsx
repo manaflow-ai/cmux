@@ -2,10 +2,11 @@
 // anyways"). Claude Code reports what a turn would cost at pay-per-token API prices, even on a
 // subscription or through a router, where nobody pays it. The run card shows tokens instead; the run
 // sheet keeps the figure, labelled as API prices with a tooltip that says what it is.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import * as agentRows from "../src/agent-session/acpmux/conversation/AgentMessageRow";
 import { RunCard } from "../src/pages/home-channels/RunCard";
 import { RunSheet } from "../src/pages/home-channels/RunSheet";
 import table from "../src/pages/home-channels/generated/strings.json";
@@ -36,6 +37,7 @@ function installDom(): HTMLElement {
 }
 
 afterEach(() => {
+  mock.restore();
   if (root) act(() => root!.unmount());
   root = undefined;
   dom?.window.close();
@@ -300,3 +302,66 @@ for (const [reason, expected] of [
     expect(container.textContent).not.toContain("message.");
   });
 }
+
+test("a collapsed card does not reprocess historical inputs when a step is appended", async () => {
+  const container = installDom();
+  let serializations = 0;
+  const preview = spyOn(agentRows, "messagePreview");
+  const longText = "Earlier assignment\n" + "Large historical message\n".repeat(5000);
+  const old = {
+    id: "old-tell",
+    seq: 1,
+    at: 1,
+    rev: 1,
+    kind: "tool" as const,
+    status: "done" as const,
+    attachments: [],
+    links: [],
+    tool: {
+      name: "mcp__optchat__tell",
+      files: [],
+      input: {
+        toJSON: () => {
+          serializations++;
+          return { id: "a1", message: longText };
+        },
+      },
+    },
+  };
+  const props = { strings, onOpen: () => {}, onLoad: () => {} };
+  const report = { ...old, id: "report:old", kind: "note" as const, tool: undefined, text: `[a1] ${longText}` };
+  await render(container, <RunCard {...props} entry={{ ...entry, steps: [old, report] }} />);
+  const before = serializations;
+  const previewsBefore = preview.mock.calls.length;
+  expect(previewsBefore).toBeGreaterThan(0);
+  expect(before).toBeGreaterThan(0);
+  await act(async () =>
+    root!.render(
+      <RunCard
+        {...props}
+        entry={{
+          ...entry,
+          run: { ...run, rev: 2 } as never,
+          steps: [
+            old,
+            report,
+            {
+              id: "new",
+              seq: 2,
+              at: 2,
+              rev: 1,
+              kind: "thought",
+              text: "Working",
+              attachments: [],
+              links: [],
+            },
+          ],
+        }}
+      />,
+    ),
+  );
+  expect(serializations).toBe(before);
+  expect(preview.mock.calls.length).toBe(previewsBefore);
+  preview.mockRestore();
+  expect(container.textContent).toContain("Earlier assignment");
+});
