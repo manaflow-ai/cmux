@@ -1,21 +1,45 @@
 public import Foundation
+import os
 
 /// A new chat's typed text from before it has an acpmux session (cx-z5vd), by tab, in a JSON file
 /// beside the launch snapshot: after a relaunch that tab opens as the chat with its draft, not as
 /// the New Tab page. Once the chat has a session acpmux keeps its draft, and this copy is gone.
+///
+/// A kept draft is never lost to a load: until a page has been handed tab `key`'s draft
+/// (``seed(for:session:local:)``), the page's empty text is a page that has not loaded it yet, not a
+/// clear, and is ignored; its non-empty text is merged with the kept one (the kept text first, the
+/// typed text after it), never written over it. Once the page has it, the page's text is the draft,
+/// and an empty one (the person deleted it, or sent it) clears it. A file this run cannot read is
+/// set aside, never replaced by an empty or a partial one.
 public final class AgentUnsentDrafts {
     public static let fileName = "agent-unsent-drafts.json"
     /// A longer text is not kept (acpmux's own draft limit).
     static let maximumCharacters = 1_000_000
 
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.unsent-drafts")
     let file: URL?
     private var drafts: [String: String]
+    /// Tabs whose draft came from the file and no page has been handed yet.
+    private var undelivered: Set<String>
+    /// The file exists but could not be read: it is set aside before the first write.
+    private var unreadable = false
 
     public init(file: URL?) {
         self.file = file
+        drafts = [:]
+        undelivered = []
+        guard let file else { return }
         // concurrency-allow: one read of a small local state file when the tab store is made
-        let data = file.flatMap { try? Data(contentsOf: $0) }
-        drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        do {
+            let data = try Data(contentsOf: file)
+            drafts = try JSONDecoder().decode([String: String].self, from: data)
+            undelivered = Set(drafts.keys)
+        } catch CocoaError.fileReadNoSuchFile {
+            // No drafts kept yet.
+        } catch {
+            unreadable = true
+            Self.logger.error("unsent drafts unreadable; set aside on the next write: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).
@@ -24,16 +48,18 @@ public final class AgentUnsentDrafts {
     }
 
     /// Tab `key`'s kept text as a new chat's seed; nil for a tab whose chat has a session, or
-    /// (`local` false) one on another machine.
+    /// (`local` false) one on another machine. A seed given out is the page's from then on: its
+    /// empty text clears it.
     public func seed(for key: String, session: String?, local: Bool = true) -> AgentPaneSeedSource? {
         guard local, session == nil, let text = drafts[key] else { return nil }
+        undelivered.remove(key)
         return AgentPaneSeedSource(AgentPaneSeed(draft: text))
     }
 
     /// Keeps the typed text of `model`'s chat for the tab `key` names when it runs, until the chat
     /// has a session. Call it after the tab's own `onSessionChange` is set.
     public func wire(_ model: AgentPaneModel, key: @escaping () -> String) {
-        model.onUnsentDraft = { [weak self] text in self?.set(text, for: key()) }
+        model.onUnsentDraft = { [weak self] text in self?.typed(text, for: key()) }
         let started = model.onSessionChange
         model.onSessionChange = { [weak self] session in
             self?.set("", for: key())
@@ -44,12 +70,26 @@ public final class AgentUnsentDrafts {
     /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
     public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
 
-    /// Keeps `text` as tab `key`'s draft; blank text forgets it.
+    /// Tab `key`'s kept text, if any.
+    public func draft(for key: String) -> String? { drafts[key] }
+
+    /// The page of tab `key` sent its text (`chat.unsentDraft`). Before the page was handed the
+    /// kept draft, an empty text is ignored and a different one is merged with it.
+    public func typed(_ text: String, for key: String) {
+        guard undelivered.contains(key), let kept = drafts[key] else { return set(text, for: key) }
+        guard !Self.isBlank(text) else { return }
+        undelivered.remove(key)
+        set(Self.merged(typed: text, kept: kept), for: key)
+    }
+
+    /// Keeps `text` as tab `key`'s draft; blank text forgets it (the tab's chat started or closed,
+    /// or its page cleared a draft it had).
     public func set(_ text: String, for key: String) {
-        let keep = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.count <= Self.maximumCharacters
+        let keep = !Self.isBlank(text) && text.count <= Self.maximumCharacters
         let value = keep ? text : nil
         guard drafts[key] != value else { return }
         drafts[key] = value
+        if value == nil { undelivered.remove(key) }
         save()
     }
 
@@ -57,16 +97,47 @@ public final class AgentUnsentDrafts {
     public func move(_ key: String, to real: String) {
         guard key != real, let text = drafts.removeValue(forKey: key) else { return }
         drafts[real] = text
+        if undelivered.remove(key) != nil { undelivered.insert(real) }
         save()
+    }
+
+    /// The kept text first, then the typed text after it (as the page merges them,
+    /// composerDraft.ts `mergedDraft`); a text that already holds the other is kept as it is.
+    public static func merged(typed: String, kept: String) -> String {
+        if typed.contains(kept) { return typed }
+        if kept.hasSuffix("\n\n" + typed) { return kept }
+        return kept + "\n\n" + typed
+    }
+
+    private static func isBlank(_ text: String) -> Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func save() {
         guard let file else { return }
+        if unreadable, !FileManager.default.fileExists(atPath: file.path) { unreadable = false }
+        if unreadable {
+            // Kept beside it, so whatever it held can still be recovered; never overwritten.
+            let aside = file.deletingPathExtension()
+                .appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970))")
+                .appendingPathExtension(file.pathExtension)
+            do {
+                try FileManager.default.moveItem(at: file, to: aside)
+                unreadable = false
+            } catch {
+                Self.logger.error("unsent drafts not saved: the unreadable file could not be set aside")
+                return
+            }
+        }
         if drafts.isEmpty {
             try? FileManager.default.removeItem(at: file)
             return
         }
-        // concurrency-allow: one small atomic write per settled edit of a new chat's text
-        try? JSONEncoder().encode(drafts).write(to: file, options: .atomic)
+        // concurrency-allow: one small atomic (temporary file, then rename) write per settled edit of a new chat's text
+        do {
+            try JSONEncoder().encode(drafts).write(to: file, options: .atomic)
+        } catch {
+            Self.logger.error("unsent drafts write failed: \(String(describing: error), privacy: .public)")
+        }
     }
 }

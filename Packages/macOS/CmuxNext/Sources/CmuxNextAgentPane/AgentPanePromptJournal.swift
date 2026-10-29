@@ -217,13 +217,18 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         write(entries, generation: generation)
     }
 
-    /// Reads the file once; an unreadable one is an empty journal.
+    /// Reads the file once; an unreadable one is set aside (kept beside it) and the journal starts empty.
     private func load(_ state: inout State) {
         guard !state.loaded else { return }
         state.loaded = true
         guard let data = try? Data(contentsOf: url) else { return }
         guard let document = try? Self.decoder.decode(Document.self, from: data) else {
-            Self.logger.error("agent pane prompt journal unreadable; starting empty")
+            // Set aside, never overwritten: the next write would replace what it holds.
+            let aside = url.deletingPathExtension()
+                .appendingPathExtension("unreadable-\(Int(now().timeIntervalSince1970))")
+                .appendingPathExtension(url.pathExtension)
+            try? FileManager.default.moveItem(at: url, to: aside)
+            Self.logger.error("agent pane prompt journal unreadable; set aside, starting empty")
             return
         }
         state.entries = Array(document.entries.suffix(Self.maximumEntries))
