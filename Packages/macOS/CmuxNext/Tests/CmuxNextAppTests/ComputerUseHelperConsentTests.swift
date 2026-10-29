@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 @testable import CmuxNextComputerUse
 
