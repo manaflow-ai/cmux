@@ -307,12 +307,14 @@ pub(super) fn show_in_group(
     // A plain shell can otherwise resolve an older standalone `cmux` first.
     let cli =
         select_cli(daemon_cli_path, std::env::var_os(crate::login_env::BUNDLED_CLI_ENV).as_deref());
+    let path_cli = PathBuf::from("cmux");
+    let (cli, result) = run_with_fallback(&cli, &args, &path_cli);
     let command = std::iter::once(cli.to_string_lossy().as_ref())
         .chain(args.iter().copied())
         .map(crate::harness_health::channel::quote)
         .collect::<Vec<_>>()
         .join(" ");
-    let out = std::process::Command::new(&cli).args(args).output().map_err(|error| {
+    let out = result.map_err(|error| {
         anyhow::anyhow!(
             "session {session_name} was created, but --group could not run cmux ({error}); put the running Mac app's \
              bundled CLI on PATH, then retry on that Mac: {command}"
@@ -326,6 +328,19 @@ pub(super) fn show_in_group(
         );
     }
     Ok(())
+}
+
+fn run_with_fallback(
+    primary: &Path,
+    args: &[&str],
+    fallback: &Path,
+) -> (PathBuf, std::io::Result<std::process::Output>) {
+    let result = std::process::Command::new(primary).args(args).output();
+    if primary != fallback && !result.as_ref().is_ok_and(|output| output.status.success()) {
+        let fallback_result = std::process::Command::new(fallback).args(args).output();
+        return (fallback.to_path_buf(), fallback_result);
+    }
+    (primary.to_path_buf(), result)
 }
 
 fn select_cli(daemon_cli_path: Option<&Path>, env_cli_path: Option<&std::ffi::OsStr>) -> PathBuf {
@@ -376,6 +391,29 @@ mod tests {
     fn stale_bundled_cli_falls_back_to_path_name() {
         let stale = std::env::temp_dir().join(format!("acpmux-stale-cli-{}", std::process::id()));
         assert_eq!(select_cli(Some(&stale), None), Path::new("cmux"));
+    }
+
+    #[test]
+    fn a_failing_bundled_cli_retries_the_path_cli() {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-cli-fallback-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        let bundled = root.join("bundled");
+        let path_cli = root.join("path-cmux");
+        std::fs::write(&bundled, "#!/bin/sh\nexit 7\n").unwrap();
+        std::fs::write(&path_cli, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for path in [&bundled, &path_cli] {
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+            }
+        }
+        let args = ["agent", "open", "session-id"];
+        let (chosen, output) = run_with_fallback(&bundled, &args, &path_cli);
+        assert_eq!(chosen, path_cli);
+        assert!(output.unwrap().status.success());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
