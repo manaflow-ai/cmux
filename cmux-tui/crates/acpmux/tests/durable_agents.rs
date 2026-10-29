@@ -1891,6 +1891,64 @@ async fn an_answered_permission_survives_a_crash_right_after_its_answer() {
     assert_eq!(of_ask("permission_reissued"), 0, "the person was asked again: {:#}", json!(events));
 }
 
+/// The same for a group answer (`_acpmux/permission_group_respond`): every prompt it answers has
+/// its `permission_decision` appended by the task that asked, and the answer waits for each.
+#[tokio::test]
+async fn an_answered_permission_group_survives_a_crash_right_after_its_answer() {
+    let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
+    let mut daemon = Daemon::with_env("pgrp-slow", "ask", &slow);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "permission-batch: parallel"}]}),
+        )
+        .await;
+    let shown = daemon.wait_event(&session, "a pending permission group", |e| {
+        e["kind"] == "permission_group" && e["msg"]["group"]["state"] == "pending"
+    });
+    let group = &shown["msg"]["group"];
+    let mut rpc = daemon.rpc().await;
+    // A deny: this plain socket client is not the person (`hub/person.rs`).
+    rpc.call(
+        "_acpmux/permission_group_respond",
+        json!({"sessionId": session, "groupId": group["groupId"], "revision": group["revision"],
+               "decisionKey": "crash", "decision": "deny"}),
+    )
+    .await;
+    // At once after the answer: every decision it acknowledged must be on disk already.
+    daemon.sigkill();
+    drop((client, rpc));
+    daemon.start();
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
+    let events = daemon.events(&session);
+    let asked: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["kind"] == "permission_request" && e["msg"]["groupId"] == group["groupId"])
+        .map(|e| &e["msg"]["permissionId"])
+        .collect();
+    assert_eq!(asked.len(), 3, "the batch asks three prompts: {:#}", json!(events));
+    for id in asked {
+        let of_ask = |kind: &str| {
+            events.iter().filter(|e| e["kind"] == kind && e["msg"]["permissionId"] == *id).count()
+        };
+        assert_eq!(
+            of_ask("permission_decision"),
+            1,
+            "a group answer's decision was lost in the crash: {:#}",
+            json!(events)
+        );
+        assert_eq!(
+            of_ask("permission_reissued"),
+            0,
+            "the person was asked again: {:#}",
+            json!(events)
+        );
+    }
+}
+
 /// A queued prompt that left the queue for its turn (`dequeued`) when the daemon died, before
 /// its turn started, runs once after the restart: a client that resends it gets its real
 /// outcome, not `interrupted`. `ACPMUX_TEST_EXIT_AFTER_DEQUEUE` stops the first daemon there.
