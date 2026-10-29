@@ -249,15 +249,72 @@ class FixImportsTests(unittest.TestCase):
         fixed = lint.add_dependency(self.manifest_text(), "CmuxNextHome", "CmuxNextDaemon")
         self.assertIn('dependencies: ["CmuxNextCompat", "CmuxNextDaemon"],', fixed)
 
-    def test_a_target_without_dependencies_gets_a_list(self):
+    def test_a_target_without_dependencies_gets_a_list_after_its_name_with_a_comma(self):
+        # Review of 6d8b96f: the list went in with no comma after `name: "X"`, which is not valid Swift.
         fixed = lint.add_dependency(self.manifest_text(), "CmuxNextCompat", "CmuxNextDaemon")
-        self.assertIn('name: "CmuxNextCompat"\n            dependencies: ["CmuxNextDaemon"],\n', fixed)
+        self.assertIn('name: "CmuxNextCompat",\n            dependencies: ["CmuxNextDaemon"]\n        ),', fixed)
+        self.assertEqual(lint.manifest_targets(fixed)["CmuxNextCompat"][1], {"CmuxNextDaemon"})
+
+    def test_a_name_followed_by_other_arguments_keeps_its_comma_once(self):
+        text = self.manifest_text().replace('name: "CmuxNextCompat"\n',
+                                            'name: "CmuxNextCompat",\n            path: "Sources/Compat"\n')
+        fixed = lint.add_dependency(text, "CmuxNextCompat", "CmuxNextDaemon")
+        self.assertIn('name: "CmuxNextCompat",\n            dependencies: ["CmuxNextDaemon"],\n'
+                      '            path: "Sources/Compat"\n', fixed)
 
     def test_only_the_named_target_changes(self):
         # CmuxNextApp is a prefix of CmuxNextApps and CmuxNextAppTests: the exact name is the one changed.
         fixed = lint.add_dependency(self.manifest_text(), "CmuxNextApp", "CmuxNextDaemon")
-        self.assertIn('name: "CmuxNextApp"\n            dependencies: ["CmuxNextDaemon"],\n', fixed)
+        self.assertIn('name: "CmuxNextApp",\n            dependencies: ["CmuxNextDaemon"]\n', fixed)
         self.assertEqual(fixed.count("CmuxNextDaemon"), self.manifest_text().count("CmuxNextDaemon") + 1)
+
+    # The CmuxNextAgentPane shape: an inline list that wraps, closes after a .product on its second line, and is
+    # followed by a multi-line resources list whose `],` stands alone.
+    AGENT_PANE = (
+        "let package = Package(\n"
+        "    targets: [\n"
+        "        .target(\n"
+        '            name: "CmuxNextAgentPane",\n'
+        '            dependencies: ["CmuxNextCompat", "CmuxNextDaemon",\n'
+        '                           .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],\n'
+        "            resources: [\n"
+        '                .process("Resources/Localizable.xcstrings"),\n'
+        '                .copy("Resources/agent-pane"),\n'
+        "            ],\n"
+        "            swiftSettings: uiSwiftSettings\n"
+        "        ),\n"
+        "    ]\n"
+        ")\n")
+
+    def test_the_entry_goes_into_the_dependencies_array_not_the_next_list(self):
+        # Review of 6d8b96f: the insertion took the next standalone `],` (resources'), and the reader then counted
+        # the entry as declared.
+        fixed = lint.add_dependency(self.AGENT_PANE, "CmuxNextAgentPane", "CmuxNextBrowser")
+        self.assertIn('package: "CmuxAppAttest"), "CmuxNextBrowser"],\n            resources: [\n'
+                      '                .process("Resources/Localizable.xcstrings"),\n'
+                      '                .copy("Resources/agent-pane"),\n            ],\n', fixed)
+        self.assertEqual(lint.manifest_targets(fixed)["CmuxNextAgentPane"][1],
+                         {"CmuxNextCompat", "CmuxNextDaemon", "CmuxNextBrowser"})
+
+    def test_the_reader_does_not_take_a_following_list_for_dependencies(self):
+        text = self.AGENT_PANE.replace('.copy("Resources/agent-pane"),', '"CmuxNextBrowser",')
+        self.assertEqual(lint.manifest_targets(text)["CmuxNextAgentPane"][1], {"CmuxNextCompat", "CmuxNextDaemon"})
+
+    def test_brackets_in_strings_and_comments_do_not_end_the_list(self):
+        text = self.AGENT_PANE.replace('"CmuxNextDaemon",\n', '"CmuxNextDaemon", // a ] in a comment\n').replace(
+            '"Resources/agent-pane"', '"Resources/a]b"')
+        fixed = lint.add_dependency(text, "CmuxNextAgentPane", "CmuxNextBrowser")
+        self.assertEqual(lint.manifest_targets(fixed)["CmuxNextAgentPane"][1],
+                         {"CmuxNextCompat", "CmuxNextDaemon", "CmuxNextBrowser"})
+
+    def test_every_target_of_the_committed_package_reads_the_same_as_before(self):
+        # The bracket-matched reader against the committed Package.swift: every target is found, and a `resources:`
+        # or `exclude:` string never counts as a dependency.
+        text = lint.DEFAULT_MANIFEST.read_text(encoding="utf-8")
+        targets = lint.manifest_targets(text)
+        self.assertGreater(len(targets), 100)
+        for name, (_, declared, _) in targets.items():
+            self.assertFalse({d for d in declared if "/" in d or "." in d}, name)
 
     def test_an_unknown_target_is_an_error(self):
         with self.assertRaises(lint.FixError):

@@ -120,6 +120,13 @@ CONTEXT = (
     "cmux-next-ios/project.yml",
 )
 DATA_SUFFIXES = (".tsv", ".json")
+# A push that changes the manifest can drop a dependency an unchanged file imports: the dependency check then
+# needs every Swift file of the package, not only the changed ones. It alone gets trees with them all (DEPS_CHECK):
+# in the shared trees every other scanner would scan the whole package too (44 s instead of 2 s, measured on a
+# manifest-only push).
+MANIFEST = PKG + "/Package.swift"
+MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
+DEPS_CHECK = "Package dependency lists sorted"
 
 # (CI step name, command, path prefixes that make it run). {root} is the tree, {pkg} its CmuxNext
 # package, {s} its scripts/cmux-next. Mirrors the job's steps; tests/test_cmux_next_prepush_gate.py
@@ -327,8 +334,8 @@ def ensure_tool(lock: Path, tool: str) -> Path:
 
 # ---------------------------------------------------------------- trees
 
-def write_tree(repo: Path, dest: Path, files: dict[str, str]) -> None:
-    """Write {path: rev} blobs into dest (one `git cat-file --batch`), then index them for ls-files."""
+def write_tree(repo: Path, dest: Path, files: dict[str, str], index: bool = True) -> None:
+    """Write {path: rev} blobs into dest (one `git cat-file --batch`), then (INDEX) index them for ls-files."""
     paths = sorted(files)
     try:
         blobs = git_batch.cat_file(repo, [f"{files[p]}:{p}" for p in paths])
@@ -345,6 +352,8 @@ def write_tree(repo: Path, dest: Path, files: dict[str, str]) -> None:
             target.chmod(0o755)
     (dest / PKG / "Sources").mkdir(parents=True, exist_ok=True)
     (dest / PKG / "Tests").mkdir(parents=True, exist_ok=True)
+    if not index:
+        return
     # A hook runs with GIT_DIR (and maybe GIT_INDEX_FILE, GIT_WORK_TREE) of the pushing checkout:
     # without them stripped, init and add would rewrite that repository instead of the temp tree.
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
@@ -358,7 +367,7 @@ def ls_tree(repo: Path, rev: str, prefix: str) -> list[str]:
 
 
 def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path,
-                trusted_scripts: Path | None = None) -> tuple[Path, Path]:
+                trusted_scripts: Path | None = None, index: bool = True) -> tuple[Path, Path]:
     # The check scripts and their data sit at the top of scripts/cmux-next (plus lint/); its test,
     # release and harness subfolders are not read by any check and would only slow the copy.
     scripts = [] if trusted_scripts else [p for p in ls_tree(repo, head, SCRIPTS + "/")
@@ -375,7 +384,7 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
         for p in changed:
             files[p] = rev
         dest = work / side
-        write_tree(repo, dest, files)
+        write_tree(repo, dest, files, index)
         if trusted_scripts:
             shutil.copytree(trusted_scripts, dest / SCRIPTS, dirs_exist_ok=True)
             if side == "head":
@@ -823,12 +832,20 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         lint = config_root / SCRIPTS / "lint"
         lock = config_root / SCRIPTS / "lint-tools.lock"
         jobs: dict[str, tuple] = {}
+        trees_for: dict[str, tuple[Path, Path]] = {}
         for name, cmd, prefixes in SCANNERS:
             script = next(Path(c) for c in fill(cmd, head_tree) if c.startswith(str(head_tree / SCRIPTS)))
             if not script.is_file():
                 continue  # a commit older than this check
             if any(p.startswith(prefixes) for p in changed) and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
+        if DEPS_CHECK in jobs and MANIFEST in changed:
+            # Each side's own Swift files, so a finding both sides have still cancels out.
+            sources = sorted({p for rev in (base, head) for prefix in MANIFEST_SOURCES
+                              for p in ls_tree(repo, rev, prefix) if p.endswith(".swift")} | {MANIFEST})
+            # Not indexed: the check reads files, never ls-files, and indexing 9,000 files twice was most of the cost.
+            trees_for[DEPS_CHECK] = build_trees(repo, base, head, sources, Path(tmp) / "deps", trusted_scripts,
+                                                index=False)
         if not lock.is_file():
             sources, swift = [], []  # a checkout older than the pinned tools: scanners only
         if sources and (only is None or "ast-grep" in only):
@@ -852,11 +869,13 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             return code, out, time.monotonic() - t0
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4))) as pool:
-            futures = {(name, tree): pool.submit(side, job, tree)
-                       for name, job in jobs.items() for tree in (base_tree, head_tree)}
+            futures = {(name, i): pool.submit(side, job, tree)
+                       for name, job in jobs.items()
+                       for i, tree in enumerate(trees_for.get(name, (base_tree, head_tree)))}
             for name in jobs:
-                _, base_out, base_s = futures[(name, base_tree)].result()
-                head_code, head_out, head_s = futures[(name, head_tree)].result()
+                name_base, name_head = trees_for.get(name, (base_tree, head_tree))
+                _, base_out, base_s = futures[(name, 0)].result()
+                head_code, head_out, head_s = futures[(name, 1)].result()
                 if timings:
                     log(f"  {max(base_s, head_s):5.2f}s  {name}")
                 if BROKEN.search(head_out):
@@ -866,7 +885,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
-                fresh = new_records(base_out, head_out, base_tree, head_tree)
+                fresh = new_records(base_out, head_out, name_base, name_head)
                 if fresh:
                     found.append((name, fresh))
     if timings:

@@ -187,30 +187,110 @@ def check(text: str, fix: bool) -> tuple[list[str], str]:
     return problems, "\n".join(out)
 
 
+def closing(text: str, start: int) -> int:
+    """Index of the bracket that closes the `(` or `[` at START, skipping string literals and `//` comments;
+    -1 when it never closes."""
+    pairs = {"(": ")", "[": "]"}
+    stack = [pairs[text[start]]]
+    i = start + 1
+    while i < len(text):
+        char = text[i]
+        if char == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+        elif text.startswith("//", i):
+            newline = text.find("\n", i)
+            i = len(text) if newline < 0 else newline
+            continue
+        elif char in pairs:
+            stack.append(pairs[char])
+        elif char in ")]":
+            if char != stack.pop():
+                return -1
+            if not stack:
+                return i
+        i += 1
+    return -1
+
+
+def target_spans(text: str) -> dict[str, tuple[str, int, int]]:
+    """{name: (kind, the index of its `(`, the index of the `)` that closes it)} for each target the manifest
+    declares on a line of its own (`.target(`, `.testTarget(`, `.executableTarget(`)."""
+    spans = {}
+    for match in re.finditer(r"(?m)^\s*\.(target|testTarget|executableTarget)\(\s*$", text):
+        open_at = match.end() - 1
+        while text[open_at] != "(":
+            open_at -= 1
+        close_at = closing(text, open_at)
+        if close_at < 0:
+            continue
+        name = re.search(r'name:\s*"([^"]+)"', text[open_at:close_at])
+        if name:
+            spans[name.group(1)] = (match.group(1), open_at, close_at)
+    return spans
+
+
+def argument(text: str, open_at: int, close_at: int, label: str) -> tuple[int, int] | None:
+    """(index of the `[` after `LABEL:`, index of its closing `]`) for a top-level argument of the call whose
+    parentheses are at OPEN_AT..CLOSE_AT, or None when the call has no such argument."""
+    i = open_at + 1
+    while i < close_at:
+        char = text[i]
+        if char == '"':
+            i += 1
+            while i < close_at and text[i] != '"':
+                i += 2 if text[i] == "\\" else 1
+            i += 1
+            continue
+        if text.startswith("//", i):
+            newline = text.find("\n", i)
+            i = close_at if newline < 0 else newline
+            continue
+        if char in "([":
+            i = closing(text, i) + 1
+            if i <= 0:
+                return None
+            continue
+        found = re.match(rf"{re.escape(label)}:\s*\[", text[i:close_at])
+        if found and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")):
+            bracket = i + found.end() - 1
+            end = closing(text, bracket)
+            return (bracket, end) if end > 0 else None
+        i += 1
+    return None
+
+
+def top_level_strings(text: str, open_at: int, close_at: int) -> list[str]:
+    """The string-literal entries of the array at OPEN_AT..CLOSE_AT: not strings inside a call such as
+    `.product(name: "X", package: "X")`, and not comments."""
+    found, i = [], open_at + 1
+    while i < close_at:
+        char = text[i]
+        if char == '"':
+            end = text.index('"', i + 1)
+            found.append(text[i + 1:end])
+            i = end + 1
+        elif text.startswith("//", i):
+            newline = text.find("\n", i)
+            i = close_at if newline < 0 else newline
+        elif char in "([":
+            i = closing(text, i) + 1 or close_at
+        else:
+            i += 1
+    return [name for name in found if re.fullmatch(r"[A-Za-z0-9_]+", name)]
+
+
 def manifest_targets(text: str) -> dict[str, tuple[str, set[str], str | None]]:
-    """{name: (kind, the local target names in its dependencies, its `path:` or None)} from the manifest text."""
-    lines = text.split("\n")
+    """{name: (kind, the local target names in its dependencies, its `path:` or None)} from the manifest text. The
+    dependencies are the string entries of the target's own `dependencies:` array, matched bracket for bracket (a
+    regex up to the next `]` read a following `resources:` list as dependencies)."""
     targets = {}
-    for index, line in enumerate(lines):
-        kind = TARGET.match(line)
-        if not kind:
-            continue
-        depth, body = 0, []
-        for inner in lines[index:]:
-            body.append(inner)
-            depth += inner.count("(") - inner.count(")")
-            if depth <= 0:
-                break
-        block = "\n".join(body)
-        name = re.search(r'name:\s*"([^"]+)"', block)
-        if not name:
-            continue
-        deps = re.search(r"dependencies:\s*\[(.*?)\n\s*\]", block, re.S) or re.search(r"dependencies:\s*\[(.*?)\]", block, re.S)
-        declared = set(re.findall(r'^\s*"([A-Za-z0-9_]+)"', deps.group(1), re.M)) if deps else set()
-        if deps:
-            declared |= set(re.findall(r'(?:\[|,)\s*"([A-Za-z0-9_]+)"', deps.group(1)))
-        path = re.search(r'path:\s*"([^"]+)"', block)
-        targets[name.group(1)] = (kind.group(1), declared, path.group(1) if path else None)
+    for name, (kind, open_at, close_at) in target_spans(text).items():
+        span = argument(text, open_at, close_at, "dependencies")
+        declared = set(top_level_strings(text, span[0], span[1])) if span else set()
+        path = re.search(r'path:\s*"([^"]+)"', text[open_at:close_at])
+        targets[name] = (kind, declared, path.group(1) if path else None)
     return targets
 
 
@@ -249,67 +329,51 @@ class FixError(Exception):
 
 
 def add_dependency(text: str, target: str, module: str) -> str:
-    """TEXT with "MODULE" added to TARGET's dependencies list (see --fix-imports); FixError when it can't be."""
-    lines = text.split("\n")
-    start = next((i for i, line in enumerate(lines) if TARGET.match(line)
-                  and any(re.search(rf'name:\s*"{re.escape(target)}"', lines[j]) for j in range(i, min(i + 3, len(lines))))),
-                 None)
-    if start is None:
+    """TEXT with "MODULE" added to TARGET's own `dependencies:` array (see --fix-imports); FixError when it can't be.
+    The array is found bracket for bracket inside the target's call, never by the next `]` on a line."""
+    span = target_spans(text).get(target)
+    if span is None:
         raise FixError(f"no target named {target}")
-    depth, end = 0, start
-    for end in range(start, len(lines)):
-        depth += lines[end].count("(") - lines[end].count(")")
-        if depth <= 0:
-            break
+    _, open_at, close_at = span
     entry = f'"{module}"'
-    for i in range(start, end + 1):
-        line = lines[i]
-        if not re.match(r"^\s*dependencies:\s*\[", line):
-            continue
-        if OPEN.match(line):  # a marked list: one line per entry, then canonical order
-            entries, close = entries_of(lines, i)
-            indent = (entries[0][1][:len(entries[0][1]) - len(entries[0][1].lstrip())] if entries
-                      else OPEN.match(line).group(1) + "    ")
-            lines.insert(close, f"{indent}{entry},")
-            return check("\n".join(lines), fix=True)[1]
-        if top_level_brackets_close(line):  # inline: `dependencies: ["A", "B"],`
-            head, _, tail = line.rpartition("]")
-            inside = head[head.index("[") + 1:].strip()
-            lines[i] = f"{head}{', ' if inside and not inside.endswith(',') else ''}{entry}]{tail}"
-            return "\n".join(lines)
-        for close in range(i + 1, end + 1):  # multi-line: its own line before the closing bracket
-            if lines[close].strip() in ("]", "],"):
-                previous = close - 1
-                if previous > i and lines[previous].strip() and not lines[previous].rstrip().endswith(","):
-                    lines[previous] = lines[previous].rstrip() + ","
-                body = lines[previous] if previous > i else lines[close] + "    "
-                indent = body[:len(body) - len(body.lstrip())]
-                lines.insert(close, f"{indent}{entry},")
-                return "\n".join(lines)
-        raise FixError(f"{target}: its dependencies list never closes")
-    # No dependencies at all: one goes after the name.
-    name_line = next(j for j in range(start, end + 1) if re.search(r'name:\s*"', lines[j]))
-    indent = lines[name_line][:len(lines[name_line]) - len(lines[name_line].lstrip())]
-    lines.insert(name_line + 1, f"{indent}dependencies: [{entry}],")
-    return "\n".join(lines)
-
-
-def top_level_brackets_close(line: str) -> bool:
-    """The `[` this dependencies line opens closes on the same line."""
-    depth = 0
-    quoted = False
-    for char in line[line.index("["):]:
-        if char == '"':
-            quoted = not quoted
-        elif quoted:
-            continue
-        elif char == "[":
-            depth += 1
-        elif char == "]":
-            depth -= 1
-            if depth == 0:
-                return True
-    return False
+    deps = argument(text, open_at, close_at, "dependencies")
+    if deps is None:  # no dependencies yet: one goes right after the name (SwiftPM's argument order)
+        name = re.search(r'name:\s*"[^"]+"', text[open_at:close_at])
+        end = open_at + name.end()
+        line_start = text.rfind("\n", 0, open_at + name.start()) + 1
+        indent = text[line_start:open_at + name.start()]
+        if not indent.strip() == "":  # `name:` shares its line with `.target(`: indent one step past it
+            indent = " " * (len(indent) - len(indent.lstrip()) + 4)
+        rest = text[end:close_at]
+        if rest.lstrip().startswith(","):
+            comma = end + rest.index(",")
+            return text[:comma + 1] + f"\n{indent}dependencies: [{entry}]," + text[comma + 1:]
+        return text[:end] + f",\n{indent}dependencies: [{entry}]" + text[end:]
+    bracket, end = deps
+    line_start = text.rfind("\n", 0, bracket) + 1
+    line_end = text.find("\n", bracket)
+    if OPEN.match(text[line_start:line_end if line_end >= 0 else len(text)]):
+        lines = text.split("\n")
+        start = text.count("\n", 0, bracket)
+        entries, close = entries_of(lines, start)
+        indent = (entries[0][1][:len(entries[0][1]) - len(entries[0][1].lstrip())] if entries
+                  else OPEN.match(lines[start]).group(1) + "    ")
+        lines.insert(close, f"{indent}{entry},")
+        return check("\n".join(lines), fix=True)[1]
+    inside = text[bracket + 1:end]
+    last = len(inside.rstrip())  # the end of the last entry (or of a trailing comma)
+    if not inside.strip():
+        return text[:bracket + 1] + entry + text[end:]
+    if "\n" not in inside[last:]:  # the `]` follows the last entry on its line: `"A", "B"]` or `...)]`
+        separator = " " if inside[:last].endswith(",") else ", "
+        return text[:bracket + 1 + last] + separator + entry + text[bracket + 1 + last:]
+    # The `]` on a line of its own: a new line before it, indented like the last entry.
+    previous_start = inside.rfind("\n", 0, last) + 1
+    previous = inside[previous_start:last]
+    indent = previous[:len(previous) - len(previous.lstrip())]
+    comma = "" if inside[:last].endswith(",") else ","
+    at = bracket + 1 + last
+    return text[:at] + comma + f"\n{indent}{entry}," + text[at:]
 
 
 def main() -> int:

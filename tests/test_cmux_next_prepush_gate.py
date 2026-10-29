@@ -531,6 +531,26 @@ let package = Package(
         declared = self.push()
         self.assertEqual(declared.returncode, 0, declared.stdout + declared.stderr)
 
+    def test_push_that_drops_a_dependency_an_unchanged_file_imports_is_refused(self):
+        # Review of 6d8b96f: the gate's trees held only the changed files, so a manifest edit that dropped a
+        # dependency an untouched source imports passed. A manifest change now brings the package's Swift sources.
+        self.write(f"{PKG}/Package.swift",
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a test target that declares what it imports")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.commit("drop a dependency AppTests.swift still imports")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
+
     def test_push_that_adds_a_raw_spawn_in_a_daemon_crate_is_refused(self):
         # Reviews 1 and 2 of pl-holder-11: on macOS a daemon child started any other way than
         # cmux_process::Command can inherit a PTY master the daemon is receiving on another thread.
