@@ -233,3 +233,7 @@ mod tests {
         assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_WITHDRAWN)));
     }
 }
+
+#[cfg(test)]
+#[path = "steer_end_race_tests.rs"]
+mod race_tests;
