@@ -130,6 +130,7 @@ acpmux session fork NAME [--name NEW]              # new session sharing the his
 acpmux session cancel NAME                         # stop the running turn; the session stays
 acpmux session restart NAME                        # restart its agent process after the turn, same conversation
 acpmux session resume NAME                         # run the prompts a failed turn held (no person needed)
+acpmux session queue list|remove|clear NAME        # its queued prompts; clear --from-agents drops agents' messages only
 acpmux session kill --purge NAME                   # delete (only sessions you created)
 ```
 

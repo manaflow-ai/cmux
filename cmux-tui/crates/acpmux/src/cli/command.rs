@@ -384,7 +384,7 @@ pub enum Command {
     /// archives.
     #[command(subcommand, alias = "wt")]
     Worktree(crate::cli::worktree::WorktreeCmd),
-    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
+    /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail, queue.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
     /// This machine as a hand of a Cloud Chief: pair, run, status.
@@ -439,6 +439,8 @@ pub enum Command {
     LimitsCmd { session: String, max: Option<u32>, clear: bool },
     #[command(hide = true)]
     TurnCapCmd { session: String, minutes: Option<u64>, off: bool, clear: bool },
+    #[command(hide = true, subcommand)]
+    QueueCmd(crate::cli::session_queue::QueueCmd),
     #[command(hide = true)]
     Schema,
     #[command(hide = true)]
@@ -914,6 +916,9 @@ pub enum SessionCmd {
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// The prompts waiting for the running turn: list, remove PROMPT_ID..., clear --from-agents.
+    #[command(subcommand)]
+    Queue(crate::cli::session_queue::QueueCmd),
 }
 
 #[derive(Args)]
@@ -1194,6 +1199,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::RulesCmd { session, rules, clear }
             }
             SessionCmd::History { session, limit } => Command::History { session, limit },
+            SessionCmd::Queue(q) => Command::QueueCmd(q),
         },
         Command::Daemon(dc) => match dc {
             DaemonCmd::Run {
