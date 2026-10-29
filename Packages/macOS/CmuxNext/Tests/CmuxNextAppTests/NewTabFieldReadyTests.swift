@@ -97,14 +97,12 @@ struct NewTabFieldReadyTests {
     }
 
     /// Cmd-T: the page shows with its field ready; the keys typed meanwhile go to it at the next key, with no readiness
-    /// message and long before the hold's limit. As `NewTabPage.open` does it: the hold begins on the tab the pane
+    /// message (no timer ends the hold). As `NewTabPage.open` does it: the hold begins on the tab the pane
     /// showed before, the open selects the page's new tab, then `didShow`.
     @Test func cmdTKeysGoToAShownPageWhoseFieldIsReadyWithoutItsReadinessMessage() async throws {
         let fixture = try await Self.fixture(opening: true)
         defer { fixture.close() }
         let input = fixture.services.keyRouter.newTabInputCoordinator
-        input.holdLimit = .seconds(600)
-        input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
         try #require(fixture.pane.currentTabKey != fixture.key, "the pane shows the page before the opening")
         _ = try #require(input.begin(for: fixture.pane))
         // The open shows and selects the page's tab in its turn (`PaneController.openAgentTab`).
@@ -126,8 +124,6 @@ struct NewTabFieldReadyTests {
         let fixture = try await Self.fixture()
         defer { fixture.close() }
         let input = fixture.services.keyRouter.newTabInputCoordinator
-        input.holdLimit = .seconds(600)
-        input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
         _ = try #require(input.begin(for: fixture.pane))
         let router = fixture.services.keyRouter
         #expect(router.interceptKeyDown(try Self.key("h", keyCode: 4, in: fixture.window), in: fixture.window))
@@ -141,8 +137,6 @@ struct NewTabFieldReadyTests {
         defer { fixture.close() }
         fixture.page.inputReadiness.receive(["editing": false])
         let input = fixture.services.keyRouter.newTabInputCoordinator
-        input.incomingHoldLimit = .seconds(600)
-        input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
         let token = try #require(input.beginIncoming(in: fixture.window, followsNewWindow: true))
         input.attachIncoming(token)
         input.pageMade(token, key: fixture.key)
@@ -159,8 +153,6 @@ struct NewTabFieldReadyTests {
         let fixture = try await Self.fixture()
         defer { fixture.close() }
         let input = fixture.services.keyRouter.newTabInputCoordinator
-        input.incomingHoldLimit = .seconds(600)
-        input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
         let token = try #require(input.beginIncoming(in: fixture.window, followsNewWindow: true))
         let router = fixture.services.keyRouter
         let typed = [try Self.key("h", keyCode: 4, in: fixture.window), try Self.key("i", keyCode: 34, in: fixture.window)]
