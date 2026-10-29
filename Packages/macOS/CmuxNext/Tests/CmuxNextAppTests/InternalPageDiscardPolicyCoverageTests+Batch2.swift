@@ -209,7 +209,8 @@ import Testing
         history.restoreViewState(state, for: key, content: content)
         #expect(model.text == "swift")
         #expect(model.filter == .pages)
-        #expect(content.documentVisibleRect.origin.y == 0, "scrolled before the rows are in")
+        // The list's top: its header insets the clip (automaticallyAdjustsContentInsets), so the top is at -inset, not 0.
+        #expect(content.documentVisibleRect.origin.y == -content.contentView.contentInsets.top, "scrolled before the rows are in")
 
         model.apply(Self.historyEntries())
         #expect(model.selection == "page:default:2")
