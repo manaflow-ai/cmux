@@ -59,4 +59,40 @@ import Testing
         store.apply(.userMessage(text: "Continue", promptId: "p~resume-1", turnId: "retry", attachments: [], at: Date()))
         #expect(store.turns.map(\.id) == ["retry"])
     }
+
+    @Test(arguments: [false, true])
+    func retryOutputStartsANewMessage(withMessageIDs: Bool) throws {
+        let store = AgentChatStore(source: PromptResendTests.Recorder())
+        store.apply(.userMessage(text: "Read this", promptId: "p", turnId: "t", attachments: [], at: Date()))
+        store.apply(.update(.agentMessageChunk(text: "Partial answer", messageId: withMessageIDs ? "old" : nil)))
+        store.apply(.turnResult(turnId: "t", status: .failed, errorText: "unavailable", at: Date()))
+        store.apply(.batch([
+            .turnRetried(previousTurnID: "t", turnID: "retry"),
+            .userMessage(text: "Continue", promptId: "p~resume-1", turnId: "retry", attachments: [], at: Date()),
+            .update(.agentMessageChunk(text: "New ", messageId: withMessageIDs ? "new" : nil)),
+            .update(.agentMessageChunk(text: "answer", messageId: withMessageIDs ? "new" : nil)),
+        ]))
+        let messages = try #require(store.turns.last).items.compactMap { item -> String? in
+            if case .message(_, let text) = item { return text }
+            return nil
+        }
+        #expect(messages == ["Partial answer", "New answer"])
+        #expect(store.turns.count == 1)
+    }
+
+    @Test func retryThoughtsStartANewItem() throws {
+        let store = AgentChatStore(source: PromptResendTests.Recorder())
+        store.apply(.userMessage(text: "Read this", promptId: "p", turnId: "t", attachments: [], at: Date()))
+        store.apply(.update(.agentThoughtChunk(text: "Old thought")))
+        store.apply(.turnResult(turnId: "t", status: .failed, errorText: "unavailable", at: Date()))
+        store.apply(.turnRetried(previousTurnID: "t", turnID: "retry"))
+        store.apply(.userMessage(text: "Continue", promptId: "p~resume-1", turnId: "retry", attachments: [], at: Date()))
+        store.apply(.update(.agentThoughtChunk(text: "New ")))
+        store.apply(.update(.agentThoughtChunk(text: "thought")))
+        let thoughts = try #require(store.turns.last).items.compactMap { item -> String? in
+            if case .thought(_, let text) = item { return text }
+            return nil
+        }
+        #expect(thoughts == ["Old thought", "New thought"])
+    }
 }

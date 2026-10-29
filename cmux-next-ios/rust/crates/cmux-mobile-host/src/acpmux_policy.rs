@@ -243,6 +243,24 @@ mod tests {
     /// On a phone's own credential, what the filter refuses goes on marked, for acpmux to
     /// run only when that phone's Full-access setting covers it.
     #[test]
+    fn retry_checks_the_current_mode_and_requires_full_access_when_it_does_not_ask() {
+        let retry = json!({"jsonrpc": "2.0", "id": 12, "method": "_acpmux/retry",
+                           "params": {"sessionId": "s1"}}).to_string();
+        let (id, session) = controlled_session(&retry).expect("retry controls the existing session");
+        assert_eq!(session, "s1");
+        assert_eq!(mode_refusal(&id, Some("ask")), None);
+        let refusal: Value = serde_json::from_str(
+            &mode_refusal(&id, Some("agent-full-access")).expect("refused on the dashboard token"),
+        ).unwrap();
+        assert_eq!(refusal["id"], 12);
+        assert_eq!(refusal["error"]["data"]["reason"], "phone.mode_not_asking");
+        let marked_retry: Value = serde_json::from_str(&marked(&retry).unwrap()).unwrap();
+        assert_eq!(marked_retry["params"]["_meta"]["acpmux"]["requireFullAccess"], true);
+        assert_eq!(marked_retry["method"], "_acpmux/retry");
+        assert_eq!(marked_retry["params"]["sessionId"], "s1");
+    }
+
+    #[test]
     fn a_refused_request_is_marked_for_acpmux_to_decide() {
         let marked_set: Value =
             serde_json::from_str(&marked(&set_mode("agent-full-access")).unwrap()).unwrap();
