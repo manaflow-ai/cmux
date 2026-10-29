@@ -30,6 +30,19 @@ struct DemoDriver {
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
+        if name.hasPrefix("retry-") {
+            // Public capture fixtures contain no person's name or machine name.
+            shell.store.teams = shell.store.teams.enumerated().map { index, team in
+                var team = team
+                team.name = "Demo Team \(index + 1)"
+                team.macs = team.macs.enumerated().map { index, mac in
+                    var mac = mac
+                    mac.name = "Demo Mac \(index + 1)"
+                    return mac
+                }
+                return team
+            }
+        }
         switch name {
         case "drawer": await drawer()
         case "settings": await settings()
