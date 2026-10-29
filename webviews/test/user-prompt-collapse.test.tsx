@@ -78,12 +78,12 @@ const prompt = (id: string, text: string, extra: Partial<Row> = {}): Row => ({
   text,
   ...extra,
 });
-const render = (row: Row, reveal?: React.ContextType<typeof FindReveal>, rowWidth?: number) =>
+const render = (row: Row, reveal?: React.ContextType<typeof FindReveal>) =>
   act(() =>
     root.render(
       <FindReveal.Provider value={reveal}>
         <article data-row-id={row.id}>
-          <UserBubble row={row} text={row.text ?? ""} rowWidth={rowWidth} />
+          <UserBubble row={row} text={row.text ?? ""} />
         </article>
       </FindReveal.Provider>,
     ),
@@ -323,19 +323,14 @@ try {
     }
   });
 
-  test("plain prompt fit skips layout only while the current width and font stay below the fold", () => {
+  test("a short prompt still observes a later font or width change past the fold", () => {
     resetTranscriptDisclosure();
     const computed = dom.window.getComputedStyle;
-    const canvas = Object.getOwnPropertyDescriptor(dom.window.HTMLCanvasElement.prototype, "getContext");
+    const observer = scope.ResizeObserver;
     const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
     const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
-    let measurements = 0;
+    const observers = new Set<() => void>();
     let drawnHeight = 20;
-    const context = { font: "", measureText: () => ({ width: 28 }) };
-    Object.defineProperty(dom.window.HTMLCanvasElement.prototype, "getContext", {
-      configurable: true,
-      value: () => context,
-    });
     Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
       configurable: true,
       get: () => drawnHeight,
@@ -343,26 +338,31 @@ try {
     Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
     Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
       configurable: true,
-      value: () => {
-        measurements += 1;
-        return { height: drawnHeight };
-      },
+      value: () => ({ height: drawnHeight }),
     });
+    scope.ResizeObserver = class {
+      constructor(private changed: () => void) {}
+      observe() {
+        observers.add(this.changed);
+      }
+      disconnect() {
+        observers.delete(this.changed);
+      }
+    };
     try {
-      const row = prompt("user-short-geometry", "W".repeat(64));
-      render(row, undefined, 1400);
-      expect(measurements).toBe(0);
+      render(prompt("user-short-geometry", "word ".repeat(12).trim()));
       expect(toggle()).toBeNull();
-      // The same mounted row narrows below the ten-line threshold: it must start measuring,
-      // clamp, and expose Show more rather than retain the wide pane's short-prompt decision.
-      drawnHeight = 440;
-      render(row, undefined, 120);
-      expect(measurements).toBeGreaterThan(0);
+      expect(observers.size).toBeGreaterThan(0);
+      // A later font load or narrower pane wraps the same mounted prompt past ten lines.
+      drawnHeight = 240;
+      act(() => {
+        for (const changed of observers) changed();
+      });
       expect(body().classList.contains("is-clamped")).toBe(true);
       expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
     } finally {
+      scope.ResizeObserver = observer;
       Object.assign(dom.window, { getComputedStyle: computed });
-      if (canvas) Object.defineProperty(dom.window.HTMLCanvasElement.prototype, "getContext", canvas);
       if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
       else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
       if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);

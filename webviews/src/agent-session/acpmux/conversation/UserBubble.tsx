@@ -14,7 +14,7 @@
 // once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
 // block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
 import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { isShortPlainUserPrompt, type AcpmuxRow, type PromptImage } from "../model";
+import type { AcpmuxRow, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
@@ -26,18 +26,15 @@ import { PromptText } from "./PromptText";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 import { ForkButton, forkWithFeedback, MessageCopy, MessageTime, PromptRetry, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
-import { chiefEnvelope } from "./chiefEnvelope";
 
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
   row,
   text,
-  rowWidth,
   pending,
 }: {
   row: AcpmuxRow;
   text: string;
-  rowWidth?: number;
   pending?: (actions: ReactNode) => ReactNode;
 }) {
   const t = useT();
@@ -74,14 +71,6 @@ export function UserBubble({
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
   const imageName = t("image.viewer");
   const show = useCallback((part: string) => withoutDataUris(part, imageName), [imageName]);
-  const skipPromptMeasurement =
-    !row.from &&
-    !chiefEnvelope(text) &&
-    !row.pasted?.length &&
-    !row.images?.length &&
-    !row.retryAttachments?.length &&
-    !row.inlineParts?.some((part) => part.kind !== "text") &&
-    isShortPlainUserPrompt(text, rowWidth);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -113,13 +102,7 @@ export function UserBubble({
           bubble under them read as a lost message; Leo 2026-10-21). */}
       {text.trim() && (
         <div className="ui-glass cv-user__bubble selectable">
-          <PromptText
-            rowId={row.id}
-            text={text}
-            pasted={row.pasted}
-            show={show}
-            skipMeasurement={skipPromptMeasurement}
-          />
+          <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
           {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
           {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
         </div>

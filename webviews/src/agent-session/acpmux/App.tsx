@@ -498,10 +498,6 @@ type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 type RowProps = {
   row: AcpmuxRow;
   sessionId?: string;
-  /// The current transcript row width, used by prompt disclosure fast paths.
-  rowWidth?: number;
-  /// The active chat font size, used to invalidate prompt geometry on a display change.
-  fontSize?: number;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
   controls?: string;
@@ -913,7 +909,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row, rowWidth, githubRepository }: RowProps) {
+  function MessageRow({ row, githubRepository }: RowProps) {
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
@@ -993,7 +989,6 @@ const MessageRow = memo(
               <UserBubble
                 row={row}
                 text={row.text ?? ""}
-                rowWidth={rowWidth}
                 pending={
                   steerControls(row)
                     ? (actions) => (
@@ -1671,7 +1666,6 @@ const RowFrame = React.memo(function RowFrame({
   setSize: number;
   top: number;
   rowWidth: number;
-  fontSize: number;
   expanded: boolean;
   observer: ResizeObserver | undefined;
   report: ReportDrawn;
@@ -4124,7 +4118,6 @@ export function VirtualTranscript({
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
                       rowWidth={transcriptRowWidth(width)}
-                      fontSize={chatLook.fontSize}
                       expanded={isExpanded}
                       observer={observer}
                       report={reportDrawn}
@@ -4149,8 +4142,6 @@ export function VirtualTranscript({
                       <Component
                         row={row}
                         sessionId={sessionId}
-                        rowWidth={transcriptRowWidth(width)}
-                        fontSize={chatLook.fontSize}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}

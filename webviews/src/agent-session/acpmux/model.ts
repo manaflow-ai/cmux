@@ -18,13 +18,7 @@ import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { isRunGroup, SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW, WORKFLOW_CARD } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import {
-  COLLAPSED_PROMPT_LINES,
-  PASTE_CHIP_HEIGHT,
-  type PasteRange,
-  collapsedPromptHeight,
-  promptParts,
-} from "./conversation/promptCollapse";
+import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
 import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
@@ -1341,47 +1335,6 @@ function isPlainUserPrompt(text: string): boolean {
     !PLAIN_MARKDOWN_CHARS.split("").some((character) => text.includes(character)) &&
     !/^(?:[-+*]\s|\d+[.)]\s|!\s?)/.test(text)
   );
-}
-
-/// A short ASCII prompt can use a canvas width estimate without forcing a Range measurement during
-/// the send's first layout effect. The estimate is conservative (it wraps at every character), so
-/// a prompt is measured whenever the real font metrics are unavailable or the estimate is uncertain.
-function plainPromptLines(text: string, width: number, measureFont: string): number | undefined {
-  const documentLike = typeof document !== "undefined" ? document : undefined;
-  let context: CanvasRenderingContext2D | null = null;
-  try {
-    context = documentLike?.createElement("canvas").getContext("2d") ?? null;
-  } catch {
-    return undefined;
-  }
-  if (!context) return undefined;
-  context.font = measureFont;
-  let lines = 1;
-  let lineWidth = 0;
-  for (const character of text) {
-    const characterWidth = context.measureText(character).width;
-    if (!Number.isFinite(characterWidth)) return undefined;
-    if (lineWidth > 0 && lineWidth + characterWidth > width) {
-      lines += 1;
-      lineWidth = 0;
-    }
-    lineWidth += characterWidth;
-  }
-  return lines;
-}
-
-/**
- * Whether the literal prompt is known to fit inside the disclosure threshold at the current
- * transcript geometry. The first-paint shortcut is only safe with both width and font metrics;
- * callers without them must keep PromptText's measured path.
- */
-export function isShortPlainUserPrompt(text: string, rowWidth?: number): boolean {
-  if (!(text.length <= 64 && /^[\x20-\x7e]*$/.test(text) && isPlainUserPrompt(text))) return false;
-  if (rowWidth === undefined) return false;
-  const { measureFont } = metrics();
-  const contentWidth = Math.max(80, USER_BUBBLE_SHARE * rowWidth - USER_BUBBLE_SIDES);
-  const lines = plainPromptLines(text, contentWidth, measureFont);
-  return lines !== undefined && lines <= COLLAPSED_PROMPT_LINES;
 }
 
 function measuredRowHeight(
