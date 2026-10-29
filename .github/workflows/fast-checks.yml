@@ -233,9 +233,11 @@ jobs:
       # node_modules above it, so Bun auto-installed the newest Playwright (1.64.1, Chromium
       # revision 1248) rather than the pinned 1.62.1 whose browsers (revision 1234) setup had
       # installed: run 40786981913 failed mid-capture with "Executable doesn't exist at
-      # .../chromium_headless_shell-1248/...". NODE_PATH names the checkout's webviews packages,
-      # which Bun resolves before it auto-installs, so such a script gets the pinned Playwright.
-      # Then each pinned Playwright launches its headless Chromium here: a missing or mismatched
+      # .../chromium_headless_shell-1248/...". NODE_PATH, which Bun resolves before it
+      # auto-installs, lists first the workspace whose Playwright installed the browsers above
+      # (scripts/gallery-matrix for `playwright` when it has a manifest, else webviews), then
+      # webviews for everything else (vite, react). Then the Playwright such a script resolves,
+      # and each workspace's own, launches its headless Chromium here: a missing or mismatched
       # browser fails setup, naming the version and browsers path, never the command mid-run.
       - name: Pin and check the Playwright browsers
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
@@ -249,17 +251,27 @@ jobs:
               .then((browser) => browser.close())
               .catch((error) => {
                 const reason = String((error && error.message) || error).split("\n")[0];
-                console.error(`setup: ${process.cwd()}: Playwright ${version} cannot launch its headless Chromium from ${where}: ${reason}`);
+                console.error(`setup: ${process.argv[1] || process.cwd()}: Playwright ${version} cannot launch its headless Chromium from ${where}: ${reason}`);
                 process.exit(2);
               });
         run: |
-          echo "NODE_PATH=$PWD/webviews/node_modules" >> "$GITHUB_ENV"
+          installer=webviews
+          if [[ "$SETUP" == playwright && -f scripts/gallery-matrix/package.json ]]; then installer=scripts/gallery-matrix; fi
+          node_path="$PWD/$installer/node_modules"
+          [[ "$installer" == webviews ]] || node_path="$node_path:$PWD/webviews/node_modules"
+          echo "NODE_PATH=$node_path" >> "$GITHUB_ENV"
           dirs=(webviews)
           if [[ "$SETUP" == playwright ]]; then dirs+=(scripts/gallery-matrix); fi
           for dir in "${dirs[@]}"; do
             [[ -x "$dir/node_modules/.bin/playwright" ]] || continue
-            (cd "$dir" && bun -e "$PLAYWRIGHT_LAUNCH_CHECK")
+            (cd "$dir" && bun -e "$PLAYWRIGHT_LAUNCH_CHECK" "$dir")
           done
+          # What a script outside the checkout gets: run from an empty directory through NODE_PATH.
+          if [[ -d "$installer/node_modules/playwright" ]]; then
+            outside=$(mktemp -d)
+            (cd "$outside" && NODE_PATH="$node_path" bun -e "$PLAYWRIGHT_LAUNCH_CHECK" "a script outside the checkout")
+            rmdir "$outside"
+          fi
 
       - name: Initialize Rust native dependencies
         if: inputs.setup == 'rust'

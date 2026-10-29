@@ -5,9 +5,11 @@ On 2026-10-28 a capture run (40786981913, `--setup playwright`) wrote its script
 it with bun. Nothing above /tmp has a node_modules, so Bun auto-installed the newest Playwright
 (1.64.1, Chromium revision 1248) instead of the pinned 1.62.1 whose browsers (revision 1234)
 setup had installed, and the capture died mid-run: "Executable doesn't exist at
-.../chromium_headless_shell-1248/...". Setup now exports NODE_PATH to the checkout's webviews
-packages (Bun resolves it before auto-installing), then launches each pinned Playwright's
-headless Chromium, so a missing or mismatched browser fails setup with its version and path.
+.../chromium_headless_shell-1248/...". Setup now exports NODE_PATH (Bun resolves it before
+auto-installing) with the workspace whose Playwright installed the browsers first
+(scripts/gallery-matrix for `playwright`; main's webviews has no Playwright at all), then
+webviews, and launches the Playwright an out-of-tree script resolves plus each workspace's own,
+so a missing or mismatched browser fails setup with its version and path.
 """
 
 from __future__ import annotations
@@ -99,15 +101,49 @@ class LaunchCheckTests(unittest.TestCase):
                                 capture_output=True, text=True)
         return result, github_env.read_text()
 
-    def test_installed_browsers_pass_and_node_path_names_the_checkout_packages(self) -> None:
+    def test_installed_browsers_pass_and_node_path_puts_the_installer_first(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             tree = Path(root)
             make_playwright(tree, "webviews", "1.62.1", "1234")
+            make_playwright(tree, "scripts/gallery-matrix", "1.62.1", "1234")
+            (tree / "scripts" / "gallery-matrix" / "package.json").write_text("{}\n")
             browsers = tree / "browsers"
             (browsers / "chromium_headless_shell-1234").mkdir(parents=True)
             result, github_env = self.run_step(tree, "playwright", browsers)
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"NODE_PATH={tree}/scripts/gallery-matrix/node_modules:{tree}/webviews/node_modules\n",
+                          github_env)
+            result, github_env = self.run_step(tree, "webviews", browsers)
+            self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(f"NODE_PATH={tree}/webviews/node_modules\n", github_env)
+
+    def test_main_tree_playwright_only_in_gallery_matrix_is_what_outside_scripts_get(self) -> None:
+        # main's webviews/package.json has no Playwright; `playwright` installs gallery-matrix's.
+        with tempfile.TemporaryDirectory() as root:
+            tree = Path(root)
+            (tree / "scripts" / "gallery-matrix").mkdir(parents=True)
+            (tree / "scripts" / "gallery-matrix" / "package.json").write_text("{}\n")
+            make_playwright(tree, "scripts/gallery-matrix", "1.62.1", "1234")
+            browsers = tree / "browsers"
+            (browsers / "chromium_headless_shell-1234").mkdir(parents=True)
+            result, github_env = self.run_step(tree, "playwright", browsers)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            node_path = re.search(r"^NODE_PATH=(.*)$", github_env, re.M).group(1)
+            self.assertEqual(node_path.split(":")[0], f"{tree}/scripts/gallery-matrix/node_modules")
+            # An out-of-tree script through that NODE_PATH resolves the pinned copy.
+            probe = subprocess.run([shutil.which("node"), "-e", 'console.log(require("playwright/package.json").version)'],
+                                   cwd=browsers, env={**os.environ, "NODE_PATH": node_path},
+                                   capture_output=True, text=True)
+            self.assertEqual(probe.stdout.strip(), "1.62.1", probe.stderr)
+            (browsers / "chromium_headless_shell-1234").rmdir()
+            result, _ = self.run_step(tree, "playwright", browsers)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("scripts/gallery-matrix: Playwright 1.62.1 cannot launch", result.stderr)
+            # With no workspace launcher to check (.bin absent), the out-of-tree check still runs.
+            (tree / "scripts" / "gallery-matrix" / "node_modules" / ".bin" / "playwright").unlink()
+            result, _ = self.run_step(tree, "playwright", browsers)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("a script outside the checkout: Playwright 1.62.1 cannot launch", result.stderr)
 
     def test_a_missing_browser_fails_setup_with_its_version_and_path(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -117,7 +153,7 @@ class LaunchCheckTests(unittest.TestCase):
             (browsers / "chromium_headless_shell-1248").mkdir(parents=True)  # another revision's
             result, _ = self.run_step(tree, "webviews", browsers)
             self.assertEqual(result.returncode, 2, result.stderr)
-            self.assertIn("Playwright 1.62.1 cannot launch its headless Chromium", result.stderr)
+            self.assertIn("webviews: Playwright 1.62.1 cannot launch its headless Chromium", result.stderr)
             self.assertIn(str(browsers), result.stderr)
             self.assertIn("chromium_headless_shell-1234", result.stderr)
             self.assertNotIn("more", result.stderr)  # one line, not the whole banner
