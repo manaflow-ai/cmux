@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileDesign
 import CmuxMobileSupport
 import CmuxMobileTransport
 import PhotosUI
@@ -176,7 +177,8 @@ struct TerminalComposer: View {
                     model.controller?.inputFocusChanged()
                 },
                 onReturn: { send() },
-                shouldInsert: { model.composerShouldInsert($0) }
+                shouldInsert: { model.composerShouldInsert($0) },
+                onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
             sendButton
         }
@@ -237,6 +239,12 @@ struct TerminalComposer: View {
     /// pasteboard here is the person's own tap on Paste.
     private func pasteFromClipboard() {
         let board = UIPasteboard.general
+        // A file copied in Files is its bytes on the pasteboard, not a path.
+        if board.composerHoldsFileData {
+            let providers = board.itemProviders
+            Task { await loadPastedFiles(providers) }
+            return
+        }
         let route = ComposerPasteRoute.route(hasImage: board.hasImages, fileURL: board.hasURLs ? board.url : nil,
                                              string: board.hasStrings ? board.string : nil)
         switch route {
@@ -274,6 +282,19 @@ struct TerminalComposer: View {
                 let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
                 model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(ext)", thumbnail: thumbnail, data: data))
             }
+        }
+    }
+
+    /// Copied files, as Files would attach them (uploaded on send).
+    private func loadPastedFiles(_ providers: [NSItemProvider]) async {
+        let pasted = await ComposerPastedFiles.load(providers, maxBytes: LinkUpload.maxBytes)
+        if let name = pasted.tooLarge.first { model.attachmentError = "\(name) is larger than \(LinkUpload.maxBytes >> 20) MB." }
+        if let name = pasted.unreadable.first { model.attachmentError = "Couldn't read \(name)." }
+        for file in pasted.files {
+            let image = file.type.conforms(to: .image) ? UIImage(data: file.data) : nil
+            let kind: ComposerAttachment.Kind = image != nil ? .image : file.type.conforms(to: .movie) ? .video : .file
+            model.addAttachment(ComposerAttachment(kind: kind, name: file.name,
+                                                   thumbnail: image?.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: file.data))
         }
     }
 

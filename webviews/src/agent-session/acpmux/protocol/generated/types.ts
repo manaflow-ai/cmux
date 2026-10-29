@@ -767,6 +767,11 @@ export type SessionDetail = {
    * its agent started, and so on.
    */
   depth: number;
+  /**
+   * The harness's current reasoning effort, when it reports one.
+   * Additive for older clients and peers.
+   */
+  effort?: (string | null);
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
@@ -968,6 +973,11 @@ export type SessionSummary = {
    * its agent started, and so on.
    */
   depth: number;
+  /**
+   * The harness's current reasoning effort, when it reports one.
+   * Additive for older clients and peers.
+   */
+  effort?: (string | null);
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);

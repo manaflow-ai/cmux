@@ -17,6 +17,7 @@ import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspe
 import type { SubsessionLimits } from "../src/agent-session/acpmux/model";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import { startedSessions, type StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
+import type { SubsessionRow } from "../src/agent-session/acpmux/subagents/subsessions";
 import { slotCounts, subsessionLimits } from "../src/agent-session/acpmux/subsessionLimits";
 
 const scope = globalThis as Record<string, unknown>;
@@ -267,4 +268,19 @@ test("Subagents shows a set limit before the agent starts a chat, and sets it fo
   // An acpmux without the limit and no chats: no Subagents at all.
   await render(<ChatInspector summary={{ sessionId: "chat-1" }} />);
   expect(host.querySelector(".acpmux-subagent-limit")).toBeNull();
+});
+
+test("slot counts use only direct sub-sessions, keeping input in its occupied slot", async () => {
+  const subsessions: SubsessionRow[] = [
+    { sessionId: "working", name: "Working", state: "working", depth: 0 },
+    { sessionId: "input", name: "Input", state: "input", depth: 0 },
+    { sessionId: "queued", name: "Queued", state: "working", slot: true, depth: 0 },
+    { sessionId: "nested", name: "Nested", state: "working", depth: 1 },
+    { sessionId: "nested-queue", name: "Nested queued", state: "done", slot: true, depth: 1 },
+    { sessionId: "ended", name: "Ended", state: "done", depth: 0 },
+  ];
+  const limits = { maxRunning: 4, running: 99, queued: 99 };
+  expect(slotCounts(limits, [], subsessions)).toEqual({ running: 2, queued: 1 });
+  await render(<SubagentLimitStepper limits={limits} subsessions={subsessions} />);
+  expect(line()).toBe("Running 2 / 4 max · 1 queued");
 });
