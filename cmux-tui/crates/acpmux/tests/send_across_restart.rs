@@ -400,7 +400,19 @@ fn agent_error_named_like_daemon_close_is_not_replayed() {
     let dir = scratch("agent-close-wording");
     let _shutdown = Shutdown(&dir);
     let marker = dir.join("agent-attempts");
-    let mut cmd = cli_command(&dir, &["--json", "run", "-q", "-n", "lane", "agent-daemon-closed-error"]);
+    let mut cmd = cli_command(
+        &dir,
+        &[
+            "--json",
+            "run",
+            "-q",
+            "-n",
+            "lane",
+            "--prompt-id",
+            "collision",
+            "agent-daemon-closed-error",
+        ],
+    );
     cmd.env("FAKE_AGENT_DAEMON_CLOSED_MARKER", &marker)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -409,6 +421,17 @@ fn agent_error_named_like_daemon_close_is_not_replayed() {
     assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
     let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap_or_default();
     assert_eq!(error["error"]["detail"], "agent_error", "{}", text(&out));
+    // A retained ledger outcome is the same error. Falling back to the
+    // durable log after dropping it would instead synthesize a successful
+    // duplicate response, and starting another turn repeats the side effect.
+    let resend = cli(
+        &dir,
+        &["--json", "send", "--prompt-id", "collision", "lane", "agent-daemon-closed-error"],
+    );
+    assert!(!resend.status.success(), "ledger outcome was lost: {}", text(&resend));
+    let repeated: serde_json::Value = serde_json::from_slice(&resend.stderr).unwrap();
+    assert_eq!(repeated["error"]["detail"], "agent_error");
+    assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
 }
 
 #[test]
