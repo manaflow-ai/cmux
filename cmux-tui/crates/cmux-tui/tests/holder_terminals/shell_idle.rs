@@ -225,3 +225,44 @@ fn shell_idle_holder_a_line_read_but_not_run_is_never_idle() {
     }
     let _ = fs::remove_file(&fifo);
 }
+
+/// Review 6 of cp/daemon-foreground-state refuted the four-read invariant: a
+/// Return hook can sleep after the line editor read a line and before the
+/// shell runs it, while the terminal still reads raw, with no child and
+/// nothing queued. bash's `bind -x` reached through a Return macro runs in
+/// readline's prepped (raw) terminal. Here the hook prints a mark (so a
+/// foreground check is due while it sleeps) and blocks 4 s on a FIFO for the
+/// typed-ahead `sleep 600`. A kernel read that pays the prompt that line is
+/// owed reads the terminal idle; it never may.
+#[test]
+fn shell_idle_holder_a_line_held_by_a_return_hook_is_never_idle() {
+    let fifo =
+        std::env::temp_dir().join(format!("shell-idle-bind-x-{}-{}", std::process::id(), line!()));
+    let _ = fs::remove_file(&fifo);
+    let made = std::process::Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(made.success(), "mkfifo failed");
+    let rc = format!(
+        "exec 9<>{}\n\
+         blk() {{ [[ $READLINE_LINE == \"sleep 600\" ]] || return; \
+         printf '\\033]133;B\\007'; read -t 4 -u 9 _; }}\n\
+         bind -x '\"\\C-x\\C-a\": blk'\n\
+         bind '\"\\C-m\": \"\\C-x\\C-a\\C-j\"'\n",
+        fifo.display()
+    );
+    let Some((daemon, surface)) = start_bash_with("idle-bind-x", &rc) else {
+        let _ = fs::remove_file(&fifo);
+        return;
+    };
+    type_text(&daemon.socket, surface, "true\rsleep 600\r");
+    wait_for_prompts(&daemon.socket, surface, 2);
+    let until = Instant::now() + Duration::from_millis(3_500);
+    while Instant::now() < until {
+        let extra = terminal_extra(&daemon.socket);
+        assert!(
+            extra.get("shell_idle").is_none(),
+            "a line held by a Return hook read idle: {extra}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = fs::remove_file(&fifo);
+}

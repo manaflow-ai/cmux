@@ -1059,6 +1059,20 @@ mod tests {
         assert_eq!(activity.idle_since(), None, "`sleep 600` may wait for the shell");
     }
 
+    /// Review 6 of cp/daemon-foreground-state, finding 5: a prompt mark the
+    /// shell prints again for the same prompt (Ghostty's zsh integration puts
+    /// `A;redraw=1` in PS1, so `zle reset-prompt`, a resize or a transient
+    /// prompt at accept print it again) answers no line. After a Return and
+    /// before the command's `C`, such a redraw must not pay the line.
+    #[test]
+    fn shell_idle_a_redrawn_prompt_answers_no_line() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"sleep 600\r");
+        activity.observe(ShellMark::PromptStart, 1_100);
+        assert_eq!(activity.foreground_check_due(), None, "`sleep 600` is not answered");
+        assert_eq!(activity.idle_since(), None);
+    }
+
     /// Review 2, finding 6: a reconnect without host state checks again.
     #[test]
     fn shell_idle_a_forgotten_check_is_not_idle_until_checked_again() {
