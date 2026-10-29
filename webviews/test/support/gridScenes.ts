@@ -166,7 +166,7 @@ export const gridScenes: GridScene[] = [
   composer("grid-draft", ".acpmux-md p"),
   composer("attach-screenshot", placeholder, "agent-pane.composer"),
   scene("composer.foot", "agent-pane.composer-row", "claude-auto", ".acpmux-composer-foot", [
-    from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("composer-quiet-row-gap")),
+    from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
     from("text", ".acpmux-mode-text", "text", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
     from(

@@ -630,6 +630,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --grid-gap-turn: calc(32px * var(--cmux-interface-scale, 1)); /* Gap between transcript turns. */
   --grid-gap-inner: calc(12px * var(--cmux-interface-scale, 1)); /* Gap inside a transcript tool group. */
   --grid-gap-composer: calc(16px * var(--cmux-interface-scale, 1)); /* Gap from the last transcript block to the composer. */
+  --grid-gap-foot: calc(8px * var(--cmux-interface-scale, 1)); /* Gap from the composer box to its quiet row. */
   --grid-transcript-action-control: calc(28px * var(--cmux-interface-scale, 1)); /* Row action box ending on the column edge. */
   --grid-transcript-action-trail-center: calc(14px * var(--cmux-interface-scale, 1)); /* Row action center from column right edge. */
   --grid-cards-padding: calc(12px * var(--cmux-interface-scale, 1)); /* Card content padding. */
