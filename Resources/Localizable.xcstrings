@@ -671652,6 +671652,131 @@
           }
         }
       }
+    },
+    "cloudTree.resources.lowDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk almost full. Run cmux vm clean %@ --apply or resize the disk to keep this machine reachable."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "القرص ممتلئ تقريبًا. شغّل cmux vm clean %@ --apply أو كبّر القرص لتبقى هذه الآلة قابلة للوصول."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk je skoro pun. Pokreni cmux vm clean %@ --apply ili povećaj disk da ova mašina ostane dostupna."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disken er næsten fuld. Kør cmux vm clean %@ --apply, eller gør disken større, så maskinen forbliver tilgængelig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datenträger fast voll. Führe cmux vm clean %@ --apply aus oder vergrößere den Datenträger, damit diese Maschine erreichbar bleibt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco casi lleno. Ejecuta cmux vm clean %@ --apply o amplía el disco para que esta máquina siga accesible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disque presque plein. Exécutez cmux vm clean %@ --apply ou agrandissez le disque pour que cette machine reste accessible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco quasi pieno. Esegui cmux vm clean %@ --apply o ingrandisci il disco perché questa macchina resti raggiungibile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクがほぼいっぱいです。このマシンに接続できる状態を保つには、cmux vm clean %@ --apply を実行するか、ディスクを拡張してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថាសជិតពេញហើយ។ ដំណើរការ cmux vm clean %@ --apply ឬពង្រីកថាស ដើម្បីឱ្យម៉ាស៊ីននេះនៅតែអាចភ្ជាប់បាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스크가 거의 가득 찼습니다. 이 머신에 계속 연결할 수 있도록 cmux vm clean %@ --apply을(를) 실행하거나 디스크 크기를 늘리세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disken er nesten full. Kjør cmux vm clean %@ --apply eller gjør disken større, så maskinen fortsatt kan nås."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dysk jest prawie pełny. Uruchom cmux vm clean %@ --apply lub powiększ dysk, aby ta maszyna pozostała osiągalna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco quase cheio. Execute cmux vm clean %@ --apply ou aumente o disco para manter esta máquina acessível."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диск почти заполнен. Выполните cmux vm clean %@ --apply или увеличьте диск, чтобы эта машина оставалась доступной."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดิสก์ใกล้เต็มแล้ว เรียกใช้ cmux vm clean %@ --apply หรือขยายดิสก์เพื่อให้เครื่องนี้ยังเชื่อมต่อได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk neredeyse dolu. Bu makineye erişilebilir kalması için cmux vm clean %@ --apply komutunu çalıştırın veya diski büyütün."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диск майже заповнений. Виконайте cmux vm clean %@ --apply або збільште диск, щоб ця машина залишалася доступною."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘即将写满。请运行 cmux vm clean %@ --apply 或扩容磁盘，以确保这台机器仍可连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁碟即將滿載。請執行 cmux vm clean %@ --apply 或擴充磁碟，以確保這台機器仍可連線。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

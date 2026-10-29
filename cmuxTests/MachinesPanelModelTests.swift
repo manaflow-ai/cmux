@@ -1160,35 +1160,6 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 }
 
-/// Compact rows retain the original inline resources and token summary.
-@Suite("Cloud tree machine inline fact")
-struct CloudTreeMachineInlineFactTests {
-    private func snapshot(stats: VMStats?) -> MachineSnapshot {
-        var machine = MachineSnapshotBuilder.snapshot(from: VMSummary(
-            id: "troll", provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil
-        ))
-        machine.stats = stats
-        return machine
-    }
-
-    @Test("Resource readings share the compact machine header")
-    func awakeReadingHasDedicatedSpace() {
-        let stats = VMStats(
-            state: .awake, sampledAt: Date(timeIntervalSince1970: 0), cpus: 2, cpuPercent: 9.4,
-            loadAverage1m: nil, memoryTotalMb: 3891, memoryUsedMb: 3481, diskTotalMb: 3174, diskUsedMb: 2867
-        )
-        let fact = CloudTreeMachineRowContent(machine: snapshot(stats: stats), style: .compact,
-                                             now: stats.sampledAt).inlineFact
-        #expect(fact?.contains("CPU") == true)
-        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
-    }
-
-    @Test("No reading yet keeps missing-data state inline")
-    func missingStatsShowsNothing() {
-        #expect(CloudTreeMachineRowContent(machine: snapshot(stats: nil), style: .compact).inlineFact?.contains("Token usage unavailable") == true)
-    }
-}
-
 /// Pins the mapping from Cloud VM list failures to the machines pane's empty
 /// state. A server-rejected session (401) must route to re-auth and a plan
 /// gate (402) to the Pro upsell — neither may fall back to the retry-first

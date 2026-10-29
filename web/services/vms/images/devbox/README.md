@@ -370,8 +370,15 @@ The bake also fully allocates a 1 GiB ext4 image at
 SQLite registry and journal a reserved filesystem even when general-purpose
 files fill the root filesystem. When the state filesystem falls below its
 headroom threshold, the helper doubles the image online up to 8 GiB, provided
-the root filesystem keeps its safety reserve; a failed or unsafe growth leaves
-the daemon deferred rather than starting against a full database filesystem.
+the root filesystem keeps its safety reserve. A failed or unsafe growth is
+logged and the daemon keeps starting on the room the state filesystem still
+has. Startup is deferred only when the state filesystem has less than 16 MiB
+free, or when its free space cannot be read as a plain count (unreadable or
+malformed `df` output), because there is then no proof of working room. A
+deferred daemon leaves the machine unreachable ("connection refused"), so the
+supervisor retries `ensure` on every tick and starts the daemon as soon as
+the free space reads as a plain count of at least 16 MiB. The
+Cloud sidebar warns on a machine whose root disk is nearly full.
 The image consumes space from the existing root disk; it does not change the
 Freestyle VM size or the image ladder. The bake writes a reservation marker
 only after the image is fully created and seeded. The boot supervisor reads
@@ -380,6 +387,21 @@ resume before starting cmux-tui. If any of those checks fail, startup is
 deferred instead of falling back to the root filesystem. Older images without
 the marker continue using their existing state layout until they are replaced
 or upgraded with `bun scripts/upgrade-fleet-cmux-tui.ts`.
+
+The state-mount helper and the daemon have separate source pins. The image's
+`repoCommit` and `devboxSource` describe the bake inputs; `cmuxTuiCommit`
+identifies the downloaded daemon. A bake containing a helper fix does not
+necessarily contain a daemon fix from the same checkout.
+
+When shipping both, first publish a cmux-tui artifact containing the daemon
+fix, then pin `CMUX_VM_CMUX_TUI_MANIFEST_URL` to that commit's manifest for
+the bake and promotion below. Verify every promoted default's `cmuxTuiCommit`
+matches that commit. Upgrade existing machines with
+`bun scripts/upgrade-fleet-cmux-tui.ts --commit <published-commit> --vm <canary-id>`,
+then `--vms-file <inventory-file>` after checking the canary, as described in
+`docs/cloud-guest-upgrades.md`. Without `--commit`, the upgrade uses the
+default images' daemon, which can still predate the fix. Installing the helper
+alone does not deliver the daemon's atomic identity writes or cut-file recovery.
 
 ## Sizes: one bake, one snapshot per size
 

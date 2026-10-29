@@ -90,11 +90,39 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
     public let memory: Reading
     /// Current root disk utilization and reported capacity.
     public let disk: Reading
+    /// Free root-disk space in MiB when a live sample shows the disk nearly full, otherwise nil.
+    ///
+    /// A guest whose root filesystem fills can stop its cmux-tui daemon and become
+    /// unreachable, so the row warns while there is still room to clean up or resize.
+    public let lowDiskFreeMb: Int?
     /// Why the current values are present, pending, or absent.
     public let availability: Availability
 
     /// The server-side freshness bound for a guest resource sample.
     public static let staleSampleAge: TimeInterval = 90
+
+    /// Free space below which the disk counts as nearly full: 10% of capacity,
+    /// and never less than 3 GiB. The floor covers ext4's root-reserved blocks,
+    /// which the used figure leaves out, and the 1 GiB root reserve plus 2 GiB
+    /// step the guest needs to grow cmux-tui's state filesystem.
+    public static func lowDiskThresholdMb(totalMb: Int) -> Int {
+        max(totalMb / 10, 3072)
+    }
+
+    /// A tooltip and accessibility sentence for a nearly full disk, or nil when there is room.
+    /// - Parameter machineID: The id `cmux vm clean` takes, shown so the action is copyable.
+    public func lowDiskWarning(machineID: String) -> String? {
+        guard lowDiskFreeMb != nil else { return nil }
+        // No free figure here: the Disk reading beside it carries the amounts,
+        // and user writes run out before used reaches capacity (reserved blocks).
+        return String(
+            format: String(
+                localized: "cloudTree.resources.lowDisk",
+                defaultValue: "Disk almost full. Run cmux vm clean %@ --apply or resize the disk to keep this machine reachable."
+            ),
+            machineID
+        )
+    }
 
     /// The three resource details in display order, separated by newlines.
     public var summary: String { [cpu.detail, memory.detail, disk.detail].joined(separator: "\n") }
@@ -175,6 +203,12 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
             unavailable: unavailable,
             placeholder: placeholder
         )
+        if available, let diskUsedMb, let diskTotalMb, diskUsedMb >= 0, diskTotalMb > 0 {
+            let free = max(0, diskTotalMb - diskUsedMb)
+            lowDiskFreeMb = free < Self.lowDiskThresholdMb(totalMb: diskTotalMb) ? free : nil
+        } else {
+            lowDiskFreeMb = nil
+        }
     }
 
 }
