@@ -283,6 +283,25 @@ pub(super) fn forward_accepted(hub: &Arc<Hub>, id: &str, accepted: Value, stored
     }
 }
 
+/// The peer answered as for a prompt id it took before (`peer_forward.rs` `is_duplicate`): the
+/// message it kept may be another one (a direct send, then a `send_queue` retry of its prompt id
+/// with its own delivery id). Nothing is recorded from the answer; the intent reads the
+/// receiver's journal for its own message id, as after a restart, and records the sender's copy
+/// only when the receiver holds it, or fails when its retries run out.
+pub(super) fn forward_unconfirmed(hub: &Arc<Hub>, id: &str) {
+    hub.outbox.update(id, |d| {
+        if d.request.pointer("/_meta/acpmux/forwardProjection").is_none() || d.settled() {
+            return;
+        }
+        d.state = State::Held;
+        d.accepted = None;
+        d.error = Some("the peer took this prompt id before; reading its journal".into());
+    });
+    if hub.outbox.get(id).is_some_and(|d| !d.settled()) {
+        spawn(hub.clone(), id.to_owned());
+    }
+}
+
 pub(super) fn forward_refused(hub: &Arc<Hub>, id: &str, error: &RpcError) {
     hub.outbox.update(id, |d| {
         // A turn can fail after its message was accepted. It cannot undo that

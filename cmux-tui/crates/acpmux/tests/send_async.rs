@@ -365,6 +365,59 @@ async fn concurrent_peer_prompt_retries_record_each_journal_copy_once() {
     }
 }
 
+/// A `send_queue` retry of a prompt id the peer already ran as a direct send is a duplicate
+/// there: the receiver keeps the direct send's message, so the sender's journal must not gain a
+/// second outgoing copy under the retry's delivery id.
+#[tokio::test]
+async fn a_queued_retry_of_a_direct_peer_prompt_adds_no_outgoing_copy() {
+    let (a, b, _busy) = busy_peer("dup-retry", "lane").await;
+    let mut person = C::new(a.clone()).await;
+    let sender = person
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"name": "dup-sender"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    // An idle target: the direct send's turn ends, so the retry's duplicate answers at once.
+    let mut receiver = C::new(b).await;
+    let target = receiver
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"name": "idle-target"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let to = format!("b/{target}");
+    let mut from = C::as_session(a, &sender).await;
+    from.call(method::SESSION_PROMPT, prompt(&to, "direct first", "p-dup")).await.unwrap();
+    let queued =
+        from.call(SEND_QUEUE, json!({"request": prompt(&to, "direct first", "p-dup")})).await;
+    let delivery = queued.unwrap()["deliveryId"].as_str().expect("a delivery id").to_owned();
+    let status =
+        from.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 10_000})).await.unwrap();
+    assert_eq!(status["status"], "delivered", "{status}");
+    // A later prompt's answer comes after the retry's answer was handled.
+    from.call(method::SESSION_PROMPT, prompt(&to, "after", "p-after")).await.unwrap();
+    let ids = |events: Vec<Value>| -> Vec<Value> {
+        events.into_iter().map(|e| e["messageId"].clone()).collect()
+    };
+    assert_eq!(ids(receiver.message_events(&target).await), vec![json!("p-dup"), json!("p-after")]);
+    assert_eq!(
+        ids(person.message_events(&sender).await),
+        vec![json!("p-dup"), json!("p-after")],
+        "the retry's delivery id {delivery} must not appear as a second outgoing message"
+    );
+}
+
 /// A browser's metadata stays untrusted when the prompt crosses a daemon link.
 #[tokio::test]
 async fn web_to_peer_prompt_cannot_forge_message_sender_or_local_journal() {

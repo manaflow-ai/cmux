@@ -188,6 +188,8 @@ async fn peer_reopen_replays_incoming_and_outgoing_messages_without_sender_host(
     let incoming = client.replay_messages("session/load", &format!("remote/{receiver}")).await;
     assert_eq!(incoming.len(), 1, "{incoming:#?}");
     assert_eq!(incoming[0]["sessionId"], receiver);
+    // Routed like the `_acpmux/event` beside it: the chat id is the peer's.
+    assert_eq!(incoming[0]["peer"], "remote", "{incoming:#?}");
     assert_eq!(incoming[0]["sender"]["sessionId"], sender);
     assert_eq!(incoming[0]["text"], "message across the peer");
     assert!(incoming[0]["sender"].get("host").is_none(), "sender host leaked: {incoming:#?}");
@@ -195,6 +197,7 @@ async fn peer_reopen_replays_incoming_and_outgoing_messages_without_sender_host(
     let outgoing = client.replay_messages("session/resume", &format!("remote/{sender}")).await;
     assert_eq!(outgoing.len(), 1, "{outgoing:#?}");
     assert_eq!(outgoing[0]["sessionId"], sender);
+    assert_eq!(outgoing[0]["peer"], "remote", "{outgoing:#?}");
     assert_eq!(outgoing[0]["sender"]["sessionId"], sender);
     assert_eq!(outgoing[0]["text"], "message across the peer");
     assert!(outgoing[0]["sender"].get("host").is_none(), "sender host leaked: {outgoing:#?}");
