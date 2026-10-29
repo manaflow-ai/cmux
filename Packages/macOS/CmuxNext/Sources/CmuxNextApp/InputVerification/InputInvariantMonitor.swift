@@ -241,7 +241,7 @@ final class InputInvariantMonitor {
             (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
                 guard !pane.isSuspended, let key = pane.currentTabKey, pane.stripModel.selectedID?.rawValue == key,
                       let entry = services.cache.existingTerminal(key), let selected = pane.selectedNode else { return nil }
-                let parent = entry.session.surfaceView.visibilityNode.parent
+                let parent = entry.session.surfaceView.tabNode
                 guard parent !== selected else { return nil }
                 return InputViolation(invariant: .terminalUnderSelectedNode, window: controller.state.id,
                                       detail: "pane \(pane.paneKey) tab \(key): its terminal hangs under \(parent?.name ?? "no node"), the pane selected \(selected.name)")
