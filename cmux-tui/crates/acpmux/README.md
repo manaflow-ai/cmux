@@ -170,12 +170,13 @@ raw.
 
 ### Remote ergonomics
 
-Use a non-interactive SSH probe before saving a peer. If the first attempt is
-offline, `acpmux host add` saves the peer, exits 0, and prints a warning to
-stderr. With `--json`, the response instead includes a `warning` object with
-`reason: "peer_unreachable"`, the exact `ssh -o BatchMode=yes HOST true` probe
-in `try`, and `detail: "the peer was saved and will keep reconnecting"`.
-For WebSocket URLs, `try` is `acpmux host ls`. Saving failures remain errors.
+`acpmux host add` saves the peer and returns while connectivity is probed in
+the background. A pending probe is reported on stderr. With `--json`, the
+response instead includes a `warning` object with `reason: "peer_probing"`,
+the exact `ssh -o BatchMode=yes HOST true` probe in `try`, and
+`detail: "the peer was saved and is probing in the background"`.
+For WebSocket URLs, `try` is `acpmux host ls`. Check `acpmux host ls` for the
+connection result. Saving failures remain errors.
 Peer requests that cannot be sent include `acpmux host ls` and state that the
 request was not sent. A method rejected by an older peer is reported as
 `peer_version_skew` with `acpmux host update NAME`; status adds the peer's
@@ -993,8 +994,10 @@ the workspace may move focus. Add
 `--name demo --reuse` when rerunning should reuse the same
 session and row; an unnamed launch creates a new session each time. The
 invoking Mac needs `cmux` on PATH and the app must use the daemon that mirrors
-HOST. A failed sidebar open warns without stopping the agent; retry the
-printed `cmux agent open` command. Wrappers executing acpmux on HOST should
+HOST. A failed sidebar open returns a nonzero error after creating the session and
+preserving its first prompt; the error prints the exact `cmux agent open`
+command to retry. If the app's bundled CLI is stale or not executable, acpmux
+falls back to `cmux` on PATH. Wrappers executing acpmux on HOST should
 omit `--group` remotely and open the returned ID on the controller Mac after
 creation. See [remote agents](../../../docs/remote-agents-and-cloud.md) for
 native tab commands and connection diagnostics.
