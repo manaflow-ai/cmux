@@ -117,7 +117,7 @@ describe("Stripe catalog provisioning", () => {
     expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
   });
 
-  test("renames the Plus product to cmux Plus in place", async () => {
+  test("renames the legacy Starter product to cmux Plus in place", async () => {
     const result = await runProvision("test", "valid");
 
     expect(result.exitCode).toBe(0);
@@ -427,7 +427,7 @@ const respond = (value) => {
 const products = {
   starter: {
     id: "prod_starter",
-    name: scenario === "plus-renamed" ? "cmux Plus" : "cmux Plus",
+    name: scenario === "plus-renamed" ? "cmux Plus" : "cmux Starter",
     active: true,
     metadata: { app: "cmux", plan: "go" },
   },

@@ -125,6 +125,11 @@ function createResourceFields(resourceReservation: { readonly vcpus: number; rea
   };
 }
 
+/** The quota uses account scope for Plus and the shared billing scope for other plans. */
+function savedMachineListCount(userId: string, billingTeamId: string | null, entitlements: VmEntitlements | null) {
+  return countSavedUserVms(userId, entitlements?.planId === "go" ? undefined : billingTeamId || userId);
+}
+
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
     request,
@@ -249,9 +254,7 @@ export async function GET(request: Request): Promise<Response> {
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       // Count allocations before a provider ID exists as well as visible machines.
       // Plus is account-wide; other plans share the create admission billing scope.
-      const counted = await runVmRoute(countSavedUserVms(
-        user.id, listEntitlements?.planId === "go" ? undefined : billingTeamId || user.id,
-      ), { request });
+      const counted = await runVmRoute(savedMachineListCount(user.id, billingTeamId, listEntitlements), { request });
       if (!counted.ok) return counted.response;
       const savedVmCount = counted.value;
       const limits = listEntitlements

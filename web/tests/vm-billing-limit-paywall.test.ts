@@ -272,7 +272,7 @@ describe("active-limit response as the paywall moment", () => {
     });
     const payload = await body(response);
     expect(String(payload.message)).toEndWith(
-      " 現在カウント中: solar-olive-bee、happy-tan-warbler（プロビジョニング中）。一時停止中のマシンはカウントされません。",
+      " カウント対象: solar-olive-bee、happy-tan-warbler（プロビジョニング中）。一時停止中のマシンも上限に含まれます。",
     );
   });
 });

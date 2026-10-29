@@ -3545,6 +3545,7 @@ describe("VM Effect workflows", () => {
     let providerImageSize: { name: string; cpu: number; memoryMb: number; storageMb: number } | null = null;
     let usageEventAttempts = 0;
     const repo: VmRepositoryShape = {
+      countSavedUserVms: () => Effect.succeed(0),
       listUserVms: () => Effect.succeed([]),
       claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
       markBillingGrantApplied: () => Effect.void,
@@ -3663,7 +3664,7 @@ describe("VM Effect workflows", () => {
     const reserved = await Effect.runPromise(vmRepositoryLiveShape.reservePausedResume({
       id: row.id, userId, billingTeamId: userId, providerVmId: `plus-provider-${imageSize.name}`, maxActiveVms: 1,
     }));
-    expect(reserved?.status).toBe("provisioning");
+    expect(reserved?.status).toBe("running");
   });
 
   dbTest("replaces a destroyed Plus idempotent row without a billing-period or hour gate", async () => {
@@ -6098,7 +6099,7 @@ describe("VM Effect workflows", () => {
     expect(createCalls).toBe(1);
   });
 
-  dbTest("refreshes Freestyle running rows before active limit enforcement", async () => {
+  dbTest("refreshes Freestyle running rows before saved limit refusal", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
@@ -6132,7 +6133,7 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
+    const error = await Effect.runPromise(
       createVm({
         userId: "user-workflow-provider-paused-new",
         billingCustomerType: "team",
@@ -6142,12 +6143,12 @@ describe("VM Effect workflows", () => {
         provider: "freestyle",
         image: "snapshot-test",
         idempotencyKey: "provider-paused-new",
-      }).pipe(Effect.provide(providerLayer(provider))),
+      }).pipe(Effect.flip, Effect.provide(providerLayer(provider))),
     );
 
-    expect(created.providerVmId).toBe("provider-vm-provider-paused-new");
+    expect(error).toBeInstanceOf(VmLimitExceededError);
     expect(statusCalls).toBe(1);
-    expect(createCalls).toBe(1);
+    expect(createCalls).toBe(0);
 
     const [oldVm] = await sql<{ status: string }[]>`
       select status from cloud_vms
@@ -6235,7 +6236,7 @@ describe("VM Effect workflows", () => {
     expect(destroyedUsageCount).toBe("1");
   });
 
-  dbTest("refreshes Freestyle running rows concurrently before active limit enforcement", async () => {
+  dbTest("refreshes Freestyle running rows concurrently before saved limit refusal", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     await sql`
@@ -6277,7 +6278,7 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const created = await Effect.runPromise(
+    const error = await Effect.runPromise(
       createVm({
         userId: "user-workflow-provider-concurrent-new",
         billingCustomerType: "team",
@@ -6287,13 +6288,13 @@ describe("VM Effect workflows", () => {
         provider: "freestyle",
         image: "snapshot-test",
         idempotencyKey: "provider-concurrent-new",
-      }).pipe(Effect.provide(providerLayer(provider))),
+      }).pipe(Effect.flip, Effect.provide(providerLayer(provider))),
     );
 
-    expect(created.providerVmId).toBe("provider-vm-provider-concurrent-new");
+    expect(error).toBeInstanceOf(VmLimitExceededError);
     expect(statusCalls).toBe(2);
     expect(maxInFlight).toBe(2);
-    expect(createCalls).toBe(1);
+    expect(createCalls).toBe(0);
 
     const [{ oldRunningCount }] = await sql<{ oldRunningCount: string }[]>`
       select count(*)::text as "oldRunningCount" from cloud_vms
@@ -8168,6 +8169,7 @@ function testWorkflowRepo(input: {
   }>;
 }): VmRepositoryShape {
   return {
+    countSavedUserVms: () => Effect.succeed(0),
     listUserVms: () => Effect.succeed([]),
     setDisplayName: () => Effect.succeed(true),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),

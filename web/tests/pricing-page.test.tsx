@@ -324,7 +324,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("Get Plus");
     expect(html).toContain("$15");
     expect(html).toContain("No monthly hour cap");
-    expect(html).toContain("1 Cloud VM");
+    expect(html).toContain("1 saved VM total, including paused machines");
     expect(html).toContain("2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");

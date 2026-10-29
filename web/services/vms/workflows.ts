@@ -1418,7 +1418,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
             : undefined,
         runtimeBudgetSeconds,
         memoryMb: input.memoryMb,
-        imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
+        imageSize: input.imageSize,
         edgeRules: materials?.edgeRules,
         networkRules,
         network: { id: network.providerNetworkId, memberIngress: network.memberIngress },
