@@ -39,7 +39,23 @@ extension TerminalSurfaceView {
         updateOcclusion()
         updateFocus()
         // The edge to shown only: a flip between visible and occluded keeps the layout ready (it sized all along).
-        if shown, !reconciledShown { reconcileShown() }
-        reconciledShown = shown
+        // `sizesToBounds` is set before the reconcile, which sizes through it.
+        let wasSizing = sizesToBounds
+        sizesToBounds = shown
+        if shown, !wasSizing { reconcileShown() }
+    }
+}
+
+extension TerminalSurfaceView {
+    /// The window node and every node above it, "name own/effective" (``TerminalSurfaceDiagnostics/nodeChain``).
+    /// A chain that ends before a window's node (a detached tab node) shows why a terminal is never shown.
+    var nodeChain: [String] {
+        var chain: [String] = []
+        var node: VisibilityNode? = windowNode
+        while let current = node, chain.count < 16 {
+            chain.append("\(current.name) \(current.own)/\(current.effective)")
+            node = current.parent
+        }
+        return chain
     }
 }

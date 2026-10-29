@@ -7,7 +7,7 @@ import Testing
 
 /// A hidden workspace's terminals do no resize work (PL-script A3): every layout change of a hidden or
 /// parked terminal used to size its Ghostty surface (`ghostty_surface_set_size`) and send its PTY a new
-/// grid. Hidden, it records the size only; shown again, it applies the last size once.
+/// grid. Hidden, it does no size work; shown again, it sizes from its bounds once (`reconcileShown`).
 @MainActor @Suite(.serialized) struct TerminalHiddenResizeTests {
     @Test func layoutChangesOfAHiddenTerminalSizeNothingUntilItIsShownThenOnce() async throws {
         _ = NSApplication.shared

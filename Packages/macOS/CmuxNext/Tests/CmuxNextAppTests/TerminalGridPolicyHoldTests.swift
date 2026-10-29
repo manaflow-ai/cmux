@@ -58,4 +58,34 @@ import Testing
         _ = policy.viewSized(grid(100, 30), holding: true)
         #expect(policy.releaseHeld() == nil)
     }
+
+    /// A new owner (`ownerNeedsReport`) gets the grid the view already reported to the old one, at its next sizing.
+    @Test func aNewOwnerGetsTheSameGridAgain() {
+        var policy = TerminalGridPolicy(ownsGeometry: true)
+        #expect(policy.viewSized(grid(80, 24)) == grid(80, 24))
+        #expect(policy.viewSized(grid(80, 24)) == nil)
+        policy.ownerNeedsReport()
+        #expect(policy.viewSized(grid(80, 24)) == grid(80, 24), "a new owner got no grid")
+        #expect(policy.viewSized(grid(80, 24)) == nil)
+    }
+
+    /// A new owner while the view is on a pane spring at the grid the old owner had gets that grid when the
+    /// spring lands, once (without `ownerNeedsReport` nothing is held, and the landing reports nothing).
+    @Test func aNewOwnerDuringAHoldGetsTheHeldGridWhenTheSpringLands() {
+        var policy = TerminalGridPolicy(ownsGeometry: true)
+        #expect(policy.viewSized(grid(80, 24)) == grid(80, 24))
+        policy.ownerNeedsReport()
+        #expect(policy.viewSized(grid(80, 24), holding: true) == nil, "a held grid was reported mid-spring")
+        #expect(policy.releaseHeld() == grid(80, 24), "the new owner got no grid when the spring landed")
+        #expect(policy.releaseHeld() == nil)
+    }
+
+    /// A new owner during a spring whose final grid the view reported at its start gets the final grid.
+    @Test func aNewOwnerDuringASpringGetsItsFinalGrid() {
+        var policy = TerminalGridPolicy(ownsGeometry: true)
+        _ = policy.viewSized(grid(80, 24))
+        #expect(policy.finalSized(grid(120, 40)) == grid(120, 40))
+        policy.ownerNeedsReport()
+        #expect(policy.finalSized(grid(120, 40)) == grid(120, 40), "a new owner did not get the spring's final grid")
+    }
 }

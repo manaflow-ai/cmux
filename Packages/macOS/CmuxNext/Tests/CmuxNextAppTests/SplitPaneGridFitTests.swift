@@ -137,6 +137,9 @@ struct SplitPaneGridFitTests {
                                  stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
+        // A test process has no launch to start libghostty: without it no terminal has a surface (grid and fit
+        // nil), and every wait below times out in set-up (green 634d083c3bab24e7aefd8cf3, and the base).
+        GhosttyRuntime.startedForTests()
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.daemon.start {
