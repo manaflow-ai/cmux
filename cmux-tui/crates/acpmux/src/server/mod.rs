@@ -1623,7 +1623,21 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     if let Some(sub) = &sub
         && rec.dir != "peer"
     {
-        if sub.event_stream {
+        // A session message a `session/load` replay already sent here, as its envelope or its
+        // notice, is not sent again (`MessageNotices`); an event stream hears only the kinds it
+        // asked for, this notice too.
+        let message = rec.dir == "mux" && rec.kind == "_acpmux/message";
+        let heard = !sub.event_stream || sub.filter.matches(rec);
+        let repeat = message
+            && heard
+            && conn
+                .message_notices
+                .lock_or_recover()
+                .get_mut(&ev.session_id)
+                .is_some_and(|n| !n.live(rec.seq));
+        if repeat {
+            // Sent by the replay.
+        } else if sub.event_stream {
             if sub.filter.matches(rec) {
                 conn.send(&Message::notification(
                     method::MUX_EVENT,
@@ -1652,16 +1666,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 ));
             }
         }
-        // An event stream hears only the kinds it asked for, this notice too.
-        if rec.dir == "mux"
-            && rec.kind == "_acpmux/message"
-            && (!sub.event_stream || sub.filter.matches(rec))
-        {
-            let mut notices = conn.message_notices.lock_or_recover();
-            if notices.get_mut(&ev.session_id).is_none_or(|n| n.live(rec.seq)) {
-                // Routed as the event beside it: a peer's chat id alone may match one here.
-                conn.send(&Message::notification(method::MUX_MESSAGE, routed(rec.msg.clone())));
-            }
+        if message && heard && !repeat {
+            // Routed as the event beside it: a peer's chat id alone may match one here.
+            conn.send(&Message::notification(method::MUX_MESSAGE, routed(rec.msg.clone())));
         }
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(

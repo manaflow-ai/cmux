@@ -150,6 +150,17 @@ impl Client {
 
 #[tokio::test]
 async fn peer_reopen_replays_incoming_and_outgoing_messages_without_sender_host() {
+    reopen_replays_messages(true).await;
+}
+
+/// A peer added with the dashboard token alone (served as Web, `peer.rs` withholds the peer token
+/// on a plain non-loopback link) replays them too: its link takes the event envelopes its hub reads.
+#[tokio::test]
+async fn a_dashboard_token_peer_reopen_replays_its_messages() {
+    reopen_replays_messages(false).await;
+}
+
+async fn reopen_replays_messages(with_peer_token: bool) {
     let root = std::env::temp_dir().join(format!("peer-message-replay-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).unwrap();
     let local = hub(&root);
@@ -171,7 +182,7 @@ async fn peer_reopen_replays_incoming_and_outgoing_messages_without_sender_host(
             "remote",
             &format!("ws://127.0.0.1:{port}"),
             Some("test-token".into()),
-            Some(peer_token),
+            with_peer_token.then_some(peer_token),
             true,
         )
         .await
@@ -192,7 +203,9 @@ async fn peer_reopen_replays_incoming_and_outgoing_messages_without_sender_host(
     assert_eq!(incoming[0]["peer"], "remote", "{incoming:#?}");
     assert_eq!(incoming[0]["sender"]["sessionId"], sender);
     assert_eq!(incoming[0]["text"], "message across the peer");
-    assert!(incoming[0]["sender"].get("host").is_none(), "sender host leaked: {incoming:#?}");
+    if with_peer_token {
+        assert!(incoming[0]["sender"].get("host").is_none(), "sender host leaked: {incoming:#?}");
+    }
 
     let outgoing = client.replay_messages("session/resume", &format!("remote/{sender}")).await;
     assert_eq!(outgoing.len(), 1, "{outgoing:#?}");
@@ -200,7 +213,9 @@ async fn peer_reopen_replays_incoming_and_outgoing_messages_without_sender_host(
     assert_eq!(outgoing[0]["peer"], "remote", "{outgoing:#?}");
     assert_eq!(outgoing[0]["sender"]["sessionId"], sender);
     assert_eq!(outgoing[0]["text"], "message across the peer");
-    assert!(outgoing[0]["sender"].get("host").is_none(), "sender host leaked: {outgoing:#?}");
+    if with_peer_token {
+        assert!(outgoing[0]["sender"].get("host").is_none(), "sender host leaked: {outgoing:#?}");
+    }
 
     // Reopening each mirrored chat replays the same projections.
     assert_eq!(

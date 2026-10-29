@@ -48,7 +48,7 @@ fn open(conn: &Conn) -> bool {
 /// (`hub/presence.rs`): served as Peer, or, added with the dashboard token, served as Web but
 /// named `acpmux-peer` in `initialize` (`peer.rs`). Any client may take that name; it only
 /// keeps that client out of presence.
-fn a_link(conn: &Conn) -> bool {
+pub(super) fn a_link(conn: &Conn) -> bool {
     conn.origin == Origin::Peer || *conn.name.lock_or_recover() == crate::peer::CLIENT_NAME
 }
 

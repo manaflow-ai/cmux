@@ -1123,20 +1123,24 @@ async fn dispatch_request(
                         json!({"sessionId": s.id, "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}, "_meta": {"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}}}),
                     ));
                 } else if rec.dir == "mux" && rec.kind == "_acpmux/message" {
-                    // A peer connection must receive the event envelope so its hub can
-                    // retain the sequence and replay it after reconnect. Person/app clients
-                    // keep the compact message notification they already consume.
-                    if conn.origin == super::Origin::Peer {
+                    // Once, whether the live stream or this replay sends it first.
+                    let fresh = conn
+                        .message_notices
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get_mut(&s.id)
+                        .is_none_or(|n| n.replay(rec.seq));
+                    // Another daemon's link, served as Peer or added with the dashboard token
+                    // (`view::a_link`), takes the event envelope, so its hub keeps the sequence
+                    // and replays it after a reconnect: its hub reads no compact notice.
+                    // Person/app clients keep the compact notice they already consume.
+                    if fresh && super::view::a_link(conn) {
                         conn.send(&Message::notification(
                             method::MUX_EVENT,
                             super::event_value(&s.id, &rec),
                         ));
-                    } else {
-                        let mut notices =
-                            conn.message_notices.lock().unwrap_or_else(|e| e.into_inner());
-                        if notices.get_mut(&s.id).is_none_or(|n| n.replay(rec.seq)) {
-                            conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
-                        }
+                    } else if fresh {
+                        conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
                     }
                 } else if rec.dir == "in"
                     && !rec.kind.ends_with(".replay")
