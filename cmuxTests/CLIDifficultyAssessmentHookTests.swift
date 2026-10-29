@@ -157,53 +157,35 @@ struct CLIDifficultyAssessmentHookTests {
 
     // MARK: - This turn's reply (Claude Code writes it after the async Stop hook starts)
 
+    private static let step7 = "Redesign the sync engine, step 7"
+
     /// The transcript ends with the new prompt when the hook starts; its reply lands 300 ms
     /// after the hook's probe. The rating pairs the prompt with that reply, not the previous one.
     @Test func ratesTheReplyThatLandsAfterTheHookStarts() throws {
         let reply = "Cut the sync engine over in three phases."
-        let run = try Fixture(
-            probe: Probe(),
-            answer: "Hard.",
-            transcript: Fixture.sixExchanges + [Fixture.userLine("Redesign the sync engine, step 7")],
-            lateReply: reply
-        )
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)], lateReply: reply)
         defer { run.cleanup() }
         try run.stop()
-        let prompts = run.classifierPrompts()
-        #expect(prompts.count == 1)
-        #expect(prompts.first?.contains("<user_message>\nRedesign the sync engine, step 7\n</user_message>") == true)
-        #expect(
-            prompts.first?.contains("<assistant_message>\n\(reply)\n</assistant_message>") == true,
-            "the rating must see this turn's reply; saw \(prompts)"
-        )
+        #expect(run.classifierPrompts().count == 1)
+        #expect(run.rated(user: Self.step7, reply: reply), "the rating must see this turn's reply; saw \(run.classifierPrompts())")
         #expect(run.priorityParams().first?["difficulty"] as? String == "hard")
     }
 
     /// A new conversation's first turn: only the prompt is on disk when the hook starts.
     @Test func ratesTheFirstTurnOfAConversation() throws {
         let reply = "Here is the migration plan."
-        let run = try Fixture(
-            probe: Probe(),
-            answer: "Hard.",
-            transcript: [Fixture.userLine("Plan a zero-downtime migration to async/await.")],
-            lateReply: reply
-        )
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: [Fixture.userLine("Plan a zero-downtime migration.")], lateReply: reply)
         defer { run.cleanup() }
         try run.stop()
-        let prompts = run.classifierPrompts()
-        #expect(prompts.count == 1, "the first turn must be rated")
-        #expect(prompts.first?.contains("<assistant_message>\n\(reply)\n</assistant_message>") == true)
+        #expect(run.classifierPrompts().count == 1, "the first turn must be rated")
+        #expect(run.rated(reply: reply))
         #expect(run.priorityParams().first?["difficulty"] as? String == "hard")
     }
 
     /// No reply within the wait: no call, rather than pairing the prompt with an older reply.
     /// The skip does not start the 3 minute window, so the next turn end is rated.
     @Test func makesNoCallWhenNoReplyArrives() throws {
-        let run = try Fixture(
-            probe: Probe(),
-            answer: "Hard.",
-            transcript: Fixture.sixExchanges + [Fixture.userLine("Redesign the sync engine, step 7")]
-        )
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)])
         defer { run.cleanup() }
         try run.stop()
         #expect(run.classifierPrompts().isEmpty, "a prompt must never be rated with the previous turn's reply")
@@ -212,55 +194,48 @@ struct CLIDifficultyAssessmentHookTests {
         try run.appendToTranscript(Fixture.assistantLine("Step 7 is mapped."))
         try run.stop()
         #expect(run.classifierPrompts().count == 1)
-        #expect(run.classifierPrompts().first?.contains("<assistant_message>\nStep 7 is mapped.\n</assistant_message>") == true)
+        #expect(run.rated(user: Self.step7, reply: "Step 7 is mapped."))
     }
 
     /// Claude Code passes the turn's final reply to the `Stop` hook as `last_assistant_message`;
     /// it is used even before it reaches the transcript.
     @Test func usesTheReplyTheStopInputCarries() throws {
         let reply = "Planned the cut-over for step 7."
-        let run = try Fixture(
-            probe: Probe(),
-            answer: "Hard.",
-            transcript: Fixture.sixExchanges + [Fixture.userLine("Redesign the sync engine, step 7")]
-        )
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)])
         defer { run.cleanup() }
         try run.stop(lastAssistantMessage: reply)
-        let prompts = run.classifierPrompts()
-        #expect(prompts.count == 1)
-        #expect(prompts.first?.contains("<user_message>\nRedesign the sync engine, step 7\n</user_message>") == true)
-        #expect(prompts.first?.contains("<assistant_message>\n\(reply)\n</assistant_message>") == true, "saw \(prompts)")
+        #expect(run.classifierPrompts().count == 1)
+        #expect(run.rated(user: Self.step7, reply: reply), "saw \(run.classifierPrompts())")
     }
 
-    /// Auto-naming's call ran first; meanwhile the reply reached the transcript and the user sent
-    /// the next prompt. The Stop input's reply is rated with its own prompt, not the next one.
-    @Test func pairsTheStopInputReplyWithItsOwnPromptAfterANewerOne() throws {
-        let reply = "Planned the cut-over for step 7."
-        let run = try Fixture(
-            probe: Probe(),
-            answer: "Hard.",
-            transcript: Fixture.sixExchanges + [
-                Fixture.userLine("Redesign the sync engine, step 7"),
-                Fixture.assistantLine(reply),
-                Fixture.userLine("Now rename the README title."),
-            ]
-        )
+    /// An earlier turn ended with the same reply text, and this turn's reply reaches the transcript
+    /// only after the hook starts: the rated prompt is still this turn's.
+    @Test func ratesThisTurnsPromptWhenAnEarlierReplyWasTheSame() throws {
+        let prompt = "Design a multi-region Postgres failover, then reply with exactly OK."
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: [
+            Fixture.userLine("Remember the codeword TANGERINE. Reply with exactly OK."), Fixture.assistantLine("OK"),
+            Fixture.userLine(prompt),
+        ], lateReply: "OK")
         defer { run.cleanup() }
-        try run.stop(lastAssistantMessage: reply)
-        let prompts = run.classifierPrompts()
-        #expect(prompts.count == 1)
-        #expect(
-            prompts.first?.contains("<user_message>\nRedesign the sync engine, step 7\n</user_message>") == true,
-            "the reply must be rated with its own prompt; saw \(prompts)"
-        )
+        try run.stop(lastAssistantMessage: "OK")
+        #expect(run.classifierPrompts().count == 1)
+        #expect(run.rated(user: prompt, reply: "OK"), "saw \(run.classifierPrompts())")
+    }
+
+    /// The user sends the next prompt during auto-naming's call, before the rating reads anything:
+    /// the Stop input's reply is still rated with this turn's prompt.
+    @Test func keepsThisTurnsPromptWhenTheNextOneArrivesDuringNaming() throws {
+        let next = Fixture.userLine("Now rename the README title.")
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)], duringNaming: [next])
+        defer { run.cleanup() }
+        try run.stop(lastAssistantMessage: "Planned the cut-over for step 7.")
+        #expect(try String(contentsOf: run.transcript, encoding: .utf8).hasSuffix(next + "\n"), "naming must have run")
+        #expect(run.classifierPrompts().count == 1)
+        #expect(run.rated(user: Self.step7), "saw \(run.classifierPrompts())")
     }
 
     @Test func ratesAFirstTurnFromTheStopInput() throws {
-        let run = try Fixture(
-            probe: Probe(),
-            answer: "Hard.",
-            transcript: [Fixture.userLine("Plan a zero-downtime migration to async/await.")]
-        )
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: [Fixture.userLine("Plan a zero-downtime migration.")])
         defer { run.cleanup() }
         try run.stop(lastAssistantMessage: "Here is the migration plan.")
         #expect(run.classifierPrompts().count == 1, "the first turn must be rated")
@@ -301,12 +276,15 @@ private struct Fixture {
     /// - Parameter lateReply: an assistant line appended to the transcript 300 ms after the
     ///   hook's difficulty probe reaches cmux, as Claude Code writes the turn's reply after the
     ///   async `Stop` hook has started.
+    /// - Parameter duringNaming: lines the fake `claude` appends while it answers auto-naming's
+    ///   prompt, as the user sends the next prompt during that call.
     init(
         probe: Tests.Probe,
         answer: String,
         paneEffort: String? = nil,
         transcript lines: [String] = Fixture.sixExchanges,
-        lateReply: String? = nil
+        lateReply: String? = nil,
+        duringNaming: [String] = []
     ) throws {
         context = try Harness.makeContext(name: "difficulty-hook")
         self.paneEffort = paneEffort
@@ -314,6 +292,10 @@ private struct Fixture {
 
         transcript = context.root.appendingPathComponent("transcript.jsonl")
         try (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        let pending = context.root.appendingPathComponent("during-naming.jsonl")
+        if !duringNaming.isEmpty {
+            try (duringNaming.joined(separator: "\n") + "\n").write(to: pending, atomically: true, encoding: .utf8)
+        }
 
         // Answers the rating prompt with `answer`, logging the prompt and the effort it ran at;
         // answers auto-naming's prompt with a title.
@@ -330,6 +312,9 @@ private struct Fixture {
             printf '%s\\n' '\(answer)'
             ;;
           *)
+            if [ -f '\(pending.path)' ]; then
+              cat '\(pending.path)' >> '\(transcript.path)' && mv '\(pending.path)' '\(pending.path).done'
+            fi
             printf '%s\\n' 'Sync engine redesign'
             ;;
         esac
@@ -398,6 +383,13 @@ private struct Fixture {
     }
 
     /// The prompt of each rating call, one per call.
+    /// Whether the first rating call's prompt held `user` as the prompt and `reply` as the reply.
+    func rated(user: String? = nil, reply: String? = nil) -> Bool {
+        guard let prompt = classifierPrompts().first else { return false }
+        let blocks = [user.map { "<user_message>\n\($0)\n</user_message>" }, reply.map { "<assistant_message>\n\($0)\n</assistant_message>" }]
+        return blocks.compactMap { $0 }.allSatisfy { prompt.contains($0) }
+    }
+
     func classifierPrompts() -> [String] {
         guard let text = try? String(contentsOf: promptLog, encoding: .utf8) else { return [] }
         return text.components(separatedBy: Self.promptSeparator + "\n").filter { !$0.isEmpty }
