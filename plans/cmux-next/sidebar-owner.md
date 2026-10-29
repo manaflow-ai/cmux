@@ -542,3 +542,17 @@ existing colors, glass, row geometry and drag behavior.
 ## Scrolled rows hide under the traffic lights (2026-10-29)
 
 - [f19e4c28604](https://github.com/manaflow-ai/cmux/commit/f19e4c28604) (PR [#24073](https://github.com/manaflow-ai/cmux/pull/24073), test first in 0ccf76674b7). Asked by the coordinator after live QA on nightly 3a63d6d9 ("Agents" header pill beside the traffic lights), verbatim: "keep the list starting level with the panes at rest. When the list is scrolled, extend the top mask so content scrolling under the traffic lights is clipped and faded below the lights (y≈titlebarHeight). Don't use max(tabStripHeight, titlebarHeight) at rest." Look change only while scrolled: `ScrollEdgeFadeView.topClip` clears the mask down to `Metrics.titlebarHeight` when the traffic lights are over this sidebar, and the 18 pt top fade starts below it. At rest the mask, row positions and the list's top are unchanged. The commit predates its branch's first `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `SidebarTopMaskTests`.
+
+## Sidebar layout grid (2026-10-29)
+
+Leo: "We need to have the fucking shit aligned on fucking grids and lines and whatever the fuck."
+The decided `leo-workspace/design/grid.md` supersedes the older row inset and text-without-icon
+positions above. `SidebarColumns` is the one layout source: highlight inset 8, lead 16, text 40
+(compact) or 44 (comfortable), actual nesting steps 16, trailing center 24 from the sidebar edge
+at both densities, subsequent marks at 20-point pitches. Row heights keep `Metrics.sidebarRowHeight` (24/32 by interface density); section heights keep
+the existing density calculation. The vertical highlight inset is 2 points. Text capitals center on the row midline; multiple lines align marks
+with the first line. Empty icon slots keep the same text column. Section labels use lead.
+The workspace tab caret keeps #27165's position beside the name and #27237's stable hover target;
+it is a name disclosure rather than a trailing mark. Wide badges grow inward and reserve whole
+pitches, preserving their content without moving the outer trail line. No mark or density is removed.
+`SidebarGridAlignmentTests` covers the row kinds and pure layout without a window.

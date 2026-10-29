@@ -54,7 +54,8 @@ extension WorkspaceRowView {
     /// row shows (the disclosure, a count, the keycap, the hover close and more) sits left of it,
     /// so a selected row's dot does not move. Never on the leading icon.
     func layoutColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
-        let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
+        let columns = SidebarStyle.columns(rowWidth: rowWidth)
+        let column = columns.trailingCenter()
         let view: NSView
         if !rowBadge.isHidden {
             // Whole points, so each glyph in its cell lands on the pixel grid at 1x and 2x.
@@ -70,7 +71,7 @@ extension WorkspaceRowView {
         } else {
             return nil
         }
-        return (view, min(view.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth)) - Metrics.space2)
+        return (view, columns.trailingEdge(before: view.frame))
     }
 
     /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's background.

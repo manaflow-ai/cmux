@@ -6,17 +6,9 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    /// How much shorter than the list's inset a row ends on the right: negative, so a row's fill runs
-    /// past the inset to `rowEdgeGap` from the sidebar's right edge. #22733 stopped the pills
-    /// `Metrics.space4` short of the sidebar's edge; Leo 2026-10-21 took it back ("bring back the
-    /// length, so we can have more content per sidebar row"), and 2026-10-27 shrank what was left
-    /// ("the sidebar workspace highlight button area ... The gap between the row and the, you know,
-    /// the drag, the actual sidebar end"). Pinned rows and list blocks read it too, so every row
-    /// still ends at one x; the left inset and the content's insets inside the fill are unchanged.
+    /// Every row highlight ends on the same outer inset.
     static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
-    /// The space between a row's fill and the sidebar's right edge (Leo 2026-10-27: "like say one or
-    /// two pixels, 1.5").
-    static let rowEdgeGap: CGFloat = 1.5
+    static var rowEdgeGap: CGFloat { SidebarDensityTokens.horizontalInset }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -25,7 +17,7 @@ enum SidebarStyle {
     /// Placeholder bar widths, as shares of the title width.
     static let placeholderFractions: [CGFloat] = [0.72, 0.5, 0.62]
     /// Icon frame; the glyph inside is `kindGlyphSize`.
-    static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space2 }
+    static var iconBox: CGFloat { SidebarDensityTokens.iconBox }
     /// The one leading icon column (Leo 2026-10-28: "the alignment"): in a row whose leading slot starts at `leading`,
     /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
     /// `iconBox` wide, so glyphs of different shapes and margins share one center x at every density.
@@ -33,24 +25,14 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
-    /// Where a list row's title text starts when its leading icon slot begins at `leading`.
-    ///
-    /// No icon (`iconSide` 0): at `leading`, as far left as the row allows (Lawrence 2026-10-23: "text
-    /// needs to be as left as possible (how it originally was)"; c779988d57d had kept an empty slot).
-    /// An icon: a Chrome-like 6 pt after the glyph's drawing (it draws at `kindGlyphSize`, centered in its
-    /// box). A color swatch: 6 pt after the swatch's box.
+    /// Every title keeps the text column, including a row without an icon.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
-        guard iconSide > 0 else { return leading }
-        if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
-        return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
+        columns(rowWidth: 0, leadingOffset: leading - horizontalInset).text
     }
-    /// The one text column after a leading glyph in a row whose first ink starts at `leading`: Home's and every
-    /// band row's label, a pinned row's title (after its pin), a workspace row's title after its icon. Lawrence
-    /// 2026-10-28: "home and pinned are not aligned".
-    static func leadingTextX(leading: CGFloat) -> CGFloat { titleTextX(leading: leading, iconSide: iconBox) }
+    static func leadingTextX(leading: CGFloat) -> CGFloat { columns(rowWidth: 0, leadingOffset: leading - horizontalInset).text }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
-    static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
+    static var controlSize: CGFloat { LayoutGrid.iconBox }
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
     static var indicatorSize: CGFloat { Metrics.statusMarkSize }
     /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
@@ -107,10 +89,8 @@ enum SidebarStyle {
     }
     /// `detailLineHeight` for the last caption font: every row layout and render state reads it.
     private static var detailLine: (font: NSFont, height: CGFloat)?
-    /// Where a workspace title without a custom icon starts: rows draw no
-    /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
-    /// their name here too.
-    static var titleLeading: CGFloat { horizontalInset }
+    /// Section headers start on lead; content rows keep their text column without an icon.
+    static var titleLeading: CGFloat { columns(rowWidth: 0).lead }
     /// The size a group header's name, glyphs, buttons and corner scale from: 26 of a 32 pt row,
     /// scaled with the row height. The colored bar itself fills the row, as tall as a workspace
     /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
@@ -134,7 +114,7 @@ enum SidebarStyle {
     static var groupBarWidth: CGFloat { Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     /// One nesting step: a nested group's rows move in this far per level below the top.
-    static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
+    static var groupGutter: CGFloat { SidebarDensityTokens.depthIndent }
     /// How far a row at group level `depth` (`SidebarRow.depth`) moves in from the list's inset.
     /// A top-level group's header and members line up with ungrouped rows: same leading x, same
     /// pill width (Leo 2026-10-21: "THE STUPID INDENT, IS THAT CHROME???? WHY IS THERE INDENT ON
@@ -152,7 +132,7 @@ enum SidebarStyle {
     /// The least room a group header's bar and rail keep from the list's left edge (Lawrence 2026-10-25: "groups
     /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. One inset less than the
     /// rows' (4 pt compact, 6 pt comfortable), at every level and in Minimal Mode.
-    static var groupEdgePadding: CGFloat { max(0, horizontalInset - Metrics.space1) }
+    static var groupEdgePadding: CGFloat { horizontalInset }
     /// The cut between a header's bar and its members' line: Chrome's (Leo 2026-10-19: "chrome has a neat little
     /// cut line"). A `joined` line has none.
     static var groupLineCut: CGFloat { Metrics.space3 }
@@ -172,7 +152,7 @@ enum SidebarStyle {
     static var badgeFont: NSFont { Typography.system(.monospacedDigit, size: Typography.shortcut.pointSize, weight: .medium) }
     /// How far an AppKit label cell draws its text inside its frame: a label
     /// sits this much before the edge its text aligns to.
-    static var labelCellPadding: CGFloat { Metrics.space1 }
+    static var labelCellPadding: CGFloat { LayoutGrid.halfStep }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
     static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: titleFont.pointSize, weight: .regular) }
     /// A header's disclosure chevron, filling its `Metrics.smallIconSize` box.

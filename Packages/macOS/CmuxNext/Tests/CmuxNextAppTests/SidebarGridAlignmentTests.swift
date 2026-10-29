@@ -159,3 +159,116 @@ import Testing
         return result
     }
 }
+
+extension SidebarGridAlignmentTests {
+    @Test(arguments: cases)
+    func pureColumnsKeepIconDisclosureTextAndTrailingBoxesOnTheirLines(_ c: Case) {
+        let columns = SidebarColumns(rowWidth: 304, comfortable: c.comfortable, depth: c.depth)
+        let height: CGFloat = c.comfortable ? 32 : 24
+        let icon = columns.iconFrame(height: height)
+        #expect(abs(icon.minX - CGFloat(8 + c.depth * 16)) <= 0.5)
+        #expect(abs(icon.width - (c.comfortable ? 20 : 16)) <= 0.5)
+        #expect(abs(icon.midY - height / 2) <= 0.5)
+        #expect(abs(columns.text - CGFloat(c.comfortable ? 36 : 32) - CGFloat(c.depth * 16)) <= 0.5)
+        let disclosure = columns.disclosureFrame(height: height)
+        #expect(abs(disclosure.maxX - icon.minX) <= 0.5)
+        #expect(disclosure.width == 16)
+        #expect(abs(disclosure.midY - height / 2) <= 0.5)
+        for index in 0..<c.marks {
+            let mark = columns.trailingFrame(index: index, centerY: columns.mid(height: height), side: 12)
+            #expect(abs(mark.midX - CGFloat(288 - index * 20)) <= 0.5)
+            #expect(abs(mark.midY - height / 2) <= 0.5)
+            #expect(columns.textEnd(trailingMarks: c.marks) <= mark.minX - 4)
+        }
+        #expect(abs(columns.textEnd(trailingMarks: c.marks) - CGFloat(276 - (c.marks - 1) * 20)) <= 0.5)
+        let baseline: CGFloat = 12.25, capHeight: CGFloat = 9.5
+        let y = columns.textOriginY(centerY: height / 2, baseline: baseline, capHeight: capHeight)
+        #expect(abs(y + baseline - capHeight / 2 - height / 2) <= 0.5)
+    }
+
+    @Test(arguments: [false, true], [CGFloat(6), 12, 16, 18, 20, 24, 45, 72])
+    func aWideBadgeReservesWholePitchesWithoutMovingTheNextMark(comfortable: Bool, width: CGFloat) {
+        let columns = SidebarColumns(rowWidth: 304, comfortable: comfortable)
+        let badge = columns.trailingFrame(before: columns.trailingEdge, centerY: 14, size: CGSize(width: width, height: 16))
+        if width <= 20 {
+            #expect(abs(badge.midX - 288) <= 0.5)
+        } else {
+            #expect(abs(badge.maxX - 296) <= 0.5)
+        }
+        let edge = columns.trailingEdge(before: badge)
+        let next = columns.trailingFrame(before: edge, centerY: 14, size: CGSize(width: 16, height: 12))
+        let pitches = (columns.trailingCenter() - next.midX) / 20
+        #expect(pitches >= 1)
+        #expect(abs(pitches - pitches.rounded()) <= 0.001)
+        #expect(next.maxX <= badge.minX - 4 + 0.5)
+        #expect(abs(next.midY - badge.midY) <= 0.5)
+    }
+
+    @Test(arguments: [false, true], [1, 2])
+    func workspaceStatusAndUnreadUseTheFirstTwoColumns(comfortable: Bool, marks: Int) throws {
+        try Self.withDensity(comfortable) {
+            let c = Case(kind: .workspace, comfortable: comfortable, depth: 0, marks: marks)
+            let height = SidebarDensityTokens.rowHeight
+            let workspace = try #require(Self.view(c, width: 304, height: height) as? WorkspaceRowView)
+            workspace.layout()
+            let unread = try #require(workspace.subviews.compactMap { $0 as? UnreadBadgeView }.first { $0.state.isUnread })
+            #expect(abs(unread.frame.midX - CGFloat(marks == 1 ? 288 : 268)) <= 0.5)
+            #expect(abs(unread.frame.midY - height / 2) <= 0.5)
+            if marks == 2 {
+                let status = try #require(workspace.subviews.compactMap { $0 as? StatusIndicatorView }.first { $0.showsGlyph })
+                #expect(abs(status.frame.midX - 288) <= 0.5)
+                #expect(abs(status.frame.midY - height / 2) <= 0.5)
+                #expect(unread.frame.maxX <= status.frame.minX)
+            }
+        }
+    }
+
+    @Test(arguments: [false, true], [1, 2])
+    func sectionFoldAndAddUseTheFirstTwoColumns(comfortable: Bool, marks: Int) throws {
+        try Self.withDensity(comfortable) {
+            let c = Case(kind: .sectionHeader, comfortable: comfortable, depth: 0, marks: marks)
+            let height = SidebarDensityTokens.headerHeight
+            let section = try #require(Self.view(c, width: 304, height: height) as? SectionHeaderRowView)
+            section.layout()
+            let fold = try #require(section.subviews.compactMap { $0 as? DecorativeImageView }.first { !$0.isHidden })
+            #expect(abs(fold.frame.midX - 288) <= 0.5)
+            #expect(abs(fold.frame.midY - height / 2) <= 0.5)
+            #expect(section.addButton.isHidden == (marks == 1))
+            if marks == 2 {
+                #expect(abs(section.addButton.frame.midX - 268) <= 0.5)
+                #expect(abs(section.addButton.frame.midY - height / 2) <= 0.5)
+                #expect(section.addButton.frame.maxX <= fold.frame.minX)
+            }
+        }
+    }
+
+    /// Exercise the list's real coordinate conversion as well as local row layout. Structural
+    /// group depth counts the containing group; visual depth starts with its first nested group.
+    @Test(arguments: [false, true], [0, 1, 2])
+    func listFramesApplyNestingWithoutMovingTheTrailingLine(comfortable: Bool, depth: Int) {
+        Self.withDensity(comfortable) {
+            let list = SidebarListView(model: SidebarModel(sections: []))
+            list.frame = NSRect(x: 0, y: 0, width: 320, height: 600)
+            #expect(list.window == nil)
+            let height = SidebarDensityTokens.rowHeight
+            let group = GroupID("grid-nesting")
+            let keys: [SidebarRowKey] = [
+                .workspace(WorkspaceID("grid-nesting")), .tab(WorkspaceID("grid-nesting"), TabID("grid-nesting")),
+                .item("grid-nesting"), .doneFold(SidebarDoneFoldID(section: .machine(.local), group: group)),
+                .showMore(SidebarDoneFoldID(section: .machine(.local), group: group)), .group(group),
+            ]
+            for key in keys {
+                var row = Self.row(key, height: height)
+                row.group = group
+                if case .group = key { row.depth = depth } else { row.depth = depth + 1 }
+                let frame = list.frame(for: row)
+                let reach = list.railReach(for: row)
+                #expect(abs(frame.minX + reach - CGFloat(8 + depth * 16)) <= 0.5)
+                #expect(abs(frame.maxX - 312) <= 0.5)
+                let columns = SidebarColumns(rowWidth: frame.width, comfortable: comfortable, leadingOffset: reach)
+                #expect(abs(frame.minX + columns.lead - CGFloat(16 + depth * 16)) <= 0.5)
+                #expect(abs(frame.minX + columns.trailingCenter() - 296) <= 0.5)
+            }
+        }
+    }
+}

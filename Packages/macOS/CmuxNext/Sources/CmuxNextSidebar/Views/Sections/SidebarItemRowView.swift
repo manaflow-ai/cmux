@@ -238,9 +238,10 @@ class SidebarItemRowView: NSView {
         // (a band row's glyph, a pinned row's pin) starts where a workspace row's text starts (its inset plus the
         // pill inset), and a title after that glyph starts at the one text column (`SidebarStyle.leadingTextX`).
         // A pinned row's own icon or color dot, when it has one, takes the text column after the pin.
-        let rowLead = inset * 2 + CGFloat(info.indent) * Metrics.space3
-        let pinFrame = info.leadingPin ? pinGlyphFrame(side: Metrics.smallIconSize, leading: rowLead, height: b.height) : .zero
-        let lead = style == .chip ? Metrics.space2 : info.leadingPin ? SidebarStyle.leadingTextX(leading: rowLead) : rowLead
+        let columns = SidebarStyle.columns(rowWidth: b.width - inset, depth: info.indent, leadingOffset: inset)
+        let rowLead = columns.lead
+        let pinFrame = info.leadingPin ? pinGlyphFrame(side: Metrics.smallIconSize, leading: bare && !showsSwatchDot ? rowLead : rowLead - LayoutGrid.iconBox, height: b.height) : .zero
+        let lead = style == .chip ? Metrics.space2 : columns.lead
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
@@ -250,12 +251,12 @@ class SidebarItemRowView: NSView {
         // as a selected row); the profile avatar's pill and click fill its square.
         let pillFrame = style.isIconOnly ? (showsAvatar ? b : iconFrame)
             : style == .chip ? b
-            : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
+            : NSRect(x: inset, y: LayoutGrid.pillInset, width: max(0, b.width - inset * 2), height: max(0, b.height - 2 * LayoutGrid.pillInset))
         pill.frame = pillFrame
         pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
         // A text-only workspace with a color draws it as its list row does: a dot before the title.
         let dot = SidebarStyle.dotSize
-        chip.frame = showsSwatchDot ? NSRect(x: lead, y: (b.height - dot) / 2, width: dot, height: dot)
+        chip.frame = showsSwatchDot ? NSRect(x: lead + (side - dot) / 2, y: (b.height - dot) / 2, width: dot, height: dot)
             : style == .list && !bare ? iconFrame : .zero
         chip.cornerRadius = showsSwatchDot ? dot / 2 : Metrics.space1 + 1
         CATransaction.commit()
@@ -297,13 +298,14 @@ class SidebarItemRowView: NSView {
         }
         // A dot is round: as tall as it is wide, centered on the row.
         let badgeHeight = badge.state == .dot ? badgeWidth : bh
+        if style != .chip, !badge.isHidden {
+            let index = !rowBadge.isHidden || activityOnColumn ? 1 : 0
+            badgeX = columns.trailingCenter(index: index) - badgeWidth / 2
+        }
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
-        let textX = showsSwatchDot ? chip.frame.maxX + Metrics.space3
-            : bare ? iconFrame.minX
-            : style == .builtIn && !isRailButton ? SidebarStyle.titleTextX(leading: iconFrame.minX, iconSide: iconFrame.width)
-            : iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
-        title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
+        let textX = (style == .chip ? iconFrame.maxX + Metrics.space2 : columns.text) - SidebarStyle.labelCellPadding
+        title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY), width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
     }
 
     /// Places the row's trailing mark as a workspace row places its own: the blue unread dot, else
