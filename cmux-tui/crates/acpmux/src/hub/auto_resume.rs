@@ -447,8 +447,14 @@ impl Hub {
         // this record are stopped, never a later turn after an earlier idle Stop.
         // The first close records this boundary while the chat is still open. A closed
         // chat cannot restore a retry, and stopping it again must not refresh its age.
+        let had_scheduled_retry = pending.is_some()
+            || self
+                .store
+                .scan_kinds(&session.id, &["auto_resume_scheduled"], &mut |_| true)
+                .is_ok();
         if session.status() != SessionStatus::Closed
             && !session.replaced.load(std::sync::atomic::Ordering::SeqCst)
+            && had_scheduled_retry
         {
             self.append(session, "mux", "auto_resume_stopped", json!({}));
         }
