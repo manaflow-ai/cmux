@@ -308,7 +308,7 @@
 }
 .acpmux-chat-inspector-section .ui-disclosure-trigger:hover,
 .acpmux-chat-inspector-row--button:hover:not(:disabled),
-.acpmux-chat-inspector-pr:hover,
+.acpmux-chat-inspector-pr:has(> .acpmux-chat-inspector-pr__link:hover),
 .acpmux-chat-inspector-task__open:hover:not(:disabled),
 .acpmux-chat-inspector-icon-button:hover:not(:disabled),
 button.acpmux-chat-inspector-port:hover,
@@ -575,8 +575,8 @@ button.acpmux-chat-inspector-port:hover,
   color: inherit;
   text-decoration: none;
 }
-/* The row lights as a whole, so its gap and padding are the link's too (a click there was dead,
-   #24116's audit). The ⋯ button, positioned and later in the row, paints above it. */
+/* Hovering the main link lights the row, including its clickable gap and padding (#24116).
+   The ⋯ button sits above the link overlay and highlights only itself. */
 .acpmux-chat-inspector-pr__link::before {
   content: "";
   position: absolute;
