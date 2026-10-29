@@ -85,12 +85,23 @@ final class InternalPageTabStore {
     static let createOrigin = "cmux-next-page-tab"
 
     /// Registers the owner of `provider.page`. A second provider of the
-    /// same page replaces the first.
+    /// same page replaces the first. A replacement by a provider of another type is two pages sharing one id
+    /// (two `InternalPageID`s with one raw value): the store keeps one provider per id, so the first page is
+    /// gone; it is recorded in ``sharedPageIDs``.
     func register(_ provider: any InternalPageProvider) {
+        if let old = providers[provider.page], ObjectIdentifier(type(of: old)) != ObjectIdentifier(type(of: provider)) {
+            sharedPageIDs[provider.page, default: [String(describing: type(of: old))]].append(String(describing: type(of: provider)))
+        }
         providers[provider.page] = provider
     }
 
     func provider(_ page: InternalPageID) -> (any InternalPageProvider)? { providers[page] }
+
+    /// The pages with a registered provider (the store's own registry).
+    var registeredPages: [InternalPageID] { Array(providers.keys) }
+
+    /// Each page id that providers of more than one type registered, with those types in order.
+    @ObservationIgnored private(set) var sharedPageIDs: [InternalPageID: [String]] = [:]
 
     /// Adds a tab of `page` to `paneKey`'s strip after `after` (else at the
     /// end) and returns its id: `key` when the provider made it first (so it

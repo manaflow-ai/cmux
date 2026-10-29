@@ -355,7 +355,7 @@ struct AppMemoryConsumers {
 
     /// `memoryDiscardInternalPages` (default off): hidden page tabs' views go after their policy. With
     /// `pageLifecycle` on, that lifecycle is page tabs' one discard controller, so this one stays off.
-    func registerInternalPageDiscards() {
+    private func registerInternalPageDiscards() {
         guard services.features.isEnabled(.memoryDiscardInternalPages), !services.features.isEnabled(.pageLifecycle) else { return }
         services.pages.enableDiscards(ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator), on: services.cache)
     }
