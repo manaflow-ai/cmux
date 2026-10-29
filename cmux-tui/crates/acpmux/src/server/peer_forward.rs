@@ -16,7 +16,14 @@ pub(super) fn refuse_peer_selector(origin: Origin, m: &str, params: &Value) -> R
         method::SESSION_NEW => params.pointer("/_meta/acpmux/peer").is_some(),
         _ => false,
     };
-    if origin == Origin::Peer && selects {
+    // A Web request forwarded through this peer still belongs to Web and must be
+    // rejected by remote_guard with trust.remote; only the peer's own caller may
+    // be denied here before mode checks or any forwarding work.
+    let forwarded_web = params
+        .pointer("/_meta/acpmux/via")
+        .and_then(Value::as_str)
+        == Some("web");
+    if origin == Origin::Peer && !forwarded_web && selects {
         return Err(RpcError::invalid_params("a peer cannot select another peer on this daemon")
             .with_data(json!({"reason": "peer.forward_refused"})));
     }

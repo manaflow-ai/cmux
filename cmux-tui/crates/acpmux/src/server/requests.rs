@@ -609,6 +609,9 @@ pub(super) async fn handle_request(
     // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
+    // Reject a peer's transitive selector before remote mode checks. Forwarded Web
+    // requests carry via:web and remain under remote_guard's trust.remote policy.
+    super::peer_forward::refuse_peer_selector(conn.origin, m, &params)?;
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
@@ -616,7 +619,6 @@ pub(super) async fn handle_request(
             .await?;
     }
     caller_sends_no_files(hub, conn, m, &params)?;
-    super::peer_forward::refuse_peer_selector(conn.origin, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
     // check, before the request runs or reaches a peer. Held to the Web's rules: a Web
     // connection, or a peer forwarding for its own Web client (`via: web`); a peer
