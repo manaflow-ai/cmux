@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 public import CmuxNextSettings
 public import Foundation
 public import Observation
