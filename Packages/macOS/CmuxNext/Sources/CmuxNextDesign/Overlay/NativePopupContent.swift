@@ -287,7 +287,20 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         let isSearch = field === search
         if var pending = pendingCompositionModel {
             pendingCompositionModel = nil
-            if isSearch { pending.search?.value = value }
+            if isSearch {
+                if pending.search?.id == id { pending.search?.value = value }
+            } else {
+                // The deferred descriptor predates the IME commit. Carry the committed
+                // value into the matching field before rebuilding any native controls.
+                let preserveCommit: (NativePopupRow) -> NativePopupRow = { row in
+                    var row = row
+                    if row.id == id, row.kind == .textField { row.value = value }
+                    return row
+                }
+                pending.rows = pending.rows.map(preserveCommit)
+                pending.rail = pending.rail?.map(preserveCommit)
+                pending.footer = pending.footer?.map(preserveCommit)
+            }
             update(pending)
         }
         emit(isSearch ? .search : .change, id, value)
