@@ -93,6 +93,32 @@ export function caretAt(doc: Document, x: number, y: number): Caret | undefined 
   return undefined;
 }
 
+/// The caret in a transcript row at a client point. Over a blank band (below the last row, or
+/// between rows) Chromium's hit test snaps to the nearest line, but WebKit's (the app's engine)
+/// returns the spacer at offset 0, which reads as the thread's start; so the point is tried again
+/// inside the mounted row at that height (the last one starting above it, else the first), where
+/// both engines find the line nearest it: a row's end below its text, its start above.
+function rowCaretAt(doc: Document, thread: HTMLElement, x: number, y: number): Caret | undefined {
+  const caret = caretAt(doc, x, y);
+  if (caret && thread.contains(caret.node) && rowOf(caret.node)) return caret;
+  // Rows are absolutely placed, so their order is read from their boxes, not the DOM.
+  let row: { node: HTMLElement; box: DOMRect } | undefined;
+  for (const node of thread.querySelectorAll<HTMLElement>(".acpmux-row")) {
+    const box = node.getBoundingClientRect();
+    if (box.height <= 0) continue;
+    const better = !row
+      ? true
+      : box.top <= y
+        ? row.box.top > y || box.top > row.box.top
+        : row.box.top > y && box.top < row.box.top;
+    if (better) row = { node, box };
+  }
+  if (!row) return caret;
+  const { box } = row;
+  const inRow = caretAt(doc, x, Math.min(Math.max(y, box.top + 1), box.bottom - 1));
+  return inRow && row.node.contains(inRow.node) ? inRow : caret;
+}
+
 /// The gutter geometry now: the column from a mounted row (rows sit --cv-inset in, the column's
 /// content box), the view from the scroller less the bottom stack laid over its foot.
 function measure(scroller: HTMLElement, thread: HTMLElement): GutterGeometry | undefined {
@@ -162,7 +188,7 @@ export function installGutterSelect(
     if (!current.row.isConnected || !thread.contains(current.row) || !current.row.contains(startContainer))
       return false;
     const point = clampIntoColumn(current.x, current.y, current.geometry);
-    const focus = caretAt(doc, point.x, point.y);
+    const focus = rowCaretAt(doc, thread, point.x, point.y);
     if (inThread(focus)) doc.getSelection()?.setBaseAndExtent(startContainer, startOffset, focus.node, focus.offset);
     return true;
   };
@@ -314,7 +340,7 @@ export function installGutterSelect(
       event.clientX < geometry.view.right - geometry.lane;
     if (!inGutter(event.clientX, geometry) && !inBottomBand && !stripPress) return;
     const point = clampIntoColumn(event.clientX, event.clientY, geometry);
-    const caret = caretAt(doc, point.x, point.y);
+    const caret = rowCaretAt(doc, thread, point.x, point.y);
     // No text to start at (a hit beside a blank gap): the native press goes ahead untouched, and
     // moves focus off the composer to the page as it always has.
     const row = inThread(caret) ? rowOf(caret.node) : undefined;

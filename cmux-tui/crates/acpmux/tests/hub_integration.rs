@@ -17,6 +17,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[cfg(unix)]
+#[path = "hub_integration/idle_census.rs"]
+mod idle_census;
+
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
 #[path = "hub_integration/agent_pairs.rs"]
@@ -1570,12 +1574,16 @@ mod adopt;
 #[cfg(unix)]
 mod preset_args;
 
+#[path = "hub_integration/bg_tasks.rs"]
+mod bg_tasks;
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
 #[path = "hub_integration/quit_spawn.rs"]
 mod quit_spawn;
+#[path = "hub_integration/session_hibernate.rs"]
+mod session_hibernate;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
