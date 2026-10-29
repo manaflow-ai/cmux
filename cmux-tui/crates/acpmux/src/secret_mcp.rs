@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -111,8 +111,6 @@ where
         mpsc::channel::<(String, Option<OwnedSemaphorePermit>)>(OUTPUT_QUEUE_CAPACITY);
     let permits = Arc::new(Semaphore::new(MAX_IN_FLIGHT_CALLS));
     let stop = CancellationToken::new();
-    let cancelled =
-        Arc::new(Mutex::new(std::collections::HashMap::<String, CancellationToken>::new()));
     let writer_stop = stop.clone();
     let writer = tokio::spawn(async move {
         while let Some((mut line, permit)) = rx.recv().await {
@@ -142,15 +140,6 @@ where
         let Some(line) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
         if message.get("id").is_none() {
-            if matches!(
-                message["method"].as_str(),
-                Some(crate::rpc::method::CANCEL_REQUEST) | Some("notifications/cancelled")
-            ) && !message["params"]["requestId"].is_null()
-                && let Some(token) =
-                    cancelled.lock().await.remove(&message["params"]["requestId"].to_string())
-            {
-                token.cancel();
-            }
             continue;
         }
         let Some(id) = message.get("id").cloned() else { continue };
@@ -173,20 +162,10 @@ where
                 // A card waits on the person: the next request is read meanwhile. Each call
                 // connects anew, so a restarted daemon serves the next one.
                 let Ok(permit) = permits.clone().acquire_owned().await else { break };
-                let request_key = id.to_string();
-                let request_stop = stop.child_token();
-                cancelled.lock().await.insert(request_key.clone(), request_stop.clone());
-                let (tx, params, execute, cancelled) =
-                    (tx.clone(), message["params"].clone(), execute.clone(), cancelled.clone());
-                let call_stop = stop.clone();
+                let (tx, params, execute) =
+                    (tx.clone(), message["params"].clone(), execute.clone());
                 calls.spawn(async move {
-                    let result = tokio::select! {
-                        result = execute(params) => Some(result),
-                        _ = request_stop.cancelled() => None,
-                        _ = call_stop.cancelled() => None,
-                    };
-                    cancelled.lock().await.remove(&request_key);
-                    let Some(result) = result else { return };
+                    let result = execute(params).await;
                     let _ = tx.send((response(&id, result).to_string(), Some(permit))).await;
                 });
                 continue;
