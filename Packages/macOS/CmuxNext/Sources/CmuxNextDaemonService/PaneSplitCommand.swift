@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import os
 
 /// The daemon side of a pane split: `split` (right or down), then
 /// `swap-pane` for a left or up split so the new pane lands on that side.
@@ -43,8 +44,12 @@ public struct PaneSplitCommand: Sendable {
     /// ``sendIntended(on:provisional:)`` in two steps (Cmd-D, instant-new-surfaces): the
     /// provisional pane is in the store's visible records when this returns, in the caller's
     /// turn, so the window can lay it out in the key's frame; the returned work sends the split.
+    /// `laidOutSize` runs when the work starts, after that layout: the new pane's grid, so the
+    /// daemon starts its shell on the prewarmed host at that size (split_kind.rs `PanePrelaunch`
+    /// needs `cols`/`rows`) instead of spawning one while the pane shows blank.
     @MainActor
-    public func intendNow(on daemon: DaemonService, provisional: ProvisionalPane) -> @MainActor () async throws -> SurfaceCreated {
+    public func intendNow(on daemon: DaemonService, provisional: ProvisionalPane,
+                          laidOutSize: (@MainActor () -> CellSize?)? = nil) -> @MainActor () async throws -> SurfaceCreated {
         let transaction = ClientTransactionID.generate()
         var options = options
         options.paneID = provisional.paneID
@@ -52,11 +57,16 @@ public struct PaneSplitCommand: Sendable {
         options.splitID = provisional.splitID
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
+        let size = OSAllocatedUnfairLock<CellSize?>(initialState: nil)
         let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
         let send = daemon.intendNow("split", intent, transaction: transaction) { connection in
-            try await connection.split(pane, direction: direction, options: sent)
+            var sent = sent
+            if sent.size == nil { sent.size = size.withLock { $0 } }
+            return try await connection.split(pane, direction: direction, options: sent)
         }
         return {
+            let laidOut = laidOutSize?()
+            size.withLock { $0 = laidOut }
             guard let created = await send() else { throw PaneSplitFailure() }
             daemon.store.creations.noteReply(transaction, surface: created.surface)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }

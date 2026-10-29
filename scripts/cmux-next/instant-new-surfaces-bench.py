@@ -5,13 +5,14 @@ Launches the tagged app itself (no activation, scratch config), makes a terminal
 runs `debug.new_tab {action: bench_create, command}` for each command `--runs` times: the key goes
 through the real key path (`debug.key`) and the app reports, per run, the key's main-thread ms,
 the display frame at which the result shows (`visible_ms`, `frames_to_visible`), when the
-daemon's object replaced the provisional one (`confirmed_ms`) and its BenchSpans marks.
+daemon's object replaced the provisional one (`confirmed_ms`), when the new object shows its
+content (`content_ms`: a terminal's prompt) and its BenchSpans marks.
 
 Two phases: `idle`, then `load` (every core busy with `yes`, plus `--storm` workers looping the
 tag's CLI against its daemon). With `--budget-frames N` the run fails when any command's p95
 display frame of visibility (1 = the first frame drawn after the key) is above N or a key's main-thread time is above `--budget-key-ms`.
 
-`--commands` picks the commands (default all); `--workspaces 10,100` runs every phase again at
+`--commands` picks the commands (default all; Shift-Cmd-L is `cef-tab-bench.py`); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
@@ -164,7 +165,7 @@ def bench(phase, window):
             rows.append(result)
             marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
             print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-                  f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} marks={marks} "
+                  f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} content={result.get('content_ms')} marks={marks} "
                   f"err={result.get('error')}", flush=True)
             time.sleep(0.4)  # test harness: let the creation's shell start before closing it
             if opts.hang_stacks:
@@ -239,6 +240,8 @@ def summary(rows):
                 "first_frame_ms_p50": pct([(r.get("frames") or {}).get("first_tick_ms") for r in sel], .5),
                 "confirmed_p50": pct([r.get("confirmed_ms") for r in sel], .5),
                 "confirmed_p95": pct([r.get("confirmed_ms") for r in sel], .95),
+                "content_p50": pct([r.get("content_ms") for r in sel], .5),
+                "content_p95": pct([r.get("content_ms") for r in sel], .95),
             }
     return out
 

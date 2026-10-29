@@ -7,8 +7,8 @@ import CmuxNextSettings
 private typealias JSON = CmuxNextSettings.JSONValue
 
 /// `debug.new_tab {action: "bench_create", command}` (DEBUG builds): the instant-create budget of
-/// Cmd-N, Cmd-T, Ctrl-` (New Terminal Tab), Cmd-D and Cmd-Shift-D, each driven through the real
-/// key path (`debug.key`).
+/// Cmd-N, Cmd-T, Ctrl-` (New Terminal Tab), Cmd-D, Cmd-Shift-D and Shift-Cmd-L (New Browser Tab),
+/// each driven through the real key path (`debug.key`).
 ///
 /// Per run it reports, in ms after the key:
 /// - `key_ms`: the key's synchronous main-thread time (handler included);
@@ -17,6 +17,9 @@ private typealias JSON = CmuxNextSettings.JSONValue
 ///   window's focused pane is a new pane);
 /// - `confirmed_ms`: the first frame at which the daemon's object replaced the provisional one
 ///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s;
+/// - `content_ms`: the first frame at which the new object shows its content: a terminal's shell
+///   printed into its viewport (the prompt); null within 5 s, and for Cmd-N, Cmd-T (the New Tab
+///   page) and `new_browser` (see `page_ms`);
 /// - `frames_to_visible`: display frames from the key to `visible_ms` (1 = the next frame);
 /// - `spans`: the main-thread spans and marks `BenchSpans` recorded (handler stages, daemon reply).
 ///
@@ -30,6 +33,10 @@ enum DebugInstantCreateBench {
     private static let frames = BenchFrames()
 
     enum Command: String, CaseIterable {
+        /// Whether `content_ms` applies: a terminal's prompt (Cmd-N and Cmd-T show the New Tab page;
+        /// a browser tab has `page_ms`).
+        var showsContent: Bool { self == .newTerminal || self == .splitRight || self == .splitDown }
+
         case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser"
 
         var key: (String, [String]) {
@@ -66,6 +73,8 @@ enum DebugInstantCreateBench {
             : await frames.settled(until: { Probe(controller).pagePainted(services) }, start: start, window: 0, deadline: 5_000)
         let confirmed = visible == nil ? nil
             : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
+        let content = visible == nil || !command.showsContent ? nil
+            : await frames.settled(until: { Probe.showsContent(command, controller, services) }, start: start, window: 0, deadline: 5_000)
         let spans = BenchSpans.end()
         let stats = frames.stop()
         var refresh = 1_000.0 / 60
@@ -78,6 +87,7 @@ enum DebugInstantCreateBench {
             "page_ms": page.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null,
             "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"),
             "spare_window": .string(services.cache.cef.spareWindowState),
+            "content_ms": content.map { .number($0) } ?? .null,
             "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null,
             "main_thread_spans_ms": .number(spans.reduce(0) { $0 + $1.milliseconds }),
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
@@ -131,6 +141,14 @@ enum DebugInstantCreateBench {
             case .newWorkspace, .newTab, .newTerminal, .newBrowser: return realTab
             case .splitRight, .splitDown: return realTab && (paneHandle ?? .max) < (1 << 62)
             }
+        }
+
+        /// The focused pane's new terminal shows its content: its viewport has text (the shell's
+        /// prompt).
+        static func showsContent(_ command: Command, _ controller: WindowController, _ services: AppServices) -> Bool {
+            guard let key = controller.content?.focusedPane?.currentTabKey else { return false }
+            let text = services.cache.existingTerminal(key)?.session.surfaceView.viewportText() ?? ""
+            return !text.allSatisfy(\.isWhitespace)
         }
     }
 }
