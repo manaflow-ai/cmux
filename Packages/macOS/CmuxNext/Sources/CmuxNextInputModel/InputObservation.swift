@@ -137,6 +137,7 @@ public nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, Cas
     case presentationSettles = "W9"
     // Geometry (after settle).
     case chromiumGeometry = "G1"
+    case terminalGridFits = "G2"
     // Tab conservation (after settle, no drag in flight).
     case stripShowsPaneTabs = "DP1"
     // Projection (debug builds): the confirmed mirror has one writer.
@@ -177,6 +178,7 @@ public nonisolated enum InputInvariant: String, Hashable, Sendable, Codable, Cas
         case .stripShowsPaneTabs: "with no tab drag in flight, every tab strip shows exactly its pane's tabs (tab conservation)"
         case .mirrorSingleWriter: "only daemon events, snapshots and the intent overlay write the mirror, and the overlay keeps every tab"
         case .hoverCardSingle: "at most one hover card exists and shows, and it shows the coordinator's target"
+        case .terminalGridFits: "a shown terminal at rest renders and reports the grid its bounds fit"
         }
     }
 }

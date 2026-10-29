@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextInputModel
 import CmuxNextSettings
+import CmuxNextTerminal
 import CmuxNextWakeups
 import Foundation
 import os
@@ -97,6 +98,7 @@ final class InputInvariantMonitor {
         checks += 1
         var result = InputInvariants.world(InputObservationBuilder.observe(services))
         result.violations += Self.pageGeometry(services)
+        result.violations += Self.terminalGrids(services)
         result.violations += Self.tabConservation(services)
         result.violations += Self.mirrorWrites(services)
         result.violations += services.hoverCards.singleCardViolations().map {
@@ -116,6 +118,21 @@ final class InputInvariantMonitor {
             let (hosts, pages) = ChildPageGeometry.sample(controller)
             return ChildPageGeometry.mismatches(hosts: hosts, pages: pages).map {
                 InputViolation(invariant: .chromiumGeometry, window: controller.state.id, detail: $0)
+            }
+        }
+    }
+
+    /// G2 (felt 1e; principled-audit R3): a shown terminal at rest renders the grid its bounds fit, and that
+    /// grid is the one its PTY owner announced (the daemon's and the PTY's: the owner announces a grid only once
+    /// the PTY has it). At rest: its window is in no live resize and its pane on no layout spring; a grid on its
+    /// way to the owner is not a violation, because the monitor reports only what its confirmation sees again.
+    static func terminalGrids(_ services: AppServices) -> [InputViolation] {
+        services.windows.controllers.flatMap { controller -> [InputViolation] in
+            guard controller.window?.inLiveResize != true else { return [] }
+            return (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
+                guard let key = pane.currentTabKey, let entry = services.cache.existingTerminal(key),
+                      let problem = entry.session.surfaceView.restingGridMismatch else { return nil }
+                return InputViolation(invariant: .terminalGridFits, window: controller.state.id, detail: "pane \(pane.paneKey) tab \(key): \(problem)")
             }
         }
     }
