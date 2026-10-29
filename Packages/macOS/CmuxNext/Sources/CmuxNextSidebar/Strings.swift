@@ -14,6 +14,10 @@ enum Strings {
     static var closeRefused: String { String(localized: "sidebar.close.refused", defaultValue: "The workspace could not be closed.", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
+    /// The chevron beside the sidebar's +: its VoiceOver label (it opens the workspace chooser).
+    static var newWorkspaceOptions: String {
+        String(localized: "sidebar.newWorkspace.options", defaultValue: "New Workspace Options", bundle: .module)
+    }
     /// The footer's Search button: its VoiceOver label and tooltip.
     static var searchButton: String { String(localized: "sidebar.search", defaultValue: "Search", bundle: .module) }
     /// The thin rail's VoiceOver label (`sidebar.style` = rail).
