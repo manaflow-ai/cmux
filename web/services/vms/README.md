@@ -684,7 +684,7 @@ Plan limits are team-based. Stack Auth personal teams should stay enabled for bo
 
 ### Provider tags: owner and billing labels on Freestyle machines
 
-Every end-user Freestyle machine carries owner and billing labels in its Freestyle `metadata`, so the provider account can be read by owner, plan, and row (`GET /v5/vms?metadata=cmuxPlan:max`) without a database join. Values are ids, plan names, and Stripe facts only, never an email or a person's name. The create call writes the first set itself, at no extra request (`CreateOptions.providerTags`, built by `vmCreateProviderTags` in `workflows.ts`, on every path that allocates a machine: create, restore, fork, Base open and reset):
+Every end-user Freestyle machine carries owner and billing labels in its Freestyle `metadata`, so the provider account can be read by owner, plan, and row (`GET /v5/vms?metadata=cmuxPlan:max`) without a database join. Values are ids, plan names, and Stripe facts only, never an email or a person's name. The create call writes the first set itself, at no extra request (`CreateOptions.providerTags`, built by `vmCreateProviderTags` in `workflows.ts`, on every path that allocates a machine: create, restore, fork, Base open and reset). A provider-native fork (`providers.fork`, unused on Freestyle, which forks through a snapshot and `createVm`) does not tag yet:
 
 | Key | Value |
 | --- | --- |
@@ -700,10 +700,10 @@ After the response, `scheduleStripeProviderTags` resolves the billing scope's su
 
 | Key | Value |
 | --- | --- |
-| `cmuxPlanSource` | `stripe` (a subscription of the billing scope), `admin-grant` (an operator `cmuxVmPlan` grant, no subscription), `none` (free plan), or `unmatched` (a paid plan with neither) |
+| `cmuxPlanSource` | `stripe` (an active, trialing, or past-due subscription of the billing scope), `admin-grant` (an operator `cmuxVmPlan` grant, no subscription), `none` (free plan), or `unmatched` (a paid plan with neither) |
 | `stripeCustomerId`, `stripeSubscriptionId`, `stripeSubscriptionStatus`, `stripePriceId` | from the matched subscription row |
 | `stripeProduct` | the plan Price's product name |
-| `stripePriceUsd` | the plan Price, for example `30/month` |
+| `stripePriceUsd` | the plan Price's unit amount, for example `30/month`; per seat on Team |
 
 The subscription must belong to the machine's billing scope. A Team-plan machine takes the subscription of its billing team (`billing_team_id`), never the creating user's personal one. A subscription found through the user id is a personal product (Go, Pro, Max, or Founder's Edition), never Team. When no subscription belongs to the scope, the machine gets `cmuxPlanSource: unmatched` (or `admin-grant`) and no `stripe*` key. `cmuxPlan` is the plan recorded on the row at create; `stripeProduct` is the subscription at tagging time, so the two can differ after an upgrade (a `pro` row whose owner now pays for Max), and that is expected. Live machines are not retagged when a subscription changes yet. Never send `ttlSeconds` or `autoDeleteSeconds` in a metadata update.
 

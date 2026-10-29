@@ -1523,6 +1523,8 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
   });
 }
 
+const STRIPE_PROVIDER_TAGS_TIMEOUT_MS = 30_000;
+
 /** The billing scope a machine is created under; the provider tags name it. */
 type VmTagScope = {
   readonly userId: string;
@@ -1571,8 +1573,17 @@ function scheduleStripeProviderTags(
   const resolve = billing.resolveProviderTags;
   const update = providers.updateTags;
   if (!providerVmId || !resolve || !update) return Effect.void;
-  const work = Effect.suspend(() => resolve(scope)).pipe(
+  const billingScope: VmTagScope = {
+    userId: scope.userId,
+    billingCustomerType: scope.billingCustomerType,
+    billingTeamId: scope.billingTeamId,
+    billingPlanId: scope.billingPlanId,
+  };
+  const work = Effect.suspend(() => resolve(billingScope)).pipe(
     Effect.flatMap((tags) => update(row.provider, providerVmId, tags)),
+    // Bounds the after-response work: a database read, a cached Stripe
+    // product lookup, a Stack grant read, and the 15 s provider update.
+    Effect.timeoutFail({ duration: STRIPE_PROVIDER_TAGS_TIMEOUT_MS, onTimeout: () => new Error("Stripe provider tags timed out") }),
     Effect.catchAllCause((cause) => Effect.logWarning("Cloud VM Stripe provider tags skipped", { vmId: row.id, cause })),
   );
   if (defer) {
