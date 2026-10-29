@@ -11,14 +11,7 @@ export type NativePopupRowKind =
   | "submenu"
   | "textField";
 
-export type NativePopupEventType =
-  | "pick"
-  | "change"
-  | "search"
-  | "highlight"
-  | "complete"
-  | "submit"
-  | "dismiss";
+export type NativePopupEventType = "pick" | "change" | "search" | "highlight" | "complete" | "submit" | "dismiss";
 
 export type NativePopupSide = "top" | "bottom";
 
