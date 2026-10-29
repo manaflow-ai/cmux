@@ -45,11 +45,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         });
     }
     if let Some(id) = initial {
-        if let Some(i) = app
-            .sessions
-            .iter()
-            .position(|s| initial_session_matches(s, &id))
-        {
+        if let Some(i) = app.sessions.iter().position(|s| initial_session_matches(s, &id)) {
             app.select(i);
         }
     } else if !app.sessions.is_empty() {
@@ -165,7 +161,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                 match n {
                     Some(Message::Notification { method: m, params }) if m != method::MUX_DISCONNECTED => {
                         let p = params.unwrap_or(Value::Null);
-                        let selected = p.get("sessionId").and_then(Value::as_str) == app.selected_id().as_deref();
+                        let selected = session_route_id(&p) == app.selected_id();
                         let visible = match m.as_str() {
                             method::SESSION_UPDATE => selected,
                             method::MUX_EVENT => selected || matches!(p.get("kind").and_then(Value::as_str), Some("turn_end" | "turn_error")),
@@ -197,10 +193,8 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             }
         }
         if let Some(id) = app.pending_select.take() {
-            if let Some(i) = app
-                .sessions
-                .iter()
-                .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+            if let Some(i) =
+                app.sessions.iter().position(|s| session_route_id(s).as_ref() == Some(&id))
             {
                 app.drafts.retain(|d| !d.creating);
                 app.select(i + app.drafts.len());

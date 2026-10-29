@@ -312,6 +312,24 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
     let started: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(started["policy"], "ask", "{started}");
 
+    // The TUI keys its selection by route; attached live events must name that owner.
+    let mut observer = client(a.clone()).await;
+    let route = format!("b/{}", started["sessionId"].as_str().unwrap());
+    observer.call(method::MUX_ATTACH, json!({"sessionId": route, "limit": 0})).await;
+    observer
+        .send(
+            method::SESSION_PROMPT,
+            json!({"sessionId": route, "prompt": [{"type": "text", "text": "owner event"}]}),
+        )
+        .await;
+    let update = observer
+        .wait(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "echo: owner event")
+        .await;
+    assert_eq!(update["peer"], "b");
+    assert_eq!(update["sessionId"], started["sessionId"]);
+    let end = observer.wait(method::MUX_EVENT, |p| p["kind"] == "turn_end").await;
+    assert_eq!(end["peer"], "b");
+
     let (ok, stdout, stderr) = cli(
         &root,
         &socket,

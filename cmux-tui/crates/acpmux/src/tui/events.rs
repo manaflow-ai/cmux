@@ -6,7 +6,7 @@ impl App {
     // --------------------------------------------------------- inbound
 
     pub(super) fn on_notification(&mut self, m: &str, p: Value) {
-        let sid = p.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+        let sid = session_route_id(&p);
         match m {
             method::SESSION_UPDATE => {
                 if let Some(id) = sid {
@@ -27,7 +27,7 @@ impl App {
                         let who = self
                             .sessions
                             .iter()
-                            .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+                            .find(|s| session_route_id(s).as_ref() == Some(&id))
                             .and_then(|s| s.get("name").and_then(Value::as_str))
                             .unwrap_or("session")
                             .to_owned();
@@ -46,19 +46,16 @@ impl App {
             }
             method::MUX_SESSION_CHANGED => {
                 if let Some(s) = p.get("session") {
-                    let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+                    let Some(id) = sid.clone().or_else(|| session_route_id(s)) else { return };
                     if p.get("kind").and_then(Value::as_str) == Some("purged") {
-                        self.sessions
-                            .retain(|x| x.get("sessionId").and_then(Value::as_str) != Some(&id));
+                        self.sessions.retain(|x| session_route_id(x).as_ref() != Some(&id));
                         self.transcripts.remove(&id);
                         self.attention.remove(&id);
                         self.selected = self.selected.min(self.row_count().saturating_sub(1));
                         return;
                     }
-                    if let Some(slot) = self
-                        .sessions
-                        .iter_mut()
-                        .find(|x| x.get("sessionId").and_then(Value::as_str) == Some(&id))
+                    if let Some(slot) =
+                        self.sessions.iter_mut().find(|x| session_route_id(x).as_ref() == Some(&id))
                     {
                         *slot = s.clone();
                     } else {
@@ -87,9 +84,7 @@ impl App {
                 let who = sid
                     .as_deref()
                     .and_then(|id| {
-                        self.sessions
-                            .iter()
-                            .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id))
+                        self.sessions.iter().find(|s| session_route_id(s).as_deref() == Some(id))
                     })
                     .and_then(|s| s.get("name").and_then(Value::as_str))
                     .unwrap_or("?");
@@ -128,17 +123,18 @@ impl App {
     }
 
     pub(super) fn sort_sessions(&mut self) {
-        let selected_id = self.selected_id();
+        self.sort_sessions_preserving(self.selected_id());
+    }
+
+    fn sort_sessions_preserving(&mut self, selected_id: Option<String>) {
         self.sessions.sort_by(|a, b| {
             let ua = a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
             let ub = b.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
             ub.cmp(&ua)
         });
         if let Some(id) = selected_id
-            && let Some(i) = self
-                .sessions
-                .iter()
-                .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+            && let Some(i) =
+                self.sessions.iter().position(|s| session_route_id(s).as_ref() == Some(&id))
         {
             self.selected = i + self.drafts.len();
         }
@@ -148,8 +144,9 @@ impl App {
         match msg {
             AppMsg::Sessions(list) => {
                 let had = !self.sessions.is_empty();
+                let selected_id = self.selected_id();
                 self.sessions = list;
-                self.sort_sessions();
+                self.sort_sessions_preserving(selected_id);
                 if !had && !self.sessions.is_empty() && self.drafts.is_empty() {
                     self.select(0);
                 }
