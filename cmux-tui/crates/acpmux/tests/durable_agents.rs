@@ -1939,12 +1939,11 @@ async fn an_answered_mark_unread_survives_a_crash_before_the_session_record_is_s
     daemon.env.retain(|(k, _)| k != "ACPMUX_TEST_META_WRITE_DELAY_MS");
     daemon.start();
 
-    let all = daemon.rpc().await.call("_acpmux/sessions", json!({})).await;
-    let entry = all["sessions"]
-        .as_array()
-        .and_then(|all| all.iter().find(|s| s["sessionId"] == session))
-        .cloned()
-        .unwrap_or(Value::Null);
+    // Attach reads the session once its logs are read (`wait_logs`): the session list answers at
+    // once after a restart, from the saved records, until the logs are read.
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let entry = &attached["session"];
     assert_eq!(entry["unread"], json!(true), "an answered mark unread was lost: {entry:#}");
 }
 
