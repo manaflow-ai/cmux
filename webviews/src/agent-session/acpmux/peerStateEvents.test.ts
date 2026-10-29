@@ -130,6 +130,25 @@ test("a later status refresh cannot erase a newer live state and never polls the
   }
 });
 
+test("a lag notice reads the peer snapshot again, so a dropped disconnect is not lost", async () => {
+  const f = await fixture("local");
+  try {
+    f.notify(note("connected"));
+    expect(f.latest().peerStates?.["studio-mac"]).toBe("connected");
+    // The daemon dropped the offline notice and said so with `_acpmux/lagged`.
+    f.peers([{ name: "studio-mac", state: "offline", lastSeen: 5, error: "lost" }]);
+    const offline = f.waitForState("offline");
+    f.socket().onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { dropped: 3 } }),
+    });
+    await offline;
+    expect(f.latest().peerConnected?.["studio-mac"]).toBe(false);
+    expect(f.requests.filter((method) => method === "_acpmux/peers")).toHaveLength(2);
+  } finally {
+    f.client.close();
+  }
+});
+
 for (const [origin, supported] of [
   ["peer", true],
   ["remote", true],
