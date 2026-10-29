@@ -222,8 +222,9 @@ mod tests {
         Client, FakeAcpmux, Fixture, SESSION, agent_tab, assert_code, mux_with,
     };
     use crate::server::{
-        BoundedOutbound, ClientTransport, ConnectionSurfaceScheduler, QueuedSink,
-        handle_connection_frame,
+        BoundedOutbound, ClientTransport, Command, ConnectionSurfaceScheduler, FramedBodyMismatch,
+        FramedMethod, FramedRequest, QueuedSink, decode_framed_request, handle_connection_frame,
+        handle_framed_request_at,
     };
 
     #[test]
@@ -646,6 +647,86 @@ mod tests {
         }
         assert!(author_of(&mux).is_none(), "no identity is bound");
         fake.no_connection();
+    }
+
+    /// A teammate's link runs no daemon command on the framed path either (deny by default,
+    /// command-bearing params denied: skills/cmux-socket-policy/references/
+    /// remote-relay-authorization.md). A REQUEST frame of a `Command` (`list-workspaces`, or `run`
+    /// with a shell command) is refused as its line is, and the command never runs: the frame
+    /// decoder's `Command` path must not bypass `answer_line`'s proxy gate.
+    #[test]
+    fn a_teammate_link_runs_no_framed_command() {
+        let fake = FakeAcpmux::start("proxy-framed");
+        let mux = mux_with(&fake, "proxy-framed");
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
+            "login":"person@example.com", "node":"laptop"});
+        let answer = |id: u64| -> Value {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                if let Some(line) = outbound.try_pop()
+                    && let Ok(reply) = serde_json::from_str::<Value>(&line)
+                    && reply["id"] == id
+                {
+                    return reply;
+                }
+                assert!(std::time::Instant::now() < deadline, "request {id} is answered");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        };
+        let bind = json!({"id":1, "cmd":"agent-session-proxy-bind", "author":author});
+        handle_connection_frame(
+            &mux,
+            client,
+            ClientTransport::Unix,
+            &bind.to_string(),
+            &writer,
+            &scheduler,
+        );
+        assert_eq!(answer(1)["ok"], true, "the link is bound");
+        let marker = std::env::temp_dir().join(format!(
+            "cmux-proxy-framed-{}-{}",
+            std::process::id(),
+            client
+        ));
+        let _ = std::fs::remove_file(&marker);
+        let workspaces_before = mux.with_state(|state| state.workspaces.len());
+        for (id, frame) in [
+            (2, json!({"id":2, "cmd":"list-workspaces"})),
+            (
+                3,
+                json!({"id":3, "cmd":"run", "new_workspace":true,
+                "command":format!("touch {}", marker.display())}),
+            ),
+        ] {
+            let name = frame["cmd"].as_str().unwrap();
+            let (row, _) = Command::method_of_wire(name).expect("a v12 command");
+            let text = frame.to_string();
+            let request = decode_framed_request(&text, FramedMethod::Command(row))
+                .unwrap_or_else(|FramedBodyMismatch| panic!("{frame} is a {name} request"));
+            assert!(matches!(request, FramedRequest::Command(_)), "{frame} decodes as its command");
+            handle_framed_request_at(
+                &mux,
+                client,
+                ClientTransport::Unix,
+                &text,
+                request,
+                &writer,
+                &scheduler,
+                std::time::Instant::now(),
+            );
+            assert_code(&answer(id), "agent_session.not_trusted");
+        }
+        assert_eq!(
+            mux.with_state(|state| state.workspaces.len()),
+            workspaces_before,
+            "no workspace was made"
+        );
+        assert!(!marker.exists(), "the teammate's command never ran");
     }
 
     /// A bind is a link's first line only, and carries no host markers: a connection that
