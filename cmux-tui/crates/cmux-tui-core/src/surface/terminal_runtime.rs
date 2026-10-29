@@ -407,9 +407,42 @@ pub(crate) struct TerminalJournalGap {
     pub(crate) reason: &'static str,
 }
 
+/// A local terminal's PTY writer, shared, so a write that waits for the child
+/// to read runs after the runtime lock is released: nothing that takes the
+/// runtime lock (the foreground check behind `shell_idle`, a resize, a read
+/// of the runtime) waits on a child that does not read. Writes stay in order:
+/// each runs in the terminal's input turn (`InputTurn`). The lock here is a
+/// leaf, never held while the runtime lock is taken.
+#[derive(Clone)]
+pub(crate) struct LocalWriter(Arc<std::sync::Mutex<Box<dyn Write + Send>>>);
+
+impl LocalWriter {
+    pub(crate) fn new(writer: Box<dyn Write + Send>) -> Self {
+        Self(Arc::new(std::sync::Mutex::new(writer)))
+    }
+
+    /// Writes `bytes` whole and flushes. May block while the child does not read.
+    pub(crate) fn write_all(&self, bytes: &[u8]) -> std::io::Result<()> {
+        let mut writer = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        writer.write_all(bytes)?;
+        writer.flush()
+    }
+
+    /// Runs `write` on the writer (a caller with its own write policy).
+    pub(crate) fn with<R>(&self, write: impl FnOnce(&mut dyn Write) -> R) -> R {
+        let mut writer = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        write(writer.as_mut())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace(&self, replacement: Box<dyn Write + Send>) {
+        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = replacement;
+    }
+}
+
 pub(super) enum PtyRuntime {
     Local {
-        writer: Box<dyn Write + Send>,
+        writer: LocalWriter,
         master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
         /// The holder runs this terminal's shell (`holder_runtime`): a

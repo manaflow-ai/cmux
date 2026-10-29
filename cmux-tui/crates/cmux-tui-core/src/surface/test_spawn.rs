@@ -188,7 +188,7 @@ impl Surface {
                     LockRank::Runtime,
                     "pty.runtime",
                     PtyRuntime::Local {
-                        writer: Box::new(std::io::sink()),
+                        writer: LocalWriter::new(Box::new(std::io::sink())),
                         master: Some(Box::new(TestMasterPty {
                             size: Mutex::new(initial_pty_size),
                             control: test_master_control.clone(),
@@ -285,7 +285,7 @@ impl Surface {
         let PtyRuntime::Local { writer, .. } = &mut *runtime else {
             panic!("a test surface writes its PTY itself");
         };
-        *writer = Box::new(capture.clone());
+        writer.replace(Box::new(capture.clone()));
         capture
     }
 }

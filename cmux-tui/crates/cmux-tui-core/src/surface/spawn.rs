@@ -208,7 +208,7 @@ impl Surface {
                     LockRank::Runtime,
                     "pty.runtime",
                     PtyRuntime::Local {
-                        writer,
+                        writer: LocalWriter::new(writer),
                         master: Some(master),
                         killer,
                         #[cfg(unix)]

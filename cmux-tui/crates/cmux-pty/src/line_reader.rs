@@ -1,22 +1,42 @@
-//! Whether the program on a PTY sits in a line editor that has read all of its input: the kernel's
-//! word, at one moment, for the daemon's `extra.shell_idle` (cmux-tui-core `terminal_activity`).
+//! Whether the program on a PTY sits in a line editor with nothing in flight between it and the
+//! daemon: the kernel's word, for the daemon's `extra.shell_idle` (cmux-tui-core
+//! `terminal_activity`).
 //!
 //! A shell's line editor (readline, zle, fish's reader) reads its keys raw: canonical mode
 //! (`ICANON`) is off while it waits at the prompt, and the shell turns it back on before it runs a
-//! command it read. So with `ICANON` off and nothing queued for the program, every byte written to
-//! the PTY was read, and the line editor read the last of it. Two PTY queries of one terminal the
-//! caller holds the master of; never a process scan.
+//! command it read. [`LineState::quiet`] holds when, at one moment, the program reads raw, no
+//! input waits to be read by it, and none of its output waits for the daemon's side. Linux asks
+//! with a zero-timeout `poll`, which first hands the kernel's in-flight bytes (the flip buffer a
+//! master write fills) to the line discipline, so a byte written a moment ago is never missed;
+//! macOS writes to a PTY synchronously, so its counts are exact. A few PTY queries of one terminal
+//! the caller holds the master of; never a process scan.
 
 #[cfg(unix)]
 use std::os::fd::RawFd;
 
-/// `Some(true)` when the program on the PTY of `master` reads raw (`ICANON` off) and nothing waits
-/// in its input queue; `Some(false)` when it reads cooked lines or input waits; `None` when the PTY
-/// cannot say. Linux reads the slave's state through a new slave descriptor (`TIOCGPTPEER`, closed
-/// before the return): its master has a termios and a queue of its own. macOS reads both on the
-/// master, which shares the slave's. The caller keeps `master` open.
+/// What the kernel says about one PTY at one moment ([`state`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineState {
+    /// The program reads raw (`ICANON` off): a line editor at its prompt.
+    pub reads_raw: bool,
+    /// Input waits for the program to read it.
+    pub input_waiting: bool,
+    /// Output of the program waits for the master's reader.
+    pub output_waiting: bool,
+}
+
+impl LineState {
+    /// A line editor that read everything written to it, with nothing of
+    /// its own in flight.
+    pub fn quiet(self) -> bool {
+        self.reads_raw && !self.input_waiting && !self.output_waiting
+    }
+}
+
+/// The [`LineState`] of the PTY of `master`, or `None` when the PTY cannot say. The caller keeps
+/// `master` open.
 #[cfg(unix)]
-pub fn reads_raw_with_nothing_queued(master: RawFd) -> Option<bool> {
+pub fn state(master: RawFd) -> Option<LineState> {
     #[cfg(target_os = "linux")]
     {
         use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -29,16 +49,27 @@ pub fn reads_raw_with_nothing_queued(master: RawFd) -> Option<bool> {
         }
         // SAFETY: `slave` is a descriptor this call just opened and nothing else owns.
         let slave = unsafe { OwnedFd::from_raw_fd(slave) };
-        state(slave.as_raw_fd())
+        Some(LineState {
+            reads_raw: reads_raw(slave.as_raw_fd())?,
+            // The slave's input is the program's; the master's input is its output.
+            input_waiting: readable(slave.as_raw_fd())?,
+            output_waiting: readable(master)?,
+        })
     }
     #[cfg(not(target_os = "linux"))]
     {
-        state(master)
+        // The master shares the slave's termios and queues: FIONREAD counts the program's unread
+        // input, TIOCOUTQ its output the master's reader has not taken.
+        Some(LineState {
+            reads_raw: reads_raw(master)?,
+            input_waiting: count(master, libc::FIONREAD)? > 0,
+            output_waiting: count(master, TIOCOUTQ)? > 0,
+        })
     }
 }
 
 #[cfg(unix)]
-fn state(fd: RawFd) -> Option<bool> {
+fn reads_raw(fd: RawFd) -> Option<bool> {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::zeroed();
     // SAFETY: tcgetattr writes one termios through the pointer, which points to `termios`, a live
     // MaybeUninit<termios>; the caller keeps `fd` open for the call.
@@ -48,16 +79,36 @@ fn state(fd: RawFd) -> Option<bool> {
     // SAFETY: tcgetattr returned 0, so it filled the termios; it was zeroed before, and every field
     // is an integer or an integer array, so any bit pattern is valid.
     let termios = unsafe { termios.assume_init() };
-    if termios.c_lflag & libc::ICANON != 0 {
-        return Some(false);
-    }
-    let mut queued: libc::c_int = 0;
-    // SAFETY: the caller keeps `fd` open for the call, and FIONREAD writes one c_int through the
-    // pointer to `queued`, a live local of that type.
-    if unsafe { libc::ioctl(fd, libc::FIONREAD, &mut queued) } != 0 || queued < 0 {
+    Some(termios.c_lflag & libc::ICANON == 0)
+}
+
+/// Whether a read of `fd` would return data now. The tty's poll hands the kernel's in-flight
+/// input to the line discipline before it answers. An error or hang-up is unknown.
+#[cfg(target_os = "linux")]
+fn readable(fd: RawFd) -> Option<bool> {
+    let mut poll = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+    // SAFETY: one pollfd that lives for the call; a zero timeout never waits.
+    let ready = unsafe { libc::poll(&mut poll, 1, 0) };
+    if ready < 0 || poll.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
         return None;
     }
-    Some(queued == 0)
+    Some(poll.revents & libc::POLLIN != 0)
+}
+
+/// `TIOCOUTQ` from Darwin's `<sys/ttycom.h>` (`_IOR('t', 115, int)`): the bytes in the tty's
+/// output queue. libc does not export it for Apple targets.
+#[cfg(all(unix, not(target_os = "linux")))]
+const TIOCOUTQ: libc::c_ulong = 0x4004_7473;
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn count(fd: RawFd, request: libc::c_ulong) -> Option<usize> {
+    let mut queued: libc::c_int = 0;
+    // SAFETY: the caller keeps `fd` open for the call, and FIONREAD and TIOCOUTQ write one c_int
+    // through the pointer to `queued`, a live local of that type.
+    if unsafe { libc::ioctl(fd, request, &mut queued) } != 0 || queued < 0 {
+        return None;
+    }
+    usize::try_from(queued).ok()
 }
 
 #[cfg(all(test, unix))]
@@ -65,7 +116,7 @@ mod tests {
     use super::*;
     use std::os::fd::AsRawFd;
 
-    /// A PTY pair whose slave this test sets up: cooked, then raw, then raw with input queued.
+    /// A PTY pair whose slave this test sets up: cooked, raw, input queued, output queued.
     #[test]
     fn shell_idle_a_raw_reader_with_nothing_queued_is_told_apart() {
         let mut master: libc::c_int = 0;
@@ -87,23 +138,45 @@ mod tests {
             use std::os::fd::FromRawFd;
             (std::fs::File::from_raw_fd(master), std::fs::File::from_raw_fd(slave))
         };
-        assert_eq!(reads_raw_with_nothing_queued(master.as_raw_fd()), Some(false), "cooked");
+        assert_eq!(state(master.as_raw_fd()).map(LineState::quiet), Some(false), "cooked");
         let mut termios = std::mem::MaybeUninit::<libc::termios>::zeroed();
-        // SAFETY: as in `state`; the test owns `slave`.
+        // SAFETY: as in `reads_raw`; the test owns `slave`.
         assert_eq!(unsafe { libc::tcgetattr(slave.as_raw_fd(), termios.as_mut_ptr()) }, 0);
         // SAFETY: tcgetattr filled it.
         let mut termios = unsafe { termios.assume_init() };
         termios.c_lflag &= !(libc::ICANON | libc::ECHO);
         // SAFETY: tcsetattr reads the termios the pointer points to; the test owns `slave`.
         assert_eq!(unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &termios) }, 0);
-        assert_eq!(reads_raw_with_nothing_queued(master.as_raw_fd()), Some(true), "raw, empty");
-        use std::io::Write;
+        assert_eq!(state(master.as_raw_fd()).map(LineState::quiet), Some(true), "raw, empty");
+        use std::io::{Read, Write};
+        // A master write is seen at once: on Linux the poll hands the kernel's in-flight
+        // bytes to the line discipline first (no timing), on macOS the write is synchronous.
         (&master).write_all(b"x").unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while reads_raw_with_nothing_queued(master.as_raw_fd()) != Some(false) {
-            assert!(std::time::Instant::now() < deadline, "the queued byte never counted");
-            std::thread::yield_now();
-        }
+        assert_eq!(
+            state(master.as_raw_fd()).map(LineState::quiet),
+            Some(false),
+            "input waits for the program"
+        );
+        let mut byte = [0u8; 1];
+        (&slave).read_exact(&mut byte).unwrap();
+        assert_eq!(
+            state(master.as_raw_fd()).map(LineState::quiet),
+            Some(true),
+            "the program read it"
+        );
+        // The program's output the master's reader has not taken (an echo).
+        (&slave).write_all(b"y").unwrap();
+        assert_eq!(
+            state(master.as_raw_fd()).map(LineState::quiet),
+            Some(false),
+            "output waits for the reader"
+        );
+        (&master).read_exact(&mut byte).unwrap();
+        assert_eq!(
+            state(master.as_raw_fd()).map(LineState::quiet),
+            Some(true),
+            "the reader took it"
+        );
     }
 }
 
@@ -147,7 +220,7 @@ mod in_flight_tests {
         let mut missed = 0;
         for _ in 0..500 {
             (&master).write_all(b"x").unwrap();
-            if super::reads_raw_with_nothing_queued(master.as_raw_fd()) != Some(false) {
+            if super::state(master.as_raw_fd()).map(|state| state.input_waiting) != Some(true) {
                 missed += 1;
             }
             let mut byte = [0u8; 1];

@@ -98,6 +98,20 @@ fn note_shell_paste(pty: &PtySurface, bytes: &[u8]) -> bool {
     note_shell_input(pty, &wrapped)
 }
 
+/// A new descriptor of the open master `fd`, for a write that runs after the
+/// runtime lock is released.
+#[cfg(unix)]
+pub(super) fn dup_descriptor(fd: std::os::fd::RawFd) -> std::io::Result<std::os::fd::OwnedFd> {
+    // SAFETY: `fd` is the master the caller's runtime holds open under its
+    // lock for this call; F_DUPFD_CLOEXEC returns a new descriptor (or -1).
+    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    if duplicate < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `duplicate` was just opened here and nothing else owns it.
+    Ok(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(duplicate) })
+}
+
 /// Whether `bytes` are only focus reports (`CSI I`, `CSI O`): a view that
 /// gained or lost focus while the program asked for them (fish's line editor
 /// does), not input anyone typed.
@@ -264,10 +278,18 @@ impl Surface {
                 match &mut *runtime {
                     PtyRuntime::Local { writer, master, .. } => {
                         let master = master.as_deref().map(|master| master as &dyn MasterPty);
-                        // Waits while the child does not read its input.
-                        crate::request_path::will_block(|| {
-                            crate::pty_input_room::write_input(master, writer.as_mut(), bytes)
-                        })
+                        if master
+                            .is_some_and(|master| !crate::pty_input_room::admits(master, bytes))
+                        {
+                            Ok(false)
+                        } else {
+                            // Waits while the child does not read its input:
+                            // after the runtime lock (`LocalWriter`).
+                            let writer = writer.clone();
+                            drop(runtime);
+                            crate::request_path::will_block(|| writer.write_all(bytes))
+                                .map(|()| true)
+                        }
                     }
                     // The host stamps its own read of the echo.
                     #[cfg(any(unix, windows))]
@@ -394,10 +416,14 @@ impl Surface {
                 .map_err(ConfirmedInputFailure::from);
         }
         match &mut *runtime {
-            PtyRuntime::Local { writer, .. } => crate::request_path::will_block(|| {
-                writer.write_all(bytes).and_then(|()| writer.flush())
-            })
-            .map_err(ConfirmedInputFailure::Indeterminate),
+            PtyRuntime::Local { writer, .. } => {
+                // After the runtime lock: the write waits while the child
+                // does not read (`LocalWriter`).
+                let writer = writer.clone();
+                drop(runtime);
+                crate::request_path::will_block(|| writer.write_all(bytes))
+                    .map_err(ConfirmedInputFailure::Indeterminate)
+            }
             #[cfg(any(unix, windows))]
             PtyRuntime::Hosted(host) => {
                 let receipt = host.begin_input_confirmed(bytes)?;
@@ -513,22 +539,34 @@ impl Surface {
         if let Some(input) = holder.as_ref().and_then(|holder| holder.input()) {
             return input.send(&payload, crate::pty_write::InputLane::Bulk);
         }
-        // Waits while the child does not read its input.
+        // The write waits while the child does not read its input, so it
+        // runs after the runtime lock: with its own descriptor of the master
+        // (a dup, so a runtime replaced meanwhile never hands it another
+        // file) or the shared writer (`LocalWriter`).
+        #[cfg(unix)]
+        let bounded = match timeout {
+            Some(timeout) => master
+                .as_ref()
+                .and_then(|master| master.as_raw_fd())
+                .map(|fd| dup_descriptor(fd).map(|fd| (fd, timeout)))
+                .transpose()?,
+            None => None,
+        };
+        let writer = writer.clone();
+        drop(runtime);
         crate::request_path::will_block(|| {
             #[cfg(unix)]
-            if let Some(timeout) = timeout
-                && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
-            {
+            if let Some((fd, timeout)) = &bounded {
+                use std::os::fd::AsRawFd;
                 return crate::pty_write::write_bounded(
-                    fd,
+                    fd.as_raw_fd(),
                     &payload,
-                    timeout,
+                    *timeout,
                     "PTY paste write timed out",
                 )
                 .map_err(|failure| failure.error);
             }
-            writer.write_all(&payload)?;
-            writer.flush()
+            writer.write_all(&payload)
         })
     }
 
@@ -539,7 +577,7 @@ impl Surface {
         let PtyRuntime::Local { writer, .. } = &mut *runtime else {
             panic!("input test requires the in-process test runtime");
         };
-        *writer = replacement;
+        writer.replace(replacement);
     }
 }
 

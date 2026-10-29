@@ -74,22 +74,34 @@ impl Surface {
     /// that pool is full, as it does the registry commit beside it. A mark or
     /// input that came meanwhile drops its answer.
     ///
-    /// When the shell holds the foreground, the check also asks the kernel
-    /// whether the shell sleeps in its line editor's raw read with nothing
-    /// queued for it and nothing left in the daemon's own input queue
-    /// ([`Self::shell_read_all_input`]): then every byte written was read and
-    /// no line still waits for a prompt (`ShellActivity::record_foreground_check`).
-    /// A line the line editor read but the shell has not started yet fails it:
-    /// the shell turns canonical mode back on, or runs, before it starts one.
+    /// When the shell holds the foreground, the check also reads what the
+    /// kernel says about its input (`ShellActivity::record_foreground_check`),
+    /// in this order: the PTY, the shell, the PTY, the shell. It says every
+    /// byte written was read by the line editor (`Some(true)`, which pays the
+    /// prompts typed lines are owed) only when both PTY reads found the shell
+    /// reading raw with no input and no output in flight, and both shell reads
+    /// found it asleep with no child. A line the editor read but the shell has
+    /// not run yet fails it, from the kernel's state alone: after its last
+    /// byte the shell echoes, turns canonical mode back on and forks, and in
+    /// that span it sleeps only while its own echo waits to be read (a full
+    /// output queue, or macOS's drain before the mode change), which an
+    /// output read on either side of that sleep sees, or in a wait for its
+    /// child, which the second shell read sees. `Some(false)`: input waits for
+    /// the shell, which is never idle. `None`: anything else (awake, cooked,
+    /// output in flight, no master to ask), which pays nothing and refuses
+    /// nothing.
     fn check_shell_foreground(&self, pty: &PtySurface) {
         let due = pty.terminal_metadata.lock().recover_poison().activity.foreground_check_epoch();
         let Some(epoch) = due else { return };
+        let before = Self::shell_line_state(pty);
         let shell =
             if self.is_dead() { None } else { own_shell_at_foreground(pty.pid, &pty.command) };
         let leader = foreground_leader(pty.pid);
-        let input_read = shell
-            .as_ref()
-            .and_then(|asleep| Self::shell_read_all_input(pty).map(|read| read && *asleep));
+        let input_read = shell.and_then(|asleep| {
+            let after = Self::shell_line_state(pty);
+            let again = own_shell_at_foreground(pty.pid, &pty.command);
+            input_read(before, asleep, after, again)
+        });
         pty.terminal_metadata.lock().recover_poison().activity.record_foreground_check(
             epoch,
             shell.is_some(),
@@ -98,28 +110,28 @@ impl Surface {
         );
     }
 
-    /// Whether every byte written to this terminal was read by a program that
-    /// reads raw (its shell's line editor): nothing in the daemon's own
-    /// `pty-writer` queue, `ICANON` off and nothing queued on the PTY
-    /// (`cmux_pty::line_reader`). `None` when the daemon cannot ask: a
-    /// terminal host holds the master, or the PTY cannot say. Takes the
-    /// runtime lock alone, for two PTY queries that never block.
+    /// The kernel's [`cmux_pty::line_reader::LineState`] of this terminal,
+    /// with the daemon's own `pty-writer` queue counted as input that waits.
+    /// `None` when the daemon cannot ask: a terminal host holds the master, or
+    /// the PTY cannot say. Takes the runtime lock alone; no write holds it
+    /// while it waits for the child (`LocalWriter`), so this never waits.
     #[cfg(unix)]
-    fn shell_read_all_input(pty: &PtySurface) -> Option<bool> {
+    fn shell_line_state(pty: &PtySurface) -> Option<cmux_pty::line_reader::LineState> {
         let runtime = pty.runtime.lock().recover_poison();
         let PtyRuntime::Local { master: Some(master), holder, .. } = &*runtime else { return None };
+        let mut state = cmux_pty::line_reader::state(master.as_raw_fd()?)?;
         if holder
             .as_ref()
             .and_then(|holder| holder.input())
             .is_some_and(|input| input.pending() > 0)
         {
-            return Some(false);
+            state.input_waiting = true;
         }
-        cmux_pty::line_reader::reads_raw_with_nothing_queued(master.as_raw_fd()?)
+        Some(state)
     }
 
     #[cfg(not(unix))]
-    fn shell_read_all_input(_pty: &PtySurface) -> Option<bool> {
+    fn shell_line_state(_pty: &PtySurface) -> Option<cmux_pty::line_reader::LineState> {
         None
     }
 
@@ -424,6 +436,23 @@ fn foreground_leader(pid: Option<u32>) -> Option<u32> {
     }
 }
 
+/// The check's word on the shell's input (see `Surface::check_shell_foreground`)
+/// from its four reads: the PTY `before`, the shell (`asleep`), the PTY `after`,
+/// the shell `again` (`Some(asleep)` with no child, `None` when it no longer
+/// holds the foreground alone).
+fn input_read(
+    before: Option<cmux_pty::line_reader::LineState>,
+    asleep: bool,
+    after: Option<cmux_pty::line_reader::LineState>,
+    again: Option<bool>,
+) -> Option<bool> {
+    if [before, after].iter().flatten().any(|state| state.input_waiting) {
+        return Some(false);
+    }
+    let quiet = |state: Option<cmux_pty::line_reader::LineState>| state.is_some_and(|s| s.quiet());
+    (quiet(before) && asleep && quiet(after) && again == Some(true)).then_some(true)
+}
+
 /// Whether the terminal's PTY child `pid` (or the shell login(1) started for
 /// it) holds the PTY's foreground and still runs `command`'s program, the one
 /// the daemon spawned, and that program is an interactive shell: not a job it
@@ -456,5 +485,38 @@ fn own_shell_at_foreground(pid: Option<u32>, command: &[String]) -> Option<bool>
     {
         let _ = (pid, command);
         None
+    }
+}
+
+#[cfg(test)]
+mod shell_idle_input_read_tests {
+    use super::input_read;
+    use cmux_pty::line_reader::LineState;
+
+    const QUIET: LineState =
+        LineState { reads_raw: true, input_waiting: false, output_waiting: false };
+
+    /// Review 5, item 1: the PTY, the shell, the PTY, the shell. Every byte
+    /// counts as read only when all four agree; input waiting in either PTY
+    /// read refuses idle; anything else says nothing.
+    #[test]
+    fn shell_idle_every_byte_counts_as_read_only_when_all_four_reads_agree() {
+        assert_eq!(input_read(Some(QUIET), true, Some(QUIET), Some(true)), Some(true));
+        let waiting = LineState { input_waiting: true, ..QUIET };
+        assert_eq!(input_read(Some(waiting), true, Some(QUIET), Some(true)), Some(false));
+        assert_eq!(input_read(Some(QUIET), true, Some(waiting), Some(true)), Some(false));
+        // The echo of a line the editor just read, in flight: no word.
+        let echo = LineState { output_waiting: true, ..QUIET };
+        assert_eq!(input_read(Some(QUIET), true, Some(echo), Some(true)), None);
+        assert_eq!(input_read(Some(echo), true, Some(QUIET), Some(true)), None);
+        // Canonical mode back on: the shell left its editor to run a line.
+        let cooked = LineState { reads_raw: false, ..QUIET };
+        assert_eq!(input_read(Some(QUIET), true, Some(cooked), Some(true)), None);
+        // Awake at either shell read, or a child (or no shell) at the second.
+        assert_eq!(input_read(Some(QUIET), false, Some(QUIET), Some(true)), None);
+        assert_eq!(input_read(Some(QUIET), true, Some(QUIET), Some(false)), None);
+        assert_eq!(input_read(Some(QUIET), true, Some(QUIET), None), None);
+        // No master to ask (a terminal host).
+        assert_eq!(input_read(None, true, None, Some(true)), None);
     }
 }

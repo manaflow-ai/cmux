@@ -191,10 +191,12 @@ pub(crate) struct ShellActivity {
     /// from, not only whether `shell_idle` is there).
     foreground_leader: Option<u32>,
     /// What that check read from the kernel about the input: `Some(true)`
-    /// when the shell slept in its line editor's raw read with nothing queued
-    /// for it (every byte written was read, the line editor read the last of
-    /// it); `Some(false)` when not; `None` when the daemon cannot ask (a
-    /// terminal host holds the master).
+    /// when every byte written was read by the shell's line editor and it
+    /// holds no line it has not run (`Surface::check_shell_foreground`: four
+    /// reads that agree), which pays the prompts typed lines are owed;
+    /// `Some(false)` when input waits for the shell, which is never idle;
+    /// `None` when the check could not tell (no master to ask, the shell
+    /// awake or cooked, its output in flight), which pays and refuses nothing.
     input_read: Option<bool>,
     /// An idle fact went out in a record (any record build reads it, not only
     /// the publication that marks it published), so its end must go out too.
@@ -282,6 +284,10 @@ impl ShellActivity {
             return;
         }
         let running = self.busy_since_ms.is_some();
+        // A running command that took the terminal for interaction (an editor,
+        // ssh) reads raw: a signal key is a byte it reads, and the kernel
+        // flushes nothing typed ahead.
+        let flushes = running && !self.interactive;
         let mut at = 0;
         while at < bytes.len() {
             let rest = &bytes[at..];
@@ -301,22 +307,28 @@ impl ShellActivity {
                     self.unsubmitted = false;
                 }
                 // Ctrl-C: at the prompt the shell drops the line and prompts
-                // again; to a running command the terminal sends SIGINT and
-                // flushes its unread input.
+                // again; to a running command that reads cooked the terminal
+                // sends SIGINT and flushes its unread input.
                 0x03 if !self.in_paste => {
-                    if running {
-                        self.typed_while_running = false;
-                    } else {
-                        self.owed_prompts = self.owed_prompts.saturating_add(1);
-                    }
-                    self.unsubmitted = false;
-                }
-                // Ctrl-Z and Ctrl-\: to a running command a signal that
-                // flushes its unread input; the line editor ignores them.
-                0x1a | 0x1c if !self.in_paste => {
-                    if running {
+                    if flushes {
                         self.typed_while_running = false;
                         self.unsubmitted = false;
+                    } else if !running {
+                        self.owed_prompts = self.owed_prompts.saturating_add(1);
+                        self.unsubmitted = false;
+                    } else {
+                        self.unsubmitted = true;
+                    }
+                }
+                // Ctrl-Z and Ctrl-\: to a running command that reads cooked a
+                // signal that flushes its unread input; the line editor ignores
+                // them, and a raw program reads them.
+                0x1a | 0x1c if !self.in_paste => {
+                    if flushes {
+                        self.typed_while_running = false;
+                        self.unsubmitted = false;
+                    } else if running {
+                        self.unsubmitted = true;
                     }
                 }
                 _ => self.unsubmitted = true,
@@ -1010,6 +1022,41 @@ mod tests {
         activity.record_foreground(epoch, false);
         assert!(activity.take_change(), "its end goes out");
         assert!(!activity.take_change(), "once");
+    }
+
+    /// Review 5, item 1: input written after the prompt's mark and before the
+    /// check's answer (a line typed into the prompt the shell just drew)
+    /// drops that answer, so even a check that says every byte was read pays
+    /// nothing and the terminal is not idle until the next mark.
+    #[test]
+    fn shell_idle_input_between_the_mark_and_the_check_is_never_idle() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\r");
+        activity.observe(ShellMark::PromptStart, 2_000);
+        let epoch = activity.foreground_check_due().expect("the prompt asks for a check");
+        activity.note_input(b"sleep 600\r");
+        activity.record_foreground_check(epoch, true, None, Some(true));
+        assert_eq!(activity.idle_since(), None, "the check from before the input is dropped");
+        assert_eq!(activity.foreground_check_due(), None, "no check while that line is owed");
+        activity.observe(ShellMark::PromptStart, 3_000);
+        let epoch = activity.foreground_check_due().unwrap();
+        activity.record_foreground_check(epoch, true, None, None);
+        assert_eq!(activity.idle_since(), Some(1_000), "the prompt after it answered it");
+    }
+
+    /// Review 5, nit: a raw program (ISIG off) reads Ctrl-C as a byte; the
+    /// kernel flushes nothing typed ahead of it.
+    #[test]
+    fn shell_idle_ctrl_c_to_a_raw_program_keeps_what_was_typed_ahead() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"vim\r");
+        activity.observe(ShellMark::CommandStart, 1_100);
+        activity.note_modes(TerminalModes { exclusive: true, line: false });
+        activity.note_input(b":q\rsleep 600\r");
+        activity.note_input(b"\x03");
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_200);
+        let activity = checked_after(activity, &[1_300], None);
+        assert_eq!(activity.idle_since(), None, "`sleep 600` may wait for the shell");
     }
 
     /// Review 2, finding 6: a reconnect without host state checks again.

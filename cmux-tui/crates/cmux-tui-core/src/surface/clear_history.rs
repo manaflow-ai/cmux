@@ -173,8 +173,31 @@ impl Surface {
                             wait_clear_history_fallback(receipt?)
                         });
                     }
-                    let written = write_clear_history_fallback(master, writer.as_mut(), &encoded);
+                    // The write waits while the child does not read: after the
+                    // runtime lock, with a descriptor of its own (`LocalWriter`).
+                    #[cfg(unix)]
+                    let fd = match master.as_raw_fd().map(super::input::dup_descriptor).transpose()
+                    {
+                        Ok(fd) => fd,
+                        Err(error) => {
+                            drop(runtime);
+                            drop(turn);
+                            if publish {
+                                self.post_pending_publications();
+                            }
+                            return Err(ClearHistoryFailure::known_not_delivered(error.into()));
+                        }
+                    };
+                    #[cfg(not(unix))]
+                    let _ = master;
+                    let writer = writer.clone();
                     drop(runtime);
+                    #[cfg(unix)]
+                    let raw = fd.as_ref().map(std::os::fd::AsRawFd::as_raw_fd);
+                    #[cfg(not(unix))]
+                    let raw = None;
+                    let written = writer
+                        .with(|writer| write_clear_history_fallback_to(raw, writer, &encoded));
                     drop(turn);
                     if publish {
                         self.post_pending_publications();
@@ -333,10 +356,27 @@ pub(crate) fn write_clear_history_fallback(
     writer: &mut dyn Write,
     bytes: &[u8],
 ) -> Result<(), ClearHistoryFailure> {
+    #[cfg(unix)]
+    let fd = master.as_raw_fd();
+    #[cfg(not(unix))]
+    let fd = {
+        let _ = master;
+        None
+    };
+    write_clear_history_fallback_to(fd, writer, bytes)
+}
+
+/// [`write_clear_history_fallback`] to the master descriptor `fd` (unix), else
+/// through `writer` (tests).
+pub(crate) fn write_clear_history_fallback_to(
+    fd: Option<MasterFd>,
+    writer: &mut dyn Write,
+    bytes: &[u8],
+) -> Result<(), ClearHistoryFailure> {
     check_clear_history_fallback_size(bytes)?;
 
     #[cfg(unix)]
-    if let Some(fd) = master.as_raw_fd() {
+    if let Some(fd) = fd {
         return crate::pty_write::write_bounded(
             fd,
             bytes,
@@ -358,11 +398,19 @@ pub(crate) fn write_clear_history_fallback(
     #[cfg(not(test))]
     {
         let _ = writer;
+        #[cfg(not(unix))]
+        let _ = fd;
         Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
             "bounded clear-history fallback writes are unavailable for this PTY"
         )))
     }
 }
+
+/// A master descriptor a fallback write goes to.
+#[cfg(unix)]
+pub(crate) type MasterFd = std::os::fd::RawFd;
+#[cfg(not(unix))]
+pub(crate) type MasterFd = ();
 
 pub(crate) enum ClearHistoryTransition {
     Cleared(Vec<u8>),

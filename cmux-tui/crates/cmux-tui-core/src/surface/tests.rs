@@ -86,5 +86,5 @@ fn replace_local_writer(surface: &Surface, replacement: Box<dyn Write + Send>) {
     let PtyRuntime::Local { writer, .. } = &mut *runtime else {
         panic!("test surface unexpectedly uses a terminal host");
     };
-    *writer = replacement;
+    writer.replace(replacement);
 }

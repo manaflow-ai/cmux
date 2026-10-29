@@ -11,30 +11,13 @@
 //! reports are only ever written whole, while the queue keeps room for keys:
 //! one that would not fit is dropped, as a terminal coalesces the wheel.
 
-use std::io::{self, Write};
+use std::io;
 #[cfg(unix)]
 use std::os::fd::RawFd;
 
 use cmux_pty::MasterPty;
 
-/// Writes `payload` to the PTY child of `master` through `writer`, unless
-/// [`admits`] drops it. Returns false when the payload was dropped.
-pub(crate) fn write_input(
-    master: Option<&dyn MasterPty>,
-    writer: &mut dyn Write,
-    payload: &[u8],
-) -> io::Result<bool> {
-    if let Some(master) = master
-        && !admits(master, payload)
-    {
-        return Ok(false);
-    }
-    writer.write_all(payload)?;
-    writer.flush()?;
-    Ok(true)
-}
-
-/// [`write_input`] for a terminal whose input the `pty-writer` writes
+/// Queues `payload` for a terminal whose input the `pty-writer` writes
 /// (`crate::pty_write`): queued in the key lane, never waiting for the
 /// child. A wheel or motion report is also dropped while earlier input still
 /// waits in the queue: the child is not reading, and the report would only
@@ -80,13 +63,15 @@ fn admits_fd(master_fd: Option<MasterFd>, payload: &[u8]) -> bool {
     !is_lossy_mouse_input(payload) || lossy_input_fits(master_fd, payload.len())
 }
 
-/// [`write_input`] for the PTY master `master_fd`.
+/// Writes `payload` through `writer` unless [`admits_fd`] drops it, for the PTY master
+/// `master_fd`.
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) fn write_input_fd(
     master_fd: Option<RawFd>,
-    writer: &mut dyn Write,
+    writer: &mut dyn std::io::Write,
     payload: &[u8],
 ) -> io::Result<bool> {
+    use std::io::Write as _;
     if !admits_fd(master_fd, payload) {
         return Ok(false);
     }
