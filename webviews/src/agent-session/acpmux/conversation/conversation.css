@@ -2093,6 +2093,11 @@ pre.cv-math-source {
   overflow-wrap: anywhere;
 }
 /* No output yet (a command that has printed nothing): no box. */
+/* A block, so a ResizeObserver sees its lines grow (the follow-the-end and fade watches,
+   ShellBlock.tsx and moreBelow.ts); inline, it reports no size at all. */
+.cv-shell__output {
+  display: block;
+}
 .cv-shell__body:empty {
   display: none;
 }

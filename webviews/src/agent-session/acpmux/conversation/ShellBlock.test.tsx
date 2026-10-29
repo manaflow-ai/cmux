@@ -211,3 +211,43 @@ test("past eight lines the output is capped to scroll, with Show all to lift the
   await act(async () => root!.render(<ShellBlock command="sleep 5" live />));
   expect(container.querySelector(".cv-shell__body")?.textContent).toBe("");
 });
+
+test("while it runs, a reflow that grows the output keeps the newest line in view", async () => {
+  const observers: { run: () => void; targets: Element[] }[] = [];
+  Object.assign(dom!.window, {
+    ResizeObserver: class {
+      entry: { run: () => void; targets: Element[] };
+      constructor(run: () => void) {
+        this.entry = { run, targets: [] };
+        observers.push(this.entry);
+      }
+      observe(target: Element) {
+        this.entry.targets.push(target);
+      }
+      disconnect() {
+        this.entry.targets = [];
+      }
+    },
+  });
+  let height = 400;
+  const output = Array.from({ length: 30 }, (_, at) => `case ${at + 1}`).join("\n");
+  await act(async () => root!.render(<ShellBlock command="bun test" output={output} live />));
+  const body = container.querySelector<HTMLElement>(".cv-shell__body")!;
+  Object.defineProperty(body, "clientHeight", { configurable: true, get: () => 100 });
+  Object.defineProperty(body, "scrollHeight", { configurable: true, get: () => height });
+  let top = 300;
+  Object.defineProperty(body, "scrollTop", {
+    configurable: true,
+    get: () => top,
+    set: (value: number) => {
+      top = value;
+    },
+  });
+  // The mono font loads and the lines grow taller: no scroll event, only a resize of the output.
+  height = 520;
+  const lines = container.querySelector(".cv-shell__output")!;
+  const watching = observers.filter((entry) => entry.targets.includes(lines));
+  expect(watching.length).toBeGreaterThan(0);
+  for (const entry of watching) entry.run();
+  expect(body.scrollTop).toBe(520);
+});

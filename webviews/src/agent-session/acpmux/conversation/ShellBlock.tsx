@@ -166,8 +166,10 @@ export const ShellCommand = memo(function ShellCommand({ command }: { command: s
 });
 
 /// While `following`, keeps the box scrolled to its newest line as `content` grows, unless the
-/// reader scrolled up from the end; scrolling back to the end follows again. One scroll listener for
-/// as long as it follows, and one assignment per change of `content`.
+/// reader scrolled up from the end; scrolling back to the end follows again. A late reflow (the mono
+/// font loading, the pane resizing) grows the content without a scroll, so a resize of the box or
+/// its output pins the end again too. One scroll listener and one ResizeObserver for as long as it
+/// follows, and one assignment per change of `content`.
 function useFollowEnd(ref: RefObject<HTMLElement | null>, content: unknown, following: boolean) {
   const away = useRef(false);
   useLayoutEffect(() => {
@@ -176,8 +178,19 @@ function useFollowEnd(ref: RefObject<HTMLElement | null>, content: unknown, foll
     const onScroll = () => {
       away.current = moreBelow(box);
     };
+    const onResize = () => {
+      if (!away.current) box.scrollTop = box.scrollHeight;
+    };
     box.addEventListener("scroll", onScroll, { passive: true });
-    return () => box.removeEventListener("scroll", onScroll);
+    const view = box.ownerDocument.defaultView;
+    const resize = view?.ResizeObserver ? new view.ResizeObserver(onResize) : undefined;
+    resize?.observe(box);
+    const output = box.querySelector(".cv-shell__output");
+    if (output) resize?.observe(output);
+    return () => {
+      box.removeEventListener("scroll", onScroll);
+      resize?.disconnect();
+    };
   }, [ref, following]);
   useLayoutEffect(() => {
     const box = ref.current;
