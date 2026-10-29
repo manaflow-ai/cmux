@@ -29,7 +29,7 @@ cat > "$TMP/bin/git" <<STUB
 echo "\$*" >> "$TMP/git-calls"
 case " \$* " in
   *" submodule update --init --depth 1 ghostty-next "*) exit 0 ;;
-  *" diff --binary -- cmux-tui/spec/api-compat.surface.json "*) echo "diff --git a/cmux-tui/spec/api-compat.surface.json b/cmux-tui/spec/api-compat.surface.json (stub)" ;;
+  *" diff --no-color --no-ext-diff --stat -- cmux-tui/spec/api-compat.surface.json "*) [[ -n "\${API_COMPAT_SAME:-}" ]] || echo " cmux-tui/spec/api-compat.surface.json | 4 ++-- (stub)" ;;
   *) echo "unexpected git invocation: \$*" >&2; exit 1 ;;
 esac
 STUB
@@ -71,15 +71,17 @@ run CMUX_CI_STEP_KEY=k >/dev/null || fail "api-compat mode refused"
 [[ "$(cat "$TMP/calls")" == *"/.build/cmux-tui-rust-target run --locked -p cmux-api-compat --bin api-compat-check" ]] || fail "api-compat: $(cat "$TMP/calls")"
 ! grep -q -E ' fmt | clippy | nextest | --write' "$TMP/calls" || fail "api-compat ran more than the check: $(cat "$TMP/calls")"
 ! grep -q submodule "$TMP/git-calls" 2>/dev/null || fail "api-compat checked out ghostty-next: $(cat "$TMP/git-calls")"
-[[ ! -e "$TMP/work/.build/artifacts/api-compat.patch" ]] || fail "api-compat wrote a patch"
 rm -f "$TMP/calls" "$TMP/git-calls"
-# api-compat-write: the --write form, then the snapshot's diff as the step's artifact
-# (.build/artifacts/api-compat.patch, `git apply` in the caller's checkout). It never commits or pushes.
+# api-compat-write: the --write form, which rewrites spec/api-compat.surface.json (the step's
+# artifact), then says what changed. It never commits or pushes; an unchanged snapshot is green.
 ARGS=(api-compat-write)
-run CMUX_CI_STEP_KEY=k >/dev/null || fail "api-compat-write mode refused"
+out=$(run CMUX_CI_STEP_KEY=k) || fail "api-compat-write mode refused: $out"
 grep -q '/.build/cmux-tui-rust-target run --locked -p cmux-api-compat --bin api-compat-check -- --write$' "$TMP/calls" || fail "api-compat-write: $(cat "$TMP/calls")"
-grep -q '(stub)$' "$TMP/work/.build/artifacts/api-compat.patch" || fail "api-compat-write returned no patch"
+grep -q 'api-compat.surface.json changed: .*(stub)' <<<"$out" || fail "api-compat-write did not report the change: $out"
 ! grep -q -E 'submodule|commit|push|add ' "$TMP/git-calls" || fail "api-compat-write ran git beyond the diff: $(cat "$TMP/git-calls")"
+rm -f "$TMP/calls" "$TMP/git-calls"
+out=$(run CMUX_CI_STEP_KEY=k API_COMPAT_SAME=1) || fail "api-compat-write with a current snapshot is red: $out"
+grep -q 'api-compat.surface.json unchanged' <<<"$out" || fail "api-compat-write did not report a current snapshot: $out"
 rm -f "$TMP/calls"
 ARGS=(api-compat 'cmux_link::')
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "api-compat accepted a filter"

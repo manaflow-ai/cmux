@@ -43,11 +43,12 @@
 # api-compat: cmux-tui-spec.yml's api-compat job, the same command (`cargo run --locked
 # -p cmux-api-compat --bin api-compat-check`): a protocol change that can break an older
 # or newer peer needs a compat rule, and spec/api-compat.surface.json must be current.
-# api-compat-write: the same with --write (it refuses while a break lacks a rule), then
-# the snapshot's diff at .build/artifacts/api-compat.patch (empty when nothing changed);
-# fetch it with --artifact, `git apply` it in your checkout and commit it there. Neither
-# takes a TEST_FILTER or checks out ghostty-next (the crate needs only serde), and
-# neither commits or pushes.
+# api-compat-write: the same with --write (it refuses while a break lacks a rule), which
+# rewrites cmux-tui/spec/api-compat.surface.json in the step's checkout and prints its diff
+# stat; fetch the file with --artifact cmux-tui/spec/api-compat.surface.json, copy it over
+# yours and commit it there (an unchanged file means the snapshot was current). Neither
+# takes a TEST_FILTER or checks out ghostty-next (cmux-api-compat's Cargo.lock closure has
+# no Ghostty crate: tests/test_zig_free_step_lockfiles.py), and neither commits or pushes.
 set -euo pipefail
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
   cat >&2 <<'MSG'
@@ -837,14 +838,14 @@ if [[ "$mode" == vm-cli ]]; then
   step "vm-cli artifact" copy_vm_cli
   finish
 fi
-# The refreshed snapshot as a patch against the step's commit; the one file --write writes.
-api_compat_patch() {
-  mkdir -p "$root/.build/artifacts"
-  git -C "$root" diff --binary -- cmux-tui/spec/api-compat.surface.json >"$root/.build/artifacts/api-compat.patch" || return 1
-  if [[ -s "$root/.build/artifacts/api-compat.patch" ]]; then
-    echo "api-compat.patch: spec/api-compat.surface.json changed ($(wc -c <"$root/.build/artifacts/api-compat.patch") bytes); apply it with git apply"
+# What --write changed in the one file it writes (the file itself is the step's artifact).
+api_compat_changed() {
+  local stat
+  stat="$(git -C "$root" --no-pager diff --no-color --no-ext-diff --stat -- cmux-tui/spec/api-compat.surface.json)" || return 1
+  if [[ -n "$stat" ]]; then
+    echo "api-compat-write: cmux-tui/spec/api-compat.surface.json changed: $stat"
   else
-    echo "api-compat.patch: empty (the snapshot was already current)"
+    echo "api-compat-write: cmux-tui/spec/api-compat.surface.json unchanged (the snapshot was current)"
   fi
 }
 if [[ "$mode" == api-compat ]]; then
@@ -852,10 +853,8 @@ if [[ "$mode" == api-compat ]]; then
   finish
 fi
 if [[ "$mode" == api-compat-write ]]; then
-  # A warm slot keeps .build: never hand back an older step's patch.
-  rm -f "$root/.build/artifacts/api-compat.patch"
   step "api-compat write" cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write
-  [[ "$first_rc" -ne 0 ]] || step "api-compat patch" api_compat_patch
+  [[ "$first_rc" -ne 0 ]] || step "api-compat changed" api_compat_changed
   finish
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
