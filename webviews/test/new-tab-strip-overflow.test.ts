@@ -13,8 +13,7 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
-    describe.skip("new tab strip overflow", () => test("chromium", () => {}));
-    return;
+    throw new Error("Chromium is required for the New Tab strip geometry lane");
   }
 
   const { createServer } = await import("vite");
@@ -64,11 +63,33 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
         clientWidth: rows.clientWidth,
         items: items.map((item) => {
           const rect = item.getBoundingClientRect();
-          return { left: rect.left, right: rect.right, text: item.textContent };
+          const glyph = item.querySelector<HTMLElement>(".nt-row-glyph")?.getBoundingClientRect();
+          return {
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            width: rect.width,
+            text: item.textContent,
+            label: item.getAttribute("aria-label"),
+            title: item.getAttribute("title"),
+            role: item.getAttribute("role"),
+            glyphWidth: glyph?.width ?? 0,
+          };
         }),
         viewport: { left: viewport.left, right: viewport.right },
       };
     });
+    expect(result.items).toHaveLength(3);
+    const first = result.items[0]!;
+    expect(first.role).toBe("option");
+    expect(first.top).toBeCloseTo(result.items[1]!.top, 0);
+    expect(first.top).toBeCloseTo(result.items[2]!.top, 0);
+    for (const item of result.items) {
+      expect(item.width).toBeGreaterThan(0);
+      expect(item.glyphWidth).toBeGreaterThan(0);
+      expect(item.label).toBe(item.text);
+      expect(item.title).toBe(item.text);
+    }
     expect(result.scrollWidth).toBeLessThanOrEqual(result.clientWidth + 1);
     for (const item of result.items) {
       expect(item.left).toBeGreaterThanOrEqual(result.viewport.left - 1);
@@ -80,8 +101,10 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
       await page.evaluate(() => {
         const strip = document.querySelector<HTMLElement>(".nt-create-strip")!;
         strip.style.flexWrap = "nowrap";
+        strip.style.overflow = "visible";
         for (const item of strip.querySelectorAll<HTMLElement>(".nt-create-strip-item")) {
           item.style.flex = "0 0 auto";
+          item.style.minWidth = "auto";
           item.querySelector<HTMLElement>(".nt-row-title")!.style.cssText = "max-width:none;overflow:visible";
         }
       });
@@ -89,8 +112,10 @@ await requireBrowserLane("new-tab-strip-overflow.test.ts", async () => {
       await page.evaluate(() => {
         const strip = document.querySelector<HTMLElement>(".nt-create-strip")!;
         strip.style.flexWrap = "";
+        strip.style.overflow = "";
         for (const item of strip.querySelectorAll<HTMLElement>(".nt-create-strip-item")) {
           item.style.flex = "";
+          item.style.minWidth = "";
           item.querySelector<HTMLElement>(".nt-row-title")!.style.cssText = "";
         }
       });
