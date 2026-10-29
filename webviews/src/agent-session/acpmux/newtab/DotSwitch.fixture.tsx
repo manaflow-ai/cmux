@@ -9,7 +9,9 @@ export default function DotSwitchFixture() {
   const returnTarget = useRef<HTMLButtonElement>(null);
   return (
     <div className="dot-focus-fixture">
-      <button ref={returnTarget} type="button">Before dots</button>
+      <button ref={returnTarget} type="button">
+        Before dots
+      </button>
       <DotSwitch
         options={options}
         current={current}

@@ -1,7 +1,7 @@
 // The New Tab page's style switch (Leo 2026-10-14, after cx-txe89): one small round dot per page
 // style under the page, the current one in the accent (a dot that slides to a new pick) and the rest
 // dim. A pointer over a dot shows its name over it; a pick shows the picked name for a moment, then
-// fades it. Native radios carry the names (the browser owns arrows and focus) and fill each dot's
+// fades it. Keyboard focus keeps the name visible until blur. Native radios carry the names and fill each dot's
 // hit target, larger than the dot. The row never changes size or place, so nothing shifts. The
 // composer's look dots (newtab/PageDots.tsx, LookSwitch.tsx; Leo 2026-10-22) are the same dots
 // (DotSwitch) over other options.
@@ -129,7 +129,10 @@ export function DotSwitch<Option extends string>({
             className="nt-style-option"
             data-style={style}
             onPointerOver={() => setHovered(style)}
-            onPointerDown={() => (pressed.current = true)}
+            onPointerDown={() => {
+              pressed.current = true;
+              setFocused(undefined);
+            }}
           >
             <input
               className="nt-style-input"

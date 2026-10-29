@@ -7,7 +7,7 @@
   justify-content: space-between;
   padding: 24px;
   color: var(--agent-text);
-  background: var(--agent-bg);
+  background: var(--agent-page-bg);
 }
 .dot-focus-fixture .nt-style {
   bottom: 48px;

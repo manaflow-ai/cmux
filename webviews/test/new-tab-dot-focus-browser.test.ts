@@ -40,9 +40,12 @@ await requireBrowserLane("new-tab-dot-focus-browser.test.ts", async () => {
         });
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
-          await page.goto(`http://127.0.0.1:${port}${galleryFrame("new-tab.dot-focus", {
-            width, theme: scheme === "light" ? "Apple System Colors Light" : "Apple System Colors",
-          })}`);
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame("new-tab.dot-focus", {
+              width,
+              theme: scheme === "light" ? "Apple System Colors Light" : "Apple System Colors",
+            })}`,
+          );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           const label = page.locator(".nt-style-name");
           const first = page.getByRole("radio", { name: "Minimal", exact: true });
@@ -57,16 +60,29 @@ await requireBrowserLane("new-tab-dot-focus-browser.test.ts", async () => {
           if (!before) expect(await label.textContent()).toBe("Minimal");
           await page.mouse.move(1, 1);
           expect(await shown()).toBe(!before);
-          if (captures) await page.screenshot({ path: path.join(captures, `${before ? "before" : "after"}-${scheme}-${width}-tab.png`) });
+          if (captures)
+            await page.screenshot({
+              path: path.join(captures, `${before ? "before" : "after"}-${scheme}-${width}-tab.png`),
+            });
 
+          // Clicking the already-selected radio has no change event or focus-return callback.
+          // Its name must still go away when the pointer leaves, then reappear on the next key.
+          await first.click();
+          await page.mouse.move(1, 1);
+          expect(await shown()).toBe(false);
           await page.keyboard.press("ArrowRight");
-          await page.waitForFunction(() => document.querySelector<HTMLInputElement>('input[value="Quick actions"]')?.checked);
-          // The existing name timer is 1100ms. Wait past it to test continued focus, not just selection.
+          await page.waitForFunction(
+            () => document.querySelector<HTMLInputElement>('input[value="Quick actions"]')?.checked,
+          );
+          // fixed-wait: observe beyond the 1100ms pick timer to test retained focus, not selection feedback.
           await page.waitForTimeout(1400);
           expect(await second.evaluate((node) => node === document.activeElement)).toBe(true);
           expect(await shown()).toBe(!before);
           if (!before) expect(await label.textContent()).toBe("Quick actions");
-          if (captures) await page.screenshot({ path: path.join(captures, `${before ? "before" : "after"}-${scheme}-${width}-arrow.png`) });
+          if (captures)
+            await page.screenshot({
+              path: path.join(captures, `${before ? "before" : "after"}-${scheme}-${width}-arrow.png`),
+            });
           await page.keyboard.press("Tab");
           expect(await shown()).toBe(false);
 
@@ -76,6 +92,7 @@ await requireBrowserLane("new-tab-dot-focus-browser.test.ts", async () => {
           await third.click();
           await page.waitForFunction(() => document.activeElement?.textContent === "Before dots");
           await page.mouse.move(1, 1);
+          // fixed-wait: verify the pointer pick name expires after its 1100ms timer.
           await page.waitForTimeout(1400);
           expect(await shown()).toBe(false);
         } finally {
