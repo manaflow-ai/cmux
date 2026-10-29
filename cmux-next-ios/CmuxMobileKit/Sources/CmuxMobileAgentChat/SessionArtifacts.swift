@@ -135,20 +135,27 @@ public struct SessionArtifacts: Sendable {
 
         mutating func add(_ attachment: AgentAttachment) {
             let reference = "Attachments/\(attachment.name)"
+            let key = normalize(reference)
+            // The newest attachment of a name is the one that opens: its bytes or its file, never an older one's.
+            if attachment.data != nil {
+                onDisk[key] = nil
+            } else if attachment.fileURL != nil {
+                inline[key] = nil
+                // Too large to hold: the phone's file, never the Mac's (it has no `Attachments/`).
+                onDisk[key] = attachment.localFile
+            }
             switch attachment.kind {
             case .image:
                 add(reference, kind: .image, detail: "Attached", weight: .attached)
-                if let data = attachment.data { inline[normalize(reference)] = .image(data) }
+                if let data = attachment.data { inline[key] = .image(data) }
             case .file:
                 let kind = Self.kind(of: attachment.name) ?? .binary
                 add(reference, kind: kind, detail: "Attached", weight: .attached)
                 if let data = attachment.data {
-                    inline[normalize(reference)] = (try? LinkFileArtifactSource.content(
+                    inline[key] = (try? LinkFileArtifactSource.content(
                         for: TerminalArtifact(reference: reference, kind: kind), data: data)) ?? .binary(description: attachment.name)
                 }
             }
-            // Too large to hold: the phone's file, never the Mac's (it has no `Attachments/`).
-            if attachment.data == nil, attachment.fileURL != nil { onDisk[normalize(reference)] = attachment.localFile }
         }
 
         /// Paths and URLs in free text (prompts, answers, shell output). Markdown link targets count too.
