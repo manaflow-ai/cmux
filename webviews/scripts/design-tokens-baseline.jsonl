@@ -101,7 +101,7 @@
 {"file":"agent-session/acpmux/markdownField.css","kind":"spacing","property":"padding-left","values":{"22px":1,"10px":1}}
 {"file":"agent-session/acpmux/modelPicker.css","kind":"height","property":"height","values":{"44px":1}}
 {"file":"agent-session/acpmux/modelPicker.css","kind":"height","property":"min-height","values":{"22px":1}}
-{"file":"agent-session/acpmux/modelPicker.css","kind":"spacing","property":"padding","values":{"6px":3,"4px var(--ui-row-padding-inline) 2px":1}}
+{"file":"agent-session/acpmux/modelPicker.css","kind":"spacing","property":"padding","values":{"6px":1,"4px var(--ui-row-padding-inline) 2px":1}}
 {"file":"agent-session/acpmux/needsYou/needsYou.css","kind":"height","property":"height","values":{"8px":1,"6px":2,"16px":1,"34px":1}}
 {"file":"agent-session/acpmux/needsYou/needsYou.css","kind":"spacing","property":"column-gap","values":{"6px":1}}
 {"file":"agent-session/acpmux/needsYou/needsYou.css","kind":"spacing","property":"gap","values":{"5px":4,"6px":4,"2px":1,"1px":1}}
