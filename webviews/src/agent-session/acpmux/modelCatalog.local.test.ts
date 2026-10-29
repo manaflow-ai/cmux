@@ -84,3 +84,21 @@ test("a folded release retains its harness menu position without promoting the r
   expect(harness.topModels).toEqual(["opus", "sonnet"]);
   expect(harness.topModels).not.toContain("claude-haiku-5-5");
 });
+
+test("a harness acpmux marks pickerHidden (the cmux router fallback) is not a choice", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const catalog = mergeModelCatalog(
+    {
+      harnesses: {
+        claude: { family: "claude", kind: "claude-stdio" },
+        cmux: { family: "claude", kind: "claude-stdio", pickerHidden: true },
+      },
+    },
+    { harnesses: [{ harness: "cmux", pickerHidden: true, models: [{ id: "deepseek/deepseek-v4-flash" }] }] },
+  );
+  expect(catalog.filter((entry) => entry.pickable !== false).map((entry) => entry.id)).toEqual(["claude"]);
+  // The row stays, with its models, for a chat that already failed over to it.
+  expect(catalog.find((entry) => entry.id === "cmux")?.models.map((m) => m.id)).toEqual(["deepseek/deepseek-v4-flash"]);
+  const picker = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux: catalog });
+  expect(picker.harnesses.filter((entry) => entry.pickable).map((entry) => entry.acpmuxHarness)).not.toContain("cmux");
+});

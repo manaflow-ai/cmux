@@ -1,16 +1,24 @@
-//! The daemon's side of the mesh relay (`mesh.rs`): the inbox loop and the delivery of one
-//! message.
+//! The daemon's side of the mesh relay (`mesh.rs`): two loops and the delivery of one message.
+//! [`start_configured`] starts them when config.json names a hub (`meshRelay`, `mesh_http.rs`);
+//! without one nothing here runs. A send to a name nobody here resolves is `mesh_send.rs`'s.
+//!
+//! The heartbeat sends this daemon's sessions (`Hub::mesh_rows`) every `heartbeat_every`, or a
+//! third of the hub's row TTL when that is sooner (never sooner than `min_poll_gap`). Its reply
+//! names this daemon (`daemonId`); the inbox does not poll before that. It stops as the inbox
+//! does; a stop sends one last, empty heartbeat (at most 5 s), so the address book drops this
+//! daemon's rows at once rather than at their TTL. A refusal either loop meets stops both, so a
+//! daemon whose inbox the hub refuses is not left listed.
 //!
 //! The inbox long-polls the hub (`inbox_wait`), never more often than `min_poll_gap`, after an
 //! answer or a failure alike (a hub that answers at once, with nothing or an error, is no busy
-//! loop), and delivers each message on its own task, at
-//! most `max_in_flight` at a time; a message already being delivered is not started again. After
-//! a failed call it waits, doubling from `backoff_first` to `backoff_cap`, and logs only the
-//! first failure of a run of them and the recovery. It stops when [`MeshRelay`] is stopped or
-//! dropped, when the daemon stops (its hub's `shutdown`, or the hub gone), or when the mesh hub
-//! refuses the call itself (a bad credential, a request it will never take: retrying cannot
-//! help, so it logs that once and the relay stays off until the daemon starts again);
-//! deliveries in flight then end unacked, and their leases bring them back.
+//! loop), and delivers each message on its own task, at most `max_in_flight` at a time; a message
+//! already being delivered is not started again. After a failed call each loop waits, doubling from `backoff_first` to `backoff_cap` (or the hub's
+//! `retryAfterSeconds`, if longer), and logs only the first failure of a run of them and the
+//! recovery. Both loops stop when [`MeshRelay`] is stopped or dropped, when the daemon stops (its
+//! hub's `shutdown`, or the hub gone), or when the mesh hub refuses a call itself (a bad
+//! credential, a request it will never take: retrying cannot help, so it logs that once and the
+//! loop stays off until the daemon starts again); deliveries in flight then end unacked, and
+//! their leases bring them back.
 //!
 //! A message is delivered as a send here is (`outbox.rs` `attempt_once`), on a connection of
 //! `Origin::Peer`, so a relayed message is held to exactly a peer daemon's rules: it reads no
@@ -20,15 +28,19 @@
 //! restart) answers with its first run instead of running twice (`hub/prompt_ledger.rs`).
 
 use super::*;
-use crate::mesh::{Ack, AckState, Backoff, ControlHook, InMessage, Kind, MeshHub, Mode};
+use crate::mesh::{
+    Ack, AckState, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
+};
 use std::collections::HashSet;
 use std::sync::Weak;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
-/// The inbox loop's timings.
+/// The loops' timings.
 #[derive(Debug, Clone)]
 pub struct RelayOptions {
+    /// The longest time between two heartbeats.
+    pub heartbeat_every: Duration,
     /// How long one inbox call waits for a message.
     pub inbox_wait: Duration,
     /// The least time between the starts of two inbox calls.
@@ -42,6 +54,7 @@ pub struct RelayOptions {
 impl Default for RelayOptions {
     fn default() -> Self {
         Self {
+            heartbeat_every: Duration::from_secs(30),
             inbox_wait: Duration::from_secs(25),
             min_poll_gap: Duration::from_secs(1),
             backoff_first: Duration::from_secs(1),
@@ -53,7 +66,8 @@ impl Default for RelayOptions {
 
 /// The running relay. Dropping it stops it as [`MeshRelay::stop`] does, without waiting.
 pub struct MeshRelay {
-    stop: watch::Sender<bool>,
+    /// Shared with both loops: a refusal one of them meets stops the other too.
+    stop: Arc<watch::Sender<bool>>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
@@ -65,18 +79,31 @@ impl MeshRelay {
         options: RelayOptions,
     ) -> Self {
         let (stop, stopped) = watch::channel(false);
+        let stop = Arc::new(stop);
         let options = Arc::new(options);
-        let tasks =
-            vec![tokio::spawn(inbox(Arc::downgrade(hub), client, control, options, stopped))];
+        // This daemon's id at the hub, from its heartbeat reply: a message naming it is ours, and
+        // the inbox waits for it, so no message meets a daemon that does not know its own id yet.
+        let (daemon, own) = watch::channel(None);
+        let halt = Halt(stop.clone());
+        let beats = heartbeats(
+            Arc::downgrade(hub),
+            client.clone(),
+            options.clone(),
+            daemon,
+            halt.clone(),
+            stopped.clone(),
+        );
+        let inbox = inbox(Arc::downgrade(hub), client, control, options, own, halt, stopped);
+        let tasks = vec![tokio::spawn(beats), tokio::spawn(inbox)];
         Self { stop, tasks }
     }
 
-    /// Whether its loop has ended: stopped, the daemon stopping, or refused by the mesh hub.
+    /// Whether its loops have ended: stopped, the daemon stopping, or refused by the mesh hub.
     pub fn is_finished(&self) -> bool {
         self.tasks.iter().all(tokio::task::JoinHandle::is_finished)
     }
 
-    /// Stop it and wait for its loop to end.
+    /// Stop both loops and wait for them: the last heartbeat is sent.
     pub async fn stop(mut self) {
         let _ = self.stop.send(true);
         for task in std::mem::take(&mut self.tasks) {
@@ -131,15 +158,142 @@ async fn ended(stop: &mut watch::Receiver<bool>, hub: &Weak<Hub>) {
     }
 }
 
+/// Waits for the daemon's startup (its sessions listed), unless the relay stops first.
+async fn started(hub: &Weak<Hub>, stop: &mut watch::Receiver<bool>) -> bool {
+    let Some(strong) = hub.upgrade() else { return false };
+    tokio::select! {
+        () = strong.wait_startup() => true,
+        () = ended(stop, hub) => false,
+    }
+}
+
+/// The relay config.json names, started with the HTTPS client, which also becomes the hub's
+/// for sends (`Hub::mesh`). None, and nothing started, when none is named or it is unusable.
+pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
+    let config = hub.config.read().await.mesh_relay.clone()?;
+    let client: Arc<dyn MeshHub> = match crate::mesh_http::HttpHub::new(&config) {
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            tracing::warn!("mesh relay off: {e}");
+            return None;
+        }
+    };
+    let _ = hub.mesh.set(client.clone());
+    // The origin only (no user, password or query is accepted in the URL).
+    let shown = config.shown();
+    tracing::info!("mesh relay: on, through {shown}");
+    let control = Arc::new(crate::mesh::RefuseControl);
+    Some(MeshRelay::start(hub, client, control, RelayOptions::default()))
+}
+
+/// The wait after a failed call: the next backoff, or the hub's own wait when longer.
+fn after_failure(backoff: &mut Backoff, e: &HubError) -> Duration {
+    backoff.next_wait().max(e.retry_after.unwrap_or_default())
+}
+
+/// The least time between heartbeats: the hub takes fewer than 30 a minute.
+const HEARTBEAT_FLOOR: Duration = Duration::from_millis(2500);
+
+/// The wait after a heartbeat the hub took: a third of its TTL, at most `heartbeat_every`.
+fn heartbeat_wait(options: &RelayOptions, ttl_seconds: u64) -> Duration {
+    let third = Duration::from_millis(ttl_seconds.saturating_mul(1000) / 3);
+    if third.is_zero() { options.heartbeat_every } else { third.min(options.heartbeat_every) }
+}
+
+/// Stops both loops: what one loop does when the mesh hub refuses it for good, so the other
+/// neither waits nor heartbeats on for a daemon that takes nothing.
+#[derive(Clone)]
+struct Halt(Arc<watch::Sender<bool>>);
+
+impl Halt {
+    fn all(&self) {
+        let _ = self.0.send(true);
+    }
+}
+
+async fn heartbeats(
+    hub: Weak<Hub>,
+    client: Arc<dyn MeshHub>,
+    options: Arc<RelayOptions>,
+    daemon: watch::Sender<Option<String>>,
+    halt: Halt,
+    mut stop: watch::Receiver<bool>,
+) {
+    if !started(&hub, &mut stop).await {
+        return;
+    }
+    let host = crate::pairing::machine_name();
+    let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
+    let mut failing = false;
+    loop {
+        if hub_ended(&hub) {
+            break;
+        }
+        let Some(sessions) = hub.upgrade().map(|h| h.mesh_rows()) else { break };
+        let beat = Heartbeat { host: host.clone(), sessions };
+        let wait = tokio::select! {
+            r = client.heartbeat(&beat) => match r {
+                Ok(reply) => {
+                    if std::mem::take(&mut failing) {
+                        tracing::info!("mesh relay: the hub takes heartbeats again");
+                    }
+                    backoff.reset();
+                    if !reply.daemon_id.is_empty() {
+                        daemon.send_if_modified(|d| {
+                            let new = d.as_deref() != Some(reply.daemon_id.as_str());
+                            if new {
+                                *d = Some(reply.daemon_id.clone());
+                            }
+                            new
+                        });
+                    }
+                    heartbeat_wait(&options, reply.ttl_seconds)
+                }
+                Err(e) if e.ends_relay() => {
+                    tracing::error!(
+                        "mesh relay: the hub refused this daemon's heartbeat ({e}); the relay is off until the daemon restarts"
+                    );
+                    halt.all();
+                    return;
+                }
+                Err(e) => {
+                    if !std::mem::replace(&mut failing, true) {
+                        tracing::warn!("mesh relay: heartbeat failed ({e}); retrying with backoff");
+                    }
+                    after_failure(&mut backoff, &e)
+                }
+            },
+            () = ended(&mut stop, &hub) => break,
+        };
+        tokio::select! {
+            () = tokio::time::sleep(wait.max(HEARTBEAT_FLOOR.max(options.min_poll_gap))) => {}
+            () = ended(&mut stop, &hub) => break,
+        }
+    }
+    let last = Heartbeat { host, sessions: Vec::new() };
+    let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
+}
+
 async fn inbox(
     hub: Weak<Hub>,
     client: Arc<dyn MeshHub>,
     control: Arc<dyn ControlHook>,
     options: Arc<RelayOptions>,
+    mut own: watch::Receiver<Option<String>>,
+    halt: Halt,
     mut stop: watch::Receiver<bool>,
 ) {
     let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
     let mut failing = false;
+    let mut skipped = false;
+    if !started(&hub, &mut stop).await {
+        return;
+    }
+    // Not before the hub has named this daemon (its first heartbeat reply).
+    tokio::select! {
+        r = own.wait_for(Option::is_some) => if r.is_err() { return },
+        () = ended(&mut stop, &hub) => return,
+    }
     let mut deliveries = tokio::task::JoinSet::new();
     let in_flight: Arc<StdMutex<HashSet<String>>> = Arc::default();
     loop {
@@ -167,14 +321,25 @@ async fn inbox(
                 }
                 backoff.reset();
                 for message in messages {
+                    // A malformed id would go into the ack's path and the log: skipped, and its
+                    // lease brings it back to be skipped again (logged once per run, without it).
+                    if !crate::mesh::is_message_id(&message.message_id) {
+                        if !std::mem::replace(&mut skipped, true) {
+                            tracing::warn!("mesh relay: skipped a message whose id is malformed");
+                        }
+                        continue;
+                    }
                     if !in_flight.lock_or_recover().insert(message.message_id.clone()) {
                         continue;
                     }
                     let Some(hub) = hub.upgrade() else { return };
                     let (client, control, in_flight) =
                         (client.clone(), control.clone(), in_flight.clone());
+                    let own_id = own.borrow().clone();
                     deliveries.spawn(async move {
-                        if let Some(ack) = deliver(&hub, &message, control.as_ref(), None).await
+                        let ack =
+                            deliver(&hub, &message, control.as_ref(), own_id.as_deref()).await;
+                        if let Some(ack) = ack
                             && let Err(e) = client.ack(&message.message_id, &clip(ack)).await
                         {
                             // Its lease brings it back, and that delivery answers with this one.
@@ -185,10 +350,11 @@ async fn inbox(
                 }
                 options.min_poll_gap.saturating_sub(started.elapsed())
             }
-            Err(e) if e.refused => {
+            Err(e) if e.ends_relay() => {
                 tracing::error!(
                     "mesh relay: the hub refused this daemon's inbox ({e}); the relay is off until the daemon restarts"
                 );
+                halt.all();
                 break;
             }
             Err(e) => {
@@ -196,7 +362,8 @@ async fn inbox(
                     tracing::warn!("mesh relay: inbox failed ({e}); retrying with backoff");
                 }
                 // Never sooner than the poll floor: the backoff's jitter only shortens a wait.
-                backoff.next_wait().max(options.min_poll_gap.saturating_sub(started.elapsed()))
+                let floor = options.min_poll_gap.saturating_sub(started.elapsed());
+                after_failure(&mut backoff, &e).max(floor)
             }
         };
         if !wait.is_zero() {
@@ -326,6 +493,18 @@ mod tests {
         assert_eq!(sender_name(&from("vm\n", "a\u{7}b")), "vm/ab");
         let long = sender_name(&from(&"h".repeat(80), "lane"));
         assert_eq!(long.chars().count(), crate::hub::MAX_FROM_AGENT_CHARS);
+    }
+
+    #[test]
+    fn heartbeats_come_at_a_third_of_the_ttl_at_most_every_heartbeat_every() {
+        let options = RelayOptions::default();
+        assert_eq!(heartbeat_wait(&options, 90), Duration::from_secs(30));
+        assert_eq!(heartbeat_wait(&options, 30), Duration::from_secs(10));
+        assert_eq!(heartbeat_wait(&options, 0), Duration::from_secs(30));
+        let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(4));
+        let limited =
+            HubError { retry_after: Some(Duration::from_secs(9)), ..HubError::unavailable("") };
+        assert_eq!(after_failure(&mut backoff, &limited), Duration::from_secs(9));
     }
 
     #[test]
