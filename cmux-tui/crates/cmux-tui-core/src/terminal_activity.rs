@@ -183,7 +183,7 @@ pub(crate) struct ShellActivity {
     /// from, not only whether `shell_idle` is there).
     foreground_leader: Option<u32>,
     /// Counts marks and inputs, so a foreground check that raced one of them
-    /// is dropped ([`Self::record_foreground`]).
+    /// is dropped ([`Self::record_foreground_leader`]).
     epoch: u64,
     /// Input may reach the PTY without this daemon seeing it: a renderer
     /// grant (its holder writes Input and Paste frames to the terminal host
@@ -233,6 +233,17 @@ impl ShellActivity {
                 // typed ahead (still owed) or a partial one.
                 self.input_after_prompt = self.owed_prompts > 0 || self.unsubmitted;
                 true
+            }
+            // A continuation prompt (PS2: an open quote, a heredoc, a `for`
+            // loop over lines) answers the Return before it, so that line is
+            // paid, but the command it continues is not finished: the shell
+            // holds its text, so it stays not idle until a primary `A`.
+            ShellMark::SecondaryPromptStart => {
+                if self.prompted {
+                    self.owed_prompts = self.owed_prompts.saturating_sub(1);
+                }
+                self.input_after_prompt = true;
+                false
             }
             ShellMark::InputStart => false,
         }
@@ -394,7 +405,7 @@ impl ShellActivity {
         self.retract_idle(was_idle)
     }
 
-    /// The epoch to hand [`Self::record_foreground`] when the shell sits at a
+    /// The epoch to hand [`Self::record_foreground_leader`] when the shell sits at a
     /// prompt with no input since and its foreground was not checked since
     /// the last mark; `None` when no check would change the facts.
     pub(crate) fn foreground_check_due(&self) -> Option<u64> {
@@ -416,9 +427,9 @@ impl ShellActivity {
         self.foreground_check_due().or_else(|| self.idle_since().map(|_| self.epoch))
     }
 
-    /// Records a foreground check started at `epoch`
-    /// ([`Self::foreground_check_due`]): `holds` is whether the terminal's
-    /// own shell held the foreground. A mark or input since then drops it.
+    /// [`Self::record_foreground_leader`] with no leader: the tests' form (the
+    /// daemon always passes the leader its check saw).
+    #[cfg(test)]
     pub(crate) fn record_foreground(&mut self, epoch: u64, holds: bool) {
         self.record_foreground_leader(epoch, holds, None);
     }
@@ -431,8 +442,11 @@ impl ShellActivity {
         self.epoch = self.epoch.wrapping_add(1);
     }
 
-    /// [`Self::record_foreground`] with the foreground group leader the check
-    /// saw (`None`: the lookup failed).
+    /// Records a foreground check started at `epoch`
+    /// ([`Self::foreground_check_due`]): `holds` is whether the terminal's
+    /// own shell held the foreground, `leader` the foreground group leader
+    /// the check saw (`None`: the lookup failed). A mark or input since then
+    /// drops it.
     pub(crate) fn record_foreground_leader(
         &mut self,
         epoch: u64,
@@ -891,6 +905,24 @@ mod tests {
         let epoch = activity.foreground_check_due().expect("a new check is due");
         activity.record_foreground(epoch, true);
         assert_eq!(activity.idle_since(), Some(1_000));
+    }
+
+    /// A continuation prompt (`133;A;k=s`) pays its line but never makes the
+    /// shell idle: the command it continues is unfinished.
+    #[test]
+    fn shell_idle_a_secondary_prompt_is_never_idle_and_the_primary_after_it_is() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"cat <<EOF\r");
+        activity.observe(ShellMark::SecondaryPromptStart, 1_100);
+        assert_eq!(activity.foreground_check_due(), None, "the heredoc is unfinished");
+        activity.observe(ShellMark::InputStart, 1_101);
+        assert_eq!(activity.foreground_check_due(), None);
+        activity.note_input(b"a line\r");
+        activity.observe(ShellMark::SecondaryPromptStart, 1_200);
+        assert_eq!(activity.idle_since(), None);
+        activity.note_input(b"EOF\r");
+        activity.observe(ShellMark::PromptStart, 1_300);
+        assert!(activity.foreground_check_due().is_some(), "the primary prompt after it");
     }
 
     #[test]
