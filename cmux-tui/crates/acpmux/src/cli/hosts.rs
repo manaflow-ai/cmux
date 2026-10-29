@@ -1347,7 +1347,14 @@ mod tests {
             let run = linux_restart_run(tag, install, host);
             assert_eq!(run.code, Some(3));
             assert!(run.err.contains("acpmux-agent-huge-blue.service"), "{}", run.err);
-            assert_eq!(run.calls, ["acpmux --json daemon status"], "nothing else may run");
+            assert_eq!(
+                run.calls,
+                [
+                    "acpmux --json daemon status",
+                    "systemctl --user show acpmux.service -p MainPID --value",
+                ],
+                "only read-only ownership probes may run"
+            );
             assert!(run.unit.is_empty());
         }
         // The daemon under acpmux.service itself, in a session scope, or in a
