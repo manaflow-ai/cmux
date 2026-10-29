@@ -50,6 +50,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
         return crate::agent_host::host::main();
     }
+    // A background task's runner (`bg_run.rs`): one task, no CLI.
+    if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
+        return crate::bg_run::main();
+    }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
         return crate::linux_sandbox::keeper::canary_unix(&args[1..]).map_err(anyhow::Error::msg);
@@ -253,7 +257,15 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 Err(e) => errors::exit_with(&e, json_out),
             }
         }
-        Some(Command::Hand(cmd)) => crate::hand::run(cmd).await,
+        Some(Command::Hand(cmd)) => match crate::hand::run(cmd, cli.json).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Hand commands historically use exit 1 for every failure; keep that
+                // contract while still emitting the shared --json envelope.
+                let app = errors::classify(&e).with_exit(1);
+                errors::exit_with(&anyhow::Error::new(app), cli.json)
+            }
+        },
         Some(Command::CuaMcp) => crate::cua_v2::run_bridge().await,
         Some(Command::SecretMcp) => crate::secret_mcp::run().await,
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,

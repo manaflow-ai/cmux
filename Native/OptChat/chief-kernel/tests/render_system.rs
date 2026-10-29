@@ -171,3 +171,61 @@ fn a_cloud_mode_needs_a_known_offered_list() {
         "a typo in the offered list is an error, not a silent omission"
     );
 }
+
+/// a749 (D on pi-durable, Oct 28): the shared base text named `sleep` and
+/// subagents to a Cloud Chief that offers neither. Every tool the base names
+/// must be offered.
+#[test]
+fn the_cloud_base_names_no_tool_it_does_not_offer() {
+    let text = cloud(&["zoom", "date", "send", "reply", "stop"]).unwrap();
+    let before_compactions = text.split("# Compactions").next().unwrap();
+    let before_compactions = &flat(before_compactions);
+    for absent in [
+        "sleep(",
+        "subagent",
+        "Subagent",
+        "spawn",
+        "remember(",
+        "transcript(",
+        "reaction",
+        "tell the",
+    ] {
+        assert!(
+            !before_compactions.contains(absent),
+            "{absent:?} named but not offered:\n{before_compactions}"
+        );
+    }
+    for present in [
+        "send(text",
+        "stop()",
+        "reply_to",
+        "Decide, do not ask",
+        "zoom",
+    ] {
+        assert!(before_compactions.contains(present), "{present:?} missing");
+    }
+}
+
+#[test]
+fn the_cloud_base_names_the_tools_it_does_offer() {
+    let text = cloud(&[
+        "zoom", "date", "send", "stop", "spawn", "tell", "sleep", "remember", "react",
+    ])
+    .unwrap();
+    let text = flat(&text);
+    for present in [
+        "to a subagent",
+        "sleep(seconds, note)",
+        "remember(text)",
+        "a reaction alone",
+        "\"[id]\"",
+    ] {
+        assert!(text.contains(present), "{present:?} missing");
+    }
+}
+
+/// `text` with every run of whitespace as one space: a check reads phrases,
+/// not where a line wraps.
+fn flat(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}

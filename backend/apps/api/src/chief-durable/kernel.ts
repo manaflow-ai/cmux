@@ -29,7 +29,8 @@ type Spec = { name: string; description: string; json_schema: Record<string, unk
 export const kernelSystem = (cfg: BrainConfig): string => {
   ensureWasm()
   const record = { display_name: cfg.display_name ?? "Chief", role: cfg.role ?? "", personality: cfg.personality ?? "", instructions: cfg.instructions ?? "" }
-  return renderSystem(JSON.stringify({ record }), "pi-durable", "{}")
+  // The cloud section (chief-kernel mode "cloud"): no shell, no cmux CLI, the owner rule, and only the tools D offers.
+  return renderSystem(JSON.stringify({ record }), "pi-durable", JSON.stringify({ mode: "cloud", offered: D_TOOLS }))
 }
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] })
