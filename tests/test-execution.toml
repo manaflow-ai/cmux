@@ -2190,6 +2190,11 @@ path = "tests/test_fresh_home_launch_smoke.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_launch_smoke.py"
+lane = "manual"
+reason = "Run by hand with python3 when nightly_next_launch_smoke.py or its workflow changes; repository policy adds no new CI tests."
+
+[[test]]
 path = "tests/test_zig_fetch_all.py"
 lane = "linux-guard"
 

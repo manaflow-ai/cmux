@@ -59,6 +59,9 @@ UNWIRED: set[str] = {
     # main-thread-heavy-suites.py or that job.
     "tests/test_ci_swift_test_main_thread_isolation.py",
     "tests/test_ci_swift_test_shards.py",
+    # lane = "manual" for the same rule. It reads nightly-next-launch-smoke.yml and nightly.yml to assert
+    # the post-publish smoke never gates a publish; run it by hand when the smoke or its workflow changes.
+    "tests/test_nightly_next_launch_smoke.py",
 }
 
 
