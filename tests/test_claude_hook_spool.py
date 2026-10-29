@@ -39,6 +39,7 @@ class ClaudeHookSpoolTests(unittest.TestCase):
         self.addCleanup(self.server.close)
         self.frames = []
         self.rejected_seq = set()
+        self.unacknowledged_seq = set()
         self.condition = threading.Condition()
         self.stopping = threading.Event()
         self.addCleanup(self.stopping.set)
@@ -122,6 +123,11 @@ sys.stdin.read()
                 with self.condition:
                     self.frames.append(frame)
                     self.condition.notify_all()
+                if frame.get('method') == 'agent.hook.enqueue' and \
+                        json.loads(frame['params']['payload']).get('seq') in self.unacknowledged_seq:
+                    # Admission may have succeeded, but the forwarder must time
+                    # out without retrying this event when its reply is lost.
+                    continue
                 if frame.get('method') == 'agent.hook.enqueue' and \
                         json.loads(frame['params']['payload']).get('seq') in self.rejected_seq:
                     # The app's reply when replaceable tool telemetry is already
@@ -231,7 +237,7 @@ sys.stdin.read()
         self.assertEqual([json.loads(p['payload'])['seq'] for p in enqueued], [0, 1, 2, 3])
         self.assertEqual(self.cli_launches(), [], 'a queue_full reply must not end the forwarder')
 
-    def test_connect_failure_preserves_unsent_event_for_fallback(self):
+    def test_connect_failure_retries_unsent_event_without_another_hook(self):
         self.start_forwarder()
         drain_lock = os.open(self.spool / 'drain.lock', os.O_RDWR)
         try:
@@ -246,27 +252,46 @@ sys.stdin.read()
         finally:
             os.close(drain_lock)
 
+        # Leave the socket absent long enough for a connect attempt to fail.
+        # The forwarder must retain its lifetime lock while waiting to recover.
+        time.sleep(1)
         forwarder_lock = os.open(self.spool / 'forwarder.lock', os.O_RDWR)
         try:
-            deadline = time.monotonic() + 10
-            while True:
-                try:
-                    fcntl.lockf(forwarder_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError:
-                    self.assertLess(time.monotonic(), deadline, 'forwarder did not exit after connect failure')
-                    time.sleep(0.02)
+            with self.assertRaises(BlockingIOError):
+                fcntl.lockf(forwarder_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self.assertEqual(len(list(self.spool.glob('*.rec'))), 1,
-                             'a record that was never sent must remain available for fallback')
+                             'a record that was never sent must remain available for recovery')
         finally:
             os.close(forwarder_lock)
 
         offline_socket.rename(self.socket_path)
+        self.admitted(1)  # Retry wakes even with no new spool write.
         self.run_hook('prompt-submit', {'session_id': 'spool-test', 'seq': 1})
         enqueued = self.admitted(2)
         self.assertEqual([json.loads(p['payload'])['seq'] for p in enqueued], [0, 1])
-        self.assertEqual(len(self.cli_launches()), 1)
+        self.assertEqual(self.cli_launches(), [])
         self.assertEqual(list(self.spool.glob('*.rec')), [])
+
+    def test_admission_timeout_does_not_retry_sent_event_or_strand_later_records(self):
+        self.unacknowledged_seq = {1}
+        self.start_forwarder()
+        drain_lock = os.open(self.spool / 'drain.lock', os.O_RDWR)
+        try:
+            fcntl.lockf(drain_lock, fcntl.LOCK_EX)
+            for index in range(4):
+                self.run_hook('pre-tool-use', {'session_id': 'spool-test', 'seq': index,
+                                              'tool_name': 'Read'})
+        finally:
+            os.close(drain_lock)
+        enqueued = self.admitted(4)
+        self.assertEqual([json.loads(p['payload'])['seq'] for p in enqueued], [0, 1, 2, 3])
+        self.assertEqual(self.cli_launches(), [])
+        self.assertEqual(list(self.spool.glob('*.rec')), [])
+        # A later hook uses the same forwarder, with no replay of seq 1.
+        self.run_hook('stop', {'session_id': 'spool-test', 'seq': 4})
+        enqueued = self.admitted(5)
+        self.assertEqual([json.loads(p['payload'])['seq'] for p in enqueued], [0, 1, 2, 3, 4])
+        self.assertEqual(self.cli_launches(), [])
 
     def test_forwarder_removes_the_spool_after_the_session_ends(self):
         self.start_forwarder()
