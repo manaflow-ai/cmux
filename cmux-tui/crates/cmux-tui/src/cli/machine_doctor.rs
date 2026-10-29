@@ -83,7 +83,10 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         .as_ref()
         .and_then(|list| list.as_ref().ok())
         .and_then(|entries| machine_join::find(entries, key).ok());
+    // Not a joined machine: the app's ssh Check Machine, as before (an ssh host is no joined
+    // machine on any platform, signed in or not). A pasted secret is never handed on.
     if found.is_none()
+        && plain_name(key)
         && let Some(code) = super::run_app_action_fallback(args)
     {
         // Not a joined machine: the app's ssh Check Machine, as before.
@@ -96,7 +99,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         _ => None,
     };
     let checked = remote_steps(&origin, key, list, mesh, machine_join::now_ms());
-    let name = found.as_ref().map_or(key.as_str(), |machine| machine.name.as_str());
+    let name = match &found {
+        Some(machine) => machine.name.as_str(),
+        None if plain_name(key) => key.as_str(),
+        None => "NAME",
+    };
     let (text, ok) = doctor::render(name, "joined machine", &checked, print);
     let _ = stdout.write_all(text.as_bytes());
     let _ = stdout.flush();
@@ -278,10 +285,13 @@ pub(super) fn remote_steps(
     steps
 }
 
-/// A machine name safe to print in a fix: letters, digits, `.`, `-`, `_`, and no secret prefix.
+/// A machine name safe to print in a fix or hand to the app: letters, digits, `.`, `-`, `_`,
+/// `@` and `:` (an ssh destination), and no secret prefix.
 fn plain_name(text: &str) -> bool {
-    (1..=63).contains(&text.len())
-        && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+    (1..=253).contains(&text.len())
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'@' | b':'))
         && !text.contains("cmj_")
         && !text.contains("cmm_")
 }

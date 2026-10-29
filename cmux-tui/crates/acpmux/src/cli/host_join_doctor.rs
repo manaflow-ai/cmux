@@ -505,6 +505,24 @@ fn launchd_service(home: &Path) -> Service {
 #[cfg(unix)]
 fn repair(facts: &Facts) -> bool {
     let mut ran = false;
+    // A missing binary or service: the one install path, the join script with no token,
+    // which installs and repairs only (checked download, service, daemon) and never redeems.
+    // Then the rest below runs on what it left.
+    let reinstalled;
+    let facts = if !matches!(facts.binary, Binary::Ok(_))
+        || facts.service == (Service::Inactive { installed: false })
+    {
+        ran = true;
+        let script = format!(
+            "curl --proto '=https' --tlsv1.2 -fsSL {}/v1/machines/join.sh | sh",
+            origin(facts)
+        );
+        let _ = output(Path::new("sh"), &["-c", &script]);
+        reinstalled = probe();
+        &reinstalled
+    } else {
+        facts
+    };
     if facts.service == (Service::Inactive { installed: true }) {
         ran = true;
         if facts.linux {
@@ -524,17 +542,6 @@ fn repair(facts: &Facts) -> bool {
         if !user.is_empty() {
             let _ = output(Path::new("loginctl"), &["enable-linger", &user]);
         }
-    }
-    if !matches!(facts.binary, Binary::Ok(_)) {
-        // The one install path: the join script with no token installs and repairs only
-        // (checked download, service, daemon), and never redeems.
-        ran = true;
-        let script = format!(
-            "curl --proto '=https' --tlsv1.2 -fsSL {}/v1/machines/join.sh | sh",
-            origin(facts)
-        );
-        let _ = output(Path::new("sh"), &["-c", &script]);
-        return ran;
     }
     if !facts.daemon_running
         && let Binary::Ok(binary) = &facts.binary
