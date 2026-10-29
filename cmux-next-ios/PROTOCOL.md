@@ -91,8 +91,9 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
 ## HTTP (base: production `https://mobile-api.cmux.dev`, dev `https://cmux-mobile-api-dev.debussy.workers.dev`)
 
 The production Worker `cmux-mobile-api-prod` accepts only the production Stack
-project `9790718f-14cd-4f7e-824d-eaf527a82b82` and uses its own database
-(PlanetScale `cmux/cmux-next-ios-prod`). The dev Worker accepts both projects for
+project `9790718f-14cd-4f7e-824d-eaf527a82b82`. Both Workers keep their rows in the
+cmux-next database (PlanetScale `cmux/cmux-next-vitess`, tables `mobile_*`); the mobile
+service has no database of its own. The dev Worker accepts both projects for
 testing. Production and Release app builds, the Mac app's Release build and
 `run-host.sh` default to the production URL.
 

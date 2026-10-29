@@ -53,13 +53,12 @@
         { "name": "MAILBOX_LIMIT", "namespace_id": "4106", "simple": { "limit": 60, "period": 60 } }
       ],
       // PS_MYSQL: cmux-next-vitess development (readwriter) through Hyperdrive cmux-next-vitess-development, tables
-      // mobile_* (backend/db/drizzle-mysql/0002_mobile). The old Postgres cmux-mobile-dev is no longer bound
-      // (kept read-only until its deletion is approved; vitess-migration-DESIGN.md 2.3).
+      // mobile_* (backend/db/drizzle-mysql/0002_mobile). The retired Postgres cmux-mobile-dev is not bound.
       "hyperdrive": [{ "binding": "PS_MYSQL", "id": "60893ba4eaef437a91a77da71730ea9b" }]
     },
     "prod": {
-      // Production: production Stack project only, its own PlanetScale database cmux/cmux-mobile-prod (branch main,
-      // role cmux-mobile-api) behind Hyperdrive cmux-mobile-prod (query caching disabled), custom domain on cmux.dev.
+      // Production: production Stack project only, custom domain on cmux.dev. Rows live in cmux-next-vitess main
+      // (tables mobile_*), the cmux-next database; the mobile service has no database of its own.
       "name": "cmux-mobile-api-prod",
       "workers_dev": true,
       "routes": [{ "pattern": "mobile-api.cmux.dev", "custom_domain": true }],
@@ -83,7 +82,7 @@
         { "name": "MAILBOX_LIMIT", "namespace_id": "4206", "simple": { "limit": 60, "period": 60 } }
       ],
       // PS_MYSQL: cmux-next-vitess main (readwriter) through Hyperdrive cmux-next-vitess-production, tables mobile_*.
-      // The old Postgres cmux-mobile-prod is no longer bound (kept read-only until its deletion is approved).
+      // The retired Postgres cmux-mobile-prod is not bound.
       "hyperdrive": [{ "binding": "PS_MYSQL", "id": "0533eedddc1e4195adf0d42a4c325fce" }]
     }
   }

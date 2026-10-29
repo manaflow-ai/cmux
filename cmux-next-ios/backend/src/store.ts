@@ -1,153 +1,7 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { Env } from "./env.ts"
-import { devices, pushTokens, teamPrefs } from "./schema.ts"
-import { hasIcon, NO_PREFS, PUSH_KINDS, type Device, type PushKind, type Prefs, type PushRegistration, type Store } from "./store-types.ts"
+import { hasIcon, NO_PREFS, type Device, type Prefs, type PushRegistration, type Store } from "./store-types.ts"
 
 export * from "./store-types.ts"
-
-const iso = (d: Date | null) => (d ? d.toISOString() : null)
-const row = (r: typeof devices.$inferSelect): Device => ({
-  deviceId: r.deviceId,
-  ownerUserId: r.ownerUserId,
-  teamId: r.teamId,
-  kind: r.kind,
-  name: r.name,
-  wgPublicKey: r.wgPublicKey,
-  machineId: r.machineId,
-  createdAt: r.createdAt.toISOString(),
-  updatedAt: r.updatedAt.toISOString(),
-  lastSeenAt: iso(r.lastSeenAt)
-})
-
-const pushRow = (r: typeof pushTokens.$inferSelect): PushRegistration => ({
-  deviceId: r.deviceId,
-  ownerUserId: r.ownerUserId,
-  token: r.token,
-  environment: r.environment,
-  topic: r.topic,
-  kinds: r.kinds.split(",").filter((k): k is PushKind => (PUSH_KINDS as ReadonlyArray<string>).includes(k)),
-  mutedMacs: (r.mutedMacs ?? "").split(",").filter(Boolean),
-  previews: r.previews ?? true,
-  updatedAt: r.updatedAt.toISOString()
-})
-
-/** PlanetScale Postgres through Hyperdrive; one connection per request (Hyperdrive pools). */
-export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
-  // Loaded lazily: pg is CommonJS and only the deployed Worker (with Hyperdrive) needs it.
-  const [{ default: pg }, { drizzle }] = await Promise.all([import("pg"), import("drizzle-orm/node-postgres")])
-  const client = new pg.Client({ connectionString: hyperdrive.connectionString })
-  await client.connect()
-  const db = drizzle(client)
-  return {
-    async getDevice(deviceId) {
-      const [r] = await db.select().from(devices).where(eq(devices.deviceId, deviceId)).limit(1)
-      return r ? row(r) : undefined
-    },
-    async upsertDevice(d) {
-      // Read the previous team for the move; the conditional update (setWhere) still refuses a racing other owner.
-      const [prev] = await db.select({ teamId: devices.teamId, owner: devices.ownerUserId }).from(devices).where(eq(devices.deviceId, d.deviceId)).limit(1)
-      if (prev && prev.owner !== d.ownerUserId) return "not_owner"
-      const machine = d.machineId === undefined ? {} : { machineId: d.machineId }
-      const [r] = await db
-        .insert(devices)
-        .values({ ...d, machineId: d.machineId ?? null })
-        .onConflictDoUpdate({
-          target: devices.deviceId,
-          set: { teamId: d.teamId, kind: d.kind, name: d.name, wgPublicKey: d.wgPublicKey, ...machine, updatedAt: sql`now()` },
-          setWhere: eq(devices.ownerUserId, d.ownerUserId)
-        })
-        .returning()
-      if (!r) return "not_owner"
-      return { device: row(r), previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
-    },
-    async claimSiblings(ownerUserId, machineId, deviceIds) {
-      if (!deviceIds.length) return []
-      await db
-        .update(devices)
-        .set({ machineId })
-        .where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"), isNull(devices.machineId), inArray(devices.deviceId, [...deviceIds])))
-      const rs = await db
-        .select({ deviceId: devices.deviceId })
-        .from(devices)
-        .where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"), eq(devices.machineId, machineId), inArray(devices.deviceId, [...deviceIds])))
-      return rs.map((r) => r.deviceId)
-    },
-    async listOwnerMacs(ownerUserId) {
-      const rs = await db.select().from(devices).where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"))).orderBy(devices.name)
-      return rs.map(row)
-    },
-    async listOwnerDevices(ownerUserId) {
-      const rs = await db
-        .select({ d: devices, token: pushTokens.token })
-        .from(devices)
-        .leftJoin(pushTokens, eq(pushTokens.deviceId, devices.deviceId))
-        .where(eq(devices.ownerUserId, ownerUserId))
-        .orderBy(devices.kind, devices.name)
-      return rs.map((r) => ({ ...row(r.d), push: !!r.token }))
-    },
-    async deleteDevice(deviceId, ownerUserId) {
-      const [prev] = await db.select().from(devices).where(eq(devices.deviceId, deviceId)).limit(1)
-      if (!prev) return undefined
-      if (prev.ownerUserId !== ownerUserId) return "not_owner"
-      await db.delete(pushTokens).where(eq(pushTokens.deviceId, deviceId))
-      const [r] = await db.delete(devices).where(and(eq(devices.deviceId, deviceId), eq(devices.ownerUserId, ownerUserId))).returning()
-      return r ? row(r) : undefined
-    },
-    async deleteOwner(ownerUserId) {
-      await db.delete(pushTokens).where(eq(pushTokens.ownerUserId, ownerUserId))
-      await db.delete(teamPrefs).where(eq(teamPrefs.userId, ownerUserId))
-      return (await db.delete(devices).where(eq(devices.ownerUserId, ownerUserId)).returning()).map(row)
-    },
-    async setPush(p) {
-      const kinds = p.kinds.join(",")
-      const mutedMacs = p.mutedMacs.length ? p.mutedMacs.join(",") : null
-      const [r] = await db
-        .insert(pushTokens)
-        .values({ ...p, kinds, mutedMacs })
-        .onConflictDoUpdate({
-          target: pushTokens.deviceId,
-          set: { ownerUserId: p.ownerUserId, token: p.token, environment: p.environment, topic: p.topic, kinds, mutedMacs, previews: p.previews, updatedAt: sql`now()` }
-        })
-        .returning()
-      return pushRow(r!)
-    },
-    async deletePush(deviceId) {
-      await db.delete(pushTokens).where(eq(pushTokens.deviceId, deviceId))
-    },
-    async listOwnerPush(ownerUserId) {
-      return (await db.select().from(pushTokens).where(eq(pushTokens.ownerUserId, ownerUserId))).map(pushRow)
-    },
-    async dropPushTokens(tokens) {
-      if (tokens.length) await db.delete(pushTokens).where(inArray(pushTokens.token, [...tokens]))
-    },
-    async getPrefs(userId, teamId) {
-      const [r] = await db.select().from(teamPrefs).where(and(eq(teamPrefs.userId, userId), eq(teamPrefs.teamId, teamId))).limit(1)
-      return r ? { color: r.color, emoji: r.emoji, transparent: r.transparent && hasIcon(r.emoji) } : { ...NO_PREFS }
-    },
-    async putPrefs(userId, teamId, patch) {
-      const set: Record<string, unknown> = { updatedAt: sql`now()` }
-      if (patch.color !== undefined) set.color = patch.color
-      if (patch.emoji !== undefined) set.emoji = patch.emoji
-      if (patch.transparent !== undefined) set.transparent = patch.transparent
-      const [r] = await db
-        .insert(teamPrefs)
-        .values({ userId, teamId, color: patch.color ?? null, emoji: patch.emoji ?? null, transparent: patch.transparent ?? false })
-        .onConflictDoUpdate({ target: [teamPrefs.userId, teamPrefs.teamId], set })
-        .returning()
-      return r ? { color: r.color, emoji: r.emoji, transparent: r.transparent && hasIcon(r.emoji) } : { ...NO_PREFS }
-    },
-    async listTeamScopes() {
-      const r = await client.query<{ project: string | null; team_id: string; device_ids: Array<string> | null }>(
-        `SELECT project, team_id, array_agg(device_id::text) FILTER (WHERE device_id IS NOT NULL) AS device_ids FROM (
-           SELECT NULLIF(split_part(owner_user_id, ':', 1), owner_user_id) AS project, team_id, device_id FROM devices
-           UNION ALL SELECT NULLIF(split_part(user_id, ':', 1), user_id) AS project, team_id, NULL FROM team_prefs
-         ) t GROUP BY project, team_id`
-      )
-      return r.rows.map((x) => ({ project: x.project, teamId: x.team_id, deviceIds: x.device_ids ?? [] }))
-    },
-    close: () => client.end()
-  }
-}
 
 /** In-memory store for tests (ENVIRONMENT=test, no Hyperdrive binding). Shared per isolate. */
 const mem = { devices: new Map<string, Device>(), prefs: new Map<string, Prefs>(), push: new Map<string, PushRegistration>() }
@@ -252,7 +106,7 @@ export const memoryStore = (): Store => ({
 
 /** PlanetScale MySQL cmux-next-vitess through Hyperdrive (tables `mobile_*`); one connection per request. */
 export const vitessStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
-  // Loaded lazily, like pg: only the deployed Worker needs the driver.
+  // Loaded lazily: only the deployed Worker needs the driver.
   const [{ createConnection }, { mysqlStore }] = await Promise.all([import("mysql2/promise"), import("./store-mysql.ts")])
   const conn = await createConnection({
     host: hyperdrive.host,
@@ -270,7 +124,7 @@ export const vitessStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
 }
 
 export const openStore = (env: Env): Promise<Store> => {
-  // cmux-next-vitess (vitess-migration-DESIGN.md 2.3). pgStore stays only for a read of the old Postgres.
+  // cmux-next-vitess (vitess-migration-DESIGN.md 2.3); the mobile service has no database of its own.
   if (env.PS_MYSQL) return vitessStore(env.PS_MYSQL)
   // Tests, and `wrangler dev` of the local (top-level) config: rows live in the isolate's memory.
   if (env.ENVIRONMENT === "test" || env.ENVIRONMENT === "local") return Promise.resolve(memoryStore())

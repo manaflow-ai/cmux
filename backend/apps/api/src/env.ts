@@ -501,7 +501,7 @@ export interface Env {
   readonly CODE_STORAGE_ORG?: string
   /** Secret: PKCS#8 PEM of that organization's ES256 key. Code automations refuse to pin without it. */
   readonly CODE_STORAGE_PRIVATE_KEY?: string
-  /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
+  /** Postgres `cmux-next-deprecated` (formerly `cmux-next`) through Hyperdrive: the projection primary, or its write shadow after an environment's Vitess cutover. */
   readonly HYPERDRIVE?: Hyperdrive
   /** Read-only role (search-ro, pg_read_all_data) for home.search; never used for writes. */
   readonly HYPERDRIVE_RO?: Hyperdrive
