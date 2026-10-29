@@ -41,6 +41,7 @@ dirs = "6"
 plist = "1.10"
 futures = "0.3"
 futures-util = "0.3"
+fs4.workspace = true
 ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
 # raw_value: an OpenCode config keeps its keys as written (src/opencode_ask.rs).
