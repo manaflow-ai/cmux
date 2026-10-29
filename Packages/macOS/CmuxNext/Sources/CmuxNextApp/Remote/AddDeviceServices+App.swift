@@ -56,9 +56,17 @@ extension AddDeviceServices {
 extension DeviceDirectory {
     static func app(_ services: AppServices) -> DeviceDirectory {
         let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: SSHService.environment) }
-        return DeviceDirectory(run: { await cli?.json($0, label: "device") },
+        return DeviceDirectory(run: { arguments in
+                                   #if DEBUG
+                                   if let fixture = await MainActor.run(body: { DebugDevicesFixture.run(arguments) }) { return fixture }
+                                   #endif
+                                   return await cli?.json(arguments, label: "device")
+                               },
                                removePhone: { [weak services] in await services?.iphone.removePhone(id: $0) },
                                setFullAccess: { [weak services] id, on in
+                                   #if DEBUG
+                                   if let fixture = DebugDevicesFixture.set(id, on: on) { return fixture }
+                                   #endif
                                    guard let services, let environment = QuitAgents.environment(services),
                                          let line = await AcpmuxPersonLine.open(environment) else { return false }
                                    defer { line.close() }
