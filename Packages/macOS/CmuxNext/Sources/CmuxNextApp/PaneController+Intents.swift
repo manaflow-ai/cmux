@@ -174,7 +174,7 @@ extension PaneController {
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
         if let timing { services.cache.createTabs.expect(timing, tab: pending.tab, standIn: true) } // the stand-in's terminal is the tab's for good
-        showStandIn(surface: pending.surface, focus: .content, intent: intent)
+        selectWhenReported(surface: pending.surface)
         // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and selects in its reply's job
         services.registry.track(Task { [services] in
             var landed = false
