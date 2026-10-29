@@ -198,11 +198,27 @@ export interface FsBucketOptions {
  */
 export class FsBucket {
   private readonly root: string
+  private readonly uploadLocks = new Map<string, Promise<void>>()
 
   /** A configured root that is itself a link is fine: it is resolved once, here. */
   constructor(root: string, private readonly options: FsBucketOptions = {}) {
     mkdirSync(root, { recursive: true })
     this.root = realpathSync(root)
+  }
+
+  /** Serialize all mutations of one multipart upload, including awaits while streaming bytes. */
+  private async withUploadLock<T>(uploadId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.uploadLocks.get(uploadId) ?? Promise.resolve()
+    let release!: () => void
+    const next = new Promise<void>((resolve) => { release = resolve })
+    this.uploadLocks.set(uploadId, next)
+    await previous
+    try {
+      return await operation()
+    } finally {
+      release()
+      if (this.uploadLocks.get(uploadId) === next) this.uploadLocks.delete(uploadId)
+    }
   }
 
   /** `real` must be under the root: in the key space (the root itself included) or in `.multipart`. */
@@ -530,6 +546,10 @@ export class FsBucket {
   }
 
   async completeMultipart(key: string, uploadId: string, uploadedParts: Array<{ partNumber: number; etag: string }>): Promise<FsObject> {
+    return this.withUploadLock(uploadId, () => this.completeMultipartUnlocked(key, uploadId, uploadedParts))
+  }
+
+  private async completeMultipartUnlocked(key: string, uploadId: string, uploadedParts: Array<{ partNumber: number; etag: string }>): Promise<FsObject> {
     const meta = this.openMultipart(key, uploadId)
     // Check the whole list before writing a byte, as R2 does: ascending part numbers with no
     // repeats (InvalidPartOrder), each naming a part this upload stored, with its etag (InvalidPart).
@@ -582,11 +602,15 @@ export class FsBucket {
       rmSync(tmp, { force: true })
       if (metaTmp) rmSync(metaTmp, { force: true })
     }
-    await this.abortMultipart(key, uploadId)
+    await this.abortMultipartUnlocked(key, uploadId)
     return this.object(meta.key, stored)
   }
 
   async uploadMultipartPart(key: string, uploadId: string, partNumber: number, value: unknown): Promise<{ partNumber: number; etag: string }> {
+    return this.withUploadLock(uploadId, () => this.uploadMultipartPartUnlocked(key, uploadId, partNumber, value))
+  }
+
+  private async uploadMultipartPartUnlocked(key: string, uploadId: string, partNumber: number, value: unknown): Promise<{ partNumber: number; etag: string }> {
     // The upload first, as R2 does: a forged, crossed or closed upload is NoSuchUpload whatever the number.
     this.openMultipart(key, uploadId)
     if (!isPartNumber(partNumber)) throw new FsBucketError("InvalidPart", "a part number must be an integer from 1 to 10,000")
@@ -612,6 +636,10 @@ export class FsBucket {
 
   /** Aborting an upload that already closed is a no-op; one minted for another key is refused. */
   async abortMultipart(key: string, uploadId: string): Promise<void> {
+    return this.withUploadLock(uploadId, () => this.abortMultipartUnlocked(key, uploadId))
+  }
+
+  private async abortMultipartUnlocked(key: string, uploadId: string): Promise<void> {
     if (!this.readMultipart(key, uploadId)) return
     // Parts first, then the record, so a crash midway leaves an upload that can still be aborted.
     // rm never follows a link inside the tree it removes; the tree itself is checked first.
@@ -723,6 +751,8 @@ export class FsBucket {
           const key = relative(this.root, p).split(sep).join("/")
           // A file no key could have written (a backslash in its name, say) is not an object.
           if (!isKey(this.root, key)) continue
+          // Do not hash unrelated objects while a conversation prefix is being listed for GC.
+          if (options.prefix && !key.startsWith(options.prefix)) continue
           // The walk already checked every directory above p, so only the files themselves are opened.
           let meta: StoredMeta | null
           try {

@@ -192,6 +192,27 @@ describe("self-hosted attachment bucket", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it("serializes concurrent part replacement and completion with abort", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const upload = await bucket.createMultipartUpload("home/v1/serialized")
+      const parts = await Promise.all([upload.uploadPart(1, "first"), upload.uploadPart(1, "second")])
+      const winner = parts.at(-1)!
+      const [completed, aborted] = await Promise.allSettled([upload.complete([winner]), upload.abort()])
+      expect(aborted.status).toBe("fulfilled")
+      if (completed.status === "fulfilled") {
+        expect(await new Response((await bucket.get("home/v1/serialized"))!.body!).text()).toBe("second")
+      } else {
+        expect(await bucket.head("home/v1/serialized")).toBeNull()
+      }
+      expect(readdirSync(join(root, ".multipart"))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("answers NoSuchUpload for an unknown upload before it checks the part number, and InvalidPart for a real upload", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
     try {
