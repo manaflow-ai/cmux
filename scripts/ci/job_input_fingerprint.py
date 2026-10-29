@@ -31,7 +31,8 @@ The key covers:
 - the env flags a Mac job's result depends on (`--extra`, '' is a value):
   the selected Swift targets and filter, whether the label is a mini (the GUI
   requirement, the CEF steps), the configured Xcode app and the web bundles'
-  source key.
+  source key; for swift-test, the base commit when it checks the generated files
+  on its own build (`generated_base`, '' otherwise).
 
 dev-release-product keys the compiled DEV Release app itself (scripts/ci/dev_release_product_reuse.py
 moves the bytes), so its closure is broad: every path in the tree except PRODUCT_EXCLUDES, the paths
@@ -166,9 +167,11 @@ class Job:
 JOBS = {
     "fast-tier": Job(MAC_TOOLCHAIN),
     "fast-tier-cargo": Job(("runner", "rustc", "cargo", "zig", "clang")),
+    # generated_base: the base commit when swift-test checks the generated files on its own build
+    # (cmux-next.yml CMUX_NEXT_FOLD_GENERATED, which compares them with the base), else ''.
     "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app",
-                                                         "layout_reducer"),
-                      SWIFT_TEST, web=True, whole_tree=True),
+                                                         "layout_reducer", "generated_base"),
+                      SWIFT_TEST + GENERATED, web=True, whole_tree=True),
     "generated-files": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app"), GENERATED, web=True,
                            base_inputs=SETTINGS_BASE, whole_tree=True),
     "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (

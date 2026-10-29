@@ -171,6 +171,32 @@ import Testing
         #expect(!links.descends("same-child", from: "same-parent", host: "registry:b"))
     }
 
+    /// A hostless route (an older wire with no host) notes its links in the unqualified map. A host
+    /// with no map of its own reads them, so its remote children still nest and still open from their
+    /// parent; a host that has its own map never reads them.
+    @Test func aHostWithNoMapReadsTheHostlessLinks() {
+        let links = RemoteAgentSessionLinks()
+        links.note([["sessionId": "legacy-child", "startedBy": "legacy-parent"]])
+        #expect(links.parent(of: "legacy-child", host: "registry:legacy") == "legacy-parent")
+        #expect(links.descends("legacy-child", from: "legacy-parent", host: "registry:legacy"))
+        links.note([["sessionId": "other", "startedBy": "x"]], host: "registry:a")
+        #expect(links.parent(of: "legacy-child", host: "registry:a") == nil)
+        #expect(!links.descends("legacy-child", from: "legacy-parent", host: "registry:a"))
+
+        let parent = WorkspaceID("ws-legacy-parent"), child = WorkspaceID("ws-legacy-child")
+        let chats: [(WorkspaceID, [AgentSessionRef])] = [
+            (parent, [AgentSessionRef(host: "registry:legacy", session: "legacy-parent")]),
+            (child, [AgentSessionRef(host: "registry:legacy", session: "legacy-child")]),
+        ]
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParents: ["legacy-child": "legacy-parent"],
+                                               localHost: Self.localHost, pullRequests: [:])
+        #expect(pass.state.parents[child] == parent)
+        let qualified = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParents: ["legacy-child": "legacy-parent"],
+                                                    remoteParentsByHost: ["registry:legacy": [:]],
+                                                    localHost: Self.localHost, pullRequests: [:])
+        #expect(qualified.state.parents[child] == nil, "a host with its own map never reads the hostless links")
+    }
+
     @Test func duplicateTabsShareAnIdentityOnlyWhenTheirHostMatches() {
         let sameHost = [AgentSessionRef(host: "registry:a", session: "same"),
                         AgentSessionRef(host: "registry:a", session: "same")]

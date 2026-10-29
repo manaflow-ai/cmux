@@ -378,14 +378,14 @@ public struct CloudAPIClient: Sendable {
     /// sent once more under it, with the first's own credentials (the server scopes the key per
     /// account, so a switch of account between the two can't make a second Run; pin the team with
     /// ``pinningTeam(_:)``), which returns the same Run, never a second paid one. Answers the final
-    /// snapshot (`{run, attempts, artifacts, receipt}`) as JSON.
+    /// snapshot (`{run, attempts, artifacts, receipt}`) as JSON. `follow` (``SandboxRunFollower``) waits in place of the poll here.
     public func runSandbox(task: String, agent: String? = nil, timeoutMs: Int = 600_000, idempotencyKey: String = UUID().uuidString,
                            teardown: Duration = .seconds(180), callsMargin: Duration = .seconds(60),
-                           now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }) async throws -> [String: Any] {
+                           now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }, follow: (@Sendable (_ id: String) async throws -> Data)? = nil) async throws -> [String: Any] {
         let bound = Duration.milliseconds(timeoutMs) + teardown + callsMargin
         let data = try await SandboxDeadline.race(bound) {
             try await self.sandboxSnapshot(task: task, agent: agent, timeoutMs: timeoutMs, key: idempotencyKey,
-                                           deadline: now() + .milliseconds(timeoutMs) + teardown, now: now)
+                                           deadline: now() + .milliseconds(timeoutMs) + teardown, now: now, follow: follow)
         }
         guard let snapshot = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CloudAPIError.decoding("/api/runs: no snapshot")
@@ -393,8 +393,8 @@ public struct CloudAPIClient: Sendable {
         return snapshot
     }
 
-    private func sandboxSnapshot(task: String, agent: String?, timeoutMs: Int, key: String,
-                                 deadline: ContinuousClock.Instant, now: @Sendable () -> ContinuousClock.Instant) async throws -> Data {
+    private func sandboxSnapshot(task: String, agent: String?, timeoutMs: Int, key: String, deadline: ContinuousClock.Instant,
+                                 now: @Sendable () -> ContinuousClock.Instant, follow: (@Sendable (String) async throws -> Data)?) async throws -> Data {
         // The create and its retry go with one account's credentials, read once.
         let credentials: (access: String, refresh: String)
         do { credentials = try await tokens() } catch { throw CloudAPIError.notSignedIn }
@@ -411,12 +411,12 @@ public struct CloudAPIClient: Sendable {
         }
         let created = try JSONSerialization.jsonObject(with: createdData) as? [String: Any]
         guard let id = created?["id"] as? String, !id.isEmpty else { throw CloudAPIError.decoding("/api/runs: no run id") }
+        if let follow { return try await follow(id) }
         while now() < deadline {
             let data: Data
             do {
                 data = try await waitRun(id, timeoutMs: 10_000)
-            } catch {
-                // The Run exists: losing sight of it is "no receipt in time", never a refusal to retry past.
+            } catch { // The Run exists: losing sight of it is "no receipt in time", never a refusal to retry past.
                 throw CloudAPIError.timedOut("/api/runs/\(id)")
             }
             // A 200 that is no Run snapshot (an array, an error body) won't turn into one: stop now.

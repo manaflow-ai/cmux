@@ -20,7 +20,7 @@ import Foundation
 ///
 /// With or without the automatic-install opt-in (`updates.downloadAutomatically`): without it, or
 /// while downloads wait for a metered link, the check ends on the update-found step (the
-/// titlebar's Update Available, which asks before anything downloads). Reads go on while that step
+/// sidebar footer's Update Available, which asks before anything downloads). Reads go on while that step
 /// waits, shown or hidden: a newer build ends the waiting prompt (Sparkle's dismiss, which skips
 /// nothing) and is checked for, so the step always offers the newest build. Never before the
 /// settings load, never off the organization's channel, never with the updater disabled, never

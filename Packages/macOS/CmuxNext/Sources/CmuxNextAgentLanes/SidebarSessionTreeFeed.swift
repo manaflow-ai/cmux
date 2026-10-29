@@ -123,7 +123,7 @@ public final class SidebarSessionTreeFeed {
         for (id, refs) in remote {
             if let parent = refs.lazy.compactMap({ child -> SidebarWorkspaceID? in
                 guard let session = child.session,
-                      let parentID = remoteParentsByHost[child.host]?[session] else { return nil }
+                      let parentID = (remoteParentsByHost[child.host] ?? remoteParents)[session] else { return nil }
                 return owner[AgentSessionParents.identity(host: child.host, session: parentID)]
             }).first(where: { $0 != id }) {
                 state.parents[id] = parent
@@ -151,7 +151,7 @@ public final class SidebarSessionTreeFeed {
             let recorded = refs.lazy.compactMap { ref -> SidebarWorkspaceID? in
                 guard let session = ref.session else { return nil }
                 let daemon = ref.host == localHost ? lanes[session]?.spawnedBy
-                    : remoteParentsByHost[ref.host]?[session]
+                    : (remoteParentsByHost[ref.host] ?? remoteParents)[session]
                 guard daemon == nil else { return nil }
                 let child = AgentSessionParents.identity(host: ref.host, session: session)
                 return recordedParents[child].flatMap { owner[$0] }
