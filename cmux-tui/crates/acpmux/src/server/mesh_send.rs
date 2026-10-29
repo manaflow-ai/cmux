@@ -52,7 +52,7 @@ pub(super) async fn send(
             hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
         if !enabled {
             return Err(RpcError::invalid_params(
-                "team messaging is disabled; enable meshTeamMessaging in Labs",
+                "team messaging is disabled; enable meshRelay.teamMessaging in Labs",
             )
             .with_data(json!({"reason": "team_messaging_disabled", "address": target})));
         }

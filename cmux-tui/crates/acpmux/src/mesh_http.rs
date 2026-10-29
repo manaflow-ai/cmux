@@ -315,7 +315,7 @@ impl MeshHub for HttpHub {
                 format!("/v1/mesh/inbox?team=true&unreadOnly={}&waitSeconds=0&max=50", unread_only);
             if let Some(address) = team_address.filter(|a| !a.is_empty()) {
                 path.push_str("&teamAddress=");
-                path.push_str(address);
+                path.push_str(&query_component(address));
             }
             let inbox = self.call(reqwest::Method::GET, &path, None, CALL_WAIT).await?;
             decode(inbox.get("messages").cloned().unwrap_or(json!([])))
@@ -324,6 +324,9 @@ impl MeshHub for HttpHub {
 
     fn read<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<(), HubError>> {
         Box::pin(async move {
+            if !crate::mesh::is_message_id(id) {
+                return Err(HubError::refused("the message id is not valid"));
+            }
             self.call(
                 reqwest::Method::POST,
                 &format!("/v1/mesh/messages/{id}/read"),
@@ -337,6 +340,9 @@ impl MeshHub for HttpHub {
 
     fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
         Box::pin(async move {
+            if !crate::mesh::is_message_id(id) {
+                return Err(HubError::refused("the message id is not valid"));
+            }
             let body = serde_json::to_value(ack).unwrap_or_default();
             self.call(
                 reqwest::Method::POST,
@@ -374,6 +380,9 @@ impl MeshHub for HttpHub {
 
     fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
+            if !crate::mesh::is_message_id(id) {
+                return Err(HubError::refused("the message id is not valid"));
+            }
             decode(
                 self.call(
                     reqwest::Method::GET,
@@ -385,6 +394,20 @@ impl MeshHub for HttpHub {
             )
         })
     }
+}
+
+fn query_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            encoded.push(char::from(b"0123456789ABCDEF"[(byte >> 4) as usize]));
+            encoded.push(char::from(b"0123456789ABCDEF"[(byte & 0x0f) as usize]));
+        }
+    }
+    encoded
 }
 
 #[cfg(test)]

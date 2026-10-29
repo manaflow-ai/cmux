@@ -147,8 +147,8 @@ pub struct InMessage {
     /// How many times it was leased (1 for the first).
     #[serde(default)]
     pub attempt: u32,
-    /// The hub's policy decision. Information messages are delivered at a
-    /// turn boundary; only `true` may start an idle agent.
+    /// The hub's policy decision: `allowed` may start work; `information` is
+    /// delivered at a turn boundary without starting a turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_work: Option<StartWork>,
     /// Durable hub state (`queued`, `delivered`, `read`, or `acked`).
@@ -295,7 +295,11 @@ pub trait MeshHub: Send + Sync {
         unread_only: bool,
         team_address: Option<&'a str>,
     ) -> BoxFuture<'a, Result<Vec<InMessage>, HubError>> {
-        let _ = team_address;
+        if team_address.is_some() {
+            return Box::pin(async {
+                Err(HubError::unavailable("team inbox filtering is unavailable"))
+            });
+        }
         self.team_inbox(unread_only)
     }
     /// Mark a team message read without acknowledging delivery.

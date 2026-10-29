@@ -476,7 +476,7 @@ pub async fn deliver(
             "promptId": prompt_id,
             "resend": true,
             "fromAgent": sender_name(message),
-            "teamMessage": message.to.team_address.is_some(),
+            "teamMessage": message.start_work.is_some() || message.to.team_address.is_some(),
             "startWork": message.start_work,
         }},
     });
