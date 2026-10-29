@@ -78,6 +78,7 @@ import collections
 import concurrent.futures
 import dataclasses
 import functools
+import hashlib
 import importlib.util
 import itertools
 import json
@@ -610,10 +611,10 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 def in_diff_scope(path: str) -> bool:
     """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS,
-    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS, RUST_STABILITY_SPECS), so its blobs are read while the content diff
+    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS, RUST_STABILITY_SPECS, QUALITY_BASELINE), so its blobs are read while the content diff
     runs. A path this misses is read after the diff (check()'s late read)."""
     return (in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path) or is_package_swift(path)
-            or in_rust_stability_scope(path))
+            or in_rust_stability_scope(path) or path == QUALITY_BASELINE)
 
 
 def in_swift_scope(path: str) -> bool:
@@ -5126,6 +5127,316 @@ AWAITED_LOW_PRIORITY_RULES = (
 RULES += AWAITED_LOW_PRIORITY_RULES
 
 
+# ---------------------------------------------------------------- quality ratchet
+# The code-quality ratchet (cmux-ad's quality audit of perf/chrome-parity, 2026-10-29, order 1): five line rules over
+# every package (Packages/*/Sources and Packages/*/Tests, not only CmuxNext), and one record rule for their baseline.
+# A push may not ADD (a) a carve-out (`nonisolated(unsafe)`, `@unchecked Sendable`, a new lock, a GCD main hop or
+# `asyncAfter`) without a justification comment, (b) a `static let/var shared` singleton in package Sources, (c) a
+# sleep in product Sources without a justification comment, (d) a test that reads source or project files
+# (skills/cmux-testing/references/regression-and-quality.md: such a test asserts shape, not behavior) or (e) a new
+# product Swift file with two or more top-level types. Where another check already refuses a pattern before the push
+# (in CmuxNext's Sources: unchecked-sendable, main-async and check-concurrency.sh's locks, asyncAfter, main.sync and
+# sleeps), this block does not judge it again (CARVE_OUT_OWNED, product_sleep_source).
+#
+# A justification comment is the escape form CLAUDE.md gives (`// concurrency-allow:`, `// crash-allow:`): any
+# `// <tag>-allow: <reason>` on the line, in the comment block directly above it, or trailing the code line above
+# (escape_window), so a line another rule already escapes (`// main-async-allow:`, `// wakeup-allow:`) needs no
+# second comment. (b) has no inline escape: CMUX_GUARDRAILS_SKIP_REASON, said in the report, is its only skip.
+#
+# The count: per changed file, every hit of the file at head against every hit at base, paired by text and then by
+# count (resolve(), as trap-api does), so an edit of a line that already had the debt adds none and a removed
+# escape is new debt; a hit whose text another file of the push removes is a move.
+# The baseline: plans/cmux-next/quality-ratchet.json lists, per rule and file, a short hash of every hit at the rev
+# it was measured on (`guardrails.py --quality-baseline --write`). A hit the base does not have is still no new
+# debt when the baseline lists its text for that file and the base has fewer of it: so a push to
+# origin/feat-cmux-next that brings perf/chrome-parity's old lines (a slice) passes, and a removed old line can come
+# back only as the same line, never as another one. The json comes from the push's base, or from its head when the
+# base has none (the first push of the file, a slice onto a base without it); `quality-baseline` refuses a push that
+# adds a hash to a base's json, so the baseline only goes down. Local only, like every guardrail.
+# The block owns its lines from here to `RULES += QUALITY_RULES`.
+QUALITY_BASELINE = "plans/cmux-next/quality-ratchet.json"
+QUALITY_MEMO = "quality-baseline"
+JUSTIFIED = re.compile(r"//\s*[a-z][a-z0-9]*(?:-[a-z0-9]+)*-allow:\s*\S")
+JUSTIFIED_ESCAPE = "// <tag>-allow: <the reason> (any CLAUDE.md escape tag: concurrency-allow, crash-allow, ...)"
+CARVE_OUT = re.compile(
+    r"\bnonisolated\s*\(\s*unsafe\s*\)|@unchecked\s+Sendable\b"
+    r"|\bNS(?:Recursive|Condition)?Lock\s*\(|\bos_unfair_lock(?:_s)?\s*\(\s*\)|\bOSAllocatedUnfairLock\b(?:\s*<[^()]*>)?\s*\("
+    r"|\bpthread_mutex_init\s*\(|\bMutex\b(?:\s*<[^()]*>)?\s*\("
+    r"|\bDispatchQueue\.main\.(?:async|sync)\b|\.asyncAfter\s*\(")
+# In CmuxNext's Sources other checks already refuse these, each with its own escape, so they are not judged again
+# here: unchecked-sendable (`// crash-allow:`), main-async (`// main-async-allow:`) and check-concurrency.sh, run by
+# the gate before the push (`// concurrency-allow:`: NSLock, NSConditionLock, os_unfair_lock, asyncAfter, main.sync).
+CARVE_OUT_OWNED = re.compile(r"\bnonisolated\s*\(\s*unsafe\s*\)|@unchecked\s+Sendable\b|\bDispatchQueue\.main\.(?:async|sync)\b"
+                             r"|\bNS(?:Recursive)?Lock\(|\bNSConditionLock\(|\bos_unfair_lock|\basyncAfter\(")
+STATIC_SHARED = re.compile(r"\b(?:static|class)\s+(?:let|var)\s+shared\b")
+# check-concurrency.sh's SLEEP_CALL (Task.sleep, a clock's `.sleep(for:/until:)`, an awaited injected sleeper).
+PRODUCT_SLEEP = re.compile(r"\bTask\.sleep\s*\(|\.sleep\s*\(\s*(?:for|until):|\bclock\.sleep\b"
+                           r"|\bawait\s+(?:[A-Za-z_]\w*\??\.)*sleep\(")
+# A test file reads the repository when it locates it (`#filePath`, a `packageRoot` / `repoRoot` /
+# `repositoryRoot`) and reads a file or lists a folder; each line that names a source or project file there is a hit.
+REPO_LOCATOR = re.compile(r"#filePath\b|#file\b|\b[a-z]*(?:[pP]ackage|[rR]epo|[rR]epository|[sS]ources?)Root\b")
+FILE_READ = re.compile(r"\bString\s*\(\s*contentsOf|\bData\s*\(\s*contentsOf|contentsOfFile:|\.contents\s*\(\s*atPath"
+                       r"|\.enumerator\s*\(\s*at|contentsOfDirectory\s*\(|subpathsOfDirectory\s*\(|\.subpaths\s*\(\s*atPath")
+SOURCE_REFERENCE = re.compile(
+    r"\b(?:appendingPathComponent|appending)\s*\(\s*(?:path:\s*)?\"[^\"]*\bSources\b"
+    r"|\bpathExtension\s*==\s*\"swift\"|\bhasSuffix\s*\(\s*\"\.swift\"\s*\)"
+    r"|\"[^\"]*/[^\"]*\.(?:swift|h|hpp|cc|cpp|m|mm|rs)\""
+    r"|\"[^\"]*(?:Package\.swift|\.pbxproj|\.xcconfig|\.entitlements|Info\.plist)\"")
+GENERATED_HEADER = re.compile(r"\bGENERATED\b|\bDo not edit\b|@generated", re.IGNORECASE)
+
+
+def product_sleep_source(path: str) -> bool:
+    """product_source(PATH) outside CmuxNext's Sources, where check-concurrency.sh already refuses a sleep without
+    `// wakeup-allow:` before the push."""
+    return product_source(path) and not path.startswith(SOURCES)
+
+
+def product_source(path: str) -> bool:
+    """PATH is a Swift file of a package's product Sources (not a `...TestSupport` target, not under Tests)."""
+    if not (path.startswith("Packages/") and path.endswith(".swift") and "/Sources/" in path and "/Tests/" not in path):
+        return False
+    target = path.split("/Sources/", 1)[1].split("/", 1)[0]
+    return not target.endswith("TestSupport")
+
+
+def package_test(path: str) -> bool:
+    """PATH is a Swift file of a package's Tests."""
+    return path.startswith("Packages/") and path.endswith(".swift") and "/Tests/" in path
+
+
+def justified(lines: list[str], index: int) -> bool:
+    return any(JUSTIFIED.search(lines[j]) for j in escape_window(lines, index))
+
+
+def code_hits(pattern: re.Pattern, escape: bool) -> Callable[[str, list[str]], list[Added]]:
+    """The lines of a file whose code (comments dropped, strings blanked) matches PATTERN, less the justified ones
+    when ESCAPE."""
+    def hits(path: str, lines: list[str]) -> list[Added]:
+        return [Added(path, i + 1, line) for i, line in enumerate(lines)
+                if pattern.search(line) and pattern.search(code_of(line)) and not (escape and justified(lines, i))]
+    return hits
+
+
+def carve_out_hits(path: str, lines: list[str]) -> list[Added]:
+    """code_hits(CARVE_OUT), less, in CmuxNext's Sources, the lines whose only carve-out another rule owns."""
+    found = code_hits(CARVE_OUT, escape=True)(path, lines)
+    if not path.startswith(SOURCES):
+        return found
+    return [a for a in found if CARVE_OUT.search(CARVE_OUT_OWNED.sub(" ", code_of(a.text)))]
+
+
+def source_test_hits(path: str, lines: list[str]) -> list[Added]:
+    """The lines of a test file that name a source or project file, when the file locates the repository and reads
+    a file or lists a folder (the strings matter here, so the raw line is read; comment lines are not)."""
+    code = [line if code_of(line).strip() else "" for line in lines]
+    text = "\n".join(code)
+    if not (REPO_LOCATOR.search(text) and FILE_READ.search(text)):
+        return []
+    return [Added(path, i + 1, lines[i]) for i, line in enumerate(code)
+            if line and SOURCE_REFERENCE.search(line) and not justified(lines, i)]
+
+
+def extra_types(path: str, lines: list[str]) -> list[Added]:
+    """The declaration lines of a file's top-level types after its first one, less justified ones. A private or
+    fileprivate helper of at most PRIVATE_TYPE_MAX source lines does not count (app-type's helper rule), and a
+    generated file (a GENERATED / Do not edit header) or one whose braces the scan cannot follow has none."""
+    if any(GENERATED_HEADER.search(line) for line in lines[:5]):
+        return []
+    scan = QUALITY_TYPE_SCAN(lines)
+    if scan.problem is not None:
+        return []
+    counted = []
+    for decl in type_decls(lines, scan.rows).types:
+        if decl.nested:
+            continue
+        source = sum(1 for j in range(decl.first, decl.end) if scan.rows[j][1] and scan.rows[j][3].strip())
+        if decl.private and source <= PRIVATE_TYPE_MAX:
+            continue
+        counted.append(decl)
+    return [Added(path, d.decl + 1, lines[d.decl]) for d in counted[1:] if not justified(lines, d.decl)]
+
+
+# app-type's scan, bound once: a fault there (or a test's stand-in for it) turns off app-type alone, as app-type's
+# own tests require; this rule then fails open on its own.
+QUALITY_TYPE_SCAN = type_scan
+
+
+def site_key(text: str) -> str:
+    """The baseline's name for a hit: a short hash of its debt_key (text compared as resolve() compares it)."""
+    return hashlib.sha1(debt_key(text).encode()).hexdigest()[:12]
+
+
+@dataclass(frozen=True)
+class QualityKind:
+    rule: str
+    applies: Callable[[str], bool]
+    hits: Callable[[str, list[str]], list[Added]]
+    new_files_only: bool = False
+
+
+QUALITY_KINDS = (
+    QualityKind("carve-out", product_source, carve_out_hits),
+    QualityKind("static-shared", lambda p: p.startswith("Packages/") and "/Sources/" in p and p.endswith(".swift"),
+                code_hits(STATIC_SHARED, escape=False)),
+    QualityKind("product-sleep", product_sleep_source, code_hits(PRODUCT_SLEEP, escape=True)),
+    QualityKind("source-reading-test", package_test, source_test_hits),
+    QualityKind("multi-type-file", product_source, extra_types, new_files_only=True),
+)
+
+
+def quality_baseline_sites(text: str | None) -> dict[str, dict[str, collections.Counter]] | None:
+    """{rule: {path: Counter(site key)}} of a quality-ratchet.json text; None for no file or one that does not parse."""
+    if text is None:
+        return None
+    try:
+        data = json.loads(text)
+        return {rule: {path: collections.Counter(keys.split()) for path, keys in files.items()}
+                for rule, files in data.get("sites", {}).items()}
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+def quality_allowance(changes: list[FileChange], rule: str) -> dict[str, collections.Counter]:
+    """{path: site keys the baseline lists for RULE}: the base's json, or the head's when the base has none."""
+    for change in changes:
+        base_text, head_text = change.memo.get(QUALITY_MEMO, (None, None))
+        sites = quality_baseline_sites(base_text)
+        if sites is None:
+            sites = quality_baseline_sites(head_text)
+        return (sites or {}).get(rule, {})
+    return {}
+
+
+def quality_rule(kind: QualityKind) -> Callable[[list[FileChange], collections.Counter], list[Added]]:
+    def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+        judged = [c for c in changes if kind.applies(c.path) and (c.added or c.removed)]
+        found, base_keys = [], {}
+        for change in judged:
+            base = kind.hits(change.path, change.base_lines) if change.base_lines != [""] else []
+            if kind.new_files_only and change.base_lines != [""]:
+                # An existing file adds nothing here; its types removed at head may pay for a move into a new file.
+                head_keys = collections.Counter(debt_key(a.text) for a in kind.hits(change.path, change.head_lines))
+                kept = []
+                for line in base:
+                    if head_keys[debt_key(line.text)] > 0:
+                        head_keys[debt_key(line.text)] -= 1
+                    else:
+                        kept.append(line)
+                found.append(([], kept))
+            else:
+                head = [] if change.is_deleted else kind.hits(change.path, change.head_lines)
+                found.append((head, base))
+            base_keys[change.path] = collections.Counter(site_key(r.text) for r in base)
+        left = resolve(found)
+        allowance = quality_allowance(judged, kind.rule)
+        hits = []
+        for hit in left:
+            spare = allowance.get(hit.path, collections.Counter()) - base_keys.get(hit.path, collections.Counter())
+            key = site_key(hit.text)
+            if spare[key] > 0:
+                allowance[hit.path] = allowance[hit.path] - collections.Counter({key: 1})
+            else:
+                hits.append(hit)
+        return hits
+    return find
+
+
+def quality_baseline_raise(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """quality-ratchet.json gains a site over the base's json (a base without the file allows any)."""
+    hits = []
+    for change in changes:
+        if change.path != QUALITY_BASELINE or change.is_deleted:
+            continue
+        base = quality_baseline_sites("\n".join(change.base_lines)) if change.base_lines != [""] else None
+        if base is None:
+            continue
+        head = quality_baseline_sites("\n".join(change.head_lines))
+        if head is None:
+            hits.append(Added(change.path, 1, "the file does not parse as the quality baseline"))
+            continue
+        for rule in sorted(head):
+            for path in sorted(head[rule]):
+                extra = head[rule][path] - base.get(rule, {}).get(path, collections.Counter())
+                if extra:
+                    hits.append(Added(change.path, 1, f"{rule} {path}: {sum(extra.values())} more site(s)"))
+    return hits
+
+
+def quality_counts(repo: Path, rev: str) -> dict:
+    """The baseline json for REV: every hit of each rule in every package Swift file (multi-type-file: in every
+    product file, as if each were new)."""
+    listed = git(repo, "ls-tree", "-r", "--name-only", rev, "--", "Packages").split("\n")
+    paths = sorted(p for p in listed if p and any(kind.applies(p) for kind in QUALITY_KINDS))
+    texts = blobs(repo, [(rev, p) for p in paths])
+    sites: dict[str, dict[str, str]] = {kind.rule: {} for kind in QUALITY_KINDS}
+    for path in paths:
+        lines = texts.get((rev, path), "").split("\n")
+        for kind in QUALITY_KINDS:
+            if kind.applies(path) and (found := kind.hits(path, lines)):
+                sites[kind.rule][path] = " ".join(sorted(site_key(h.text) for h in found))
+    return {
+        "_doc": "The quality ratchet's baseline (scripts/cmux-next/guardrails.py, block `quality ratchet`): per rule "
+                "and file, the short hashes (site_key) of every existing hit, space-separated. A hit the push's base lacks but this file lists for its "
+                "file is old debt, not new. Only `guardrails.py --quality-baseline --write` writes it, and a push may "
+                "only remove sites (rule quality-baseline). Never CI.",
+        "measured_rev": git(repo, "rev-parse", rev).strip(),
+        "counts": {rule: sum(len(v.split()) for v in files.values()) for rule, files in sites.items()},
+        "files": {rule: len(files) for rule, files in sites.items()},
+        "sites": sites,
+    }
+
+
+QUALITY_RULES = (
+    Rule("carve-out", "A carve-out without a justification comment in package Sources: `nonisolated(unsafe)`, "
+         "`@unchecked Sendable`, a new lock (`NSLock`, `os_unfair_lock`, `OSAllocatedUnfairLock`, `Mutex`), "
+         "`DispatchQueue.main.async` / `.sync` or `.asyncAfter` (in CmuxNext's Sources only the locks other checks do "
+         "not judge: `Mutex`, `OSAllocatedUnfairLock`, `pthread_mutex_init`)",
+         "each switches off a check (the data-race checker, the main-thread scheduler's classes) or adds a wait; "
+         "without a written reason nobody can review it (CLAUDE.md: an escape comment needs a reason that proves the "
+         "code is safe; quality audit 2026-10-29: 68 % of perf's carve-outs had none)",
+         "an actor or a Sendable value type instead of the lock or the unchecked conformance; recipe R-hop instead of "
+         "a GCD main hop; an injected Clock or a MainDeadline instead of asyncAfter. When it must stay, write why on "
+         "the line or directly above: `// concurrency-allow: <why>` (`// crash-allow:` for an unchecked conformance; "
+         "any `// <tag>-allow: <reason>` counts)",
+         JUSTIFIED_ESCAPE, quality_rule(QUALITY_KINDS[0]), scope=("Packages/",), local_only=True),
+    Rule("static-shared", "A new `static let shared` / `static var shared` singleton in package Sources",
+         "a process-wide instance no owner constructs or injects: tests share its state and nothing can replace it "
+         "(CLAUDE.md package design discipline; the arch ratchet's stateful-singleton row counts only stateful types)",
+         "construct the instance at the composition root and pass it in (an init parameter or an environment value)",
+         None, quality_rule(QUALITY_KINDS[1]), scope=("Packages/",), local_only=True),
+    Rule("product-sleep", "A `Task.sleep` / clock sleep in product package Sources outside CmuxNext (check-concurrency.sh "
+         "judges CmuxNext's) without a justification comment",
+         "a sleep is a wakeup, and a sleep that waits for a state hides a race (REVIEW-STANDARD.md: sleeps and polls "
+         "that hide a race are hacks)",
+         "wait for the event (a stream, a continuation, a store waiter); a deadline uses MainDeadline or Deadline, a "
+         "retry Backoff; a bounded, cancellable delay through an injected Clock says why on the line or directly "
+         "above: `// wakeup-allow: <deadline|backoff|bounded|...> <reason>`",
+         JUSTIFIED_ESCAPE, quality_rule(QUALITY_KINDS[2]), scope=("Packages/",), local_only=True),
+    Rule("source-reading-test", "A test that reads source or project files (a test file that finds the repository "
+         "through `#filePath` or a package/repo root, reads files, and names a Swift, C or project file or a Sources "
+         "folder)",
+         "it asserts the code's shape, not its behavior, and passes while the bug is live "
+         "(skills/cmux-testing/references/regression-and-quality.md)",
+         "test the behavior through the code (call the type, drive the store, run the built tool); a rule about source "
+         "text belongs in guardrails.py or a check script, not in a Swift test; a fixture tree under a temporary folder "
+         "that only names Sources says so with a justification comment",
+         JUSTIFIED_ESCAPE, quality_rule(QUALITY_KINDS[3]), scope=("Packages/",), local_only=True),
+    Rule("multi-type-file", "A new product Swift file with two or more top-level types (a private or fileprivate "
+         f"helper of at most {PRIVATE_TYPE_MAX} source lines does not count)",
+         "one major type per file keeps files small and findable and keeps every edit from re-reading unrelated "
+         "types (CLAUDE.md; quality audit 2026-10-29: 15.6 % of perf's new files, 9.8 % of trunk's)",
+         "put each type in its own file named after it; a small helper can be private beside its user",
+         JUSTIFIED_ESCAPE, quality_rule(QUALITY_KINDS[4]), scope=("Packages/",), local_only=True),
+    Rule("quality-baseline", f"{QUALITY_BASELINE} gains a site",
+         "the baseline lists old debt that a push may bring back as it was; a new site would let new debt in",
+         "never add a site by hand: fix the code, and rerun `scripts/cmux-next/guardrails.py --quality-baseline "
+         "--write` only to drop sites",
+         None, quality_baseline_raise, scope=(QUALITY_BASELINE,), local_only=True),
+)
+RULES += QUALITY_RULES
+# ---------------------------------------------------------------- end of quality ratchet
+
+
 # ---------------------------------------------------------------- diff
 
 def parse_diff(diff: str) -> dict[str, FileChange]:
@@ -5461,7 +5772,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
     specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS, PACKAGE_MANIFEST_SPEC,
-             *PACKAGE_SWIFT_SPECS, *RUST_STABILITY_SPECS]
+             *PACKAGE_SWIFT_SPECS, *RUST_STABILITY_SPECS, QUALITY_BASELINE]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -5475,7 +5786,8 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     blob_ids: dict[tuple[str, str], str] = {}
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST),
-                     (head, IDLE_BUDGET), (base, IDLE_BUDGET), (head, INVARIANT_ALLOWLIST)]
+                     (head, IDLE_BUDGET), (base, IDLE_BUDGET), (head, INVARIANT_ALLOWLIST),
+                     (head, QUALITY_BASELINE), (base, QUALITY_BASELINE)]
                   + [(base, p) for p in rust_rule_paths() if any(map(in_rust_stability_scope, early))], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
@@ -5528,9 +5840,11 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     wakeup = WakeupContext(repo, base, head, {rev: texts.get((rev, MANIFEST), "") for rev in (base, head)},
                            {rev: texts.get((rev, IDLE_BUDGET)) for rev in (base, head)})
     invariant_allow = invariant_allowance(texts.get((head, INVARIANT_ALLOWLIST)))
+    quality_baseline = (texts.get((base, QUALITY_BASELINE)), texts.get((head, QUALITY_BASELINE)))
     for change in files:
         change.memo["wakeup"] = wakeup
         change.memo[INVARIANT_ALLOW_MEMO] = invariant_allow
+        change.memo[QUALITY_MEMO] = quality_baseline
     moved = collections.Counter(r.text.strip() for c in swift.values() for r in c.removed if r.text.strip())
     try:
         load_push_linked_packages(repo, head, texts.get((head, PACKAGE_MANIFEST)), files)
@@ -6538,7 +6852,20 @@ def main(argv: list[str] | None = None) -> int:
                         help=f"print the `// perf-hot:` markers per path id of {BENCHES} as this hook resolves them "
                              "(only the ids given, if any); exit 1 when an id has no marker or a marker marks no "
                              "declaration")
+    parser.add_argument("--quality-baseline", action="store_true",
+                        help=f"print the quality ratchet's counts at --head (default HEAD); with --write, write them "
+                             f"to {QUALITY_BASELINE}")
+    parser.add_argument("--write", action="store_true", help="with --quality-baseline: write the json")
     args = parser.parse_args(argv)
+    if args.quality_baseline:
+        repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
+        data = quality_counts(repo, args.head)
+        for rule, count in data["counts"].items():
+            print(f"{rule}: {count} sites in {data['files'][rule]} files at {data['measured_rev'][:12]}")
+        if args.write:
+            (repo / QUALITY_BASELINE).write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
+            print(f"wrote {QUALITY_BASELINE}")
+        return 0
     if args.self_test:
         return self_test()
     if args.list_perf_hot is not None:
