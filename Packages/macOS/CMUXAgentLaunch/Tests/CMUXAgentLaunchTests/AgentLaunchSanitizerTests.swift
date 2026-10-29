@@ -297,6 +297,18 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves a trailing Gemini sandbox flag", arguments: ["--sandbox", "-s"])
+    func preservesTrailingGeminiSandboxFlag(option: String) {
+        let launch = ["gemini", "--model", "gemini-2.5-pro", option]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                launch,
+                launcher: "gemini",
+                fallbackKind: "gemini"
+            ) == launch
+        )
+    }
+
     @Test("Drops Gemini worktree value before preserving later options")
     func dropsGeminiWorktreeValueBeforePreservingLaterOptions() {
         #expect(
