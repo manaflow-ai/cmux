@@ -430,6 +430,26 @@ async fn splice(
                 if let Some(canonical) = canonical {
                     line = canonical;
                 }
+                // A reply to a terminal notification is answered locally. Keep it
+                // in the input task so it cannot be confused with an ordinary rewrite.
+                if matches!(verdict, Verdict::Forward)
+                    && let (Some(path), Some(phone)) = (&terminal_folders, &reply_phone)
+                    && is_notification_reply(&line)
+                {
+                    let mut answer = crate::mailbox_apply::answer_notification_reply(
+                        path,
+                        phone,
+                        spent_replies.as_deref(),
+                        &line,
+                    )
+                    .await
+                    .into_bytes();
+                    answer.push(b'\n');
+                    if refusals.send(answer).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 // Preserve ordering for commands/mutations. Only explicit terminal
                 // sends bypass a side query waiting for its cached snapshots.
                 let checked = match &verdict {
@@ -437,7 +457,9 @@ async fn splice(
                     Verdict::Rewrite(checked) => Some(checked),
                     Verdict::Refuse(_) => None,
                 };
-                if claims && checked.is_some_and(|line| !is_terminal_send(line)) {
+                if claims
+                    && checked.is_some_and(|line| !is_terminal_send(line) && !is_notification_reply(line))
+                {
                     let request = checked.unwrap().clone();
                     if side_tx.try_send((request, verdict)).is_err() {
                         let mut answer = side_busy(&line).into_bytes();
