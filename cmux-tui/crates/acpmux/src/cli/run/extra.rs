@@ -4,6 +4,7 @@ use super::*;
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Session(control) => crate::cli::mesh_control::run(control, json_out).await,
         Command::Retention(args) => {
             let client = connect(true).await?;
             let archive = args.archive.map(std::path::absolute).transpose()?;
@@ -75,6 +76,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::LimitsCmd { session, max, clear } => {
             let client = connect(true).await?;
             crate::cli::session_limits::run(&client, &session, max, clear, json_out).await
+        }
+        Command::TurnCapCmd { session, minutes, off, clear } => {
+            use crate::cli::session_turn_cap::Change;
+            let change = match (minutes, off, clear) {
+                (Some(m), _, _) => Change::Minutes(m),
+                (None, true, _) => Change::Off,
+                (None, false, true) => Change::Clear,
+                (None, false, false) => Change::Show,
+            };
+            let client = connect(true).await?;
+            crate::cli::session_turn_cap::run(&client, &session, change, json_out).await
         }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
@@ -152,6 +164,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let id = resolve_id(&client, &session).await?;
             let (k, val) = assignment.split_once('=').ok_or_else(|| anyhow!("use key=value"))?;
             let v = match k {
+                "team-address" | "teamAddress" => {
+                    if !crate::mesh::valid_team_suffix(val) {
+                        return Err(anyhow!(
+                            "team-address must be an agent suffix such as coordinator; the hub supplies your member namespace"
+                        ));
+                    }
+                    client
+                        .request(
+                            method::MUX_TAG,
+                            json!({"sessionId": id, "set": {"teamAddress": val}}),
+                        )
+                        .await?
+                }
                 "mode" => {
                     client
                         .request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": val}))
@@ -428,8 +453,29 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
-        Command::Config { show_token } => {
+        Command::Config { show_token, set } => {
             let path = Config::path();
+            if let Some(assignment) = set {
+                let (key, value) =
+                    assignment.split_once('=').ok_or_else(|| anyhow!("--set expects KEY=VALUE"))?;
+                let mut cfg = Config::load()?;
+                cfg.set_session_resource(key, value)?;
+                cfg.save()?;
+                // Refresh the local daemon's cached config before reporting success;
+                // a later defaults/token save must retain these resource settings.
+                // Config is local even when the CLI targets a remote peer.
+                if let Ok(client) =
+                    crate::client::Client::connect(&crate::config::socket_path()).await
+                {
+                    client.request(method::MUX_RELOAD_CONFIG, json!({})).await?;
+                }
+                if json_out {
+                    print_json(&json!({"path": path, "key": key, "value": value}));
+                } else {
+                    println!("set {key}={value} in {}", path.display());
+                }
+                return Ok(());
+            }
             if json_out {
                 let (written, config) = match std::fs::read_to_string(&path) {
                     Ok(s) => (true, serde_json::from_str::<Value>(&s).unwrap_or(Value::String(s))),
@@ -530,12 +576,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     zeroize::Zeroizing::new(value)
                 }
                 None => {
-                    let joined = !replace && crate::cli::cloud_join::credential_present()?;
+                    let joined = crate::cli::cloud_join::join_incomplete()?
+                        || (!replace && crate::cli::cloud_join::credential_present()?);
                     match crate::cli::join_input::read_stdin_line(joined)? {
                         Some(value) => value,
                         None => {
-                            crate::cli::cloud_join::already_joined(false, json_out)?;
-                            return Ok(());
+                            return crate::cli::cloud_join::join_with_token(
+                                hub, name, replace, json_out, None,
+                            )
+                            .await;
                         }
                     }
                 }
@@ -549,7 +598,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     )
                     .with_exit(2)
                 })?;
-                crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, token).await
+                crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, Some(token))
+                    .await
             } else if value.starts_with("cmxt1.") {
                 let ticket = crate::cli::pairing::join_ticket_text(&value)?;
                 let client = connect(true).await?;
@@ -850,7 +900,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         | Command::Stdio { .. }
         | Command::CliAgent { .. }
         | Command::UniichatAgent { .. }
-        | Command::Session(_)
         | Command::Daemon(_)
         | Command::Harness(_) => {
             unreachable!()

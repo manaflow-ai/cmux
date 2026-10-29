@@ -763,7 +763,7 @@ if [[ "$mode" == rd-bench ]]; then
 fi
 # Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go
 # with GOTOOLCHAIN=auto (Go 1.21 or later) when it has one, else the pinned
-# release (cmux-tui/crates/cmux-tailnet/.go-version, which cmux-tui.yml's macOS
+# release (cmux-tui/crates/cmux-tailnet/go-version, which cmux-tui.yml's macOS
 # job installs too), checksummed, in the step's own .build. Go's caches stay in
 # .build (go_caches), and toolchain downloads go only through the default
 # proxy with the checksum database on: nothing is installed on the host.
@@ -771,7 +771,7 @@ ensure_screen_go() {
   export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
   go_caches
   local version arch sum dir tmp
-  version="$(tr -d '[:space:]' <"$root/cmux-tui/crates/cmux-tailnet/.go-version")" || return 3
+  version="$(tr -d '[:space:]' <"$root/cmux-tui/crates/cmux-tailnet/go-version")" || return 3
   dir="$root/.build/go-$version"
   if ! command -v go >/dev/null 2>&1; then
     case "$version-$(uname -m)" in
@@ -789,7 +789,7 @@ ensure_screen_go() {
     fi
     export PATH="$dir/go/bin:$PATH"
   fi
-  # libtailscale's go.mod selects the Go of .go-version; GOTOOLCHAIN=auto switches to it inside that folder.
+  # libtailscale's go.mod selects the Go of go-version; GOTOOLCHAIN=auto switches to it inside that folder.
   go version || return 3
 }
 if [[ "$mode" == screen ]]; then

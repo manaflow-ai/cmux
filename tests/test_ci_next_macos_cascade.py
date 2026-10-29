@@ -1628,7 +1628,9 @@ class DeadEndRoute(unittest.TestCase):
         snap = snapshot(minutes_old=5)
         snap["pools"]["glaeda-side-std-xcode-26.6"] = {"queued": 96, "running": 0, "oldest_queued_minutes": 438}
         snap["pools"]["glaeda-gui-std-xcode-26.6"] = {"queued": 0, "running": 10, "oldest_queued_minutes": 0}
-        self.assertEqual(cascade.seen(snap, NOW).owned, {"glaeda-side-std-xcode-26.6": 443.0})
+        seen = cascade.seen(snap, NOW)
+        self.assertEqual(seen.owned, {"glaeda-side-std-xcode-26.6": 443.0})
+        self.assertEqual(seen.owned_queued, {"glaeda-side-std-xcode-26.6": 96})
 
 
 if __name__ == "__main__":

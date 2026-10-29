@@ -73,11 +73,12 @@ extension SidebarListViewComponents {
         guard let pinned = blockItemView(for: id) else { return nil }
         return window.convertToScreen(convert(convert(pinned.bounds, from: pinned), to: nil))
     }
-    /// Where a workspace row's hover card goes: the row's band across the sidebar column
-    /// (`HoverCardEscapeGeometry.rowBand`), so the card's top is the row's top and its near edge
-    /// one device pixel off the sidebar's visible edge. Nil when the row is not laid out.
+    /// A workspace preview touches the row's fill, before the sidebar's resize/drag thumb.
+    /// Pinned items use their drawn pill rather than their wider layout cell.
     func hoverCardBand(for id: WorkspaceID) -> CGRect? {
-        hoverCardAnchor(for: id).flatMap(hoverCardBand(row:))
+        if displayed.row(for: .workspace(id)) != nil { return hoverCardAnchor(for: id) }
+        guard let window, let pinned = blockItemView(for: id) else { return nil }
+        return window.convertToScreen(pinned.convert(pinned.pill.frame, to: nil))
     }
     /// A group header's band across the sidebar column, as `hoverCardBand(for:)`.
     func hoverCardBand(forGroup id: GroupID) -> CGRect? {

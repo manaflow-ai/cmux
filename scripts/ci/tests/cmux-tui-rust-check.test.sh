@@ -66,8 +66,8 @@ ARGS=(deploy)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted an unknown mode"
 [[ ! -e "$TMP/calls" ]] || fail "cargo ran for a refused request"
 # One Go pin: the screen mode's checksummed download covers the version the macOS
-# job of cmux-tui.yml installs (crates/cmux-tailnet/.go-version).
-go_version=$(tr -d '[:space:]' <"$ROOT/cmux-tui/crates/cmux-tailnet/.go-version")
-grep -q "^      $go_version-arm64) " "$ROOT/scripts/ci/cmux-tui-rust-check.sh" || fail "no pinned sha256 for Go $go_version (cmux-tailnet/.go-version)"
-grep -q "go-version-file: cmux-tui/crates/cmux-tailnet/.go-version" "$ROOT/.github/workflows/cmux-tui.yml" || fail "cmux-tui.yml's macOS job does not install cmux-tailnet's Go"
+# job of cmux-tui.yml installs (crates/cmux-tailnet/go-version).
+go_version=$(tr -d '[:space:]' <"$ROOT/cmux-tui/crates/cmux-tailnet/go-version")
+grep -q "^      $go_version-arm64) " "$ROOT/scripts/ci/cmux-tui-rust-check.sh" || fail "no pinned sha256 for Go $go_version (cmux-tailnet/go-version)"
+grep -q "go-version-file: cmux-tui/crates/cmux-tailnet/go-version" "$ROOT/.github/workflows/cmux-tui.yml" || fail "cmux-tui.yml's macOS job does not install cmux-tailnet's Go"
 printf 'cmux-tui-rust-check tests: ok\n'
