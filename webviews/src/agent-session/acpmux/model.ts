@@ -1333,6 +1333,7 @@ function isPlainUserPrompt(text: string): boolean {
     text.trim() === text &&
     !/[\r\n\t]/.test(text) &&
     !PLAIN_MARKDOWN_CHARS.split("").some((character) => text.includes(character)) &&
+    !/^- *(?:- *){2,}$/.test(text) &&
     !/^(?:[-+*]\s|\d+[.)]\s|!\s?)/.test(text)
   );
 }

@@ -2684,10 +2684,7 @@ export function VirtualTranscript({
     // transcript at its old offset and caught up a frame later.
     const observer = new ResizeObserver(() => {
       noteQueue();
-      // ResizeObserver runs after the transcript has laid out. Let the resulting width/height
-      // state update batch with the observer turn instead of forcing a nested React commit while
-      // the composer keydown is still on the stack; the next render keeps the same measured box.
-      measure(true);
+      flushSync(() => measure(true));
     });
     observer.observe(node);
     measure(false);
@@ -3192,9 +3189,9 @@ export function VirtualTranscript({
       // card leaves (`floor`) can make the content taller again in this same commit.
       const live = node.scrollTop;
       // The browser rounds the height it clamps to, so the old end allows a pixel either way.
-      // `height` is the scroller box measured by the ResizeObserver. Reusing it here avoids a
-      // synchronous clientHeight/scrollHeight read while the send commit is still on the stack.
-      const end = old.totalHeight - height;
+      // The live extent may already have shrunk and clamped the offset before reconciliation.
+      // Keep that boundary as well as the old total so the clamp never reads as upward input.
+      const end = Math.min(node.scrollHeight, old.totalHeight) - height;
       const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // A reader's move can reach the live offset before its scroll event. Layout changes alone
       // never release or reacquire follow; the input window only identifies this event race.

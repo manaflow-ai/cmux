@@ -64,6 +64,9 @@ test("Markdown-looking, multiline, attachment and Chief paths retain their parse
   try {
     const rows = [
       prompt("> quoted passage"),
+      prompt("---"),
+      prompt("----"),
+      prompt("--- ---"),
       prompt("1. ordered item"),
       prompt("**bold** and `code`"),
       prompt("First paragraph\n\nSecond paragraph"),
@@ -80,6 +83,13 @@ test("Markdown-looking, multiline, attachment and Chief paths retain their parse
     }
   } finally {
     lexer.mockRestore();
+  }
+});
+
+test("hyphen thematic breaks keep their original parser-backed height", () => {
+  for (const font of [14, 20]) {
+    setChatDisplay({ "agentPane.display.font.size": font });
+    for (const text of ["---", "----", "--- ---"]) expect(height(prompt(text), 720)).toBe(54);
   }
 });
 
