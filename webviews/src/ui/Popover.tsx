@@ -1,6 +1,6 @@
 // A popover over Base UI Popover, anchored to an element or a point (the editor caret). Non-modal:
 // the page stays usable; Escape and a press outside close it, and focus returns where it was.
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
@@ -90,6 +90,15 @@ export function Popover({
 }: PopoverProps) {
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
+  const focusReturn = useRef(finalFocus);
+  focusReturn.current = finalFocus;
+  const needsFocusReturn = useRef(false);
+  const returnNativeFocus = () => {
+    if (!needsFocusReturn.current) return;
+    needsFocusReturn.current = false;
+    const target = focusReturn.current;
+    if (target && typeof target !== "boolean") target.current?.focus({ preventScroll: true });
+  };
   const nativePopup = useNativePopup({
     open: open === true && native !== undefined,
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
@@ -97,13 +106,23 @@ export function Popover({
     onEvent: (event) => {
       const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
       native?.onEvent?.(event);
-      if (action && !action.keepOpen) onOpenChange(false, { escape: false });
+      if (action && !action.keepOpen) {
+        returnNativeFocus();
+        onOpenChange(false, { escape: false });
+      }
     },
     onDismiss: (reason) => {
       native?.onDismiss?.();
+      returnNativeFocus();
       onOpenChange(false, { escape: reason === "escape" });
     },
   });
+  const nativeOpen = nativePopup.available && native !== undefined && open;
+  useLayoutEffect(() => {
+    if (!nativeOpen) return;
+    needsFocusReturn.current = true;
+    return returnNativeFocus;
+  }, [nativeOpen]);
   if (nativePopup.available && native !== undefined) return null;
   return (
     <BasePopover.Root

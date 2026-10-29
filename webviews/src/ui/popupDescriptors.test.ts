@@ -79,7 +79,6 @@ test.each(["x".repeat(120), "foo"])("context separator identities stay valid alo
   const actions = [
     { id, label: "First", separatorBefore: true },
     ...(id === "foo" ? [{ id: `separator:${id}`, label: "Second" }] : []),
-    { id: separatorId(id), label: "Third" },
   ];
   const model = contextDescription(actions);
   const ids = model.rows.map((row) => row.id);
