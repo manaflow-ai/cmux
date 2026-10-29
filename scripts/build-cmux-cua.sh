@@ -9,7 +9,8 @@ CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="7f140fe2f75dcb43649297440b7902fd21b93
 # exact diff of a cmux-cua PR that the pin does not carry yet; the pin bump to
 # a release that includes it deletes the patch here.
 #   codex-delivery-mode: the Codex adapter's public delivery_mode field.
-#   machine-consent: manaflow-ai/cmux-cua#82, screen/control consent on a
+#   machine-consent: manaflow-ai/cmux-cua#82 (merged as 07a6e0fba359, the diff
+#     against its parent 3b6166ff1f16), screen/control consent on a
 #     machine joined to a cmux team, checked on every tool call.
 CMUX_CUA_PATCH_RELATIVE_PATHS=(
   "scripts/cmux-cua-codex-delivery-mode.patch"
