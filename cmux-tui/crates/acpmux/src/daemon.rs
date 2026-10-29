@@ -13,7 +13,7 @@ pub(crate) mod exe_path;
 mod lock;
 #[cfg(unix)]
 mod open_file_limit;
-use lock::{LockHeld, acquire_lock, wait_for_lock_release};
+use lock::{DaemonLock, LockHeld, acquire_lock, wait_for_lock_release};
 mod router_owner;
 #[cfg(unix)]
 pub(crate) use router_owner::open_router_owner;
@@ -29,6 +29,7 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
+mod handover;
 mod notify;
 mod persist_retry;
 #[cfg(windows)]
@@ -111,6 +112,7 @@ fn is_test_panic_thread(thread: &str) -> bool {
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 
 pub async fn run(opts: DaemonOptions) -> Result<()> {
+    crate::cli::cloud_join::retain_own_machine_consent_requirement()?;
     // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
     // daemon must not die when its launcher or a client goes away mid-write:
     // a closed pipe is an ordinary write error here.
@@ -171,14 +173,28 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
-    let _lock_file = match acquire_lock(&lock) {
+    let _lock_file = match acquire_daemon_lock(&lock).await {
         Ok(lock) => lock,
         Err(e) => {
             // The command that started this daemon waits for the holder (`connect`).
             if let Some(fd) = opts.ready_fd.filter(|_| e.downcast_ref::<LockHeld>().is_some()) {
-                write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+                // The app launches `daemon run` directly, without `start_and_connect`.
+                // Its losing launch must report the winner's endpoint once it answers.
+                tracing::info!("another daemon holds the lock; waiting for its socket or exit");
+                match handover::wait(&home(), &socket_path()).await {
+                    Some(handover::Started::Acquired(lock)) => lock,
+                    Some(handover::Started::Ready(ready)) => {
+                        write_ready(fd, &ready);
+                        return Ok(());
+                    }
+                    None => {
+                        write_ready(fd, &serde_json::json!({"ready": false, "lockHeld": true}));
+                        return Err(e);
+                    }
+                }
+            } else {
+                return Err(e);
             }
-            return Err(e);
         }
     };
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and
@@ -308,8 +324,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
+    // Start one mesh before Hub starts its saved peers. It forwards only to
+    // the WebSocket listener bound above, whose existing tokens remain mandatory.
+    let wireguard = if config.transport.wireguard {
+        let websocket =
+            ws_listener.as_ref().context("WireGuard needs a WebSocket listener")?.0.local_addr()?;
+        crate::wireguard::Transport::start(&config, &home(), websocket).await?
+    } else {
+        None
+    };
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
-    let hub = Hub::new_loading(config, store, mailbox);
+    let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
@@ -440,9 +465,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
+    let ws_shutdown = hub.ws_shutdown.clone();
     let ws_task = ws_listener.map(|(l, token)| {
         let auth = crate::server::WsAuth { local_app, peer };
-        tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, auth))
+        tokio::spawn(crate::server::serve_ws_until(
+            hub.clone(),
+            l,
+            token,
+            auth,
+            ws_shutdown.clone(),
+        ))
     });
     let ready = serde_json::json!({
         "ready": true,
@@ -538,12 +570,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
 
+    #[cfg(all(unix, feature = "tailnet"))]
+    let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
     let shutdown = async {
         #[cfg(unix)]
         {
             let (term, int) = &mut stop_signals;
             tokio::select! {
-                _ = next_signal(term.as_mut()) => {},
+                // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
+                // handoff: a stopped service causes one immediate retry, then normal backoff.
+                _ = next_signal(term.as_mut()) => {
+                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
             }
@@ -558,11 +596,44 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // Fence tailnet supervision first: its ingress then ends through the
+    // WebSocket shutdown below (1012 on restart), never as a listener failure.
+    // A supervisor action under way finishes first, within its own bounds.
+    #[cfg(all(unix, feature = "tailnet"))]
+    tailnet.fence().await;
     startup.abort();
     let _ = startup.await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.
     if let Some(relay) = mesh_relay {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
+    }
+    // SIGTERM handoff and explicit updates/restarts use 1012. Explicit ordinary RPC
+    // shutdown and interactive interrupt use a normal WebSocket close.
+    if hub.restart_requested.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        ws_shutdown.restart();
+    } else {
+        ws_shutdown.normal_shutdown();
+    }
+    let drain_deadline = tokio::time::Instant::now() + crate::server::WS_DRAIN_BUDGET;
+    if tokio::time::timeout_at(drain_deadline, ws_shutdown.drained()).await.is_err() {
+        tracing::warn!("websocket listeners did not drain before the shutdown deadline");
+    }
+    if let Some(mut task) = ws_task
+        && tokio::time::timeout_at(drain_deadline, &mut task).await.is_err()
+    {
+        task.abort();
+        let _ = task.await;
+        tracing::warn!("websocket clients did not drain before the shutdown deadline");
+    }
+    // The ingress has had the WebSocket drain to close its clients; stop and
+    // join whatever remains within the service's own bound.
+    #[cfg(all(unix, feature = "tailnet"))]
+    tailnet.shutdown().await;
+    // Keep encrypted bridges alive until WebSocket close/restart frames have drained.
+    if let Some(transport) = wireguard
+        && tokio::time::timeout(SHUTDOWN_BUDGET, transport.shutdown()).await.is_err()
+    {
+        tracing::warn!("WireGuard did not close within {SHUTDOWN_BUDGET:?}");
     }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
@@ -576,9 +647,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
     let _ = std::fs::remove_file(socket_path());
-    if let Some(t) = ws_task {
-        t.abort();
-    }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
     let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, async {
@@ -898,6 +966,37 @@ fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
     }
 }
 
+/// A systemd-owned daemon stays active while a previous daemon hands over this home.
+/// This keeps `RestartPreventExitStatus=75` as a guard for detached starts without
+/// making the supervised unit inactive during the ordinary handover window.
+#[cfg(target_os = "linux")]
+fn managed_by_acpmux_unit() -> bool {
+    std::fs::read_to_string("/proc/self/cgroup")
+        .ok()
+        .is_some_and(|cgroup| cgroup.lines().any(|line| line.ends_with("/acpmux.service")))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn managed_by_acpmux_unit() -> bool {
+    false
+}
+
+async fn acquire_daemon_lock(path: &std::path::Path) -> Result<DaemonLock> {
+    loop {
+        match acquire_lock(path) {
+            Ok(lock) => return Ok(lock),
+            Err(error)
+                if managed_by_acpmux_unit() && error.downcast_ref::<LockHeld>().is_some() =>
+            {
+                if !wait_for_lock_release(path.to_owned(), Duration::from_secs(60)).await {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 fn random_token() -> Result<String> {
     let mut bytes = [0u8; 24];
     getrandom::fill(&mut bytes).map_err(|e| anyhow!("the OS random generator: {e}"))?;
@@ -931,24 +1030,44 @@ pub async fn wait_for_exit() -> bool {
 
 /// Connect to the daemon, starting one if needed.
 pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
+    let home = home();
     let path = socket_path();
-    if let Ok(c) = Client::connect(&path).await {
-        return Ok(c);
-    }
-    if !autostart {
-        return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
-    }
-    start_and_connect(&path, || Client::connect(&path)).await
+    connect_with_systemctl("systemctl", &home, &path, autostart, || Client::connect(&path)).await
 }
 
 /// A connected socket to the daemon, starting one if needed, for a client
 /// that speaks the wire protocol itself (`acpmux stdio`).
 pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
+    let home = home();
     let path = socket_path();
-    if let Ok(stream) = crate::local_stream::connect(&path).await {
-        return Ok(stream);
+    connect_with_systemctl("systemctl", &home, &path, true, || async {
+        Ok(crate::local_stream::connect(&path).await?)
+    })
+    .await
+}
+
+async fn connect_with_systemctl<S, T, F, Fut>(
+    systemctl: S,
+    current_home: &std::path::Path,
+    path: &std::path::Path,
+    autostart: bool,
+    connect: F,
+) -> Result<T>
+where
+    S: AsRef<std::ffi::OsStr> + Clone,
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    if let Ok(value) = connect().await {
+        return Ok(value);
     }
-    start_and_connect(&path, || async { Ok(crate::local_stream::connect(&path).await?) }).await
+    if !autostart {
+        return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
+    }
+    if let Some(value) = managed_unit_connect_with(systemctl, current_home, path, &connect).await? {
+        return Ok(value);
+    }
+    start_and_connect(path, connect).await
 }
 
 /// How long a command waits for a daemon that holds the lock: a stopping one settles its agents
@@ -957,14 +1076,213 @@ pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
 /// `START_BUDGET`.
 const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
 
+// A detached start may wait for the old owner before binding its own socket.
+// Keep its launcher alive through both phases, including the Windows pipe reader.
+const READINESS_BUDGET: Duration = HANDOVER_BUDGET.saturating_add(START_BUDGET);
+
 /// How often a command tries again while another daemon holds the lock.
 const HANDOVER_RETRY: Duration = Duration::from_millis(250);
 
+/// A CLI may be launched without the service's `ACPMUX_HOME` (for example,
+/// from a session shell) while its daemon is owned by the user systemd unit.
+/// In that case never call [`spawn_detached`]: the unit may use a supervised
+/// state directory while the default home is a symlink, and the private-state
+/// guard must continue to reject that symlink. Ask systemd to start its unit
+/// and wait for the socket instead.
+#[cfg(target_os = "linux")]
+async fn managed_unit_connect_with<S, T, F, Fut>(
+    systemctl: S,
+    current_home: &std::path::Path,
+    path: &std::path::Path,
+    connect: &F,
+) -> Result<Option<T>>
+where
+    S: AsRef<std::ffi::OsStr> + Clone,
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    const PROBE_BUDGET: Duration = Duration::from_secs(1);
+    let show = tokio::process::Command::new(systemctl.clone())
+        .args(["--user", "show", "acpmux.service", "-p", "LoadState", "--value"])
+        .output();
+    let loaded = match tokio::time::timeout(PROBE_BUDGET, show).await {
+        Ok(Ok(output)) if output.status.success() => output.stdout.trim_ascii() == b"loaded",
+        Ok(Ok(_)) => false,
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Ok(Err(error)) => return Err(error.into()),
+        Err(_) => {
+            return Err(anyhow!("systemd did not report acpmux.service within {PROBE_BUDGET:?}"));
+        }
+    };
+    if !loaded {
+        return Ok(None);
+    }
+
+    let env = tokio::process::Command::new(systemctl.clone())
+        .args(["--user", "show", "acpmux.service", "-p", "Environment", "--value"])
+        .output();
+    let env = match tokio::time::timeout(PROBE_BUDGET, env).await {
+        Ok(Ok(output)) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        }
+        Ok(Ok(output)) => {
+            return Err(anyhow!(
+                "systemd could not read acpmux.service environment: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        Ok(Err(error)) => return Err(error.into()),
+        Err(_) => {
+            return Err(anyhow!(
+                "systemd did not report acpmux.service environment within {PROBE_BUDGET:?}"
+            ));
+        }
+    };
+    let unit_home =
+        unit_environment_path(&env, "ACPMUX_HOME").unwrap_or_else(crate::config::default_home);
+    if !equivalent_path(current_home, &unit_home) {
+        return Ok(None);
+    }
+    let unit_socket = unit_environment_path(&env, "ACPMUX_SOCKET");
+    let expected_socket = crate::config::socket_path_for(
+        &unit_home,
+        unit_socket.as_deref().and_then(|path| path.to_str()),
+    );
+    if !equivalent_path(path, &expected_socket) {
+        return Ok(None);
+    }
+
+    // A unit start can overlap the old daemon's graceful handover. Give the
+    // unit the same bounded window clients use for that handover, rather than
+    // failing after the shorter socket-bind budget while it still owns the
+    // lock and is waiting for the old process to exit.
+    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
+    let mut last_start_error = None;
+    let mut next_start = tokio::time::Instant::now();
+    loop {
+        if tokio::time::Instant::now() >= next_start {
+            let start = tokio::process::Command::new(systemctl.clone())
+                .args(["--user", "start", "acpmux.service"])
+                .output();
+            match tokio::time::timeout(PROBE_BUDGET, start).await {
+                Ok(Ok(output)) if output.status.success() => last_start_error = None,
+                Ok(Ok(output)) => {
+                    last_start_error = Some(format!(
+                        "systemd could not start acpmux.service: {}",
+                        String::from_utf8_lossy(&output.stderr).trim()
+                    ));
+                }
+                Ok(Err(error)) => last_start_error = Some(error.to_string()),
+                Err(_) => {
+                    last_start_error = Some(format!(
+                        "systemd did not start acpmux.service within {PROBE_BUDGET:?}"
+                    ))
+                }
+            }
+            next_start = tokio::time::Instant::now() + HANDOVER_RETRY;
+        }
+        if let Ok(value) = connect().await {
+            return Ok(Some(value));
+        }
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            return Err(anyhow!(last_start_error.unwrap_or_else(|| {
+                format!(
+                    "acpmux.service did not provide a socket at {} within {HANDOVER_BUDGET:?}",
+                    path.display()
+                )
+            })));
+        }
+        tokio::time::sleep(HANDOVER_RETRY.min(left)).await;
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn managed_unit_connect_with<S, T, F, Fut>(
+    _systemctl: S,
+    _current_home: &std::path::Path,
+    _path: &std::path::Path,
+    _connect: &F,
+) -> Result<Option<T>>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    Ok(None)
+}
+
+#[cfg(target_os = "linux")]
+fn unit_environment_path(environment: &str, key: &str) -> Option<std::path::PathBuf> {
+    unit_environment_words(environment).into_iter().find_map(|entry| {
+        entry
+            .strip_prefix(key)
+            .and_then(|value| value.strip_prefix('='))
+            .map(std::path::PathBuf::from)
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn unit_environment_words(environment: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut has_word = false;
+    for ch in environment.chars() {
+        if escaped {
+            word.push(ch);
+            escaped = false;
+            has_word = true;
+            continue;
+        }
+        match quote {
+            Some('"') if ch == '\\' => escaped = true,
+            Some(q) if ch == q => quote = None,
+            Some(_) => {
+                word.push(ch);
+                has_word = true;
+            }
+            None if ch == '\\' => escaped = true,
+            None if ch == '\'' || ch == '"' => {
+                quote = Some(ch);
+                has_word = true;
+            }
+            None if ch.is_ascii_whitespace() => {
+                if has_word {
+                    words.push(std::mem::take(&mut word));
+                    has_word = false;
+                }
+            }
+            None => {
+                word.push(ch);
+                has_word = true;
+            }
+        }
+    }
+    if escaped {
+        word.push('\\');
+        has_word = true;
+    }
+    if has_word {
+        words.push(word);
+    }
+    words
+}
+
+#[cfg(target_os = "linux")]
+fn equivalent_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    fn normalized(path: &std::path::Path) -> Option<std::path::PathBuf> {
+        std::fs::canonicalize(path).ok().or_else(|| {
+            let parent = path.parent()?;
+            Some(std::fs::canonicalize(parent).ok()?.join(path.file_name()?))
+        })
+    }
+    left == right || normalized(left).zip(normalized(right)).is_some_and(|(l, r)| l == r)
+}
+
 /// Starts a daemon and connects. When the started daemon found the lock taken (its readiness
-/// line says `lockHeld`), another daemon is stopping (the app's handover to its bundled build,
-/// `host update`, `daemon shutdown`) or starting: the command connects once that one serves, or
-/// starts the next daemon once it has exited, instead of failing. Each try is a daemon start, so
-/// the command never takes the lock itself and never makes a starting daemon lose it.
+/// line says `lockHeld`), another daemon is stopping or starting: the command connects once that
+/// one serves, or starts the next daemon once it has exited.
 async fn start_and_connect<T, F, Fut>(path: &std::path::Path, connect: F) -> Result<T>
 where
     F: Fn() -> Fut,
@@ -1061,10 +1379,10 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
         let mut line = String::new();
         tokio::io::BufReader::new(ready).read_line(&mut line).await.map(|_| line)
     };
-    match tokio::time::timeout(START_BUDGET, wait).await {
+    match tokio::time::timeout(READINESS_BUDGET, wait).await {
         Ok(read) => Ok(read.unwrap_or_default()),
         Err(_) => Err(anyhow!(
-            "daemon did not come up at {} within {START_BUDGET:?}; see {}",
+            "daemon did not come up at {} within {READINESS_BUDGET:?}; see {}",
             path.display(),
             home().join("daemon.log").display()
         )),
@@ -1114,7 +1432,7 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
 /// Windows: CreateProcessW with a handle list (`daemon/windows.rs`).
 #[cfg(windows)]
 async fn start_daemon() -> Result<String> {
-    windows::start_daemon(&home(), &daemon_prefix(), START_BUDGET).await
+    windows::start_daemon(&home(), &daemon_prefix(), READINESS_BUDGET).await
 }
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
@@ -1145,6 +1463,46 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 #[path = "daemon/state_file_tests.rs"]
 mod state_file_tests;
 
+#[cfg(target_os = "linux")]
+fn cgroup_is_in_sessions_scope(contents: &str) -> bool {
+    contents.lines().filter_map(|line| line.splitn(3, ':').nth(2)).any(|path| {
+        path.split('/').any(|component| component == crate::session_scope::SESSIONS_SLICE)
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn daemon_started_in_session_scope() -> bool {
+    std::fs::read_to_string("/proc/self/cgroup")
+        .is_ok_and(|contents| cgroup_is_in_sessions_scope(&contents))
+}
+
+#[cfg(target_os = "linux")]
+fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Command {
+    if daemon_started_in_session_scope()
+        && let Some(runner) = crate::session_scope::scope_runner()
+        && crate::session_scope::can_make_scope(&runner)
+    {
+        let mut command = std::process::Command::new(runner);
+        command.args([
+            "--user",
+            "--scope",
+            "--quiet",
+            "--collect",
+            "--no-block",
+            "--description=acpmux daemon",
+            "--",
+        ]);
+        command.arg(&this.exe).args(&this.prefix).args(["daemon", "run", "--ready-fd"]);
+        return command;
+    }
+    this.command(&["daemon", "run", "--ready-fd"])
+}
+
+#[cfg(not(target_os = "linux"))]
+fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Command {
+    this.command(&["daemon", "run", "--ready-fd"])
+}
+
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe. With `key`, the daemon also
 /// gets `--person-key-fd M`, one end of a socket pair: the key is written
@@ -1171,7 +1529,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
         None => None,
     };
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = this.command(&["daemon", "run", "--ready-fd"]);
+    let mut cmd = daemon_command(&this);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
@@ -1207,7 +1565,13 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
             });
         }
     }
-    cmd.spawn().context("spawn acpmux daemon")?;
+    let mut child = tokio::process::Command::from(cmd).spawn().context("spawn acpmux daemon")?;
+    // A lock-race loser exits promptly. Reap it even when its CLI caller keeps
+    // running (stdio/TUI); dropping std::process::Child left a zombie per retry.
+    // This async wait never holds runtime teardown open or kills the winner.
+    tokio::spawn(async move {
+        let _ = child.wait().await;
+    });
     // Close this process's copy so end of file means the daemon closed it.
     drop(writer);
     if let (Some(key), Some((ours, theirs))) = (key, pair) {
@@ -1252,5 +1616,26 @@ pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
         Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
         _ if shared_home => SHARED,
         _ => ANY,
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod scope_tests {
+    use super::cgroup_is_in_sessions_scope;
+
+    #[test]
+    fn daemon_scope_escape_matches_only_an_exact_session_slice_component() {
+        assert!(cgroup_is_in_sessions_scope(
+            "0::/user.slice/user-1000.slice/user@1000.service/acpmuxsessions.slice/run-a.scope\n"
+        ));
+        assert!(!cgroup_is_in_sessions_scope(
+            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/run-a.scope\n"
+        ));
+        assert!(!cgroup_is_in_sessions_scope(
+            "0::/user.slice/acpmuxsessions.slice.backup/run-a.scope\n"
+        ));
+        assert!(cgroup_is_in_sessions_scope(
+            "1:name=systemd:/user.slice/acpmuxsessions.slice/run-a.scope\n"
+        ));
     }
 }

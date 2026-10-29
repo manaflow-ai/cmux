@@ -207,10 +207,25 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     // Insert Mention picked in the host: its @ lands in the prompt, the panel ends.
     const mention = String(items.findIndex((item) => item.label === "Insert Mention"));
     expect(mention).not.toBe("-1");
-    await page.evaluate(
-      (id) => window.dispatchEvent(new CustomEvent("cmux-popup", { detail: { type: "pick", id } })),
-      mention,
-    );
+    const modifiers = await page.evaluate((id) => {
+      const picks: boolean[][] = [];
+      document.addEventListener(
+        "click",
+        (event) => {
+          if ((event.target as Element).closest('[role="menuitem"]')?.textContent?.includes("Insert Mention"))
+            picks.push([event.altKey, event.ctrlKey, event.metaKey, event.shiftKey]);
+        },
+        { capture: true, once: true },
+      );
+      // Native selection must preserve Option (Fork's destination chooser) and other modifiers.
+      window.dispatchEvent(
+        new CustomEvent("cmux-popup", {
+          detail: { type: "pick", id, altKey: true, ctrlKey: true, metaKey: true, shiftKey: true },
+        }),
+      );
+      return picks;
+    }, mention);
+    expect(modifiers).toEqual([[true, true, true, true]]);
     await page.waitForSelector(".ui-context-menu", { state: "detached" });
     expect(await page.locator("[contenteditable='true']").innerText()).toContain("@");
     expect((await popupCalls(page)).some((call) => call.method === "popup.hide")).toBe(true);

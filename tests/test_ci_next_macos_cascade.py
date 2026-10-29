@@ -1567,5 +1567,71 @@ class SaturatedOwnedPool(unittest.TestCase):
                 self.assertEqual(self.side_outputs(busy, moving, **extra)["blacksmith_6_jobs"], "")
 
 
+class DeadEndRoute(unittest.TestCase):
+    """A job never stays on an owned route that is a longer queue than Blacksmith 6 vCPU's, or that one host
+    alone serves.
+
+    Leo (rulebook, routing order): "No job waits on one reserved machine: every reservation (a label one host
+    serves) has a fallback within minutes ... a CI test fails on a runs-on that can resolve to a single-host
+    label with no fallback." On 2026-10-29 cmux#26723's fast tier (run 40841809952, job 123340021719) queued on
+    glaeda-side-std-xcode-26.6 from 08:24Z behind 96 jobs, the oldest 443 minutes old, while
+    blacksmith-6vcpu-macos-26 ran 4 with its oldest queued 27 minutes: overflow() called that queue stalled and
+    kept the job on the longer one.
+    """
+
+    FULL = {LARGE: 5, SMALL: 4}
+    BUSY_SMALL = {LARGE: 42, SMALL: 36}
+    INCIDENT = cascade.Seen(waits={LARGE: 1223.0, SMALL: 27.0})
+
+    def test_the_incident_takes_6_vcpu_the_shorter_queue(self):
+        result = cascade.place(env(), (), self.FULL, self.BUSY_SMALL, self.INCIDENT, saturated=True,
+                               route_wait=443.0)
+        self.assertEqual(result.jobs, none_placed(**{SMALL: ("fast-tier", "swift-canary")}))
+        self.assertIn("the shorter queue", result.why)
+        # Before: the same reads with no dead end kept every job on the owned label.
+        self.assertEqual(cascade.place(env(), (), self.FULL, self.BUSY_SMALL, self.INCIDENT, saturated=True).jobs,
+                         none_placed())
+
+    def test_a_single_host_route_is_always_a_dead_end(self):
+        self.assertTrue(cascade.dead_end(float("inf"), self.FULL, self.BUSY_SMALL, self.INCIDENT))
+        result = cascade.place(env(CASCADE_RUNS=" fast-tier "), (), self.FULL, self.BUSY_SMALL, self.INCIDENT,
+                               saturated=True, route_wait=float("inf"))
+        self.assertEqual(result.jobs[SMALL], ("fast-tier",))
+        self.assertIn("one host serves it", result.why)
+
+    def test_a_moving_owned_queue_or_a_longer_6_vcpu_queue_keeps_the_owned_label(self):
+        cases = {
+            "the owned queue moves": (5.0, self.FULL, self.INCIDENT),
+            "6 vCPU waited longer": (20.0, self.FULL, cascade.Seen(waits={LARGE: 0.0, SMALL: 30.0})),
+            # No 6 vCPU runner in flight and a queue: a Blacksmith outage, not a shorter queue.
+            "6 vCPU starts nothing": (443.0, {LARGE: 0, SMALL: 0}, self.INCIDENT),
+            "unknown": (None, self.FULL, self.INCIDENT),
+        }
+        for name, (wait, live, seen) in cases.items():
+            with self.subTest(name):
+                self.assertFalse(cascade.dead_end(wait, live, self.BUSY_SMALL, seen))
+                result = cascade.place(env(), (), live, self.BUSY_SMALL, seen, saturated=True, route_wait=wait)
+                self.assertEqual(result.jobs, none_placed())
+        # Runners unread: nothing is known saturated, so nothing moves.
+        self.assertEqual(cascade.place(env(), (), self.FULL, self.BUSY_SMALL, self.INCIDENT,
+                                       route_wait=443.0).jobs, none_placed())
+
+    def test_a_dead_end_still_keeps_the_per_run_cap_and_freshness_work(self):
+        result = cascade.place(env(CASCADE_RUNS=" fast-tier swift-canary cmux-scheme-compile release-compile "),
+                               (), self.FULL, self.BUSY_SMALL, self.INCIDENT, saturated=True, route_wait=443.0)
+        self.assertEqual(len(result.jobs[SMALL]), cascade.MAX_PER_RUN)
+        held = cascade.Seen(waits={LARGE: 0.0, SMALL: 27.0}, reserved={SMALL: 9})
+        self.assertEqual(cascade.place(env(), (), self.FULL, self.BUSY_SMALL, held, saturated=True,
+                                       route_wait=443.0).jobs, none_placed())
+
+    def test_seen_reads_the_owned_labels_waits(self):
+        snap = snapshot(minutes_old=5)
+        snap["pools"]["glaeda-side-std-xcode-26.6"] = {"queued": 96, "running": 0, "oldest_queued_minutes": 438}
+        snap["pools"]["glaeda-gui-std-xcode-26.6"] = {"queued": 0, "running": 10, "oldest_queued_minutes": 0}
+        seen = cascade.seen(snap, NOW)
+        self.assertEqual(seen.owned, {"glaeda-side-std-xcode-26.6": 443.0})
+        self.assertEqual(seen.owned_queued, {"glaeda-side-std-xcode-26.6": 96})
+
+
 if __name__ == "__main__":
     unittest.main()

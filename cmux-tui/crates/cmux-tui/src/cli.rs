@@ -70,6 +70,8 @@ pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
     Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
 }
 #[cfg(unix)]
+mod machine_doctor;
+#[cfg(unix)]
 mod machine_join;
 #[cfg(unix)]
 pub(crate) use machine_join::{
@@ -132,6 +134,8 @@ const PUBLIC_SCOPES: &[&str] = &[
     "pairing",
     "projection",
     "provider",
+    "settings",
+    "config",
     "raw",
 ];
 
@@ -427,6 +431,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
+        .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -520,6 +525,12 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
     if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
         return extra_help::print(&command_args);
     }
+    // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
+    // local-only helpers (`list`, `schema`, `validate`) until those have daemon
+    // equivalents on this surface.
+    if daemon_settings_scope(&command_args) {
+        return None;
+    }
     match app::parse(&command_args) {
         Ok(Some(_)) if global.all_sessions => Some(app::failure(
             "usage.invalid",
@@ -539,6 +550,33 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
             global.output,
             2,
         )),
+    }
+}
+
+#[cfg(unix)]
+fn daemon_settings_scope(command_args: &[String]) -> bool {
+    // Help belongs to the app's documented settings scope even when it is
+    // attached to a daemon-owned CRUD verb.
+    if has_help_option(command_args) || command_args.first().is_some_and(|word| word == "help") {
+        return false;
+    }
+    if !matches!(command_args.first().map(String::as_str), Some("settings" | "config")) {
+        return false;
+    }
+    match command_args.get(1).map(String::as_str) {
+        // `get` without a path is the legacy app snapshot; keep it until the
+        // daemon gains an equivalent empty-target read.
+        Some("get") if command_args.len() == 2 => false,
+        // Person-only settings still need the app's native confirmation
+        // sheet. The daemon CLI deliberately has no fake approval path. Only
+        // options before `--` are flags; after it, every argument is literal.
+        Some("set" | "reset" | "unset")
+            if command_args.iter().take_while(|arg| *arg != "--").any(|arg| arg == "--confirm") =>
+        {
+            false
+        }
+        Some("get" | "set" | "reset" | "unset") => true,
+        _ => false,
     }
 }
 
