@@ -29,9 +29,13 @@ public struct ProcessRunner {
         stdin: Data? = nil,
         timeout: Duration?,
         progressIdle: Duration? = nil,
+        // Opt-in diagnostic/reply retention, independent of the child's upload/file size. Both
+        // streams are bounded; nil preserves the complete-output contract for existing callers.
+        outputTailBytes: Int? = nil,
         clock: any Clock<Duration>
     ) async throws -> ProcessResult {
         guard timeout != nil || progressIdle != nil else { throw DaemonError.launchFailed("process requires an elapsed or idle deadline") }
+        if let outputTailBytes, outputTailBytes <= 0 { throw DaemonError.launchFailed("output tail must be positive") }
         let stdoutFile = try TempOutput()
         let stderrFile = try TempOutput()
         let process = Process()
@@ -102,7 +106,7 @@ public struct ProcessRunner {
         } onCancel: {
             box.kill()
         }
-        return ProcessResult(status: status, stdout: stdoutFile.contents(), stderr: stderrFile.contents())
+        return ProcessResult(status: status, stdout: stdoutFile.contents(tailBytes: outputTailBytes), stderr: stderrFile.contents(tailBytes: outputTailBytes))
     }
 
     /// The production watchdog, shared with deterministic clock/progress regressions. Returning

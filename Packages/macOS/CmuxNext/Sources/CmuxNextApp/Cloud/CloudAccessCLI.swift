@@ -58,6 +58,9 @@ nonisolated struct CloudAccessCLI: Sendable {
 
     let binary: URL
     var timeout: Duration = .seconds(120)
+    /// Upload replies contain paths/errors, never file bytes. Retain enough for the legacy
+    /// multi-file reply as well as diagnostics, without reading all of a long transfer's heartbeats.
+    static let uploadOutputTailBytes = 4 * 1024 * 1024
 
     /// `triage`: answers what needs no person and lists the rest, for the chats `sessions` only.
     func triage(socket: String, machine: String, sessions: [String]) async throws -> Answer {
@@ -84,13 +87,13 @@ nonisolated struct CloudAccessCLI: Sendable {
         // The staged path owns one transfer. Keep the older multi-file call's existing contract.
         guard files.count == 1 else {
             return try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot] + files,
-                                 progressIdle: .seconds(30))
+                                 progressIdle: .seconds(30), outputTailBytes: Self.uploadOutputTailBytes)
         }
         let id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
         let answer: Answer
         do {
             answer = try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id] + files,
-                                   progressIdle: .seconds(30))
+                                   progressIdle: .seconds(30), outputTailBytes: Self.uploadOutputTailBytes)
         } catch {
             try await cleanupUpload(socket: socket, remoteRoot: remoteRoot, id: id)
             throw error
@@ -106,7 +109,7 @@ nonisolated struct CloudAccessCLI: Sendable {
     /// caller's task so the remote partial file and its unique directory are removed before cancel answers.
     private func cleanupUpload(socket: String, remoteRoot: String, id: String) async throws {
         let cleanup = Task.detached(priority: .userInitiated) {
-            try await run(["link", "access", "upload-cancel", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id])
+            try await run(["link", "access", "upload-cancel", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id], outputTailBytes: Self.uploadOutputTailBytes)
         }
         let answer = try await cleanup.value
         guard answer.ok else { throw CancellationError() }
@@ -122,9 +125,9 @@ nonisolated struct CloudAccessCLI: Sendable {
         try await run(["link", "access", "revoke", "--machine", machine, "--session", session] + (socket.map { ["--socket", $0] } ?? []) + ["--all"])
     }
 
-    private func run(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil, progressIdle: Duration? = nil) async throws -> Answer {
+    private func run(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil, progressIdle: Duration? = nil, outputTailBytes: Int? = nil) async throws -> Answer {
         let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
-                                                 timeout: progressIdle == nil ? (timeout ?? self.timeout) : timeout, progressIdle: progressIdle, clock: ContinuousClock())
+                                                 timeout: progressIdle == nil ? (timeout ?? self.timeout) : timeout, progressIdle: progressIdle, outputTailBytes: outputTailBytes, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
