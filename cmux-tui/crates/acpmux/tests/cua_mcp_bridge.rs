@@ -59,6 +59,7 @@ fn stand_in(dir: &Path, mode: u32) -> std::sync::mpsc::Receiver<String> {
     .unwrap();
     std::fs::set_permissions(&endpoint, std::fs::Permissions::from_mode(mode)).unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
+    let consent_home = dir.to_owned();
     std::thread::spawn(move || {
         let Ok((stream, _)) = listener.accept() else { return };
         let mut writer = stream.try_clone().unwrap();
@@ -68,6 +69,22 @@ fn stand_in(dir: &Path, mode: u32) -> std::sync::mpsc::Receiver<String> {
         writeln!(writer, "{}", json!({"ok": true, "protocol": 1})).unwrap();
         while let Some(Ok(line)) = lines.next() {
             let request: Value = serde_json::from_str(&line).unwrap();
+            if request["method"] == "machine/consent" {
+                let required = consent_home.join("machine-credential.json").exists()
+                    || consent_home.join("consent.json").exists();
+                let consent = std::fs::read(consent_home.join("consent.json"))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                    .unwrap_or(json!({"screen":"none", "control":"none"}));
+                writeln!(
+                    writer,
+                    "{}",
+                    json!({"id":request["id"], "ok":true,
+                    "result":{"consentRequired":required,"consent":consent}})
+                )
+                .unwrap();
+                continue;
+            }
             let _ = tx.send(line);
             let reply = json!({"id": request["id"], "ok": true,
                 "result": [{"name": "stand_in_tool", "inputSchema": {"type": "object"}}]});
@@ -143,7 +160,7 @@ fn an_open_bridge_rechecks_independent_screen_consent_on_every_call() {
     let mut child = daemon_env::acpmux(&dir.0)
         .arg("cua-mcp")
         .env("CMUX_NEXT_CUA_V2_DIR", &dir.0)
-        .env("ACPMUX_HOME", &dir.0)
+        .env("ACPMUX_HOME", dir.0.join("empty-agent-controlled-home"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -235,7 +252,14 @@ async fn in_memory_target_scope_cannot_come_from_the_bridge_or_arguments() {
         server.get_mut().write_all(b"{\"ok\":true,\"protocol\":1}\n").await.unwrap();
         line.clear();
         server.read_line(&mut line).await.unwrap();
-        let request: Value = serde_json::from_str(&line).unwrap();
+        let mut request: Value = serde_json::from_str(&line).unwrap();
+        if request["method"] == "machine/consent" {
+            let reply = json!({"id":request["id"],"ok":true,"result":{"consentRequired":false,"consent":{"screen":"none","control":"none"}}});
+            server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+            line.clear();
+            server.read_line(&mut line).await.unwrap();
+            request = serde_json::from_str(&line).unwrap();
+        }
         let reply = json!({"id": request["id"], "ok": true, "result": {"accepted": true}});
         server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
         request
@@ -248,6 +272,6 @@ async fn in_memory_target_scope_cannot_come_from_the_bridge_or_arguments() {
     let request = peer.await.unwrap();
     assert_eq!(
         request,
-        json!({"id": 1, "method": "tools/call", "name": "click", "arguments": arguments})
+        json!({"id": request["id"], "method": "tools/call", "name": "click", "arguments": arguments})
     );
 }
