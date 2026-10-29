@@ -1,3 +1,4 @@
+import { authText, canSessionLogin, type SessionAuth } from "./sessionAuth";
 import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
@@ -41,6 +42,8 @@ export type QuickMenu = {
   };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
+  /// Auth for the selected session/route only, as acpmux last verified it.
+  auth?: { verdict: SessionAuth; onLogin?(): void; onRefresh?(): void };
   /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
   /// none; the model button owns it for every harness.
   fast?: { checked: boolean; onChange(on: boolean): void };
@@ -136,7 +139,7 @@ const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | 
   !!model.offers?.some((offer) => offer.id === current);
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
-export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast" | "searchField" | "providers">;
+export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "auth" | "fast" | "searchField" | "providers">;
 
 /// The compact model menu keeps numbered rows, Effort and Account flyouts, and Fast mode.
 /// Its search field filters models in place using the full picker's matching.
@@ -169,7 +172,7 @@ export function QuickModelMenu({
   // of the chip. This is only a side decision: the surface still fits its visible content.
   const { open: sideOpen, setOpen: setSideOpen, side } = useOpenSide(trigger, newTab ? "bottom" : "top", 320);
   if (sideOpen !== open) setSideOpen(open);
-  const { models, current, effort, account, fast } = menu;
+  const { models, current, effort, account, auth, fast } = menu;
   const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
   const level = levels.find((choice) => choice.id === effort?.current);
   const accounts = useAccountList(open, account);
@@ -618,6 +621,24 @@ export function QuickModelMenu({
           <span className="acpmux-menu-label">{t("picker.moreModels")}</span>
           <span className="ui-submenu-chevron" aria-hidden="true" />
         </MenuItem>
+      )}
+      {!query && auth && authText(auth.verdict, t) && (
+        <>
+          <MenuSeparator />
+          <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+            <span className="acpmux-menu-label">{authText(auth.verdict, t)}</span>
+          </MenuItem>
+          {canSessionLogin(auth.verdict) && auth.onLogin && (
+            <MenuItem className="acpmux-quick-item" onSelect={() => auth.onLogin?.()}>
+              <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+            </MenuItem>
+          )}
+          {auth.onRefresh && (
+            <MenuItem className="acpmux-quick-item" onSelect={() => auth.onRefresh?.()}>
+              <span className="acpmux-menu-label">{t("harnesses.checkAgain")}</span>
+            </MenuItem>
+          )}
+        </>
       )}
       {!query && onChatTab && account && (
         <Submenu

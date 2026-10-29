@@ -121,6 +121,9 @@ async function openComposer(sent: Sent[] = [], onEdit?: (command: ComposerEditCo
         onNewChat={() => {}}
         upload={async (files) => ({ paths: files.map((file) => `/tmp/composer-test/${file.name}`) })}
         {...(onEdit ? { onEdit } : {})}
+        // A pasted file goes to the chat's host and its chip is the saved path (#24652): the
+        // session gets the file by path, never its contents inline.
+        upload={async (files) => ({ paths: files.map((file) => `/session/uploads/${file.name}`) })}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
         handle={handle}

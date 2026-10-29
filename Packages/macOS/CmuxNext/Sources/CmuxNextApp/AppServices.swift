@@ -22,6 +22,7 @@ import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPalette
+import CmuxNextAccounts
 import CmuxNextPages
 import CmuxNextPopups
 import CmuxNextBrowserImport
@@ -728,5 +729,27 @@ final class AppServices {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
         return nil
+    }
+}
+
+// Composition of the paid-plan path (plans/cmux-next/paid-plans-DESIGN.md §2); the logic is in CmuxNextAccounts/Billing.
+extension AppServices {
+    /// The upgrade path every paywall takes: cmux.com Checkout as the signed-in account, returning to this build.
+    func paidPlanUpgrade() -> PaidPlanUpgrade {
+        let client = cloud.isSignedIn ? accounts.client : nil
+        return PaidPlanUpgrade(checkout: client.map(PaidPlanUpgrade.cmuxComCheckout), open: { LinkRouter.shared.open($0) },
+                               scheme: cloud.configuration.callbackScheme, onboarding: PaidPlanOnboarding(defaults: .standard), pricing: StaticURL.pricing.url)
+    }
+
+    /// The welcome card for a plan the Cloud list read (shown once, after an upgrade).
+    func paidPlanObserved(_ planID: String?) {
+        PaidPlanWelcome(onboarding: PaidPlanOnboarding(defaults: .standard), account: { [weak self] in self?.cloud.auth.user?.id },
+                        ask: { [weak self] in await self?.machineAsks.ask($0, detail: $1, symbol: "sparkles", yes: $2, no: $3) ?? false },
+                        startCloudWorkspace: { [weak self] in _ = self?.registry.perform("newCloudWorkspace") }).planObserved(planID)
+    }
+
+    /// Back in the app while an upgrade waits for its payment: read the plan again (AppDelegate's activation loop).
+    func paidPlanReturned() async {
+        if PaidPlanOnboarding(defaults: .standard).hasPending { await cloud.refresh() }
     }
 }

@@ -608,5 +608,20 @@ class StopTests(unittest.TestCase):
         self.assertIsNone(theirs.poll(), "another slot's app was ended")
 
 
+class CheckedInToursTests(unittest.TestCase):
+    """Every tour under scripts/cmux-next/media/tours loads: one bad file (a step key tour.py does not
+    know, as #26274's "record" was) stops every pull request's tour before it starts, since the
+    runner checks them all."""
+
+    def test_every_checked_in_tour_loads(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        tours = sorted((SCRIPT.parent / "tours").glob("*.json"))
+        self.assertTrue(tours)
+        for path in tours:
+            with self.subTest(tour=path.name):
+                tour.load_tour(path)
+
+
 if __name__ == "__main__":
     unittest.main()

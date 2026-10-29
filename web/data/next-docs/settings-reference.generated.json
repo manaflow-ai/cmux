@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 515,
+  "count": 517,
   "sections": [
     {
       "id": "general",
@@ -5647,6 +5647,22 @@
           "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
           "kind": "toggle",
           "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.voiceRoom",
+          "title": "Voice Room",
+          "help": "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.voiceRoomURL",
+          "title": "Voice Room Address",
+          "help": "The room's web address. Empty uses the room server on this Mac.",
+          "kind": "text",
+          "default": "",
           "group": "Labs"
         }
       ]

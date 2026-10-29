@@ -12,6 +12,8 @@ mod agent_pairs;
 pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
+mod bg_tasks;
+mod bounded;
 mod btw;
 mod exit_reason;
 pub(crate) mod session_auth;
@@ -31,13 +33,14 @@ pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
 mod fork_at;
+mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
 mod handoff;
 mod harness_view;
 mod harness_watch;
 mod health_view;
-mod idle;
+pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
 mod launch_roots;
@@ -86,6 +89,7 @@ pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
 mod git_watch;
+mod github_owner;
 mod lane_reports;
 mod offer_results;
 mod offers;
@@ -215,9 +219,10 @@ use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, oneshot};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// How long a session's harness may sit unused (no client, no turn, no
-/// activity) before it exits; the session resumes on its next prompt.
-pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+/// How long a session's harness may sit unused (no turn, nothing queued, no
+/// question waiting, no activity) before it hibernates: it exits and the
+/// session resumes on its next prompt (`idle.rs`).
+pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(2 * 60);
 /// Git hash and date stamped at build time (see build.rs).
 pub const BUILD: &str = env!("ACPMUX_BUILD");
 
@@ -394,6 +399,11 @@ pub struct Hub {
     /// started (`peer_lease.rs`); never saved. Lock order: this, then
     /// `peers`; never `peers` first.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
+    /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
+    pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
+    /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
+    pub(super) github_owners: github_owner::Owners,
     /// Each peer session's events as this daemon saw them, kept on disk
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
@@ -451,6 +461,10 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// The background-task runner's binary and spool segment a test set (`bg_tasks.rs`).
+    pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
+    /// Background-task starts, one at a time (`bg_tasks.rs`).
+    pub(super) bg_starts: tokio::sync::Mutex<()>,
     /// The harnesses the model probes may start (`ACPMUX_PROBE_HARNESSES`);
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
@@ -601,6 +615,8 @@ impl Hub {
             remote_sessions: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
+            peer_config_gen: std::sync::atomic::AtomicU64::new(0),
+            github_owners: Default::default(),
             peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
@@ -625,6 +641,8 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            bg_runner: StdMutex::new(None),
+            bg_starts: tokio::sync::Mutex::new(()),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
@@ -873,6 +891,8 @@ impl Hub {
     }
 
     pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
+        // Hibernated before a restart: marked again, so it wakes on a click and draws no row.
+        let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
@@ -944,6 +964,9 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
+            hibernated_at: AtomicU64::new(hibernated_at),
+            wake_cause: StdMutex::new(None),
+            agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
