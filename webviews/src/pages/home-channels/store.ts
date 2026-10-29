@@ -1065,16 +1065,26 @@ export class HomeChannelsStore {
           ? ((await this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns }).catch(() => ({ runs: [], hasMore: false }))).runs)
           : [];
       const messageIds = new Set(messages.map((message) => message.id));
-      const answerRuns =
-        messages.length > 0
-          ? ((await this.client.call<HomeRunList>(HomeOps.runs, {
-              conversation,
-              answers: [...messageIds].slice(0, 200),
-            }).catch(() => ({ runs: [], hasMore: false }))).runs)
-          : [];
+      const answerRuns: HomeRun[] = [];
+      const answerIds = [...messageIds];
+      for (let offset = 0; offset < answerIds.length; offset += 200) {
+        const page = await this.client.call<HomeRunList>(HomeOps.runs, {
+          conversation,
+          answers: answerIds.slice(offset, offset + 200),
+        }).catch(() => ({ runs: [], hasMore: false }));
+        answerRuns.push(...page.runs);
+      }
       const directRuns = [...direct, ...answerRuns];
       this.runs.setRuns(directRuns);
       for (const run of directRuns) await this.loadRunSteps(run);
+      const unresolvedReplies = new Set(
+        messages
+          .filter((message) => message.clientMessageId && agents.has(message.author))
+          .map((message) => `${message.author}\0${message.clientMessageId}`),
+      );
+      for (const run of directRuns) {
+        if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
+      }
       // `turns` only finds runs that posted a reply. Silent turns (including a tell/report turn)
       // are selected by their `answers` message id, so walk the owner's run-history cursor until
       // the oldest message in this window is covered and every loaded reply has a run. Cloud's
@@ -1086,6 +1096,7 @@ export class HomeChannelsStore {
       const history: HomeRun[] = [];
       let beforeStartedAt: number | undefined;
       let page = 0;
+      const maxHistoryPages = 20;
       for (;;) {
         const params: Record<string, unknown> = { conversation, limit: newest && page === 0 ? 20 : 50 };
         page += 1;
@@ -1099,6 +1110,9 @@ export class HomeChannelsStore {
         if (generation !== this.generation || life !== this.life) return;
         history.push(...list.runs);
         this.runs.setRuns(list.runs);
+        for (const run of list.runs) {
+          if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
+        }
         const oldestRun = list.runs.reduce<number | undefined>(
           (oldest, run) => (oldest === undefined ? run.startedAt : Math.min(oldest, run.startedAt)),
           undefined,
@@ -1106,7 +1120,8 @@ export class HomeChannelsStore {
         if (
           !list.hasMore ||
           oldestRun === undefined ||
-          (oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)
+          (unresolvedReplies.size === 0 && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt) ||
+          page >= maxHistoryPages
         )
           break;
         // The protocol uses a strict less-than cursor; guard malformed owners that do not move it.
