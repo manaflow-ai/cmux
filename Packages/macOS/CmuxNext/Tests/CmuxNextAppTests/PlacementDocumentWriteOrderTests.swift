@@ -153,10 +153,14 @@ struct PlacementDocumentWriteOrderTests {
             document.show(live: Self.live)
             controller.sidebar.sameTurn.syncNow(rows: true)
             try #require(controller.sidebar.model.docDrag != nil)
+            try #require(!controller.sidebar.model.ungroupedFirst,
+                         "the active document owns mixed order even without the legacy mixed-order capability")
             try #require(controller.sidebar.model.selectableWorkspaces.map(\.id.rawValue) == Self.original)
             try #require(clientMirror.rows(SidebarViewRequest(live: Self.live))?.compactMap(\.ref?.workspaceID) == Self.original)
             try #require(SidebarDocStore.current === document)
             windows.applyPendingPlacements(live: Set(Self.expected))
+            #expect(!controller.sidebar.model.ungroupedFirst,
+                    "document placement resync must not enable legacy ungrouped-first drop targeting")
             #expect(clientMirror.rows(SidebarViewRequest(live: Self.live))?.compactMap(\.ref?.workspaceID) == Self.expected,
                     "all three placements must not anchor after k1 while the model observation is deferred")
             #expect(remote.calls.isEmpty, "no remote reply can explain the optimistic result")
