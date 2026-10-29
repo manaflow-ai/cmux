@@ -485,8 +485,12 @@ public final class HomeNativeTranscriptView: NSView {
         let welcome = showsWelcome
         firstRun.isHidden = holdsFirstRun || !((transcript.isEmpty || welcome) && transcript.conversationSummary?.kind(me: me) == .chief)
         applyHero()
-        // The welcome's row moves the panel's bottom (`layout`).
-        if welcome { needsLayout = true }
+        // The welcome's row moves the panel's bottom (`layout`); it stands in for the intro too, which
+        // an empty cached conversation can have shown before the welcome arrived.
+        if welcome {
+            firstRun.setIntro(nil)
+            needsLayout = true
+        }
     }
 
     /// The typing hold gives back what it holds while the views are still in the old window.
