@@ -8,7 +8,7 @@ nonisolated enum AgentPaneAttachmentFiles {
     typealias Attachment = AgentPaneWakeState.Attachment
 
     /// Which of a chip's fields a file holds: its base64 bytes (`data`) or its text (`text`).
-    nonisolated enum Contents {
+    nonisolated enum Contents: Equatable {
         /// An image's, a PDF's or a recording's bytes, base64 in the chip.
         case bytes
         /// A text file's contents or a pasted chip's text.
