@@ -42,7 +42,8 @@ fn tools() -> Value {
                 "properties": {
                     "to": {"type": "string", "description": "The session: its name, id, or host/name for a session on a peer (as ls lists them)."},
                     "text": {"type": "string", "description": "The message, self-contained."},
-                    "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."}
+                    "steer": {"type": "boolean", "description": "true (default): into a running turn at its next tool step. false: queued behind the running turn."},
+                    "class": {"type": "string", "enum": ["block", "question", "result", "fyi"], "description": "What the message asks of the receiver: block (you cannot go on until it acts), question (you wait for its answer), result (work you finished; the default) or fyi. A coordinator is woken by blocks and questions only; results and FYIs wait for its next turn's inbox digest."}
                 },
                 "required": ["to", "text"]
             }
@@ -246,11 +247,16 @@ async fn send(daemon: &Arc<Client>, args: &Value) -> Value {
         return error_result("text is empty".to_owned());
     }
     let steer = args.get("steer").and_then(Value::as_bool).unwrap_or(true);
+    let class = match send_class(args) {
+        Ok(class) => class,
+        Err(e) => return error_result(e),
+    };
     let key = match crate::cli::orchestrate::expand_session_key(to) {
         Ok(key) => key,
         Err(e) => return refusal(e),
     };
-    let prompt = PromptId::new(None);
+    let mut prompt = PromptId::new(None);
+    prompt.class = class;
     let request = prompt.params(&key, text, steer, None);
     let queued = match daemon.request(method::MUX_SEND_QUEUE, json!({"request": request})).await {
         Ok(queued) => queued,
@@ -293,6 +299,18 @@ delivering it, retrying while the target is slow or its peer is down. Do not sen
     };
     structured["delivery"] = json!(how_id);
     ok(format!("Sent to {to}: {how} (promptId {prompt_id})."), structured)
+}
+
+/// `send`'s `class` (`prompt_class.rs`), checked here too, so a wrong one is this call's error and
+/// not a failed delivery.
+fn send_class(args: &Value) -> Result<Option<String>, String> {
+    match args.get("class") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(c)) if crate::prompt_class::PromptClass::parse(c).is_some() => {
+            Ok(Some(c.clone()))
+        }
+        Some(_) => Err(format!("class must be one of {}", crate::prompt_class::VALUES)),
+    }
 }
 
 /// `ls`: `acpmux ls` as one line per session.
