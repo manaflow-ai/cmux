@@ -318,6 +318,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: ./tests/test_reload_release_configuration.sh
 
+      - name: Validate reload signs ad hoc unless CMUX_DEV_SIGN_IDENTITY names a present identity
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: ./tests/test_reload_dev_sign_identity.sh
+
       - name: Validate docs deployment authentication guard
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
@@ -1741,6 +1745,7 @@ jobs:
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
           python3 tests/test_nightly_signer_jobs.py
+          python3 tests/test_signer_parity_compare.py
 
       - name: Validate the release app signer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

@@ -286,6 +286,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
+    /// `chat.computerUsePreview {action}`: a click on the live preview card (``AgentPaneComputerUsePreview``).
+    case computerUsePreview(AgentPaneComputerUsePreview.Action)
     /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
     case upload([AgentPaneUpload])
     case uploadStage(AgentPaneUploadStageRequest)
