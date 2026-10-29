@@ -194,14 +194,15 @@ fn read_sources(auth: &JoinAuth, notes: &mut Vec<String>) -> Sources {
     };
     // The team's joined machines, when a cmux credential is set (cmux machine add).
     #[cfg(unix)]
-    let joined = match crate::cli::joined_machine_rows(auth.platform.as_deref(), auth.credential.clone()) {
-        Some(Ok(rows)) => Value::Array(rows),
-        Some(Err(e)) => {
-            notes.push(format!("joined machines: {e}"));
-            Value::Null
-        }
-        None => Value::Null,
-    };
+    let joined =
+        match crate::cli::joined_machine_rows(auth.platform.as_deref(), auth.credential.clone()) {
+            Some(Ok(rows)) => Value::Array(rows),
+            Some(Err(e)) => {
+                notes.push(format!("joined machines: {e}"));
+                Value::Null
+            }
+            None => Value::Null,
+        };
     #[cfg(not(unix))]
     let joined = {
         let _ = auth;
@@ -263,7 +264,11 @@ fn current(flags: &Flags, auth: &JoinAuth, notes: &mut Vec<String>) -> anyhow::R
 }
 
 fn list(args: &[String]) -> anyhow::Result<()> {
-    let flags = Flags::parse(args, &["network", JOIN_VALUES[0], JOIN_VALUES[1]], &["json", "cloud-token-stdin"])?;
+    let flags = Flags::parse(
+        args,
+        &["network", JOIN_VALUES[0], JOIN_VALUES[1]],
+        &["json", "cloud-token-stdin"],
+    )?;
     let auth = JoinAuth::read(&flags)?;
     let mut notes = Vec::new();
     let listing = current(&flags, &auth, &mut notes)?;
@@ -527,7 +532,8 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
         let mut args: Vec<&str> = step.args.iter().map(String::as_str).collect();
         // A joined machine's revoke signs in as this remove did: the credential on its
         // stdin, never in its argv or environment.
-        let credential = if args.first() == Some(&"machine") { auth.credential.as_deref() } else { None };
+        let credential =
+            if args.first() == Some(&"machine") { auth.credential.as_deref() } else { None };
         if args.first() == Some(&"machine")
             && let Some(platform) = auth.platform.as_deref()
         {

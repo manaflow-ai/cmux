@@ -679,24 +679,35 @@ fn the_platforms_row_shape_reads_with_mesh_identity_and_a_null_label() {
     assert_eq!(machine.state(now_ms()), "offline");
     assert_eq!(entries(json!({"machines": [row]})).map(|rows| rows.len()), Some(1));
     // Its unavailable store answers 503 machine.join.unavailable: joining is off there too.
-    let failure = CallError::Status { status: 503, code: known_code(Some("machine.join.unavailable")) }
-        .failure("the join token");
+    let failure =
+        CallError::Status { status: 503, code: known_code(Some("machine.join.unavailable")) }
+            .failure("the join token");
     assert_eq!(failure.message, "joining isn't available on this server yet (it answered 503)");
 }
 
 #[test]
 fn machine_lists_platform_flags_are_taken_out_before_the_daemon_reads_them() {
     let (auth, kept) = split_auth(&strings(&[
-        "machine", "list", "--json", "--cloud-token-file", "/t", "--platform=https://p.example", "--catalog",
+        "machine",
+        "list",
+        "--json",
+        "--cloud-token-file",
+        "/t",
+        "--platform=https://p.example",
+        "--catalog",
     ]));
     assert_eq!(kept, strings(&["machine", "list", "--json", "--catalog"]));
     assert_eq!(auth.token_file, Some(PathBuf::from("/t")));
     assert_eq!(auth.platform.as_deref(), Some("https://p.example"));
-    let (auth, kept) = split_auth(&strings(&["machine", "list", "--cloud-token-stdin", "--", "--platform", "x"]));
+    let (auth, kept) =
+        split_auth(&strings(&["machine", "list", "--cloud-token-stdin", "--", "--platform", "x"]));
     assert!(auth.token_stdin);
     assert_eq!(kept, strings(&["machine", "list", "--", "--platform", "x"]));
     assert!(take_list_auth(&strings(&["machine", "list", "--json"])).is_none(), "nothing to take");
-    assert!(take_list_auth(&strings(&["workspace", "list", "--platform", "x"])).is_none(), "not machine list");
+    assert!(
+        take_list_auth(&strings(&["workspace", "list", "--platform", "x"])).is_none(),
+        "not machine list"
+    );
 }
 
 #[test]
@@ -712,7 +723,14 @@ fn a_list_read_still_running_at_expiry_ends_the_wait_at_expiry() {
     });
     let (origin, _requests) = fake(hang);
     let started = std::time::Instant::now();
-    let ran = run_with(&["machine", "add", "--wait"], &origin, OutputMode::JsonLines, false, true, never());
+    let ran = run_with(
+        &["machine", "add", "--wait"],
+        &origin,
+        OutputMode::JsonLines,
+        false,
+        true,
+        never(),
+    );
     assert_eq!(ran.code, Ok(3));
     assert!(started.elapsed() < Duration::from_secs(3), "{:?}", started.elapsed());
 }
