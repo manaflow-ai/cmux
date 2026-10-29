@@ -7,6 +7,7 @@ extension NativePopupContent {
 
     func invalidatePresentation() {
         isPresentationActive = false
+        presentationIdentity += 1
         pendingCompositionModel = nil
         for field in fields.values { field.delegate = nil; _ = field.abortEditing() }
     }

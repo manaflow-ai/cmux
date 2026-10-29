@@ -89,6 +89,7 @@ public final class WebPopupHost {
     private var model: Model?
     private var declarationHost: DeclarativePopupHost?
     private var presentationGeneration = 0
+    private var declarationShowDepth = 0
 
     public init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void) {
         self.webView = webView
@@ -107,6 +108,8 @@ public final class WebPopupHost {
         presentationGeneration += 1
         let generation = presentationGeneration
         if let declaration = model.declaration {
+            declarationShowDepth += 1
+            defer { declarationShowDepth -= 1 }
             guard let webView else { return ["shown": false] }
             let replacing = self.model != nil
             self.model = nil
@@ -120,7 +123,7 @@ public final class WebPopupHost {
             return host.show(declaration)
         }
         // An old overflow effect cannot displace an active declarative native popup.
-        guard declarationHost?.activeID == nil else { return ["shown": false] }
+        guard declarationShowDepth == 0, declarationHost?.activeID == nil else { return ["shown": false] }
         guard let webView, let window = webView.window, window.isVisible else { return ["shown": false] }
         self.model = model
         let popup = self.popup ?? makePopup()
@@ -184,16 +187,16 @@ public final class WebPopupHost {
 
     private func picked(_ id: String) {
         guard model?.items.contains(where: { $0.id == id && !$0.disabled && !$0.separator }) == true else { return }
-        send(["type": "pick", "id": id])
         hide()
+        send(["type": "pick", "id": id])
     }
 
     /// Ends the menu from this side (its tab hid or closed): the page closes its own as well.
     public func dismiss() {
         declarationHost?.dismiss(reason: "owner-hidden")
         guard model != nil else { return }
-        send(["type": "dismiss"])
         hide()
+        send(["type": "dismiss"])
     }
 
     /// Wire hide is owner-bound; a stale page effect cannot hide a newer popup.

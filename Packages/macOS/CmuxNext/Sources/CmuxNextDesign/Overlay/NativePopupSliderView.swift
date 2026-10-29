@@ -13,6 +13,7 @@ final class NativePopupSliderView: NSView {
     private var lastEmittedValue: String?
     var change: (String) -> Void = { _ in }
     var commit: () -> Void = {}
+    var prepareCommit: (() -> (() -> Void)?)?
     var escape: () -> Void = {}
     var preferredHeight: CGFloat { descriptor.recommendedLabel == nil ? 84 : 104 }
     override var isFlipped: Bool { true }
@@ -53,8 +54,9 @@ final class NativePopupSliderView: NSView {
         slider.action = #selector(valueChanged(_:))
         slider.commitValue = { [weak self] close in
             guard let self, slider.isEnabled else { return }
+            let finish = close ? (prepareCommit.map { $0() } ?? commit) : nil
             publishValue()
-            if close { commit() }
+            finish?()
         }
         slider.escape = { [weak self] in self?.escape() }
         addSubview(slider)

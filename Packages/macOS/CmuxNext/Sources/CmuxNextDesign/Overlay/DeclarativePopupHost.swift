@@ -190,9 +190,8 @@ final class DeclarativePopupHost {
         // operation. Only the root may dismiss the consumer's React popup state.
         if parent != nil { hide(); return }
         let event = NativePopupEvent(type: .dismiss, popupId: model.id, revision: model.revision, reason: reason)
-        deliver(event)
-        guard self.model?.id == model.id, self.model?.revision == model.revision else { return }
         hide()
+        deliver(event)
     }
 
     private func event(_ type: NativePopupEventType, id: String?, value: String?, reason: String? = nil) {

@@ -10,6 +10,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     var commit: () -> Void = {}
     var model: NativePopupModel?
     var isPresentationActive = true
+    var presentationIdentity = 0
     var rowViews: [(NativePopupRow, NSView)] = []
     var targets: [NativePopupControlTarget] = []
     var fields: [String: NSTextField] = [:]
@@ -33,6 +34,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
 
     func beginPresentation() {
         isPresentationActive = true
+        presentationIdentity += 1
         model = nil; selected = nil; selectionReason = "none"
         searchHasInput = false; pendingCompositionModel = nil
         typeahead = ""; typeaheadTime = 0
@@ -173,7 +175,14 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             let view = NativePopupSliderView(row: row, descriptor: descriptor)
             let owns = { [weak self, weak view] in self?.owns(view) == true }
             view.change = { [weak self] value in if owns() { self?.emit(.change, row.id, value) } }
-            view.commit = { [weak self] in if owns() { self?.commit() } }
+            view.prepareCommit = { [weak self] in
+                guard let self, owns() else { return nil }
+                let identity = presentationIdentity
+                return { [weak self] in
+                    guard let self, isPresentationActive, presentationIdentity == identity else { return }
+                    commit()
+                }
+            }
             view.escape = { [weak self] in if owns() { self?.dismiss() } }
             view.slider.navigate = { [weak self] key in owns() ? (self?.navigateFromSlider(row.id, key: key) ?? false) : false }
             editableControls[row.id] = view.slider
