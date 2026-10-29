@@ -42,16 +42,13 @@ await requireBrowserLane("home-inbox-detail-browser.test.ts", async () => {
           const tooltipTexts: (string | null)[] = [];
           for (let index = 0; index < (await details.count()); index++) {
             await details.nth(index).hover();
-            await page.waitForFunction(
-              (index) => {
-                const detail = document.querySelectorAll(".acpmux-home-inbox-detail")[index]!;
-                const target = detail.closest("[title], [data-tooltip]");
-                const expected = target?.getAttribute("data-tooltip") ?? target?.getAttribute("title");
-                const tip = document.querySelector<HTMLElement>(".ui-title-tooltip");
-                return tip && !tip.hidden && tip.textContent === expected;
-              },
-              index,
-            );
+            await page.waitForFunction((index) => {
+              const detail = document.querySelectorAll(".acpmux-home-inbox-detail")[index]!;
+              const target = detail.closest("[title], [data-tooltip]");
+              const expected = target?.getAttribute("data-tooltip") ?? target?.getAttribute("title");
+              const tip = document.querySelector<HTMLElement>(".ui-title-tooltip");
+              return tip && !tip.hidden && tip.textContent === expected;
+            }, index);
             tooltipTexts.push(await page.locator(".ui-title-tooltip").textContent());
           }
           const commands = await details.evaluateAll((elements) =>
