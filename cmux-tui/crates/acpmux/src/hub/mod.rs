@@ -51,6 +51,7 @@ mod live_models;
 mod locate;
 pub mod media_handles;
 pub mod media_read;
+mod mesh_rows;
 pub(crate) mod subagent_transcript;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
