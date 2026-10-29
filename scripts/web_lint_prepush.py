@@ -440,21 +440,28 @@ def run_leaving_no_lockfile(command: list[str], cwd: Path, env: dict[str, str] |
             lock.unlink(missing_ok=True)
 
 
-def ensure_deps(repo: Path, directory: str, force: bool = False) -> Result | None:
-    """Install the package's pinned dependencies (fast when they are current). A package with no lockfile
-    keeps the node_modules it has (unless `force`), else gets a plain install."""
+def deps_command(repo: Path, directory: str, force: bool = False) -> list[str] | None:
+    """The `bun install` ensure_deps runs for DIRECTORY, or None when it runs none: a package with no lockfile keeps
+    the node_modules it has (unless FORCE). `bun` stays a bare name when bun is not on PATH (ensure_deps reports it)."""
     locked = (repo / directory / "bun.lock").is_file()
     if not locked and not force and (repo / directory / "node_modules").is_dir():
         return None
-    bun = shutil.which("bun")
-    if bun is None:
+    command = ["install", "--frozen-lockfile", "--silent"] if locked else ["install", "--silent", "--no-save"]
+    return [shutil.which("bun") or "bun", *command]
+
+
+def ensure_deps(repo: Path, directory: str, force: bool = False) -> Result | None:
+    """Install the package's pinned dependencies (fast when they are current), with deps_command's command."""
+    command = deps_command(repo, directory, force)
+    if command is None:
+        return None
+    if not Path(command[0]).is_absolute():
         return Result(directory, "bun install", 127, "bun is not on PATH; install bun 1.4 to run the web lint.", 0)
     started = time.monotonic()
-    command = ["install", "--frozen-lockfile", "--silent"] if locked else ["install", "--silent", "--no-save"]
-    result = run_leaving_no_lockfile([bun, *command], repo / directory)
+    result = run_leaving_no_lockfile(command, repo / directory)
     if result.returncode == 0:
         return None
-    return Result(directory, f"bun {' '.join(c for c in command if c != '--silent')}", result.returncode,
+    return Result(directory, f"bun {' '.join(c for c in command[1:] if c != '--silent')}", result.returncode,
                   result.stdout + result.stderr, time.monotonic() - started)
 
 
@@ -478,21 +485,53 @@ def installed_stamp(repo: Path, directory: str, build: LocalBuild) -> Path:
     return repo / directory / "node_modules" / INSTALLED_STAMPS / build.name
 
 
+def build_commands() -> list[list[str]]:
+    """The commands ensure_build runs for a local build that is not current: npm's, else bun's; [] without either."""
+    npm, bun = shutil.which("npm"), shutil.which("bun")
+    if npm:  # what CI runs (cmux-tui.yml, "Build TypeScript SDK")
+        return [[npm, "ci", "--no-audit", "--no-fund"], [npm, "run", "build"]]
+    if bun:  # tsc's node shebang runs on bun
+        return [[bun, "install", "--silent", "--no-save"], [bun, "run", "--bun", "build"]]
+    return []
+
+
+def build_current(repo: Path, build: LocalBuild) -> bool:
+    return read_stamp(repo / build.directory / build.output / BUILD_STAMP) == build_digest(repo, build)
+
+
+def setup_steps(repo: Path, plan: Plan) -> list[tuple]:
+    """run()-shaped (area, argv) steps prepare_builds() and install() will spawn for PLAN on a host that runs heavy
+    checks, in their order, from the same deps_command() and build_commands(): builds that are not current, then
+    each area's install (forced where its copy of a build is stale)."""
+    steps, digests = [], {}
+    for package in plan.script_packages:
+        for build in package.builds:
+            if build in digests:
+                continue
+            digests[build] = build_digest(repo, build)
+            if not build_current(repo, build):
+                steps += [(build.directory, step) for step in build_commands()]
+    for directory in [p.directory for p in plan.script_packages] + list(plan.eslint_files):
+        package = next((p for p in plan.script_packages if p.directory == directory), None)
+        stale = package is not None and any(
+            read_stamp(installed_stamp(repo, directory, build)) != digests[build] for build in package.builds)
+        command = deps_command(repo, directory, force=stale)
+        if command:
+            steps.append((directory, command))
+    return steps
+
+
 def ensure_build(repo: Path, build: LocalBuild, dependents: list[str]) -> tuple[str | None, Result | None]:
     """Install and build `build` unless its output was built from the same inputs; returns (the digest of
     its inputs, failure). A failure is one Result that names the build and the checks it holds back."""
     root = repo / build.directory
     stamp = root / build.output / BUILD_STAMP
     digest = build_digest(repo, build)
-    if read_stamp(stamp) == digest:
+    if build_current(repo, build):  # setup_steps() asks the same
         return digest, None
     held = f"Not checked until this builds: {', '.join(dependents)} (it imports {build.name} from this build)."
-    npm, bun = shutil.which("npm"), shutil.which("bun")
-    if npm:  # what CI runs (cmux-tui.yml, "Build TypeScript SDK")
-        steps = [[npm, "ci", "--no-audit", "--no-fund"], [npm, "run", "build"]]
-    elif bun:  # tsc's node shebang runs on bun
-        steps = [[bun, "install", "--silent", "--no-save"], [bun, "run", "--bun", "build"]]
-    else:
+    steps = build_commands()
+    if not steps:
         return None, Result(build.directory, "npm ci && npm run build", 127,
                              f"neither npm nor bun is on PATH, so {build.directory} can't be built.\n{held}", 0)
     stamp.unlink(missing_ok=True)
@@ -605,6 +644,20 @@ def check_jobs(repo: Path, plan: Plan, script: str, fix: bool, cache: bool, heav
     return jobs
 
 
+def plan_steps(repo: Path, plan: Plan, fix: bool, cache: bool, heavy: bool, mode: str, read=None,
+               has_modules=None) -> tuple[Plan, list[tuple], list[tuple], list[tuple]]:
+    """Everything a run of PLAN does, in order: (the plan it runs, setup steps, fix jobs, check jobs). With heavy
+    checks off the plan is light_plan()'s (HAS_MODULES: which areas have node_modules) and there is no setup; with
+    them on, setup_steps() lists the builds and installs. run_plan() executes it and --dry-run prints it, so the two
+    can't list different commands."""
+    if heavy:
+        setup = setup_steps(repo, plan)
+    else:
+        plan, setup = light_plan(repo, plan, mode, has_modules), []
+    fixes = check_jobs(repo, plan, "check:fix", True, cache, heavy, mode, read) if fix else []
+    return plan, setup, fixes, check_jobs(repo, plan, "check", False, cache, heavy, mode, read)
+
+
 def shown(job: tuple) -> str:
     """How a check_jobs() job reads in a --dry-run and in a report: `<area>: <command>`."""
     command = job[1] if isinstance(job[1], str) else shlex.join(job[1])
@@ -613,7 +666,10 @@ def shown(job: tuple) -> str:
 
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
              mode: str = "web-lint") -> list[Result]:
-    if heavy:
+    # With heavy checks off: no install or build (the bindings build is `npm ci` plus tsc), only the allowlist,
+    # against the node_modules a package already has; a package with none is left to CI, named.
+    plan, setup, fixes, jobs = plan_steps(repo, plan, fix, cache, heavy, mode)
+    if setup:  # the steps setup_steps() listed, run with their stamp bookkeeping
         stale, failures = prepare_builds(repo, plan.script_packages)
         if failures:
             return failures
@@ -622,15 +678,8 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool 
             installs = [r for r in pool.map(lambda d: install(repo, d, stale.get(d)), directories) if r]
         if installs:
             return installs
-    else:
-        # No install or build (the bindings build is `npm ci` plus tsc): only the allowlist, against the node_modules
-        # a package already has; a package with none is left to CI, named.
-        plan = light_plan(repo, plan, mode)
-
-    if fix:
-        for job in check_jobs(repo, plan, "check:fix", True, cache, heavy, mode):
-            run(*job)
-    jobs = check_jobs(repo, plan, "check", False, cache, heavy, mode)
+    for job in fixes:
+        run(*job)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
         return list(pool.map(lambda job: run(*job), jobs))
 
@@ -833,17 +882,14 @@ def main(argv: list[str] | None = None) -> int:
                 print("nothing to lint")
             continue
         if args.dry_run:
-            # The run's own path: light_plan() over the node_modules the run would see (a lint tree shares the
-            # checkout's only where shares_deps() holds), then check_jobs(), one command per line.
-            if heavy:
-                for package in plan.script_packages:
-                    for build in package.builds:
-                        print(f"{build.directory}: install and build, unless current (for {package.directory})")
-            else:
-                in_place = head is None or is_checked_out(repo, head)
-                plan = light_plan(repo, plan, mode, lambda directory: (repo / directory / "node_modules").is_dir()
-                                  and (in_place or shares_deps(repo, head, directory)))
-            for job in check_jobs(repo, plan, "check", False, in_place_cache(repo, head), heavy, mode, read):
+            # The run's own plan_steps(), over the node_modules the run would see (a lint tree shares the checkout's
+            # only where shares_deps() holds): setup, fix passes, then checks, one command per line.
+            in_place = in_place_cache(repo, head)
+            _, setup, fixes, jobs = plan_steps(
+                repo, plan, args.fix, in_place, heavy, mode, read,
+                lambda directory: (repo / directory / "node_modules").is_dir()
+                and (in_place or shares_deps(repo, head, directory)))
+            for job in setup + fixes + jobs:
                 print(shown(job))
             continue
         # A package that imports a local build gets its own install in a lint tree: bun copies the build

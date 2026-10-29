@@ -7,6 +7,7 @@ BAD), installs the hooks with scripts/install-git-hooks.sh, and pushes to a
 bare `origin` through the real `git push`, so the installed trusted hook copy is
 what runs.
 """
+import io
 import os
 from pathlib import Path
 import shlex
@@ -581,52 +582,94 @@ class WebLintPrePushTests(unittest.TestCase):
         code, seen = self.spawned(modes["--new-only on a red change"], heavy=False)
         self.assertEqual(code, 1, "with no base comparison the red stays the change's")
 
-    def test_a_dry_run_lists_exactly_what_a_run_spawns_on_a_host_that_runs_no_heavy_checks(self):
-        # Review of 91644bb: the dry run skipped light_plan(), so it listed areas a run drops (no node_modules).
-        # Both now build their commands with check_jobs(); a package without node_modules is in neither.
+    def test_a_dry_run_lists_exactly_what_a_run_spawns(self):
+        # Reviews of 91644bb and 7d129c5: the dry run skipped light_plan() and the --fix passes. Both now come from
+        # plan_steps(). For every cell of {light, full} x {fix, no fix} x {checked-out head, lint tree}, the dry run's
+        # lines equal the commands the run spawns: setup and fix passes in order, then the checks (which run in
+        # parallel) as a set. A package without node_modules is in neither in light mode.
         self.heavy_fixture()
         self.write("web/app/page.tsx", "export const page = 4;\n")
         self.write("webviews/src/app.ts", "export const app = 9;\n")
         self.write("cmux-tui/frontends/web/package.json", '{"name": "tui", "scripts": {"check": "vp fmt --check"}}\n')
-        self.write("cmux-tui/frontends/web/src/main.ts", "export const main = 1;\n")  # no node_modules: dropped
+        self.write("cmux-tui/frontends/web/src/main.ts", "export const main = 1;\n")  # no node_modules
         self.commit("web, webviews and tui changes")
         head = self.git("rev-parse", "HEAD").stdout.strip()
         lint = load_lint(self.repo)
 
-        def normal(area_or_cwd, words):
-            return (Path(area_or_cwd).name, " ".join([Path(words[0]).name, *words[1:]]))
+        def normal(area, words):
+            return f"{Path(area).name}: {' '.join([Path(words[0]).name, *words[1:]])}"
 
-        for name, argv in {"checked-out head": ["--base", "HEAD~1", "--head", head],
-                           "another commit (lint tree)": ["--base", "HEAD~2", "--head", head]}.items():
-            with self.subTest(mode=name):
-                if name.startswith("another"):
-                    self.git("checkout", "--quiet", "HEAD~1")
-                real = subprocess.run
-                spawned = []
+        def phase(line):
+            area, command = line.split(": ", 1)
+            if area == "typescript":
+                return 0  # the bindings build
+            if command.startswith(("bun install", "npm ci")):
+                return 1
+            if "--fix" in command.split():
+                return 2
+            return 3
 
-                def spy(command, *args, **kwargs):
-                    words = command.split() if isinstance(command, str) else [str(w) for w in command]
-                    if words and Path(words[0]).name == "nice":
-                        words = words[3:]
-                    if Path(words[0]).name == "git":
-                        return real(command, *args, **kwargs)
-                    spawned.append(normal(kwargs["cwd"], words))
-                    return subprocess.CompletedProcess(command, 0, "", "")
+        def spy_run(argv, env):
+            real = subprocess.run
+            spawned = []
 
-                env = {"CMUX_LOCAL_HEAVY_CHECKS": "0", "GITHUB_ACTIONS": "", "CI": ""}
-                with mock.patch.dict(os.environ, env), mock.patch.object(lint.subprocess, "run", spy), \
-                        mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
-                    lint.main(["--repo", str(self.repo), *argv])
-                dry = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--dry-run", *argv],
-                                     cwd=self.repo, env={**self.env, **env}, text=True, capture_output=True)
-                self.assertEqual(dry.returncode, 0, dry.stderr)
-                listed = [normal(line.split(": ", 1)[0], shlex.split(line.split(": ", 1)[1]))
-                          for line in dry.stdout.splitlines()]
-                self.assertEqual(sorted(listed), sorted(spawned))
-                self.assertEqual({area for area, _ in listed}, {"webviews", "web"}, listed)
-                self.assertIn(("webviews", "vp fmt --check"), listed)
-                self.assertNotIn("frontends", dry.stdout.replace("cmux-tui/frontends/web: not linted", ""))
-                self.git("checkout", "--quiet", "feat-cmux-next")
+            def spy(command, *args, **kwargs):
+                words = command.split() if isinstance(command, str) else [str(w) for w in command]
+                if words and Path(words[0]).name == "nice":
+                    words = words[3:]
+                if words[:2] == ["/bin/sh", "-c"]:
+                    words = words[2].split()
+                if Path(words[0]).name == "git":
+                    return real(command, *args, **kwargs)
+                spawned.append(normal(kwargs["cwd"], words))
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with mock.patch.dict(os.environ, env), mock.patch.object(lint.subprocess, "run", spy), \
+                    mock.patch.object(lint, "build_current", lambda repo, build: False), \
+                    mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                lint.main(["--repo", str(self.repo), *argv])
+            return spawned
+
+        cells = 0
+        for heavy in ("0", "1"):
+            for fix in (False, True):
+                for where in ("checked-out head", "lint tree"):
+                    if fix and where == "lint tree":
+                        continue  # --fix edits the working tree itself, never a lint tree
+                    argv = (["--fix", "--base", "HEAD~1"] if fix else
+                            ["--base", "HEAD~1" if where == "checked-out head" else "HEAD~2", "--head", head])
+                    with self.subTest(heavy=heavy, fix=fix, where=where):
+                        if where == "lint tree":
+                            self.git("checkout", "--quiet", "HEAD~1")
+                        env = {"CMUX_LOCAL_HEAVY_CHECKS": heavy, "GITHUB_ACTIONS": "", "CI": ""}
+                        # The dry run first: the run writes build and install stamps, which change what comes next.
+                        with mock.patch.dict(os.environ, env), \
+                                mock.patch.object(lint, "build_current", lambda repo, build: False), \
+                                mock.patch("sys.stdout", new_callable=io.StringIO) as out, \
+                                mock.patch("sys.stderr", new_callable=lambda: open(os.devnull, "w")):
+                            lint.main(["--repo", str(self.repo), "--dry-run", *argv])
+                        spawned = spy_run(argv, env)
+                        listed = [normal(line.split(": ", 1)[0], shlex.split(line.split(": ", 1)[1]))
+                                  for line in out.getvalue().splitlines()]
+                        self.assertTrue(listed)
+                        self.assertEqual(sorted(listed), sorted(spawned))
+                        # Phases, as run_plan runs them: builds (in order), installs (in parallel), fix passes (in
+                        # order), checks (in parallel). Each list keeps the phases in that order, and the in-order
+                        # phases match line for line.
+                        for commands in (listed, spawned):
+                            phases = [phase(line) for line in commands]
+                            self.assertEqual(phases, sorted(phases), commands)
+                        for ordered in (0, 2):
+                            self.assertEqual([c for c in listed if phase(c) == ordered],
+                                             [c for c in spawned if phase(c) == ordered])
+                        if heavy == "0":
+                            self.assertFalse([line for line in listed if line.startswith("web: vp")], listed)
+                            self.assertFalse([line for line in listed if " install" in line], listed)
+                        if fix:
+                            self.assertTrue(ordered, "a --fix run lists its fix passes")
+                        self.git("checkout", "--quiet", "feat-cmux-next")
+                        cells += 1
+        self.assertEqual(cells, 6)
 
     def test_every_spawn_on_a_build_host_is_niced_and_capped(self):
         self.heavy_fixture()
