@@ -303,3 +303,24 @@ async fn request_writes_a_session_deleted_while_waiting_is_not_a_failed_log() {
     assert!(wait_while_the_log_is_forgotten(true).await, "a deleted chat answered log.failed");
     assert!(!wait_while_the_log_is_forgotten(false).await, "a live chat's lost log was saved");
 }
+
+/// Third review: a request on a session deleted before it waits counts as saved at once, and
+/// asks the writer for no progress (asking would make a new entry for a log it forgot).
+#[tokio::test]
+async fn request_writes_a_session_deleted_before_the_wait_is_saved_at_once() {
+    let progress = crate::store::Progress { queued: 100, written: 0, failed: false };
+    let held = Arc::new(std::sync::Mutex::new(Some(tokio::sync::watch::channel(progress).0)));
+    let hub = hub_on(Box::new(HeldStore { inner: MemoryStore::default(), progress: held.clone() }));
+    let session = chat(&hub, "gone");
+    let ((), writes) = scope(Box::pin(async {
+        hub.append(&session, "mux", "queue_order", json!({"order": []}));
+    }))
+    .await;
+    session.purged.store(true, Ordering::SeqCst);
+    hub.sessions.lock().unwrap().remove("gone");
+    let wait = std::time::Duration::from_secs(5);
+    let saved = tokio::time::timeout(wait, hub.wait_written(writes)).await;
+    assert_eq!(saved.ok(), Some(true), "a deleted session's records held or failed the request");
+    let asked = held.lock().unwrap().as_ref().map_or(0, tokio::sync::watch::Sender::receiver_count);
+    assert_eq!(asked, 0, "the wait asked the writer for a deleted session's progress");
+}
