@@ -214,15 +214,15 @@ def smoke_job(build: int | str) -> str:
 def in_flight(runs: list[dict], jobs_of: Callable[[int], list[dict]], build: int | str, own_run: int) -> int | None:
     """The id of another run that has a smoke of BUILD queued or running, else None.
 
-    `runs` are this workflow's runs, newest first (the REST list). A run that has not completed and is not
-    a pull request's (its smoke never rolls back or records anything) holds BUILD while its `smoke BUILD`
+    `runs` are this workflow's runs, newest first (the REST list). A run that has not completed (a pull
+    request's too: its smoke takes a Mac like any other) holds BUILD while its `smoke BUILD`
     job exists and was not skipped: queued for a runner, running, or done while its run still records the
     verdict or files the crash. Only a completed run lets the next tick smoke BUILD again, which a recorded
     pass or cannot-run then stops in pick and a crash does not (it is retried until its rollback lands).
     """
     name = smoke_job(build)
     for run in runs:
-        if run.get("status") == "completed" or run.get("event") == "pull_request" or int(run.get("id") or 0) == own_run:
+        if run.get("status") == "completed" or int(run.get("id") or 0) == own_run:
             continue
         for job in jobs_of(int(run["id"])):
             if job.get("name") == name and job.get("conclusion") != "skipped":

@@ -272,10 +272,14 @@ def cascade_placed_failures(name: str, job_id: str, jobs: dict, placer: str, key
     for output, label in (("blacksmith_12_jobs", "blacksmith-12vcpu-macos-26"), ("blacksmith_6_jobs", "blacksmith-6vcpu-macos-26")):
         if f"${{{{ steps.{place.get('id')}.outputs.{output} }}}}" != str((jobs[placer].get("outputs") or {}).get(output)):
             failures.append(f"{name} {placer}: output {output} is not the placement's")
-        read = f"contains(needs.{placer}.outputs.{output}, ' {key} ') && '{label}'"
+        read = (f"needs.{placer}.outputs.placed_attempt == format('{{0}}', github.run_attempt) && "
+                f"contains(needs.{placer}.outputs.{output}, ' {key} ') && '{label}'")
         at = runs_on.find(read)
         if at < 0 or (side >= 0 and at > side):
             failures.append(f"{name} {job_id}: runs-on does not take `{label}` for {key} ahead of the side label")
+    # A re-run of the job alone keeps the placing job's outputs from the attempt before: a slot read then.
+    if "github.run_attempt" not in str((jobs[placer].get("outputs") or {}).get("placed_attempt") or ""):
+        failures.append(f"{name} {placer}: no placed_attempt output for the attempt that placed")
     expressions = EXPRESSION.findall(runs_on)
     if not expressions or not unconditional(split_top(unwrap(expressions[0]), "||")[-1]):
         failures.append(f"{name} {job_id}: runs-on does not end in a label literal")
@@ -333,10 +337,13 @@ class OneLaunchSmokePerBuild(unittest.TestCase):
 
     def test_a_second_smoke_of_a_build_cannot_start(self) -> None:
         tooling = smoke_tooling()
-        runs = [{"id": 2, "status": "queued", "event": "schedule"}, {"id": 1, "status": "completed", "event": "schedule"}]
+        runs = [{"id": 4, "status": "in_progress", "event": "pull_request"},
+                {"id": 2, "status": "queued", "event": "schedule"}, {"id": 1, "status": "completed", "event": "schedule"}]
         jobs = {2: [{"name": tooling.smoke_job(200), "status": "queued", "conclusion": None}],
-                1: [{"name": tooling.smoke_job(100), "status": "completed", "conclusion": "success"}]}
+                1: [{"name": tooling.smoke_job(100), "status": "completed", "conclusion": "success"}],
+                4: [{"name": tooling.smoke_job(500), "status": "queued", "conclusion": None}]}
         self.assertEqual(tooling.in_flight(runs, jobs.__getitem__, 200, own_run=3), 2)
+        self.assertEqual(tooling.in_flight(runs, jobs.__getitem__, 500, own_run=3), 4)  # a pull request's smoke too
         self.assertIsNone(tooling.in_flight(runs, jobs.__getitem__, 100, own_run=3))
         self.assertIsNone(tooling.in_flight(runs, jobs.__getitem__, 300, own_run=3))
 

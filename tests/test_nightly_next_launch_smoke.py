@@ -320,10 +320,10 @@ class InFlightTests(unittest.TestCase):
         self.assertEqual(smoke.in_flight(self.RUNS, self.jobs_of, 200, own_run=5), 4)
         self.assertEqual(smoke.in_flight(self.RUNS, self.jobs_of, "200", own_run=5), 4)
 
-    def test_its_own_run_a_completed_run_a_pull_request_and_another_build_hold_nothing(self) -> None:
+    def test_its_own_run_a_completed_run_and_another_build_hold_nothing(self) -> None:
         self.assertIsNone(smoke.in_flight(self.RUNS[1:], self.jobs_of, 200, own_run=4))  # only itself has one
         self.assertIsNone(smoke.in_flight(self.RUNS, self.jobs_of, 100, own_run=5))
-        self.assertIsNone(smoke.in_flight(self.RUNS, self.jobs_of, 300, own_run=5))
+        self.assertEqual(smoke.in_flight(self.RUNS, self.jobs_of, 300, own_run=5), 3)  # a pull request's smoke holds it
         self.assertIsNone(smoke.in_flight(self.RUNS, self.jobs_of, 400, own_run=5))
 
     def test_a_skipped_smoke_holds_nothing(self) -> None:

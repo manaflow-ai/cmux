@@ -83,6 +83,9 @@ jobs:
       runner: ${{ steps.place.outputs.runner }}
       blacksmith_12_jobs: ${{ steps.place.outputs.blacksmith_12_jobs }}
       blacksmith_6_jobs: ${{ steps.place.outputs.blacksmith_6_jobs }}
+      # The attempt that placed: a re-run of the smoke alone keeps attempt 1's outputs, which name a
+      # Blacksmith slot read then, so the smoke reads them only in the attempt that wrote them.
+      placed_attempt: ${{ steps.place.outcome == 'success' && format('{0}', github.run_attempt) || '' }}
       url: ${{ steps.feed.outputs.url }}
       length: ${{ steps.feed.outputs.length }}
       checked: ${{ steps.seen.outputs.cache-hit == 'true' || steps.seen-hour.outputs.cache-hit == 'true' }}
@@ -189,7 +192,7 @@ jobs:
     # owned Mac's side route (an idle one when the placement found it;
     # owned_pool_rescue.SIDE_WORKFLOW_PATHS re-runs a refused job), then
     # MACOS_RUNNER_26 or Blacksmith macOS 26. Never a GitHub-hosted Mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || contains(needs.pick.outputs.blacksmith_12_jobs, ' launch-smoke ') && 'blacksmith-12vcpu-macos-26' || contains(needs.pick.outputs.blacksmith_6_jobs, ' launch-smoke ') && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && (needs.pick.outputs.runner || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_12_jobs, ' launch-smoke ') && 'blacksmith-12vcpu-macos-26' || needs.pick.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.pick.outputs.blacksmith_6_jobs, ' launch-smoke ') && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && github.run_attempt == 1 && (needs.pick.outputs.runner || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     permissions:
       contents: read
