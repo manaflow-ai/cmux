@@ -34,7 +34,7 @@ afterAll(() => {
 const HOUR = 3_600_000;
 // Each item of the row by its name: a control's label (Retry's wrapper by its button's), else its text.
 const labels = () =>
-  [...host.querySelectorAll(".cv-user__actions > *")].map(
+  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > *")].map(
     (node) =>
       node.getAttribute("aria-label") ??
       node.querySelector("button")?.getAttribute("aria-label") ??
