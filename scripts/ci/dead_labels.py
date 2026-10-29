@@ -36,6 +36,7 @@ the run and its jobs are read again and every check below is made again
 (recheck()). The run's re-run is written as an obligation into the janitor's
 one obligation store before the cancel; only a confirmed outcome clears it, and
 every later sweep reads the run again (resume()). It is never moved when:
+  - its run is waiting or pending at a gate, requested, or in an unknown state;
   - a job of it is running (cancelling would throw that work away; a later
     sweep takes the run once the job ends);
   - it is a nightly, DEV or promote run whose build has started
@@ -73,6 +74,9 @@ MAX_WORKFLOW_READS = 20  # workflow files read at a run's head per sweep (one re
 # ones are listed for this pass alone each sweep, so their jobs can be moved too.
 LINUX_ONLY_READS = 12
 MAX_REDISPATCH_LIMIT = 50
+# These states alone can represent a runner queue. A gated run can still expose a downstream queued job,
+# so waiting/pending/requested and unknown states must not authorize cancellation, including on a fresh read.
+RUNNER_QUEUE_STATES = frozenset({"queued", "in_progress"})
 SETTLE_SECONDS = 90
 POLL_SECONDS = 5
 
@@ -183,7 +187,9 @@ def dead_labels(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Seq
 
 
 def run_reason(run: Mapping[str, Any]) -> str | None:
-    """Why a run is left alone whatever its jobs show (its event, workflow and attempt), or None."""
+    """Why a run is left alone whatever its jobs show (its state, event, workflow and attempt), or None."""
+    if run.get("status") not in RUNNER_QUEUE_STATES:
+        return f"it is {run.get('status') or 'in an unknown state'} now"
     event, branch = str(run.get("event") or ""), str(run.get("head_branch") or "")
     if not event:
         return "its event could not be read"
@@ -497,7 +503,7 @@ def plan(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[M
     texts: dict[tuple[str, str], str | None] = {}
     going = 0
     for run in sorted(runs, key=lambda r: (str(r.get("created_at") or ""), r.get("id") or 0)):
-        if run.get("id") in skip or run.get("status") not in ("queued", "in_progress", "waiting", "pending"):
+        if run.get("id") in skip or run.get("status") not in RUNNER_QUEUE_STATES:
             continue
         jobs = list(jobs_by_run.get(run.get("id"), ()))
         stuck = next((job for job in jobs if starved_labels.stuck(job) and label_key(job) in by_labels), None)
@@ -552,8 +558,8 @@ def _rate_limited(error: BaseException) -> bool:
 def recheck(github: Any, decision: Redispatch, pr_check: Callable[[Mapping[str, Any]], str | None] | None = None
             ) -> str | None:
     """Why a run planned to move must not be cancelled now, read again right before the cancel: its attempt moved
-    or it finished, a nightly, DEV or promote build of it started, a job of it is running, or its stuck job took a
-    runner. None when it still may go. Anything unread is a reason."""
+    or it finished or reached a gate, a nightly, DEV or promote build of it started, a job of it is running, or its
+    stuck job took a runner. None when it still may go. Anything unread is a reason."""
     run_id = int(decision.run["id"])
     try:
         fresh = github.run(run_id)
@@ -564,7 +570,7 @@ def recheck(github: Any, decision: Redispatch, pr_check: Callable[[Mapping[str, 
         return f"it could not be read again before the cancel ({error})"
     if fresh.get("run_attempt") != decision.run.get("run_attempt"):
         return "its attempt moved since the inventory"
-    if fresh.get("status") not in ("queued", "in_progress", "waiting", "pending"):
+    if fresh.get("status") not in RUNNER_QUEUE_STATES:
         return f"it is {fresh.get('status') or 'in an unknown state'} now"
     why = protected_reason(fresh, jobs)
     if why:
