@@ -153,6 +153,75 @@ struct CommandScrollColumnsTests {
         #expect(h.root.model.focusedPane == "b", "nothing to reveal, so focus stays")
     }
 
+    // MARK: browser panes where the strip fits
+
+    /// Lawrence 2026-10-28: "if focus mode for browser is on, then we need to make sure cmd scrolls
+    /// for scrolling columns/rows, doesnt work if mouse is hovered over a browser". Focus mode gives
+    /// the page the keyboard, not the Command scroll: over a browser pane whose columns fit, a
+    /// Command swipe is the layout's as it is over a terminal (rubber band, spring back), once the
+    /// page says it does not use Command + scroll.
+    @Test func aCommandSwipeOverABrowserWhereTheStripFitsIsTheLayouts() async throws {
+        let arbiter = FakeArbiter(answer: false)
+        let h = Harness(model: Self.twoFittingColumns(), arbiter: arbiter)
+        let page = try h.page(over: "b")
+        let point = try h.center("b")
+        let before = try #require(h.root.frame(of: "b"))
+        let strip = try #require(h.root.screenViews["s"])
+        #expect(Base.scroll(h.root, from: page, at: point, phase: .mayBegin, command: true), "the page never sees the touch")
+        #expect(Base.scroll(h.root, from: page, at: point, dx: 40, phase: .began, command: true))
+        await h.answered()
+        #expect(arbiter.asks.count == 1, "the page is still asked first")
+        #expect(h.root.ownsCurrentScrollGesture)
+        for _ in 0..<3 { #expect(Base.scroll(h.root, from: page, at: point, dx: 40, phase: .changed, command: true)) }
+        #expect(strip.isUserScrolling, "the strip follows the fingers")
+        #expect(Base.scroll(h.root, from: page, at: point, phase: .ended, command: true))
+        #expect(Base.scroll(h.root, from: page, at: point, dx: 10, momentum: .begin, command: true), "the coast is the layout's")
+        #expect(Base.scroll(h.root, from: page, at: point, momentum: .end, command: true))
+        #expect(page.received.isEmpty, "the page goes neither Back nor Forward")
+        h.settle()
+        #expect(h.root.frame(of: "b") == before, "a strip that fits springs back")
+    }
+
+    /// The same over one full-width browser column, up and down and with a wheel notch.
+    @Test func aCommandWheelOverABrowserWhereTheStripFitsIsTheLayouts() async throws {
+        let arbiter = FakeArbiter(answer: false)
+        let h = Harness(model: Self.oneColumn(), arbiter: arbiter)
+        let page = try h.page(over: "a")
+        let point = try h.center("a")
+        #expect(Base.scroll(h.root, from: page, at: point, dy: -1, units: .line, command: true), "a Command notch is held")
+        await h.answered()
+        #expect(page.received.isEmpty, "and never reaches the page")
+        #expect(!Base.scroll(h.root, from: page, at: point, dy: -1, units: .line), "a plain notch is still the page's")
+    }
+
+    /// With `layout.pagesHandleCommandScroll` off the layout takes it at once, strip fitting or not.
+    @Test func withPagesFirstOffACommandSwipeOverABrowserWhereTheStripFitsIsTheLayoutsAtOnce() throws {
+        let arbiter = FakeArbiter(answer: true)
+        let model = Self.oneColumn()
+        model.pagesHandleCommandScrollOverride = false
+        let h = Harness(model: model, arbiter: arbiter)
+        let page = try h.page(over: "a")
+        let point = try h.center("a")
+        #expect(Base.scroll(h.root, from: page, at: point, dy: -30, phase: .began, command: true))
+        #expect(h.root.ownsCurrentScrollGesture)
+        #expect(Base.scroll(h.root, from: page, at: point, phase: .ended, command: true))
+        #expect(arbiter.asks.isEmpty)
+        #expect(page.received.isEmpty)
+    }
+
+    /// Figma or Excalidraw in a browser whose columns fit keeps its Command + scroll zoom.
+    @Test func aPageThatHandlesCommandScrollKeepsItWhereTheStripFits() async throws {
+        let arbiter = FakeArbiter(answer: true)
+        let h = Harness(model: Self.oneColumn(), arbiter: arbiter)
+        let page = try h.page(over: "a")
+        let point = try h.center("a")
+        _ = Base.scroll(h.root, from: page, at: point, dy: -20, phase: .began, command: true)
+        await h.answered()
+        #expect(!h.root.ownsCurrentScrollGesture, "the page owns it")
+        #expect(!Base.scroll(h.root, from: page, at: point, dy: -20, phase: .changed, command: true))
+        #expect(!Base.scroll(h.root, from: page, at: point, phase: .ended, command: true))
+    }
+
     // MARK: web pages first
 
     /// Figma or Excalidraw under the pointer: the page cancels Command + wheel, so the held events
