@@ -22,6 +22,9 @@ A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
 reads before the stopped turn's result (a Stop Claude Code answers late).
+"compact-stop" reports a compaction, ignores its interrupt until the
+compaction finishes, then emits the late result (the Stop path must settle
+before that result arrives).
 "long-step" is one step (a long tool call) that runs until the interrupt, as
 Claude Code 2.1 does it: user lines written during the step wait; at the
 interrupt the step's result comes first, then each waiting line is echoed and
@@ -265,6 +268,36 @@ def slow_stop():
             break
     send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
           "num_turns": 1, "duration_api_ms": 5})
+
+
+def compact_stop():
+    """A compaction that ignores interrupt until its late result."""
+    import time
+    send({"type": "system", "subtype": "status", "status": "compacting", "session_id": SESSION})
+    deadline = time.monotonic() + 0.8
+    while time.monotonic() < deadline:
+        try:
+            got = LINES.get(timeout=0.02)
+        except queue.Empty:
+            continue
+        if got is None:
+            sys.exit(0)
+        try:
+            control = json.loads(got)
+        except ValueError:
+            continue
+        if control.get("type") == "control_request":
+            # Claude acknowledges the interrupt but remains in compaction.
+            send({"type": "control_response", "response": {"subtype": "success",
+                  "request_id": control.get("request_id"), "response": {}}})
+    send({"type": "system", "subtype": "status", "status": None, "compact_result": "success",
+          "session_id": SESSION})
+    send({"type": "system", "subtype": "compact_boundary", "session_id": SESSION,
+          "compact_metadata": {"trigger": "manual", "pre_tokens": 27183, "post_tokens": 2047}})
+    send({"type": "user", "session_id": SESSION, "isReplay": False, "isSynthetic": True,
+          "message": {"role": "user", "content": "Summary: compacted late."}})
+    send({"type": "result", "subtype": "success", "result": "", "num_turns": 0,
+          "duration_api_ms": 0, "local_command": True, "usage": {"input_tokens": 0, "output_tokens": 0}})
 
 
 def long_step(prompt):
@@ -650,6 +683,9 @@ while True:
         if said.strip() == "slow-stop":
             slow_stop()
             continue
+        if said.strip() == "compact-stop":
+            compact_stop()
+            continue
         if said.strip() == "long-step":
             long_step(msg)
             continue
@@ -852,11 +888,13 @@ while True:
         # reply carry its tool_use id as parent_tool_use_id, then the tool's result ends it.
         if said.strip() == "agent-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_ag1", "name": "Agent",
-                  "input": {"description": "Find the tests", "prompt": "List the test files", "subagent_type": "Explore"}}]}})
+                  "input": {"description": "Find the tests", "prompt": "List the test files", "subagent_type": "Explore", "model": "haiku", "effort": "high"}}]}})
             send({"type": "assistant", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
                   {"type": "tool_use", "id": "toolu_ag2", "name": "Read", "input": {"file_path": "/a/tests.rs"}}]}})
             send({"type": "user", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
                   {"type": "tool_result", "tool_use_id": "toolu_ag2", "content": "fn t() {}"}]}})
+            send({"type": "assistant", "parent_tool_use_id": "toolu_ag1", "message": {"id": "child-final", "content": [
+                  {"type": "text", "text": "Found one test file"}]}})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_ag1", "content": "one test file"}]}})
         if said.strip().startswith(tuple(AGENT_ERRORS)):
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a503", "name": "Agent",

@@ -11,6 +11,7 @@ fn v(exe: &str, home: &str, allow: bool) -> Verdict {
         Path::new("/Users/cmux/.acpmux"),
         Path::new(TMP),
         allow,
+        false,
     )
 }
 
@@ -40,6 +41,7 @@ fn temp_folders_are_refused_in_the_default_home() {
         Path::new("/home/l/.acpmux"),
         Path::new("/home/l/.acpmux"),
         Path::new("/run/user/1000/tmp"),
+        false,
         false,
     );
     assert!(matches!(linux_tmp, Verdict::Refuse(_)));
@@ -117,7 +119,7 @@ fn a_test_home_under_a_temp_folder_is_not_the_persons() {
     // cargo tests on a runner: the binary under _work, HOME and the home in a temp folder.
     let home = PathBuf::from(TMP).join("t1/.acpmux");
     let exe = "/Users/cmux/actions-runner-glaeda-2/_work/cmux/cmux/cmux-tui/target/debug/acpmux";
-    let got = verdict(Path::new(exe), &home, &home, Path::new(TMP), false);
+    let got = verdict(Path::new(exe), &home, &home, Path::new(TMP), false, false);
     assert_eq!(got, Verdict::Stable);
 }
 
@@ -128,6 +130,7 @@ fn stop(peer: &str, home: &str, allow: bool) -> Option<String> {
         Path::new("/Users/cmux/.acpmux"),
         Path::new(TMP),
         allow,
+        false,
     )
 }
 
@@ -178,4 +181,26 @@ fn installed_clients_and_apps_stop_the_persons_daemon() {
     ] {
         assert_eq!(stop(peer, "/Users/cmux/.acpmux", false), None, "{peer}");
     }
+}
+
+#[test]
+fn sign_clone_start_and_handoff_require_signature_proof() {
+    let exe = Path::new(
+        "/private/var/folders/a/b/T/com.cmuxterm.app.nightly.code_sign_clone/code_sign_clone.9gP34C/cmux NIGHTLY.app.bundle/Contents/Resources/bin/acpmux",
+    );
+    let home = Path::new("/Users/cmux/.acpmux");
+    for verified in [false, true] {
+        let result = verdict(exe, home, home, Path::new(TMP), false, verified);
+        assert_eq!(matches!(result, Verdict::Warn(_)), verified);
+        assert_eq!(
+            shutdown_refusal(exe, home, home, Path::new(TMP), false, verified).is_none(),
+            verified
+        );
+    }
+    // A proof cannot override the runner cleanup protection.
+    let runner = Path::new(
+        "/Users/cmux/actions-runner-1/_work/com.cmuxterm.app.nightly.code_sign_clone/code_sign_clone.a/cmux NIGHTLY.app.bundle/Contents/Resources/bin/acpmux",
+    );
+    assert!(matches!(verdict(runner, home, home, Path::new(TMP), false, true), Verdict::Refuse(_)));
+    assert!(shutdown_refusal(runner, home, home, Path::new(TMP), false, true).is_some());
 }

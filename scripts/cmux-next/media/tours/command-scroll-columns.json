@@ -1,0 +1,161 @@
+{
+  "title": "Command + Scroll over a terminal moves the columns, not the scrollback",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace scroll",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "scroll"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "A terminal full of numbered lines",
+      "cmux": [
+        "workspace",
+        "name:scroll",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; clear; seq 1 400\r"
+      ],
+      "wait": 1.5,
+      "shot": true
+    },
+    {
+      "title": "Command + two-finger scroll up begins",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "scroll",
+          "x": 700,
+          "y": 420,
+          "dx": 0,
+          "dy": 60,
+          "phase": "began",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 0.05,
+      "shot": false,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Command + scroll up",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "scroll",
+          "x": 700,
+          "y": 420,
+          "dx": 0,
+          "dy": 60,
+          "phase": "changed",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 0.05,
+      "shot": false,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Command + scroll up",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "scroll",
+          "x": 700,
+          "y": 420,
+          "dx": 0,
+          "dy": 60,
+          "phase": "changed",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 0.05,
+      "shot": false,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Command + scroll up",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "scroll",
+          "x": 700,
+          "y": 420,
+          "dx": 0,
+          "dy": 60,
+          "phase": "changed",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 0.05,
+      "shot": false,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Mid-gesture: the columns follow the fingers; the terminal's scrollback stays at its bottom",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "scroll",
+          "x": 700,
+          "y": 420,
+          "dx": 0,
+          "dy": 60,
+          "phase": "changed",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 0.3,
+      "shot": true,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Fingers lift: the columns spring back",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "scroll",
+          "x": 700,
+          "y": 420,
+          "dx": 0,
+          "dy": 0,
+          "phase": "ended",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 1.5,
+      "shot": true,
+      "optional": "debug.mouse is DEBUG only"
+    }
+  ]
+}
