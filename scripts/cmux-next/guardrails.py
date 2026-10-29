@@ -27,8 +27,10 @@ app-size: count-swift-code-lines.py's lexer).
 Refusals (rules below, `--list` prints them): each names the rule, why, the right pattern and its escape.
 Skip once: CMUX_GUARDRAILS_SKIP_REASON="<rule>[,<rule>]: <why>" skips only the named line rules; say it in
 your report.
-A rule (or warning check) that raises is not applied to that push and prints a `guardrails` warning that names
-it; the other rules still run and refuse (fail open per check, so one broken rule never switches off the rest).
+A rule that raises refuses the push (fail closed: a broken rule must not pass every push unjudged) with the rule and
+the error named, and prints a `guardrails` warning with the same text; the other rules still run and refuse.
+CMUX_GUARDRAILS_SKIP_REASON="<rule>: <why>" skips a broken rule like any other. A warning check (perf-hot, owner)
+or a context reading that raises is not applied to that push and prints a `guardrails` warning (fail open).
 
 Arch ratchet (one entry, one report): run_push() also runs scripts/cmux-next/arch-ratchet.py, next to this file,
 on a thread (start_ratchet() starts it early so it runs beside prepush-gate's scanners). It holds the counts of
@@ -56,7 +58,7 @@ whole grows (the same total check-app-size.sh --base computes, a split file's ne
 bytes added and the package the code goes to. This is the only App-size
 limit in force on a push: CI's check-app-size.sh step is continue-on-error and its absolute cap
 (app-size-baseline.txt) is below the App's size today.
-`app-type`, its own rule (so a fault in its brace scan turns off only it), refuses a new type that is not a move
+`app-type`, its own rule (so a fault in its brace scan fails only it, which then refuses alone), refuses a new type that is not a move
 in an existing App file or in a new App file that passes as a move (the new-file rule's god-file dodge), at any
 depth: top-level, a member of an `extension`, or nested with more than PRIVATE_TYPE_MAX source lines (a type's
 `extension` blocks in its file count toward its size); a small private or nested helper and `// app-type-allow:`
@@ -75,6 +77,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import collections
+import collections.abc
 import concurrent.futures
 import dataclasses
 import functools
@@ -573,7 +576,7 @@ def swift_lexer() -> Callable[[str], list[bool]]:
 
     One lexer, not a copy: the hook runs the installed copy of scripts/cmux-next, which holds both files. Only
     app-size reads it, so it loads inside that rule: a lexer that does not load (CI owns that file) turns off
-    app-size alone through check()'s per-rule fail open, never this module and every rule with it. A failed load
+    app-size alone through check()'s per-rule failure (it refuses), never this module and every rule with it. A failed load
     is not cached; the next push tries again.
     """
     spec = importlib.util.spec_from_file_location("cmux_next_count_swift_code_lines",
@@ -1986,7 +1989,7 @@ RULES = (
 # hit's line or the line directly above it, the same pattern, window and raw line text (comments and strings too,
 # as its `rg -n` reads them) as render-done-checks.py's MQ-sync-layout queue and DC11, so a push that passes this
 # rule never grows that queue. Added lines only, base debt per file as the other line rules; a fault in the rule
-# turns off only it (check()'s fail open per rule).
+# refuses with only it named (measure()'s per-rule fail closed).
 # The block owns its lines from here to `RULES += SYNC_LAYOUT_RULES`.
 SYNC_LAYOUT = re.compile(r"layoutSubtreeIfNeeded|displayIfNeeded|\.display\(\)|CATransaction\.flush")
 SYNC_LAYOUT_ALLOW = re.compile(r"//\s*sync-layout:\s*\S")
@@ -2990,7 +2993,7 @@ RULES += TRAP_API_RULES
 # new; the key is the bare id, so `cp/`, backticks or `(fixer)` around it do not make a kept id new.
 # It sees only the files check() diffs (Swift in Packages' Sources and Tests, the shipped crates' src, webviews/src and
 # the CEF shim's and Chromium host's src); comments elsewhere (crate tests/, the host's client/ and tests/, scripts)
-# are not judged. task_ids.py loads on the first push it judges: a broken copy fails this rule open, not the hook.
+# are not judged. task_ids.py loads on the first push it judges: a broken copy fails this rule (it refuses), not the hook.
 TASK_ID_SCOPE = ("Packages/", "cmux-tui/", "webviews/", "Native/", "cmux-next-ios/")
 
 
@@ -3076,7 +3079,8 @@ RUST_MEMO = "rust-stability"
 
 
 class RustScanError(RuntimeError):
-    """The pinned ast-grep could not be found, run or read: the Rust rules fail open for this push."""
+    """The pinned ast-grep could not be found, run or read: the Rust rules cannot judge this push, so they refuse it
+    (measure()'s per-rule fail closed; CMUX_GUARDRAILS_SKIP_REASON names them to push anyway)."""
 
 
 def in_rust_stability_scope(path: str) -> bool:
@@ -3367,19 +3371,27 @@ class WakeupHit(Added):
     cause: str = ""
 
 
+WAKEUP_AUDIT_LOAD = threading.Lock()
+
+
 def wakeup_audit():
-    """wakeup-audit.py beside this file, loaded on first use (a load error fails only this rule open)."""
+    """wakeup-audit.py beside this file, loaded on first use (a load error refuses the push: measure()'s rule crash).
+
+    check_own() runs measure() for a merge's ranges on several threads at once, so the load holds a lock: the module
+    is in sys.modules while it runs (its dataclasses resolve their module there), and a second thread that saw it
+    there unlocked got a half-run module (AttributeError: no attribute 'WEB_SKIP_DIRS', so wakeup-ext judged nothing)."""
     name = "cmux_next_wakeup_audit"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, HERE / WAKEUP_AUDIT)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module  # its dataclasses resolve their module through sys.modules
-        try:
-            spec.loader.exec_module(module)
-        except BaseException:
-            del sys.modules[name]
-            raise
-    return sys.modules[name]
+    with WAKEUP_AUDIT_LOAD:
+        if name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(name, HERE / WAKEUP_AUDIT)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module  # its dataclasses resolve their module through sys.modules
+            try:
+                spec.loader.exec_module(module)
+            except BaseException:
+                del sys.modules[name]
+                raise
+        return sys.modules[name]
 
 
 class ChecksRoot:
@@ -3780,8 +3792,32 @@ CONTROL_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|for|while|repeat|switch
 # A line that ends a statement (the header of the next block starts after it).
 STATEMENT_END = re.compile(r"[{};]\s*$|^\s*$|^\s*(//|\*|/\*|@\w)")
 HEADER_LINES = 12  # the most lines one block header (a long function signature or condition) is read across
-# HEAD's threading doc and package manifest, and loaded helpers; check() refreshes the doc and manifest per run.
-BLOCKING_CONTEXT: dict[str, object] = {}
+class ThreadContext(threading.local, collections.abc.MutableMapping):
+    """A dict of its own on each thread. check_own() runs measure() for a merge's ranges on several threads at once,
+    and each sets the context of its own revision (load_blocking_context); one shared dict let a range's rules read
+    the other range's manifest, actor tree and doc, or raise KeyError between a key's test and its read."""
+
+    def __init__(self):
+        self.values: dict[str, object] = {}
+
+    def __getitem__(self, key: str) -> object:
+        return self.values[key]
+
+    def __setitem__(self, key: str, value: object) -> None:
+        self.values[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.values[key]
+
+    def __iter__(self):
+        return iter(self.values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
+# HEAD's threading doc and package manifest, and loaded helpers; measure() refreshes them per run, on its own thread.
+BLOCKING_CONTEXT: ThreadContext = ThreadContext()
 
 
 class Prefiltered:
@@ -4942,8 +4978,9 @@ def in_rule_scope(path: str, scope: tuple[str, ...]) -> bool:
 
 
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str, repo: Path | None = None) -> None:
-    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open),
-    and, given REPO, names HEAD's tree for pool-blocking's actor index (repo_actor_index reads it on demand)."""
+    """Keeps HEAD's threading doc and package manifest for the rules above, on this thread (a missing doc makes
+    thread-doc raise, so it refuses), and, given REPO, names HEAD's tree for pool-blocking's actor index
+    (repo_actor_index reads it on demand)."""
     for key in ("threading_doc", "manifest", "ui_targets", "actor_tree", "actor_index", "linked"):
         BLOCKING_CONTEXT.pop(key, None)
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
@@ -5296,8 +5333,8 @@ def extra_types(path: str, lines: list[str]) -> list[Added]:
     return [Added(path, d.decl + 1, lines[d.decl]) for d in counted[1:] if not justified(lines, d.decl)]
 
 
-# app-type's scan, bound once: a fault there (or a test's stand-in for it) turns off app-type alone, as app-type's
-# own tests require; this rule then fails open on its own.
+# app-type's scan, bound once: a fault there (or a test's stand-in for it) fails app-type alone, as app-type's
+# own tests require; this rule then refuses on its own (measure()'s per-rule fail closed).
 QUALITY_TYPE_SCAN = type_scan
 
 
@@ -5805,11 +5842,29 @@ def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str
 # ---------------------------------------------------------------- run
 
 def check_failure(name: str, error: Exception) -> str:
-    """The warning for a rule or warning check NAME that raised: the error and where it raised."""
+    """The warning for a warning check or context reading NAME that raised: the error and where it raised."""
     frames = traceback.extract_tb(error.__traceback__)
     where = f" at {Path(frames[-1].filename).name}:{frames[-1].lineno}" if frames else ""
     return (f"{name} failed ({type(error).__name__}: {error}{where}), so it was not applied to this push "
             "(fail open); the other rules were. Tell the Performance Lead (PL-guardrails) with this line.")
+
+
+@dataclass
+class RuleFailure(Added):
+    """A rule that raised on this push: it judged nothing, so it refuses the push (fail closed). PATH and NUMBER
+    are the file name and line where it raised; TEXT names the rule and the error. check_own() never nets one out
+    against another range."""
+
+
+def rule_failure(rule: Rule, error: Exception) -> tuple[RuleFailure, str]:
+    """(the refusal, the `guardrails` warning) for RULE that raised ERROR. The warning stays so a test or the
+    self-test sees which rule raised; the refusal is what keeps a broken rule from passing every push."""
+    frames = traceback.extract_tb(error.__traceback__)
+    path, number = (Path(frames[-1].filename).name, frames[-1].lineno) if frames else ("guardrails.py", 0)
+    text = f"rule {rule.id} failed ({type(error).__name__}: {error} at {path}:{number})"
+    return RuleFailure(path, number, text), (
+        f"{text}, so it judged nothing and refuses this push (fail closed); the other rules ran. Tell the "
+        "Performance Lead (PL-guardrails) with this line.")
 
 
 def check(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Added]]], list[tuple[str, str]]]:
@@ -5880,7 +5935,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     if rust:
         try:
             rust_rules: str | RustScanError = rust_rule_texts(texts, base)
-        except RustScanError as error:  # the Rust rules fail open with it (rust_rule)
+        except RustScanError as error:  # the Rust rules raise it (rust_rule), so they refuse
             rust_rules = error
         for change in rust:
             change.memo["rust_rules"] = rust_rules
@@ -5930,8 +5985,10 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         scoped = [f for f in files + context_files if in_rule_scope(f.path, rule.scope)]
         try:
             hits = rule.find(scoped, moved)
-        except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest
-            warnings.append(("guardrails", check_failure(f"rule {rule.id}", error)))
+        except Exception as error:  # fail closed: a rule that raised judged nothing, so it refuses; the rest still run
+            failure, warning = rule_failure(rule, error)
+            warnings.append(("guardrails", warning))
+            found.append((rule, [failure]))
             continue
         hits = [Attributed(h.path, h.number, h.text, causes[h.path]) if h.path in causes and type(h) is Added else h
                 for h in hits]
@@ -5987,7 +6044,6 @@ def check_own(repo: Path, base: str, head: str, before=()):
     found, warnings = results[0]
     others = []
     for theirs, other_warnings in results[1:]:
-        # A rule that failed on one range is off for this push even when it ran on the others.
         warnings += [w for w in other_warnings if w[0] == "guardrails" and w not in warnings]
         others.append({rule.id: hits for rule, hits in theirs})
     mine = {rule.id: hits for rule, hits in found}
@@ -5995,6 +6051,13 @@ def check_own(repo: Path, base: str, head: str, before=()):
     for rule in RULES:
         hits = mine.get(rule.id, [])
         prior = [other.get(rule.id, []) for other in others]
+        # A rule that raised on any range cannot tell the push's own debt from the other side's: it refuses (fail
+        # closed), and the same failure on both sides never nets out.
+        failed = list({(h.path, h.number, h.text): h for side in (hits, *prior) for h in side
+                       if isinstance(h, RuleFailure)}.values())
+        if failed:
+            own.append((rule, failed))
+            continue
         if not rule.net:
             kept = push_range.less(hits, prior, key=lambda h: (h.path, h.text.strip()))
         else:
@@ -6060,7 +6123,9 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
     """
     lines = []
     if warnings:
-        lines.append("guardrails: warnings (never refuse):")
+        lines.append("guardrails: warnings (these never refuse; a rule that failed refuses below):"
+                     if any(isinstance(h, RuleFailure) for _, hits in refusals for h in hits)
+                     else "guardrails: warnings (never refuse):")
         lines += [f"  [{kind}] {text}" for kind, text in warnings]
     skip = os.environ.get(SKIP_ENV, "").strip()
     skip_ids, skip_error = parse_skip(skip) if skip else (set(), None)
@@ -6075,6 +6140,14 @@ def format_report(refusals, warnings) -> tuple[str, bool]:
     lines.append("guardrails: this push adds architecture debt (scripts/cmux-next/guardrails.py):")
     for rule, hits in refusals:
         lines.append(f"  [{rule.id}] {rule.title}")
+        failed = [h for h in hits if isinstance(h, RuleFailure)]
+        if failed:
+            for hit in failed:
+                lines.append(f"    {hit.text}")
+            lines.append("    the rule could not judge this push, so it refuses it (fail closed). Tell the Performance "
+                         f"Lead (PL-guardrails) with these lines; skip it once only with {SKIP_ENV}=\"{rule.id}: <why>\" "
+                         "and say so in your report.")
+            continue
         for hit in hits[:20]:
             lines.append(f"    {hit.path}:{hit.number}: {hit.text.strip()[:140]}")
             if getattr(hit, "cause", ""):
@@ -6203,14 +6276,16 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     ratchet = ratchet or Ratchet(repo, ranges)
     refused = False
     for own in ranges:
-        # Fail open per range: a range the checker could not judge goes through; one it judged keeps its answer.
+        # Fail closed per range: a range the checker could not judge refuses (it judged nothing); the other ranges
+        # are still judged and print their own answer.
         try:
             refusals, warnings = check_own(repo, own.base, own.head, own.before)
             text, refuse = format_report(refusals, warnings)
         except (Exception, SystemExit) as error:  # SystemExit: git() exits on a failed git call
-            print(f"prepush-gate: WARNING: guardrails.py failed ({type(error).__name__}: {error}) on "
-                  f"{own.base[:11]}..{own.head[:11]}; not applied to that range. Tell the Performance Lead "
-                  "(PL-guardrails) with this line.", file=sys.stderr)
+            print(f"prepush-gate: guardrails.py failed ({type(error).__name__}: {error}) on "
+                  f"{own.base[:11]}..{own.head[:11]}, so it judged nothing there and refuses this push (fail "
+                  "closed). Tell the Performance Lead (PL-guardrails) with this line.", file=sys.stderr)
+            refused = True
             continue
         if text:
             print(text)
@@ -6785,8 +6860,8 @@ def edits_rust_rules(files: dict[str, str | None]) -> bool:
 def self_test_rust_rules(root: Path, rule_id: str, refusing: tuple, cases: tuple,
                          judge: Callable[[dict[str, str | None], str], tuple[list[Added], list[str]]]) -> list[str]:
     """The Rust rules' sources, judged with RUST_RULES_HOME swapped: a snapshot without the rules (installed before
-    them) judges the cases that edit or delete a rule with the base's copy, and a rule ast-grep rejects fails open
-    with a warning instead of passing the push unjudged. The failures."""
+    them) judges the cases that edit or delete a rule with the base's copy, and a rule ast-grep rejects refuses
+    the push with the rule's failure named (fail closed) instead of passing it unjudged. The failures."""
     global RUST_RULES_HOME
     failures = []
     installed = RUST_RULES_HOME
@@ -6809,9 +6884,10 @@ def self_test_rust_rules(root: Path, rule_id: str, refusing: tuple, cases: tuple
                 failures.append(f"{rule_id}: {name} from a snapshot without the rules")
         RUST_RULES_HOME = broken
         hits, raised = judge(refusing[1], refusing[0])
-        ok = bool(raised) and not hits
+        closed = bool(hits) and all(isinstance(h, RuleFailure) for h in hits)
+        ok = bool(raised) and closed
         print(f"  {'ok  ' if ok else 'FAIL'} {refusing[0]}, with a rule ast-grep rejects: "
-              f"{'fails open with a warning' if raised else 'refused' if hits else 'passes unjudged'}")
+              f"{'refused with its failure named' if ok else 'refused unnamed' if hits else 'passes unjudged'}")
         if not ok:
             failures.append(f"{rule_id}: {refusing[0]} with a rule ast-grep rejects")
     finally:
@@ -6853,7 +6929,7 @@ def self_test() -> int:
                     return run("rev-parse", "HEAD")
 
                 def judge(files: dict[str, str | None], message: str) -> tuple[list[Added], list[str]]:
-                    """(this rule's hits, its fail-open warnings) for one commit of FILES over the suite's base."""
+                    """(this rule's hits, the warnings that it raised) for one commit of FILES over the suite's base."""
                     run("checkout", "--quiet", "--detach", base)
                     refusals, warnings = check(repo, base, commit(files, message))
                     return ([h for rule, found in refusals if rule.id == rule_id for h in found],
@@ -6869,7 +6945,7 @@ def self_test() -> int:
                 for name, files, refused in cases:
                     total += 1
                     hits, raised = judge(files, name)
-                    # A rule that raised is skipped (fail open) and would pass every case that expects no refusal.
+                    # A rule that raised refuses (fail closed): that is no answer, even for a case that expects one.
                     ok = bool(hits) == refused and not raised
                     print(f"  {'ok  ' if ok else 'FAIL'} {name}: {'refused' if hits else 'passes'}"
                           + "".join(f"\n         {h.path}:{h.number}: {h.text.strip()}" for h in hits)
