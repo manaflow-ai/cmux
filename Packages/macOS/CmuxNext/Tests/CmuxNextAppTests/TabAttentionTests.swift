@@ -132,6 +132,11 @@ import Testing
                                                                       markedUnread: true)
         #expect(remoteTab.id == localTab.id && remoteTab !== localTab, "the two machines' tabs share an id")
         let notifications = services.notifications
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: remoteWorkspace.id))
+        invocation.targetMachineID = ssh.daemon.machineID
+        #expect(ActionScope(services: services, invocation: invocation).workspace === remoteWorkspace)
+        invocation.targetMachineID = "disconnected-machine"
+        #expect(ActionScope(services: services, invocation: invocation).workspace == nil)
         #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "the remote marked tab has no ring")
         notifications.interacted(.focus, tabID: remoteTab.id, in: remoteWorkspace, local: false)
         #expect(notifications.attentionMarks(for: remoteWorkspace).count == 1, "focus alone hid the ring")

@@ -220,6 +220,10 @@ impl TabStateUpdate {
             self.attention_clear_at_ms.is_none() || self.attention == Some(None),
             "bad request: attention_clear_at_ms only applies when clearing attention"
         );
+        anyhow::ensure!(
+            self.attention_clear_at_ms.is_none_or(|value| value <= i64::MAX as u64),
+            "bad request: attention_clear_at_ms exceeds SQLite integer range"
+        );
         for list in [&self.back, &self.forward].into_iter().flatten() {
             anyhow::ensure!(
                 list.len() <= MAX_HISTORY_URLS,
@@ -322,14 +326,12 @@ pub(crate) fn update_tab_state(
                 .filter_map(|value| u64::try_from(value).ok())
                 .max();
             let at_ms = previous.map_or(now_ms, |previous| now_ms.max(previous.saturating_add(1)));
-            anyhow::ensure!(at_ms <= i64::MAX as u64, "attention timestamp exceeds SQLite integer range");
+            anyhow::ensure!(
+                at_ms <= i64::MAX as u64,
+                "attention timestamp exceeds SQLite integer range"
+            );
             let stored = attention.as_deref().map(|reason| {
-                attention_value(
-                    reason.trim(),
-                    at_ms,
-                    update.attention_page.as_deref(),
-                )
-                .to_string()
+                attention_value(reason.trim(), at_ms, update.attention_page.as_deref()).to_string()
             });
             transaction.execute(
                 "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
@@ -755,7 +757,10 @@ mod attention_tests {
         update_tab_state(
             &transaction,
             "tab_a",
-            &TabStateUpdate { attention: Some(Some("Approve the scopes".into())), ..Default::default() },
+            &TabStateUpdate {
+                attention: Some(Some("Approve the scopes".into())),
+                ..Default::default()
+            },
         )
         .unwrap();
         transaction.commit().unwrap();
@@ -769,6 +774,58 @@ mod attention_tests {
         assert_eq!(
             connection.query_row("SELECT json_extract(attention_json, '$.reason') FROM tab_state WHERE tab_id = 'tab_a'", [], |row| row.get::<_, String>(0)).unwrap(),
             "Approve the scopes"
+        );
+    }
+
+    #[test]
+    fn migration_preserves_legacy_request_identity_after_clear() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
+             back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
+             marked_unread INTEGER, attention_json TEXT);
+             INSERT INTO tab_state(tab_id, attention_json) VALUES
+             ('tab_a', '{\"reason\":\"Legacy request\",\"at_ms\":8000000000000000}');",
+            )
+            .unwrap();
+        let transaction = connection.transaction().unwrap();
+        add_tab_attention_column(&transaction).unwrap();
+        update_tab_state(
+            &transaction,
+            "tab_a",
+            &TabStateUpdate { attention: Some(None), ..Default::default() },
+        )
+        .unwrap();
+        update_tab_state(
+            &transaction,
+            "tab_a",
+            &TabStateUpdate { attention: Some(Some("New request".into())), ..Default::default() },
+        )
+        .unwrap();
+        update_tab_state(
+            &transaction,
+            "tab_a",
+            &TabStateUpdate {
+                attention: Some(None),
+                attention_clear_at_ms: Some(8_000_000_000_000_000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let at_ms: i64 = transaction.query_row(
+            "SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = 'tab_a'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(at_ms, 8_000_000_000_000_001);
+        assert!(
+            TabStateUpdate {
+                attention: Some(None),
+                attention_clear_at_ms: Some(u64::MAX),
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
         );
     }
 

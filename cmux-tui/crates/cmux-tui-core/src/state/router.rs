@@ -211,7 +211,12 @@ fn optional_u64(fields: &Map<String, Value>, name: &str) -> Result<Option<u64>, 
         Some(value) => serde_json::from_value::<WireDecimal>(value.clone())
             .map(WireDecimal::get)
             .map(Some)
-            .map_err(|error| validation_error(&format!("{name} must be an unsigned decimal string"), json!({"field": name, "error": error.to_string()}))),
+            .map_err(|error| {
+                validation_error(
+                    &format!("{name} must be an unsigned decimal string"),
+                    json!({"field": name, "error": error.to_string()}),
+                )
+            }),
     }
 }
 
