@@ -76,53 +76,13 @@ extension HomeStore {
     /// (`CancellationError`). Throws like `perform`, and
     /// `HomeAttachmentError` (nothing logged) for a file the owner would
     /// refuse. `threadRoot` set: the message is a reply in that thread; `parent`: the
-    /// message of the thread it answers (HomeOp.sendMessage).
-    ///
-    /// Any number of attachments goes: past the owner's parts per message
-    /// (``HomeAttachmentPolicy/maxParts``) the send is several messages, in
-    /// order (``HomeAttachmentPolicy/messageGroups(_:extraParts:)``): the
-    /// first has `key` and the text, each later one its own key. Every file
-    /// is checked before any message is logged, so a refusal gives the whole
-    /// draft back; all of them are logged at once, then upload in turn.
+    /// message of the thread it answers (HomeOp.sendMessage). Any number of
+    /// attachments goes, as `send(conversation:parts:uploads:key:)` sends them.
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
                      key: IdempotencyKey = .make(), threadRoot: MessageID? = nil, parent: MessageID? = nil) async throws {
-        let caption: [MessagePart] = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : [.text(text)]
-        let groups = HomeAttachmentPolicy.messageGroups(attachments, extraParts: caption.count)
-        guard groups.count > 1 else {
-            try await send(conversation: conversation, parts: attachments.map { .attachment($0.ref) } + caption,
-                           uploads: attachments, key: key, threadRoot: threadRoot, parent: parent)
-            return
-        }
-        guard !stopped else { throw HomeRejection.ownerUnreachable }
-        let normalized = attachments.map { attachment -> LocalAttachment in
-            var attachment = attachment
-            attachment.ref = HomeAttachmentPolicy.normalized(attachment.ref)
-            return attachment
-        }
-        for attachment in normalized {
-            try HomeAttachmentPolicy.check(mimeType: attachment.ref.mimeType, byteCount: attachment.ref.byteCount,
-                                           name: attachment.ref.name)
-        }
-        var keys: [IdempotencyKey] = []
-        var start = 0
-        for (index, group) in groups.enumerated() {
-            let files = Array(normalized[start..<start + group.count])
-            start += group.count
-            let parts = files.map { MessagePart.attachment($0.ref) } + (index == 0 ? caption : [])
-            let groupKey = index == 0 ? key : IdempotencyKey.make()
-            let op = HomeOp.sendMessage(conversation: conversation, parts: parts, threadRoot: threadRoot, parent: parent)
-            try logAttachmentSend(op, uploads: files, key: groupKey, in: conversation)
-            keys.append(groupKey)
-        }
-        guard isOnline else {
-            for queued in keys { do { try queueUploadWhileOffline(queued) } catch {} }
-            throw HomeSendState.pendingResend
-        }
-        var failure: (any Error)?
-        for queued in keys {
-            do { try await uploadAndSubmit(queued) } catch { failure = failure ?? error }
-        }
-        if let failure { throw failure }
+        var parts = attachments.map { MessagePart.attachment($0.ref) }
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
+        try await send(conversation: conversation, parts: parts, uploads: attachments, key: key, threadRoot: threadRoot, parent: parent)
     }
 
     /// Sends `parts` as one message, uploading `uploads` first exactly as
@@ -133,6 +93,16 @@ extension HomeStore {
     /// which has no attachment part of its own (an image record the sender
     /// uploads, `prepareLinkPreviewImage`). Attachment parts and link
     /// preview pictures take the owner's stored mime type and byte count.
+    ///
+    /// Any number of attachments goes: past the owner's parts per message
+    /// (``HomeAttachmentPolicy/maxParts``) the parts go as several messages,
+    /// consecutive slices in order (``HomeAttachmentPolicy/messageGroups(_:extraParts:)``):
+    /// the first has `key`, each later one its own key, and each uploads the
+    /// blobs its own attachment parts name (the first also every blob no
+    /// attachment part names, a link preview's picture). Every file is checked
+    /// before any message is logged, so a refusal gives the whole draft back;
+    /// all of them are logged at once, then upload in turn. Parts with no
+    /// attachment at all stay one message within the limit.
     public func send(conversation: ConversationID, parts: [MessagePart], uploads: [LocalAttachment],
                      key: IdempotencyKey = .make(), threadRoot: MessageID? = nil, parent: MessageID? = nil) async throws {
         guard !stopped else { throw HomeRejection.ownerUnreachable }
@@ -147,21 +117,49 @@ extension HomeStore {
             return .attachment(HomeAttachmentPolicy.normalized(ref))
         }
         guard !parts.isEmpty else { throw HomeRejection.invalid("empty_message") }
-        guard parts.count <= HomeAttachmentPolicy.maxParts else {
+        guard parts.count <= HomeAttachmentPolicy.maxParts || !attachments.isEmpty else {
             throw HomeAttachmentError.tooManyParts(limit: HomeAttachmentPolicy.maxParts)
         }
         for attachment in attachments {
             try HomeAttachmentPolicy.check(mimeType: attachment.ref.mimeType, byteCount: attachment.ref.byteCount,
                                            name: attachment.ref.name)
         }
-        let op = HomeOp.sendMessage(conversation: conversation, parts: parts, threadRoot: threadRoot, parent: parent)
-        guard !attachments.isEmpty else {
-            try await perform(op, key: key)
+        let groups = HomeAttachmentPolicy.messageGroups(parts, extraParts: 0)
+        guard groups.count > 1 else {
+            let op = HomeOp.sendMessage(conversation: conversation, parts: parts, threadRoot: threadRoot, parent: parent)
+            guard !attachments.isEmpty else {
+                try await perform(op, key: key)
+                return
+            }
+            try logAttachmentSend(op, uploads: attachments, key: key, in: conversation)
+            guard isOnline else { try queueUploadWhileOffline(key) }
+            try await uploadAndSubmit(key)
             return
         }
-        try logAttachmentSend(op, uploads: attachments, key: key, in: conversation)
-        guard isOnline else { try queueUploadWhileOffline(key) }
-        try await uploadAndSubmit(key)
+        let named = Set(parts.compactMap(Self.attachmentHash))
+        var keys: [IdempotencyKey] = []
+        for (index, group) in groups.enumerated() {
+            let hashes = Set(group.compactMap(Self.attachmentHash))
+            let files = attachments.filter { hashes.contains($0.ref.hash) || (index == 0 && !named.contains($0.ref.hash)) }
+            let groupKey = index == 0 ? key : IdempotencyKey.make()
+            let op = HomeOp.sendMessage(conversation: conversation, parts: group, threadRoot: threadRoot, parent: parent)
+            try logAttachmentSend(op, uploads: files, key: groupKey, in: conversation)
+            keys.append(groupKey)
+        }
+        guard isOnline else {
+            for queued in keys { do { try queueUploadWhileOffline(queued) } catch {} }
+            throw HomeSendState.pendingResend
+        }
+        var failure: (any Error)?
+        for queued in keys {
+            do { try await uploadAndSubmit(queued) } catch { failure = failure ?? error }
+        }
+        if let failure { throw failure }
+    }
+
+    /// The blob an attachment part names; nil for any other part.
+    private nonisolated static func attachmentHash(_ part: MessagePart) -> String? {
+        if case .attachment(let ref) = part { ref.hash } else { nil }
     }
 
     /// Logs `op`, a send whose `uploads` go first, under `key`: its row shows

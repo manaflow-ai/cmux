@@ -17,9 +17,9 @@ public struct HomeAttachmentPolicy {
     /// (``messageGroups(_:extraParts:)``). cap-allow: route
     public static let maxParts = 16
 
-    /// `items` (a send's attachments) as the messages one send becomes, in
-    /// order: each within ``maxParts``, the first with room for `extraParts`
-    /// more (the text). No items: one empty group.
+    /// `items` (a send's parts) as the messages one send becomes:
+    /// consecutive slices in order, each within ``maxParts``, the first with
+    /// room for `extraParts` more. No items: one empty group.
     public static func messageGroups<Item>(_ items: [Item], extraParts: Int) -> [[Item]] {
         var groups: [[Item]] = []
         var start = 0

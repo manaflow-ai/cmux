@@ -26,13 +26,48 @@ import UniformTypeIdentifiers
 @Suite(.timeLimit(.minutes(3))) struct AttachmentAnyCountSendTests {
     let conversation = ConversationID("conv_austin")
 
-    @MainActor @Test func sixtyFiveFilesSendAsMessagesWithinThePartLimitInOrder() async throws {
+    @MainActor func started() async throws -> (HomeStore, MockHomeSource) {
         let source = MockHomeSource(options: .immediate)
         let store = HomeStore(source: source, blobCacheDirectory: try temporaryDirectory())
         store.start()
         await waitUntil { store.isOnline && !store.rows.isEmpty }
         await store.open(conversation)
         await waitUntil { !store.transcript(for: self.conversation).isEmpty }
+        return (store, source)
+    }
+
+    /// The native composer's send (MessagesLab `HomeProjection`): its pieces in the order typed,
+    /// text between files, through `send(conversation:parts:uploads:)`.
+    @MainActor @Test func seventeenFilesAroundTextSendThroughThePartsOverloadInOrder() async throws {
+        let (store, source) = try await started()
+        var files: [LocalAttachment] = []
+        for index in 0..<17 {
+            files.append(try await store.prepareAttachment(data: Data("piece \(index)".utf8), typeIdentifier: UTType.plainText.identifier))
+        }
+        let parts: [MessagePart] = files.prefix(8).map { .attachment($0.ref) } + [.text("between")]
+            + files.dropFirst(8).map { .attachment($0.ref) }
+        try await store.send(conversation: conversation, parts: parts, uploads: files)
+        await waitUntil { store.log.isEmpty }
+
+        let hashes = Set(files.map(\.ref.hash))
+        let sent = try await source.snapshot(of: conversation, tail: 20).messages.filter { message in
+            message.parts.contains { if case .attachment(let ref) = $0 { hashes.contains(ref.hash) } else { false } }
+        }
+        #expect(sent.count == 2)
+        #expect(sent.allSatisfy { $0.parts.count <= HomeAttachmentPolicy.maxParts })
+        // The owner may restate a part's stored type and size: compare what each part is.
+        func shape(_ part: MessagePart) -> String {
+            switch part {
+            case .attachment(let ref): "file:" + ref.hash
+            case .text(let text, _): "text:" + text
+            default: "other"
+            }
+        }
+        #expect(sent.flatMap(\.parts).map(shape) == parts.map(shape))
+    }
+
+    @MainActor @Test func sixtyFiveFilesSendAsMessagesWithinThePartLimitInOrder() async throws {
+        let (store, source) = try await started()
 
         var files: [LocalAttachment] = []
         for index in 0..<65 {
