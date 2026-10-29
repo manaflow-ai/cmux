@@ -100,6 +100,7 @@ def cpu_snapshot(pid: int | None) -> dict | None:
         return None
     snap = {"main": _cpu_seconds(times[0][0]) + _cpu_seconds(times[0][1]), "app": 0.0, "renderer": 0.0, "gpu": 0.0,
             "helper_other": 0.0}
+    renderers: dict[int, float] = {}
     for line in procs.splitlines():
         parts = line.split(None, 3)
         if len(parts) < 4:
@@ -110,15 +111,29 @@ def cpu_snapshot(pid: int | None) -> dict | None:
         elif int(parent) == pid:
             kind = "renderer" if "Renderer" in comm else "gpu" if "GPU" in comm else "helper_other"
             snap[kind] += _cpu_seconds(used)
+            if kind == "renderer":
+                renderers[int(child)] = _cpu_seconds(used)
+    snap["_renderers"] = renderers
     return snap
 
 
 def _cpu_delta(before: dict | None, after: dict | None, steps: int) -> dict | None:
     if not before or not after:
         return None
-    delta = {key: round((after[key] - before[key]) * 1000, 1) for key in before}
+    delta = {key: round((after[key] - before[key]) * 1000, 1) for key in before if not key.startswith("_")}
     delta["main_ms_per_step"] = round(delta["main"] / steps, 2)
+    grew = {pid: used - before["_renderers"].get(pid, 0.0) for pid, used in after["_renderers"].items()}
+    delta["busiest_renderer"] = max(grew, key=grew.get) if grew else None
     return delta
+
+
+def _sample(pid: int, seconds: int, path: Path) -> subprocess.Popen | None:
+    """`/usr/bin/sample PID SECONDS 1 -file PATH` in the background (1 ms interval); None when it cannot start."""
+    try:
+        return subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "1", "-file", str(path)],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    except OSError:
+        return None
 
 
 def _divider(sample: dict) -> list | None:
@@ -136,13 +151,16 @@ def _page(sample: dict) -> list | None:
 
 
 def drive(driver, out: Path, strip: bool = False, page_kind: str = "probe", pid: int | None = None,
-          record: bool = False, drag_hz: float = 120) -> None:
+          record: bool = False, drag_hz: float = 120, profile: bool = False) -> None:
     """Splits right, opens the probe (or HEAVY_PAGE) in the right pane, then traces four divider drags.
 
     `strip`: then one more drag, held open while `debug.window_snapshot` takes the window every
     12 moves (`strip-NN.png` in `out`): a frame strip of where the page is while the divider moves.
     `record`: then one more drag out and back under `debug.window_record` (JPEG frames per display
-    frame in `out/record`). Snapshots and the recording perturb timing, so those drags are not measured."""
+    frame in `out/record`). `profile` (with `pid`): then two more drags while `sample` profiles the app
+    and the renderer that spent the most during the measured drags (`out/sample-app.txt`,
+    `out/sample-renderer.txt`). Snapshots, the recording and profiling perturb timing, so those drags are
+    not measured."""
     page = out / "split-resize-probe.html"
     page.write_text(HEAVY_PAGE if page_kind == "heavy" else browser_resize.PROBE_PAGE)
     # A fresh home opens on the agent chat dock, which never splits: start from a workspace with a terminal.
@@ -215,6 +233,21 @@ def drive(driver, out: Path, strip: bool = False, page_kind: str = "probe", pid:
         trace["cpu"] = (trace.get("acted") or {}).get("cpu")
         drags.append(trace)
         time.sleep(0.6)
+    profiled = None
+    if profile and pid:
+        renderer = next((d["cpu"].get("busiest_renderer") for d in reversed(drags) if d.get("cpu")), None)
+        samplers = {"app": _sample(pid, 3, out / "sample-app.txt")}
+        if renderer:
+            samplers["renderer"] = _sample(renderer, 3, out / "sample-renderer.txt")
+        time.sleep(0.3)
+        profiled = {"renderer_pid": renderer, "out": drag(-160), "back": drag(160)}
+        for sampler in samplers.values():
+            if sampler:
+                try:
+                    sampler.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    sampler.kill()
+        time.sleep(0.6)
     recorded = None
     if record:
         frames_dir = out / "record"
@@ -241,7 +274,8 @@ def drive(driver, out: Path, strip: bool = False, page_kind: str = "probe", pid:
         shots.append({"step": "landed", "path": path.name,
                       "result": driver.call("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=20)})
     driver.save("split_resize", {"drags": drags, "split": split, "opened": opened, "strip": shots, "page": page_kind,
-                                 "recorded": recorded, "drag_hz": drag_hz})
+                                 "recorded": recorded, "drag_hz": drag_hz,
+                                 "profiled": profiled})
 
 
 # The recording drag: a window snapshot every this many of its 96 moves (16 frames, then one after it landed).
@@ -366,7 +400,8 @@ def judge(data: dict, refresh: float) -> dict:
         return {f: max(row[f] for row in rows) for f in ("p50", "p95", "p99", "max")} if rows else None
 
     cpus = [drag["cpu"] for drag in measured if drag.get("cpu")]
-    cpu = ({key: round(sum(c[key] for c in cpus) / len(cpus), 2) for key in cpus[0]} if cpus else None)
+    cpu = ({key: round(sum(c[key] for c in cpus) / len(cpus), 2) for key in cpus[0] if key != "busiest_renderer"}
+           if cpus else None)
     return {
         "ok": True,
         "problems": [],

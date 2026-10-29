@@ -49,6 +49,8 @@ parser.add_argument("--variants", default="")
 parser.add_argument("--pages", default="probe")
 parser.add_argument("--drag-hz", default="120")
 parser.add_argument("--cpu-load", type=int, default=0)
+# --profile: two more drags per launch under `sample` (app and busiest renderer); the heaviest stacks go in the report.
+parser.add_argument("--profile", action="store_true")
 opts, _ = parser.parse_known_args()
 VARIANTS = ("live", "hold", "synced", "resizeSync")
 variants = [v for v in opts.variants.split(",") if v] or [None]
@@ -93,6 +95,15 @@ def recording_frames(folder: Path, count: int = 24) -> list[dict]:
     return shown
 
 
+def heaviest(path: Path, limit: int = 160_000) -> str | None:
+    """The call graph of a `sample` report, cut to `limit` bytes (its heaviest stacks come first)."""
+    if not path.is_file():
+        return None
+    text = path.read_text(errors="replace")
+    start = text.find("Call graph:")
+    return text[start if start >= 0 else 0:][:limit]
+
+
 def measure(variant: str | None, folder: Path, page: str = "probe", hz: float = 120) -> dict:
     """One launch: the harness's drags and its recording drag, judged."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -109,7 +120,7 @@ def measure(variant: str | None, folder: Path, page: str = "probe", hz: float = 
         driver.call("debug.motion", {"action": "speed", "value": "fast"})
         driver.call("debug.motion", {"action": "reduce", "value": False})
         split_resize.drive(driver, folder, strip=True, page_kind=page, pid=app.process.pid if app.process else None,
-                           record=True, drag_hz=hz)
+                           record=True, drag_hz=hz, profile=opts.profile)
         data = json.loads((folder / "split_resize.json").read_text())
         refresh = next((float(d.get("refresh_ms") or 0) for d in data.get("drags") or [] if float(d.get("refresh_ms") or 0) > 0),
                        1000 / 60)
@@ -123,6 +134,7 @@ def measure(variant: str | None, folder: Path, page: str = "probe", hz: float = 
                             "png": strip_png(folder / shot["path"])} for shot in (data.get("strip") or [])[:20]]
         report["recorded"] = data.get("recorded")
         report["recording"] = recording_frames(folder)
+        report["profile"] = {name: heaviest(folder / f"sample-{name}.txt") for name in ("app", "renderer")}
         print(f"[{variant or 'default'} {page} {hz:g} Hz] " + split_resize.markdown_row(report))
         print("SPLIT-RESIZE " + json.dumps({k: v for k, v in report.items() if k not in ("drags", "strip", "log")}))
     except (Exception, SystemExit) as error:  # one variant's failure (BenchApp's launch error is a SystemExit) still reports the others
