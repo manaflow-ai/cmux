@@ -2,7 +2,13 @@ import { expect, test } from "bun:test";
 import { BtwNotes } from "../src/agent-session/acpmux/aside/btwNotes";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
-const row = (id: string, at = Date.now() - 1000): AcpmuxRow => ({ id, version: 1, kind: "assistant", at, text: id });
+const row = (id: string, at = Date.now() - 1000): AcpmuxRow => ({
+  id,
+  version: 1,
+  kind: "assistant",
+  at,
+  text: id,
+});
 const deferred = () => {
   let resolve!: (answer: string) => void;
   let reject!: (error: Error) => void;
@@ -74,4 +80,28 @@ test("a folded-away anchor keeps the aside before later work and preserves repea
   const shown = notes.rows([row("earlier"), later], "main");
   expect(shown.map((entry) => entry.kind)).toEqual(["assistant", "btw", "btw", "assistant"]);
   expect(new Set(shown.map((entry) => entry.id)).size).toBe(4);
+});
+
+test("Retry after Trust updates the same aside and a dismissed question never retries", async () => {
+  const notes = new BtwNotes();
+  let calls = 0;
+  notes.ask("main", "Why?", undefined, async () => {
+    calls++;
+    if (calls === 1) throw Object.assign(new Error("Trust this folder first"), { code: "trust.untrusted" });
+    return "Trusted answer";
+  });
+  await settled();
+  const id = notes.snapshot()[0].id;
+  expect(notes.snapshot()[0].error).toBe("Trust this folder first");
+  const retry = notes.snapshot()[0].retry!;
+  retry();
+  await settled();
+  expect(notes.snapshot()).toHaveLength(1);
+  expect(notes.snapshot()[0].id).toBe(id);
+  expect(notes.snapshot()[0].answer).toBe("Trusted answer");
+  expect(notes.snapshot()[0].error).toBeUndefined();
+  notes.dismiss(id);
+  retry();
+  await settled();
+  expect(calls).toBe(2);
 });

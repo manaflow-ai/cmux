@@ -302,6 +302,14 @@ impl Translator {
                         ])
                     }
                     SIDE_QUESTION => {
+                        // Check at the writer as well as the hub: the main turn
+                        // may have ended after the hub selected the native path.
+                        if !self.in_turn.load(Ordering::SeqCst) {
+                            return Outbound::Reply(Message::err(
+                                id.clone(),
+                                RpcError::method_not_found(SIDE_QUESTION),
+                            ));
+                        }
                         let Some(question) = p
                             .get("question")
                             .and_then(Value::as_str)

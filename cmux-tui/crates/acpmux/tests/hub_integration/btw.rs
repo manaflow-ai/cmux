@@ -242,16 +242,44 @@ async fn idle_claude_inline_btw_uses_the_one_shot_fallback() {
     std::fs::create_dir_all(&claude).unwrap();
     let (hub, mut c) = claude_setup(&claude, &[]).await;
     let id = new_chat(&mut c).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "finished context")).await.unwrap();
+    let before = prompts(&hub, &id);
 
     // The Claude process is alive, but no turn callback is installed while
     // the chat is idle. Inline must therefore emulate the answer in a
     // temporary read-only side session instead of sending side_question.
     let inline = c
-        .request(BTW, json!({"sessionId": id, "question": "idle question", "inline": true}))
+        .request(BTW, json!({"sessionId": id, "question": "history-probe", "inline": true}))
+        .await
+        .unwrap();
+    let history: Value = serde_json::from_str(inline["text"].as_str().unwrap()).unwrap();
+    assert_eq!(history["prompts"], json!(["finished context"]));
+    assert_eq!(prompts(&hub, &id), before, "idle inline never prompts the main chat");
+    assert_eq!(hub.sessions().len(), 1, "the one-shot side session is discarded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn unsupported_claude_side_question_falls_back_while_parent_turn_runs() {
+    let root =
+        std::env::temp_dir().join(format!("acpmux-btw-unsupported-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) =
+        claude_setup(&claude, &[("FAKE_CLAUDE_SIDE_QUESTION_UNSUPPORTED", "1")]).await;
+    let id = new_chat(&mut c).await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "long-step")).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "stepping").await;
+    assert!(hub.resolve(&id).unwrap().turn().is_some(), "the parent turn started");
+
+    let inline = c
+        .request(BTW, json!({"sessionId": id, "question": "while running", "inline": true}))
         .await
         .unwrap();
     assert!(inline["text"].as_str().is_some_and(|text| !text.is_empty()), "{inline}");
-    assert_eq!(hub.sessions().len(), 1, "the one-shot side session is discarded");
+    assert!(hub.resolve(&id).unwrap().turn().is_some(), "fallback leaves the parent turn running");
+    assert_eq!(hub.sessions().len(), 1, "the fallback side session is discarded");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

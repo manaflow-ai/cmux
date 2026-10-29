@@ -135,7 +135,6 @@ impl Hub {
         // One deadline covers the inline fallback from this entry point through answer and cleanup;
         // it cannot spend separate acceptance and answer windows beyond the app's request budget.
         let inline_deadline = inline.then(|| tokio::time::Instant::now() + INLINE_TIMEOUT);
-        let explicit = model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_owned);
         let meta = session.meta();
         // Claude Code owns a transcript-free side-question callback on its
         // running stream-json process. It never creates a session or sends an
@@ -144,22 +143,46 @@ impl Hub {
             let (is_claude, _) =
                 with_inline_deadline(inline_deadline, self.harness_env(&meta)).await?;
             // Claude's native side-question callback only exists during an
-            // active turn. An idle process (or a Claude release without that
-            // callback) must use the normal one-shot, read-only emulation
-            // below instead of receiving an unsupported control request.
-            let callback_active = if is_claude {
-                let child = session.child.lock().await.clone();
-                child
-                    .as_ref()
-                    .and_then(|child| child.translator.as_ref())
-                    .is_some_and(|translator| translator.in_turn())
-            } else {
-                false
-            };
-            if callback_active {
-                return self.btw_inline_claude(session, question).await;
+            // active turn. An idle process uses the read-only emulation below.
+            // The translator enforces its own active-turn check at dispatch,
+            // including when it lives in a separate agent-host process.
+            if is_claude && session.turn().is_some() {
+                match with_inline_deadline(
+                    inline_deadline,
+                    Box::pin(self.btw_inline_claude(session, question)),
+                )
+                .await?
+                {
+                    // The turn can finish after our check, or this Claude
+                    // release may lack the callback. Only an explicit refusal
+                    // falls back; a timeout or an answer failure does not retry.
+                    Err(error)
+                        if error.code == -32601
+                            || error
+                                .message
+                                .starts_with("side_question is not supported in this context") => {}
+                    result => return result,
+                }
             }
         }
+        // Keep the fork/startup state machine off the request task's stack.
+        // Native and emulated paths share a deadline, not one large future.
+        Box::pin(self.btw_side_session(session, question, model, client, opts, inline_deadline))
+            .await
+    }
+
+    async fn btw_side_session(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        question: &str,
+        model: Option<&str>,
+        client: &str,
+        opts: PromptOptions,
+        inline_deadline: Option<tokio::time::Instant>,
+    ) -> Result<Value, RpcError> {
+        let inline = inline_deadline.is_some();
+        let explicit = model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_owned);
+        let meta = session.meta();
         // Refused before anything is created when no mode would hold it.
         let (mode, read_only) =
             with_inline_deadline(inline_deadline, self.read_only_mode(&meta)).await??;

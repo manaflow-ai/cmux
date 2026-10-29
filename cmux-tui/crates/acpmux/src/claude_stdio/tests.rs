@@ -33,6 +33,7 @@ async fn prompt_becomes_user_line_and_result_answers_it() {
 #[tokio::test]
 async fn native_side_question_uses_claude_control_protocol() {
     let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    t.in_turn.store(true, Ordering::SeqCst);
     let req = Message::request(
         19,
         SIDE_QUESTION,
@@ -75,6 +76,7 @@ async fn native_side_question_uses_claude_control_protocol() {
 #[tokio::test]
 async fn native_side_question_rejects_missing_answer_callback() {
     let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    t.in_turn.store(true, Ordering::SeqCst);
     let req = Message::request(20, SIDE_QUESTION, json!({"question": "probe"}));
     let Outbound::Lines(_) = t.outbound(&req).await else { panic!() };
     let msgs = t
@@ -92,6 +94,20 @@ async fn native_side_question_rejects_missing_answer_callback() {
         [Message::Response { id, result: None, error: Some(error) }]
             if *id == 20 && error.message.contains("side_question is not supported")
     ));
+}
+
+#[tokio::test]
+async fn native_side_question_rejects_an_idle_chat_before_writing_control_request() {
+    let t = Translator::new("acp-1".into(), "default", "sonnet", "default");
+    let req = Message::request(21, SIDE_QUESTION, json!({"question": "probe"}));
+    let Outbound::Reply(Message::Response { id, result: None, error: Some(error) }) =
+        t.outbound(&req).await
+    else {
+        panic!("idle side question must be refused before writing to Claude")
+    };
+    assert_eq!(id, Value::from(21));
+    assert_eq!(error.code, -32601);
+    assert!(error.message.contains(SIDE_QUESTION));
 }
 
 /// A steer Claude Code reads after the reply it is writing (cx-f51kv): the

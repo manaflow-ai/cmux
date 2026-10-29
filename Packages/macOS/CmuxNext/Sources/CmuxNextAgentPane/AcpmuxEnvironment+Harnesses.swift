@@ -8,11 +8,14 @@ public nonisolated struct AcpmuxRPCError: Error, Sendable, Equatable, LocalizedE
     public var code: Int?
     public var name: String?
     public var message: String
+    /// The folder named by a trust refusal, retained for the pane's Trust route.
+    public var cwd: String?
 
-    public init(code: Int? = nil, name: String? = nil, message: String) {
+    public init(code: Int? = nil, name: String? = nil, message: String, cwd: String? = nil) {
         self.code = code
         self.name = name
         self.message = message
+        self.cwd = cwd
     }
 
     init(_ error: [String: Any]) {
@@ -20,6 +23,7 @@ public nonisolated struct AcpmuxRPCError: Error, Sendable, Equatable, LocalizedE
         code = (error["code"] as? NSNumber)?.intValue
         name = data?["reason"] as? String ?? data?["code"] as? String
         message = error["message"] as? String ?? "acpmux request failed"
+        cwd = data?["cwd"] as? String
     }
 
     /// The daemon does not serve the method (an older acpmux): callers fall back to the CLI.

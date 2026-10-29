@@ -22,6 +22,11 @@ export function BtwAside({ note, onDismiss }: { note: BtwNote; onDismiss(): void
         <p role="alert">
           {t("needsYou.askFailed")}
           {note.error ? `: ${note.error}` : ""}
+          {note.retry && (
+            <button type="button" onClick={note.retry}>
+              {t("host.retry")}
+            </button>
+          )}
         </p>
       ) : (
         <RevealedMarkdown text={note.answer ?? ""} streaming={false} />

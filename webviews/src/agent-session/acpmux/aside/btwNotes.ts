@@ -8,6 +8,7 @@ export type BtwNote = {
   anchorId?: string;
   answer?: string;
   error?: string;
+  retry?(): void;
 };
 export type BtwRow = AcpmuxRow & { btw: BtwNote; dismissBtw(): void };
 type Ask = (question: string, sessionId: string) => Promise<string>;
@@ -36,12 +37,26 @@ export class BtwNotes {
     };
     this.set([...this.notes, note]);
     // No side effect is deferred past a chat switch: ask captures and validates its source id.
-    Promise.resolve()
-      .then(() => ask(question, sessionId))
-      .then(
-        (answer) => this.finish(note.id, { answer }),
-        (failure: unknown) => this.finish(note.id, { error: failure instanceof Error ? failure.message : "" }),
-      );
+    const run = () => {
+      if (!this.notes.some((entry) => entry.id === note.id)) return;
+      this.finish(note.id, { answer: undefined, error: undefined, retry: undefined });
+      Promise.resolve()
+        .then(() => ask(question, sessionId))
+        .then(
+          (answer) => this.finish(note.id, { answer }),
+          (failure: unknown) => {
+            const fields = failure as { code?: unknown; reason?: unknown } | null;
+            const reason = fields?.reason ?? fields?.code;
+            this.finish(note.id, {
+              error: failure instanceof Error ? failure.message : "",
+              // Trust spends its own gesture. Retry is a separate click so
+              // the next inline request has a fresh one-use gesture too.
+              retry: reason === "trust.pending" || reason === "trust.untrusted" ? run : undefined,
+            });
+          },
+        );
+    };
+    run();
   }
 
   dismiss = (id: string): void => {
@@ -76,7 +91,7 @@ export class BtwNotes {
     return result;
   }
 
-  private finish(id: string, result: Pick<BtwNote, "answer" | "error">): void {
+  private finish(id: string, result: Pick<BtwNote, "answer" | "error" | "retry">): void {
     if (!this.notes.some((note) => note.id === id)) return;
     this.set(this.notes.map((note) => (note.id === id ? { ...note, ...result } : note)));
   }

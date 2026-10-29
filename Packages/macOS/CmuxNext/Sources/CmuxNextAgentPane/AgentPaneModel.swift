@@ -442,9 +442,16 @@ public final class AgentPaneModel {
             guard !remoteChat, self.sessionId == sessionId, let socketPath = transport.socketPath else { return Self.unsupported("chat.btw.inline") }
             do {
                 let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/btw",
-                    params: ["sessionId": sessionId, "question": question, "inline": true, "_meta": ["acpmux": ["via": "app"]]], deadline: .seconds(120))
-                guard let text = result["text"] as? String, !text.isEmpty else { return Self.unsupported("chat.btw.inline") }
+                    params: ["sessionId": sessionId, "question": question, "inline": true, "_meta": ["acpmux": ["via": "app"]]], deadline: .seconds(120), detailed: true)
+                guard let text = result["text"] as? String, !text.isEmpty else {
+                    return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
+                }
                 return AgentPaneReply.success(["text": text])
+            } catch let refusal as AcpmuxRPCError where refusal.name == "trust.pending" || refusal.name == "trust.untrusted" {
+                let reason = refusal.name ?? "trust.pending"
+                var details: [String: Any] = ["reason": reason]
+                if let cwd = refusal.cwd { details["cwd"] = cwd }
+                return AgentPaneReply.failure(code: reason, message: refusal.message, details: details, retryable: true, origin: "session_host")
             } catch {
                 return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
             }

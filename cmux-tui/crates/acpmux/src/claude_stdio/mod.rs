@@ -594,13 +594,6 @@ impl Translator {
         })
     }
 
-    /// Whether Claude Code currently has an active turn callback. Native
-    /// `side_question` is only valid while that callback is installed; an
-    /// idle chat must use the one-shot read-only fallback instead.
-    pub fn in_turn(&self) -> bool {
-        self.in_turn.load(Ordering::SeqCst)
-    }
-
     /// Take the lines `inbound` queued for claude's stdin.
     /// Error answers for every ACP request still waiting on Claude, which
     /// are dropped: used when Claude's answer cannot be carried (a line over

@@ -291,9 +291,16 @@ def long_step(prompt):
                   "request_id": msg.get("request_id"), "response": {"cancelled": len(kept) < len(waiting)}}})
             waiting = kept
         elif msg.get("type") == "control_request":
+            request = msg.get("request") or {}
+            if (request.get("subtype") == "side_question"
+                    and os.environ.get("FAKE_CLAUDE_SIDE_QUESTION_UNSUPPORTED") == "1"):
+                send({"type": "control_response", "response": {"subtype": "error",
+                      "request_id": msg.get("request_id"),
+                      "error": "side_question is not supported in this context"}})
+                continue
             send({"type": "control_response", "response": {"subtype": "success",
                   "request_id": msg.get("request_id"), "response": {}}})
-            if (msg.get("request") or {}).get("subtype") == "interrupt":
+            if request.get("subtype") == "interrupt":
                 break
     send({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": None,
           "num_turns": 1, "duration_api_ms": 5})
