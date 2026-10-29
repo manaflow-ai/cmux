@@ -64,7 +64,7 @@ await requireBrowserLane("access-grants-columns.test.ts", async () => {
       timeout: 120_000,
     });
     await page.evaluate(() => document.fonts.ready);
-    await page.getByRole("button", { name: "Mode" }).click();
+    await page.getByRole("button", { name: "Mode", exact: true }).click();
     await page.locator(".acpmux-access-grants .acpmux-access-grant").first().waitFor();
     return page;
   };
