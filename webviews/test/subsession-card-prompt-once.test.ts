@@ -22,7 +22,6 @@ test("a line that is the prompt's opening, cut mid-word with an ellipsis, repeat
 
 test("a line that says what the session does now is not a repeat", () => {
   expect(repeatsPrompt("Read src/net/RetryBanner.tsx", prompt)).toBe(false);
-  expect(repeatsPrompt("Working on: You are ios-remote…", prompt)).toBe(false);
   expect(repeatsPrompt("You are net-retries, a lane", prompt)).toBe(false);
   expect(repeatsPrompt("", prompt)).toBe(false);
 });
@@ -33,4 +32,12 @@ test("only a line that ends in an ellipsis may stop mid-word", () => {
   expect(repeatsPrompt("Fix bug\u2026", "Fix bugs in parser")).toBe(true);
   expect(repeatsPrompt("Fix bugs in parser", "Fix bugs in parser and lexer")).toBe(true);
   expect(repeatsPrompt("Fix bugs in parser and more", "Fix bugs in parser")).toBe(false);
+});
+
+test('acpmux\'s "Working on: <prompt>" line repeats the prompt (hub/subsession_send.rs)', () => {
+  expect(repeatsPrompt("Working on: You are ios-remote, the area owner for cmux's iOS app\u2026", prompt)).toBe(true);
+  expect(repeatsPrompt("Working on: You are ios-remote\u2026", prompt)).toBe(true);
+  // Its prefix never makes another session's line a repeat.
+  expect(repeatsPrompt("Working on: You are net-retries\u2026", prompt)).toBe(false);
+  expect(repeatsPrompt("Working on: Read src/net/RetryBanner.tsx", prompt)).toBe(false);
 });

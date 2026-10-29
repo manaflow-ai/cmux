@@ -50,6 +50,9 @@ function RunningLine({ children }: { children: ReactNode }) {
 /// names a new session from its prompt, so its first line is that prompt's opening words, often cut
 /// with an ellipsis. Compared on words, ignoring whitespace, case and a trailing ellipsis.
 export function repeatsPrompt(line: string, prompt: string): boolean {
+  // acpmux's line for a session that has not reported a step yet is "Working on: <prompt, cut>"
+  // (hub/subsession_send.rs): the prefix is its, the rest the prompt's.
+  line = line.replace(/^\s*Working on:\s*/iu, "");
   const ellipsis = /(?:\.\.\.|\u2026)\s*$/u;
   // Only a line that says it is cut (it ends in an ellipsis) may end mid-word; any other line must
   // match the prompt's words exactly, so a real step ("Fix bug") never hides behind its prompt ("Fix bugs …").
