@@ -111,7 +111,7 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         defer { controller.send(.target(nil)); clock.stop() }
         try await eventually { dialer.first.probeCount == 1 }
         controller.send(.background)
-        let backgroundDeadline = clock.now.advanced(by: LinkController.backgroundHeartbeat)
+        let backgroundDeadline = clock.now.advanced(by: .seconds(15))
         try await eventually { clock.isSleeping(until: backgroundDeadline) }
         clock.advance(by: LinkController.heartbeat + .milliseconds(100))
         #expect(dialer.first.probeCount == 1)
