@@ -408,7 +408,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// Size work follows this told state, not ``isShown`` read at the call, so the two cannot disagree: a node that
     /// hides and shows again in one delivery pass tells no subscriber, and the view keeps sizing through it (R2).
     /// Its edge to true runs ``reconcileShown()`` once.
-    private(set) var sizesToBounds = false
+    var sizesToBounds = false // written only by syncWindowState (TerminalSurfaceView+Visibility.swift)
     /// Runs ``syncPlacement()`` when ``visibilityNode`` shows.
     private var placementWatch: VisibilitySubscription?
     /// In a window, its nodes not hidden and no container above parked (``windowNode``). A layout change of
