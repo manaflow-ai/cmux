@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHibernation
@@ -145,6 +146,15 @@ final class TerminalEntry {
     private let mainWork: MainWorkScheduler
     /// The TextBox composer under this terminal, made the first time a TextBox action runs on it.
     var textBox: TextBoxController?
+    /// A New Terminal Tab stand-in's link to its daemon tab: the terminal id its create chose and its daemon. The
+    /// daemon's tab carrying that id adopts this entry (`TabContentCache.adoptStandIn`), once. Nil for every other
+    /// terminal, and after the adoption.
+    var standIn: StandInLink?
+
+    struct StandInLink {
+        let terminal: TerminalID
+        weak var daemon: DaemonService?
+    }
 
     // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
     // action runs; a main-actor deinit's hop traps there (cx-t7hu).

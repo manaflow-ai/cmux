@@ -209,7 +209,9 @@ final class AppControl {
                                                  InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
                                                      await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
                                                  },
-                                                 HitTestAuditDebugRecorder(audit: HitTestAudit(input: services.inputTap))]).method])
+                                                 HitTestAuditDebugRecorder(audit: HitTestAudit(input: services.inputTap)),
+                                                 LateKeysRecorder(ledger: services.inputLatency.arrivals, heldKeys: services.inputLatency.heldKeys,
+                                                                  mainWork: services.mainWork)]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif
