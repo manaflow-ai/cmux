@@ -57,10 +57,12 @@ public final class IdleScheduler {
     /// The shortest long period worth starting (Chrome `kMinimumIdlePeriodDurationMillis`).
     static let minimumPeriodNanos: UInt64 = 1_000_000
 
+    /// Its counters since launch (``Stats``).
     public internal(set) var stats = Stats()
     /// The next main-thread deadline a long period must end before (the `MainDeadline` registry).
     public weak var deadlines: (any IdleNextDeadlineSource)? {
         didSet {
+            if oldValue !== deadlines { oldValue?.onNextFireChange = nil }
             deadlines?.onNextFireChange = { [weak self] in self?.deadlinesChanged() }
             deadlinesChanged()
         }
@@ -323,6 +325,7 @@ public final class IdleScheduler {
             guard next > now, next - now >= Self.minimumPeriodNanos else {
                 // Due first: the registry's change call lets the next period start.
                 deadlineDue = true
+                deadlines?.watchDueFire()
                 return
             }
             length = min(length, next - now)

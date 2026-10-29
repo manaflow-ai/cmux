@@ -7,7 +7,7 @@ import GhosttyNextKit
 import Testing
 
 /// A surface's output lane marks a key press's received and parsed hops on the chunk that carries its
-/// echo, never on an earlier chunk, and marks only its own surface's presses (p09-observability-019). The
+/// echo, never on an earlier chunk, and marks only its own surface's presses. The
 /// lane's parse is the test's recorder, so no Ghostty surface is made.
 @Suite(.timeLimit(.minutes(1))) struct TerminalOutputLaneKeyFlowTests {
     static var surface: ghostty_surface_t { unsafeBitCast(UInt(0x1000), to: ghostty_surface_t.self) }

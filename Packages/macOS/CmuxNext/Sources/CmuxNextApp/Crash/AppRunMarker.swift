@@ -78,7 +78,9 @@ nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bo
 /// so tagged builds never read each other's marker.
 ///
 /// - `run.json`: pid, launch time, whether this run is a restart, whether it lived past the quick-crash window, and
-///   whether a requested quit had begun (`markQuitting`).
+///   whether a requested quit had begun (`markQuitting`); whether its startup completed, the last startup task it
+///   began before that, and the runs in a row before it that ended before theirs (`LaunchSafeMode`, ``observe(_:)``).
+/// - `run.launch`: this launch's streak, written before any launch cache is read (`LaunchSafeMode.Beacon`).
 /// - `run.signal`: empty until a fatal signal handler writes its number.
 ///
 /// A normal quit removes both. A quit that had begun, or a requested-quit signal
@@ -90,6 +92,8 @@ nonisolated func arrivedOnASystemCall(_ context: UnsafeMutableRawPointer?) -> Bo
 /// before the marker is made (``init(launch:)``) leaves the next one the same decision. The marker's background
 /// writer (`RunMarkerFile`) then gives the crash files their names and writes `run.json`; the quit path awaits its
 /// `quitting` write (`markQuitting`).
+/// The launch read also makes the launch caches' crash-streak decision (``safeMode``) when no cache read made it
+/// first; a cache that ends a launch before its marker is made is counted by that launch's `run.launch`.
 @MainActor
 final class AppRunMarker {
     private let directory: URL
@@ -107,14 +111,17 @@ final class AppRunMarker {
     /// normal or requested quit, or on a first launch.
     let previousExit: HistogramID.UncleanExit?
     /// The previous run as its marker left it, whatever its end; nil on a first launch. Its crash event, sent at
-    /// this launch, gets its crash keys and black box (`AppCrashReporting`, p09-observability-079).
+    /// this launch, gets its crash keys and black box (`AppCrashReporting`).
     let previousRun: PreviousRun?
     /// The previous run when it ended with no handler of its own (killed, or the Mac shut down), so no crash report
-    /// covers it; its fatal-hang record, if any, is reported (p09-observability-110). Nil after a quit, a crash or none.
+    /// covers it; its fatal-hang record, if any, is reported. Nil after a quit, a crash or none.
     let previousUnreported: PreviousRun?
     /// The crash keys the previous run's crash path wrote (`run.crashkeys`), read by the launch read; nil when that
     /// run ended with no crash path (a normal quit, SIGKILL, power loss) or on a first launch.
     let previousCrashKeys: CrashKeys?
+    /// Whether this launch reads the launch caches: not after a streak of runs that ended before their startup
+    /// completed.
+    let safeMode: LaunchSafeMode
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
 
     /// The app's marker folder for `bundleID`.
@@ -141,6 +148,8 @@ final class AppRunMarker {
         let failure: String?
         /// This run's `run.signal` and `run.crashkeys`, open and empty under their spare names; -1 if not open.
         let signalDescriptor: Int32, keysDescriptor: Int32
+        /// The launch caches' crash-streak decision (``AppRunMarker/launchSafeMode(directory:now:bootSession:processStart:)``).
+        var safeMode: LaunchSafeMode = .noStreak
         /// How this launch follows the previous run.
         var recovery: LaunchRecovery { LaunchRecovery.decide(previous: previous?.forRecovery(bootSession: bootSession)) }
         /// How the previous run ended when it did not quit as asked; nil after a normal or requested quit, or on a first launch.
@@ -154,11 +163,13 @@ final class AppRunMarker {
     /// this run live and installs the fatal-signal handlers. No file call on the main thread.
     init(launch: Launch) {
         directory = launch.directory
-        file = RunMarkerFile(url: launch.directory.appending(path: "run.json"), signalURL: launch.directory.appending(path: "run.signal"))
+        // A normal quit removes `run.launch` with `run.json`: left alone it would read as a launch that ended before its marker.
+        file = RunMarkerFile(url: launch.directory.appending(path: "run.json"), signalURL: launch.directory.appending(path: "run.signal"),
+                             beaconURL: launch.directory.appending(path: Self.beaconName))
         (previousExit, recovery, previousCrashKeys) = (launch.previousExit, launch.recovery, launch.previousCrashKeys)
         previousRun = launch.previous
         previousUnreported = launch.previousUnreported
-        marker = launch.marker
+        (marker, safeMode) = (launch.marker, launch.safeMode)
         start(launch)
     }
 
@@ -167,6 +178,28 @@ final class AppRunMarker {
     nonisolated static func currentProcessStart() -> UInt64? {
         let start = TraceRingCleanup.processStartUnixMicros(pid: getpid())
         return start == 0 ? nil : start
+    }
+
+    /// Records the launch's startup in `run.json`: the name of each main task `startup` begins before it completes,
+    /// then the completion, which resets ``LaunchSafeMode``'s streak for the next launch. Each record is one queued
+    /// write, encoded off the main thread and coalesced (``RunMarkerFile``).
+    func observe(_ startup: StartupScheduler) {
+        startup.taskStarted = { [weak self] name in self?.startupTaskStarted(name) }
+        startup.whenComplete { [weak self] _ in self?.startupCompleted() }
+    }
+
+    /// The startup main task `name` began (``observe(_:)``).
+    func startupTaskStarted(_ name: StaticString) {
+        marker.lastStartupTask = name.description
+        writeMarker()
+    }
+
+    /// Startup completed (``observe(_:)``): the next launch reads its caches again.
+    func startupCompleted() {
+        guard marker.startupComplete != true else { return }
+        marker.startupComplete = true
+        marker.incompleteLaunches = 0
+        writeMarker()
     }
 
     /// This boot's id, `kern.bootsessionuuid` as 32 hex digits; nil when the kernel does not give it.
@@ -274,11 +307,15 @@ final class AppRunMarker {
         unsafe unlink(exceptionFile.path)
     }
 
-    /// Encodes the marker (about 120 bytes) and hands it to the background writer.
+    /// Hands the marker (about 200 bytes) to the background writer, which encodes it there (``encode(_:)``).
     private func writeMarker() {
-        do { lastTicket = file.submit(try Self.encode(marker)) } catch {
-            logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
-        }
+        let (run, logger) = (marker, logger)
+        lastTicket = file.submit(encoding: {
+            do { return try AppRunMarker.encode(run) } catch {
+                logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
+                return nil
+            }
+        })
     }
 
     /// The crash keys a run's crash path wrote (`url`: its `run.crashkeys`); nil when that run ended with no crash
@@ -327,8 +364,14 @@ extension PreviousRun {
         uncleanExit(bootSession: current) == .systemShutdown ? nil : self
     }
 
+    /// The launch caches' safe mode after this run, seen from a launch in boot `current`.
+    nonisolated func safeMode(bootSession current: String?) -> LaunchSafeMode {
+        LaunchSafeMode.after(startupComplete: startupComplete, incompleteLaunches: incompleteLaunches, endedAsAsked: endedAsAsked,
+                             machineRestarted: uncleanExit(bootSession: current) == .systemShutdown)
+    }
+
     /// The run, seen from boot `current`, when it ended with no handler of its own and not as asked (killed, or
-    /// the Mac shut down), so no crash report covers its end; nil after a quit or a crash (p09-observability-110).
+    /// the Mac shut down), so no crash report covers its end; nil after a quit or a crash.
     nonisolated func unreported(bootSession current: String?) -> PreviousRun? {
         let exit = uncleanExit(bootSession: current)
         return exit == nil || exit == .crash ? nil : self
@@ -345,39 +388,81 @@ extension AppRunMarker {
     ///   - sequence: The launch's files-lane sequence.
     ///   - now: This run's launch time, stored in its marker.
     ///   - bootSession: This boot's id; default ``currentBootSession()``, asked on the lane.
+    ///   - gate: The launch caches' decision, which the read asks (``launchSafeMode(directory:now:bootSession:processStart:)``
+    ///     decides it when no cache read did first); nil decides it for this read only (tests).
     /// - Returns: The read; its value is what ``init(launch:)`` takes.
     nonisolated static func startLaunchRead(directory: URL, in sequence: WorkSequence, now: Date = Date(),
-                                            bootSession: @escaping @Sendable () -> String? = { AppRunMarker.currentBootSession() })
+                                            bootSession: @escaping @Sendable () -> String? = { AppRunMarker.currentBootSession() },
+                                            gate: LaunchSafeMode.Gate? = nil)
         -> LaunchRead<Launch> {
         // A read quit drops before it ran: no previous run and no files, so no handlers.
         let dropped = Launch(directory: directory, bootSession: nil, previous: nil, previousCrashKeys: nil,
                              marker: PreviousRun(pid: getpid(), launched: now, recovery: false, survived: false, signal: nil),
                              failure: "the launch read was dropped at quit", signalDescriptor: -1, keysDescriptor: -1)
         return LaunchRead(in: sequence, dropped: dropped) {
-            prepareLaunch(directory: directory, now: now, bootSession: bootSession())
+            prepareLaunch(directory: directory, now: now, bootSession: bootSession(), gate: gate)
         }
     }
 
     /// The launch read's body: blocking, on the files lane. It reads the previous run's files and leaves them as they
     /// are; the only files it writes are this run's spare ones. `processStart` is this process's kernel start, stored
-    /// in its marker so the next launch takes only this process's black box and crash-key page (p09-observability-079).
+    /// in its marker so the next launch takes only this process's black box and crash-key page.
+    /// `gate` is the launch caches' decision (``startLaunchRead(directory:in:now:bootSession:gate:)``).
     nonisolated static func prepareLaunch(directory: URL, now: Date, bootSession: String?,
-                                          processStart: UInt64? = AppRunMarker.currentProcessStart()) -> Launch {
+                                          processStart: UInt64? = AppRunMarker.currentProcessStart(),
+                                          gate: LaunchSafeMode.Gate? = nil) -> Launch {
         let markerURL = directory.appending(path: "run.json"), signalURL = directory.appending(path: "run.signal")
+        // Before this run's files are opened: the decision reads the previous run's marker and writes `run.launch`.
+        let safeMode = (gate ?? LaunchSafeMode.Gate(decide: {
+            AppRunMarker.launchSafeMode(directory: directory, now: now, bootSession: bootSession, processStart: processStart)
+        })).safeMode
         let previous = readPrevious(marker: markerURL, signal: signalURL, exception: directory.appending(path: "run.exception"))
         let previousKeys = readCrashKeys(directory.appending(path: "run.crashkeys"))
         let marker = PreviousRun(pid: getpid(), launched: now,
                                  recovery: LaunchRecovery.watchesForLoop(previous: previous?.forRecovery(bootSession: bootSession)),
-                                 survived: false, signal: nil, bootSession: bootSession, processStart: processStart)
+                                 survived: false, signal: nil, bootSession: bootSession, processStart: processStart,
+                                 startupComplete: false, incompleteLaunches: safeMode.incompleteLaunches)
         func launch(failure: String?, signal: Int32 = -1, keys: Int32 = -1) -> Launch {
             Launch(directory: directory, bootSession: bootSession, previous: previous, previousCrashKeys: previousKeys,
-                   marker: marker, failure: failure, signalDescriptor: signal, keysDescriptor: keys)
+                   marker: marker, failure: failure, signalDescriptor: signal, keysDescriptor: keys, safeMode: safeMode)
         }
         do { try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true) } catch {
             return launch(failure: String(describing: error))
         }
         let files = openRunFiles(in: directory)
         return launch(failure: nil, signal: files.signal, keys: files.keys)
+    }
+
+    /// The file of a launch's first record (`LaunchSafeMode.Beacon`), beside `run.json`.
+    nonisolated static let beaconName = "run.launch"
+
+    /// The launch caches' crash-streak decision for this launch, the launch's ``LaunchSafeMode/Gate``'s `decide`:
+    /// from the previous run's `run.json`, or from the last launch's `run.launch` when that launch
+    /// ended before its marker was written (a cache read that ended it is counted so); then this launch's
+    /// `run.launch`, written before it returns. A second call finds that record and gives the same answer. Blocking:
+    /// on a launch lane, before any launch cache is read.
+    nonisolated static func launchSafeMode(directory: URL, now: Date = Date(), bootSession: String? = AppRunMarker.currentBootSession(),
+                                           processStart: UInt64? = AppRunMarker.currentProcessStart()) -> LaunchSafeMode {
+        let beaconURL = directory.appending(path: beaconName), pid = getpid()
+        let last = LaunchSafeMode.Beacon.read(beaconURL)
+        if let last, last.isProcess(pid: pid, processStart: processStart) { return LaunchSafeMode(incompleteLaunches: last.incompleteLaunches) }
+        let previous = readPrevious(marker: directory.appending(path: "run.json"), signal: directory.appending(path: "run.signal"))
+        let safeMode: LaunchSafeMode
+        // The last launch left a record but no marker of its own (it ended before the marker was made).
+        if let last, previous.map({ !last.isProcess(pid: $0.pid, processStart: $0.processStart) && last.launched > $0.launched }) ?? true {
+            safeMode = last.ended(bootSession: bootSession)
+        } else {
+            safeMode = previous?.safeMode(bootSession: bootSession) ?? .noStreak
+        }
+        let beacon = LaunchSafeMode.Beacon(pid: pid, processStart: processStart, launched: now, bootSession: bootSession,
+                                           incompleteLaunches: safeMode.incompleteLaunches)
+        do {
+            try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
+            try beacon.store(at: beaconURL)
+        } catch {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "crash").error("launch record not written: \(String(describing: error), privacy: .public)")
+        }
+        return safeMode
     }
 
     /// The names this run's `run.signal` and `run.crashkeys` are open under until the marker is made.

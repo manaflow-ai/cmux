@@ -74,40 +74,45 @@ struct BcryptPBKDF {
     }
 
     /// Blowfish state with the Eksblowfish key schedule helpers bcrypt needs.
-    /// State lives in one preallocated buffer (P: 18 words, S: 4 x 256 words)
-    /// so the hot loop never allocates or bounds-checks.
-    private final class Blowfish {
+    /// State lives in one preallocated buffer (P: 18 words, then S0 | S1 | S2 | S3:
+    /// 4 x 256 words) so the hot loop never allocates or bounds-checks. `@safe`:
+    /// only this class touches `state`, and every index below is shown in range
+    /// where it is formed (Chromium's rule for each UNSAFE_BUFFERS(),
+    /// docs/unsafe_buffers.md).
+    @safe private final class Blowfish {
         private static let pCount = 18
+        private static let sBase = pCount
+        private static let wordCount = pCount + 1024
         private let state: UnsafeMutablePointer<UInt32>
-        private var p: UnsafeMutablePointer<UInt32> { state }
-        private var s: UnsafeMutablePointer<UInt32> { state + Blowfish.pCount }
-        private let cdata = UnsafeMutablePointer<UInt32>.allocate(capacity: 8)
 
         init() {
-            state = .allocate(capacity: Blowfish.pCount + 1024)
+            // SAFETY: a fresh allocation of wordCount words, initialized whole before any
+            // read and deallocated once in deinit; `state` never leaves the object.
+            state = unsafe UnsafeMutablePointer<UInt32>.allocate(capacity: Blowfish.wordCount)
+            unsafe state.initialize(repeating: 0, count: Blowfish.wordCount)
         }
 
         deinit {
-            state.deallocate()
-            cdata.deallocate()
+            // SAFETY: the allocation made in init, released exactly once.
+            unsafe state.deallocate()
         }
 
         func bcryptHash(sha2pass: [UInt8], sha2salt: [UInt8], into out: inout [UInt8]) {
-            sha2pass.withUnsafeBufferPointer { pass in
-                sha2salt.withUnsafeBufferPointer { salt in
-                    initState()
-                    expandState(data: salt, key: pass)
-                    for _ in 0..<64 {
-                        expand0State(key: salt)
-                        expand0State(key: pass)
-                    }
-                }
+            initState()
+            expandState(data: sha2salt, key: sha2pass)
+            for _ in 0..<64 {
+                expand0State(key: sha2salt)
+                expand0State(key: sha2pass)
             }
-            for i in 0..<8 { cdata[i] = BcryptPBKDF.magicWords[i] }
+            var cdata = BcryptPBKDF.magicWords
             for _ in 0..<64 {
                 var i = 0
                 while i < 8 {
-                    encipher(&cdata[i], &cdata[i + 1])
+                    var l = cdata[i]
+                    var r = cdata[i + 1]
+                    encipher(&l, &r)
+                    cdata[i] = l
+                    cdata[i + 1] = r
                     i += 2
                 }
             }
@@ -121,19 +126,17 @@ struct BcryptPBKDF {
         }
 
         private func initState() {
-            // Both tables are non-empty constants, so their base addresses exist.
-            BcryptPBKDF.initialP.withUnsafeBufferPointer { src in
-                guard let base = src.baseAddress else { return }
-                p.update(from: base, count: Blowfish.pCount)
-            }
-            BcryptPBKDF.initialS.withUnsafeBufferPointer { src in
-                guard let base = src.baseAddress else { return }
-                s.update(from: base, count: 1024)
-            }
+            // SAFETY: initialP holds pCount (18) words and initialS 1024 (the constant
+            // tables below), so the copies fill state[0..<18] and state[18..<1042]: the
+            // whole allocation and nothing past it.
+            unsafe state.update(from: BcryptPBKDF.initialP, count: Blowfish.pCount)
+            unsafe (state + Blowfish.sBase).update(from: BcryptPBKDF.initialS, count: 1024)
         }
 
+        /// The next 4 bytes of `data` as a big-endian word, wrapping to the start
+        /// (Eksblowfish's Blowfish_stream2word). `data` is a 64-byte SHA-512 digest.
         @inline(__always)
-        private static func streamToWord(_ data: UnsafeBufferPointer<UInt8>, _ j: inout Int) -> UInt32 {
+        private static func streamToWord(_ data: [UInt8], _ j: inout Int) -> UInt32 {
             var word: UInt32 = 0
             let count = data.count
             for _ in 0..<4 {
@@ -146,34 +149,39 @@ struct BcryptPBKDF {
 
         @inline(__always)
         private func f(_ x: UInt32) -> UInt32 {
-            let s = self.s
-            let a = s[Int(x >> 24)]
-            let b = s[256 + Int((x >> 16) & 0xFF)]
-            let c = s[512 + Int((x >> 8) & 0xFF)]
-            let d = s[768 + Int(x & 0xFF)]
+            // SAFETY: each index is one byte of x (0...255) plus 0, 256, 512 or 768 past
+            // sBase, so all four are in sBase..<sBase + 1024, inside the wordCount words
+            // `state` holds for the object's life.
+            let s = unsafe state + Blowfish.sBase
+            let a = unsafe s[Int(x >> 24)]
+            let b = unsafe s[256 + Int((x >> 16) & 0xFF)]
+            let c = unsafe s[512 + Int((x >> 8) & 0xFF)]
+            let d = unsafe s[768 + Int(x & 0xFF)]
             return ((a &+ b) ^ c) &+ d
         }
 
         @inline(__always)
         private func encipher(_ xl: inout UInt32, _ xr: inout UInt32) {
-            let p = self.p
-            var l = xl ^ p[0]
+            // SAFETY: the P indices are 0, then i and i + 1 for odd i in 1...15 (so at most
+            // 16), then 17: all below pCount (18), inside `state`.
+            var l = unsafe xl ^ state[0]
             var r = xr
             var i = 1
             while i <= 16 {
-                r ^= f(l) ^ p[i]
-                l ^= f(r) ^ p[i + 1]
+                r ^= unsafe f(l) ^ state[i]
+                l ^= unsafe f(r) ^ state[i + 1]
                 i += 2
             }
-            xl = r ^ p[17]
+            xl = unsafe r ^ state[17]
             xr = l
         }
 
         /// Eksblowfish ExpandKey(state, salt, key).
-        private func expandState(data: UnsafeBufferPointer<UInt8>, key: UnsafeBufferPointer<UInt8>) {
+        private func expandState(data: [UInt8], key: [UInt8]) {
             var j = 0
+            // SAFETY: i < pCount: a P word, inside `state`.
             for i in 0..<Blowfish.pCount {
-                p[i] ^= Blowfish.streamToWord(key, &j)
+                unsafe state[i] ^= Blowfish.streamToWord(key, &j)
             }
             j = 0
             var l: UInt32 = 0
@@ -183,43 +191,46 @@ struct BcryptPBKDF {
                 l ^= Blowfish.streamToWord(data, &j)
                 r ^= Blowfish.streamToWord(data, &j)
                 encipher(&l, &r)
-                p[i] = l
-                p[i + 1] = r
+                // SAFETY: i is even and below pCount (18), so i + 1 <= 17: P words.
+                unsafe state[i] = l
+                unsafe state[i + 1] = r
                 i += 2
             }
-            let s = self.s
             i = 0
             while i < 1024 {
                 l ^= Blowfish.streamToWord(data, &j)
                 r ^= Blowfish.streamToWord(data, &j)
                 encipher(&l, &r)
-                s[i] = l
-                s[i + 1] = r
+                // SAFETY: i is even and below 1024, so sBase + i + 1 <= 1041 < wordCount: S words.
+                unsafe state[Blowfish.sBase + i] = l
+                unsafe state[Blowfish.sBase + i + 1] = r
                 i += 2
             }
         }
 
         /// Eksblowfish ExpandKey(state, 0, key).
-        private func expand0State(key: UnsafeBufferPointer<UInt8>) {
+        private func expand0State(key: [UInt8]) {
             var j = 0
+            // SAFETY: i < pCount: a P word, inside `state`.
             for i in 0..<Blowfish.pCount {
-                p[i] ^= Blowfish.streamToWord(key, &j)
+                unsafe state[i] ^= Blowfish.streamToWord(key, &j)
             }
             var l: UInt32 = 0
             var r: UInt32 = 0
             var i = 0
             while i < Blowfish.pCount {
                 encipher(&l, &r)
-                p[i] = l
-                p[i + 1] = r
+                // SAFETY: i is even and below pCount (18), so i + 1 <= 17: P words.
+                unsafe state[i] = l
+                unsafe state[i + 1] = r
                 i += 2
             }
-            let s = self.s
             i = 0
             while i < 1024 {
                 encipher(&l, &r)
-                s[i] = l
-                s[i + 1] = r
+                // SAFETY: i is even and below 1024, so sBase + i + 1 <= 1041 < wordCount: S words.
+                unsafe state[Blowfish.sBase + i] = l
+                unsafe state[Blowfish.sBase + i + 1] = r
                 i += 2
             }
         }

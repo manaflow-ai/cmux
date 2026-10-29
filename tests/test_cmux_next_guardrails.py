@@ -460,6 +460,17 @@ class RuleTests(Fixture):
             "nightly.yml: - run: ./scripts/reload.sh --config bench",
             "Release.xcconfig: OTHER_SWIFT_FLAGS = $(inherited) -DCMUX_BENCH_HOOKS"])])
 
+    def test_a_sanitizer_configuration_is_refused_in_shipped_build_settings(self):
+        self.write(".github/workflows/release.yml", "jobs:\n  build:\n    steps:\n      - run: ./scripts/reload.sh --config=asan\n"
+                   "      - run: xcodebuild -scheme cmux -enableThreadSanitizer YES build\n")
+        self.write("config/Release.xcconfig", "ENABLE_UNDEFINED_BEHAVIOR_SANITIZER = YES\n")
+        self.write("scripts/measure/soak.sh", "./scripts/reload.sh --config tsan\n")
+        self.commit("sanitizer configs in shipped settings, and in a lab script")
+        self.assertEqual(self.refused(), [("bench-hooks-shipped", [
+            "release.yml: - run: ./scripts/reload.sh --config=asan",
+            "release.yml: - run: xcodebuild -scheme cmux -enableThreadSanitizer YES build",
+            "Release.xcconfig: ENABLE_UNDEFINED_BEHAVIOR_SANITIZER = YES"])])
+
     def test_the_generic_class_rule_reads_test_targets_and_honors_nonisolated(self):
         tests = "Packages/macOS/CmuxNext/Tests/CmuxNextFooTests"
         self.write(f"{tests}/Wait.swift", "final class Once<T> {\n    var value: T?\n}\n")

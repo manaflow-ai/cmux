@@ -3,7 +3,7 @@
   "name": "taskManagerMemorySaved",
   "owner": "PL-memory",
   "description": "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "labs",
   "process": "app",
   "params": [],

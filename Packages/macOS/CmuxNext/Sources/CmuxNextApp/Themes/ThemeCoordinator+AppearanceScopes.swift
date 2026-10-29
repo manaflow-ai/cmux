@@ -97,7 +97,7 @@ extension ThemeCoordinator {
         applyWindowBackground(of: controller.themeScope, room: controller.state.profileID)
     }
 
-    /// The same for a window scope with no controller yet: the launch's picture window (p08-startup-059).
+    /// The same for a window scope with no controller yet: the launch's picture window.
     func applyWindowBackground(of scope: ThemeScope, room: ProfileID) {
         guard let key = scopeKey(AppearanceTarget.window(room)) else { return }
         let background = appearanceScopes.background(for: "\(key)|background")

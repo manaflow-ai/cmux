@@ -7,7 +7,7 @@ import os
 /// the last layout, applied to the store as a provisional tree so the first frame shows it instead of the connecting
 /// state, then replaced in place by the live tree.
 ///
-/// The main thread never reads or decodes the file (up to 8 MiB of JSON, p08-startup-074). `main` begins the read on
+/// The main thread never reads or decodes the file (up to 8 MiB of JSON). `main` begins the read on
 /// the files lane (``LaunchSnapshotPrefetch``); ``take(_:session:stateDirectory:work:)`` applies it in its own turn
 /// when the read has ended, else on the read's end, posted to main as userBlocking work (Chrome replies to the UI
 /// thread with the result, `PostTaskAndReplyWithResult`, base/task/task_runner.h; it never waits for it there).
@@ -24,6 +24,9 @@ public final class DaemonLaunchSnapshot {
     var location = LaunchSnapshotLocation()
     /// How a read that ended off main reaches main (a test runs it by hand).
     var hop: StartupMainHop
+    /// Asked on the files lane before a read ``take(_:session:stateDirectory:work:)`` posts: false reads nothing and
+    /// shows no snapshot (the app's crash-streak safe launch, `LaunchSafeMode`; its `main` gates its own prefetch).
+    public var reads: @Sendable () -> Bool = { true }
     /// The steps waiting for a running read (``whenSettled(_:)``); nil while none runs.
     private var waiters: [() -> Void]?
     private let store: DaemonStore
@@ -45,7 +48,7 @@ public final class DaemonLaunchSnapshot {
         let read = prefetch?.session == session ? prefetch : nil
         if let found = read?.found { return apply(found) }
         waiters = waiters ?? []
-        let hop = self.hop, location = self.location
+        let hop = self.hop, location = self.location, reads = self.reads
         let applyOnMain: @MainActor @Sendable (LaunchSnapshot.Found) -> Void = { [weak self] found in self?.apply(found) }
         if let read {
             work.task(.userBlocking) {
@@ -55,7 +58,7 @@ public final class DaemonLaunchSnapshot {
             return
         }
         work.post(.userBlocking, mayBlock: .files, abandoned: { hop.later { applyOnMain(LaunchSnapshot.Found.missing) } }) {
-            let found = LaunchSnapshot.find(session: session, stateDirectory: stateDirectory, location: location)
+            let found = reads() ? LaunchSnapshot.find(session: session, stateDirectory: stateDirectory, location: location) : .missing
             hop.later { applyOnMain(found) }
         }
     }

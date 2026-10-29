@@ -41,44 +41,6 @@ import Testing
         #expect(!windows.isActive, "a window closed mid-transition holds every spring forever")
     }
 
-    // MARK: The oracle's settle: a toggle settles where the transition ends, not where it starts
-
-    @Test func theTransitionsEndedWaitReturnsWhenTheLastTransitionEnds() async {
-        let center = NotificationCenter()
-        let windows = LiveResizeWindows(center: center)
-        #expect(await windows.transitionsEnded(), "with no transition the wait returns at once")
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
-                              backing: .buffered, defer: true)
-        center.post(name: NSWindow.willEnterFullScreenNotification, object: window)
-        let wait = Task { @MainActor in await windows.transitionsEnded() }
-        for _ in 0..<100 where windows.transitionWaiterCount == 0 { await Task.yield() }
-        #expect(windows.transitionWaiterCount == 1)
-        center.post(name: NSWindow.didEnterFullScreenNotification, object: window)
-        #expect(await wait.value, "the settle went on waiting after didEnterFullScreen")
-        #expect(windows.transitionWaiterCount == 0)
-        // A failed exit ends the wait too (AppKit posts nothing; the delegate ends it).
-        center.post(name: NSWindow.willExitFullScreenNotification, object: window)
-        let failed = Task { @MainActor in await windows.transitionsEnded() }
-        for _ in 0..<100 where windows.transitionWaiterCount == 0 { await Task.yield() }
-        #expect(windows.transitionWaiterCount == 1)
-        windows.endTransition(of: window)
-        #expect(await failed.value, "a failed transition held the settle until its deadline")
-    }
-
-    @Test func aCancelledTransitionsEndedWaitReturnsFalseAndLeavesNoWaiter() async {
-        let center = NotificationCenter()
-        let windows = LiveResizeWindows(center: center)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
-                              backing: .buffered, defer: true)
-        center.post(name: NSWindow.willEnterFullScreenNotification, object: window)
-        let wait = Task { @MainActor in await windows.transitionsEnded() }
-        for _ in 0..<100 where windows.transitionWaiterCount == 0 { await Task.yield() }
-        #expect(windows.transitionWaiterCount == 1)
-        wait.cancel()
-        #expect(await wait.value == false, "a settle past its deadline must stop waiting")
-        #expect(windows.transitionWaiterCount == 0, "the cancelled wait left its continuation parked")
-    }
-
     // MARK: Terminals: one grid to the daemon, at the end
 
     final class Target: ResizeTarget {

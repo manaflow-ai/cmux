@@ -55,7 +55,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
     private(set) var isSuspended = false
-    /// Its slice of the launch window's build behind the picture showed it, or the build ended (p08-startup-060).
+    /// Its slice of the launch window's build behind the picture showed it, or the build ended.
     var launchReleased = false
     var waitsForLaunchEnd = false // the launch held its content; its afterStartup post is on order (PaneSelectionPresenter)
     /// This pane in the visibility tree (p06-scheduler.md B), under its workspace's node: hidden while
@@ -96,7 +96,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.state = state
         isSuspended = workspace?.drawsNothing == true // a pane made in a parked workspace starts suspended
         let own: Visibility = isSuspended ? .hidden : .visible
-        // Under its workspace's node (p06-scheduler-023); a pane outside a workspace (tests) is a root.
+        // Under its workspace's node; a pane outside a workspace (tests) is a root.
         let parent: VisibilityNode? = workspace.flatMap { $0.visibilityNode }
         visibilityNode = parent.map { VisibilityNode("pane:\(pane.id)", own: own, parent: $0) }
             ?? VisibilityNode(root: "pane:\(pane.id)", own: own, workCounts: services.visibilityWorkCounts)
@@ -105,9 +105,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.previewProvider = services.previews
         view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.stripView.scrollFrameInput = services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)
-        view.stripView.resourceSource = services.resources
+        view.stripView.setResourceSource(services.resources, deadlines: services.mainDeadlines)
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
-        view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator, thumbnailPages: services.cache.imageCaches.pictureAllocator, energy: services.cache.hibernation?.highEnergy) // p07-memory-005, p07-memory-107, p14-energy-125
+        view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator, thumbnailPages: services.cache.imageCaches.pictureAllocator, energy: services.cache.hibernation?.highEnergy)
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
         view.stripView.newTabShortcut = { [weak services] in services?.registry.shortcutDisplay(for: StripNewTab.action) }
         view.onResize = { [weak services, weak paneView = view] in
@@ -486,7 +486,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
-        // A browser tab (its page made or not yet) shows its page's picture from the last quit over it (p08-startup-043).
+        // A browser tab (its page made or not yet) shows its page's picture from the last quit over it.
         switch content {
         case .browser?, nil: if let key { services.cache.showLaunchPicture(key, in: view, hold: services.launchImageHold, reveal: services.launchReveal) }
         default: break
@@ -521,7 +521,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return tab.kind == .pty && !tab.dead
     }
 
-    /// The Chromium window this pane's page tabs share (p13-webui-063); nil while the pane is in no window.
+    /// The Chromium window this pane's page tabs share; nil while the pane is in no window.
     var pageChromiumWindow: PageChromiumWindow? {
         state.map { PageChromiumWindow(window: $0.id, pane: paneKey) }
     }

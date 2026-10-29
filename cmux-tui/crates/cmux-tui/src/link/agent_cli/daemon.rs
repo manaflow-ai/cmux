@@ -3,6 +3,7 @@
 //! transfer"). A refusal the daemon answered is told apart from an answer
 //! that never came, since only the first says what happened there.
 
+use crate::json_fields::JsonFields;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -66,8 +67,8 @@ impl Daemon {
         let lost = |e: std::io::Error| CallError::Lost(format!("{cmd}: {e}"));
         let id = self.next_id;
         self.next_id += 1;
-        params["id"] = json!(id);
-        params["cmd"] = json!(cmd);
+        params.insert("id", json!(id));
+        params.insert("cmd", json!(cmd));
         let mut line = params.to_string();
         line.push('\n');
         let stream = self.reader.get_mut();
@@ -83,16 +84,20 @@ impl Daemon {
                 return Err(CallError::Lost(format!("{cmd}: the answer is not JSON")));
             };
             // Events and other answers on the same connection are not ours.
-            if answer["id"] != json!(id) {
+            if *answer.field("id") != json!(id) {
                 continue;
             }
-            if answer["ok"] == json!(true) {
-                return Ok(answer["data"].clone());
+            if *answer.field("ok") == json!(true) {
+                return Ok(answer.field("data").clone());
             }
             return Err(CallError::Refused {
-                code: answer["error_code"].as_str().unwrap_or("agent_transfer.unknown").to_owned(),
-                message: answer["error"].as_str().unwrap_or_default().to_owned(),
-                details: answer["error_details"].clone(),
+                code: answer
+                    .field("error_code")
+                    .as_str()
+                    .unwrap_or("agent_transfer.unknown")
+                    .to_owned(),
+                message: answer.field("error").as_str().unwrap_or_default().to_owned(),
+                details: answer.field("error_details").clone(),
             });
         }
     }

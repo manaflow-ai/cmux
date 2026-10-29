@@ -1,5 +1,6 @@
 import Darwin
 public import Foundation
+import CmuxNextCompat
 
 /// The agent-home folders (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a workspace without a folder (the
 /// default Home workspace) gives its new agent chats `<base>/<workspace-id>`, where `base` is
@@ -89,8 +90,8 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         var info = stat()
         // SAFETY: lstat and open read the NUL-terminated copy of the path made for each call; lstat writes one struct
         // stat into `info`, a local.
-        if unsafe lstat(path, &info) == 0 { return }
-        let file = unsafe open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        if unsafe blockingLstat(path, &info) == 0 { return }
+        let file = unsafe blockingOpen(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         if file >= 0 { close(file) }
     }
 
@@ -150,7 +151,7 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
-        return unsafe lstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR && info.st_uid == getuid()
+        return unsafe blockingLstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR && info.st_uid == getuid()
     }
 
     /// Walks `path` from `/`: an existing component must be a real folder (never a symlink); the
@@ -167,18 +168,20 @@ public nonisolated struct AgentHome: Sendable, Equatable {
             var info = stat()
             // SAFETY: lstat and mkdir read the NUL-terminated copy of the path made for each call; lstat writes one
             // struct stat into `info`, a local.
-            if unsafe lstat(current, &info) != 0 {
+            if unsafe blockingLstat(current, &info) != 0 {
                 // Only the base's own folders and the workspace folder may be made here.
-                guard errno == ENOENT, index + 1 >= baseDepth - 1, unsafe mkdir(current, 0o700) == 0 || errno == EEXIST,
-                      unsafe lstat(current, &info) == 0 else { return false }
+                guard errno == ENOENT, index + 1 >= baseDepth - 1, unsafe blockingMkdir(current, 0o700) == 0 || errno == EEXIST,
+                      unsafe blockingLstat(current, &info) == 0 else { return false }
             }
             guard (info.st_mode & S_IFMT) == S_IFDIR else { return false }
         }
         var info = stat()
-        // SAFETY: lstat and chmod read the NUL-terminated copy of the path made for each call; lstat writes one struct
-        // stat into `info`, a local.
-        guard unsafe lstat(path, &info) == 0, info.st_uid == getuid() else { return false }
-        if info.st_mode & 0o077 != 0, unsafe chmod(path, 0o700) != 0 { return false }
+        // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
+        // `info`, a local.
+        guard unsafe blockingLstat(path, &info) == 0, info.st_uid == getuid() else { return false }
+        if info.st_mode & 0o077 != 0, (try? FileManager.checked.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)) == nil {
+            return false
+        }
         return true
     }
 }

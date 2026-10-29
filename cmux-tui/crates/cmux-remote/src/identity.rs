@@ -581,6 +581,7 @@ impl PersistenceCoordinator {
         let worker_shared = Arc::clone(&shared);
         // The durable writer that device connect, approve and revoke await:
         // the table's journal-writer-a-request-waits-on row, UserInitiated.
+        // supervise-allow: the coordinator keeps this handle; the body catches its own panic and fails the coordinator terminally, so every waiter gets a PersistenceFailure.
         let worker =
             cmux_threads::spawn(PERSISTENCE_THREAD_NAME, PERSISTENCE_THREAD_QOS, move || {
                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -603,67 +604,75 @@ impl PersistenceCoordinator {
     fn submit(&self, snapshot: PersistedState) -> PersistenceWaiter {
         let revision = snapshot.revision;
         let (sender, receiver) = oneshot::channel();
-        let mut sender = Some(sender);
-        let mut immediate = None;
-        let mut wake_worker = false;
-        {
-            let mut state = self.lock_state();
-            if state.closing {
-                immediate = Some(Err(PersistenceFailure::Uncommitted(
-                    "identity persistence coordinator is shutting down".into(),
-                )));
-            } else if revision <= state.durable_revision {
-                immediate = Some(Ok(()));
-            } else {
-                let covered_by_newer_work =
-                    state.in_flight.is_some_and(|in_flight| in_flight >= revision)
-                        || state.pending.range(revision..).next().is_some();
-                if revision < state.highest_seen_revision {
-                    if covered_by_newer_work {
-                        state
-                            .waiters
-                            .entry(revision)
-                            .or_default()
-                            .push(sender.take().expect("persistence waiter is available"));
-                    } else {
-                        let message = state
-                            .last_failure
-                            .as_ref()
-                            .filter(|(failed_revision, _)| *failed_revision >= revision)
-                            .map(|(_, message)| message.clone())
-                            .unwrap_or_else(|| {
-                                PersistenceFailure::Uncommitted(format!(
-                                    "identity revision {revision} was superseded before it became durable"
-                                ))
-                            });
-                        immediate = Some(Err(message));
-                    }
-                } else {
-                    if revision > state.highest_seen_revision {
-                        state.highest_seen_revision = revision;
-                    }
-                    state
-                        .waiters
-                        .entry(revision)
-                        .or_default()
-                        .push(sender.take().expect("persistence waiter is available"));
-                    if !covered_by_newer_work {
-                        state.pending.clear();
-                        state.pending.insert(revision, snapshot);
-                        wake_worker = true;
-                    }
+        let mut state = self.lock_state();
+        let admission = state.admit(revision, snapshot);
+        match admission {
+            Admission::Answer(result) => {
+                drop(state);
+                let _ = sender.send(result);
+            }
+            Admission::Wait { wake_worker } => {
+                state.waiters.entry(revision).or_default().push(sender);
+                drop(state);
+                if wake_worker {
+                    self.shared.changed.notify_one();
                 }
             }
         }
-        if let Some(result) = immediate {
-            let _ = sender.expect("immediate persistence waiter is available").send(result);
-        }
-        if wake_worker {
-            self.shared.changed.notify_one();
-        }
         PersistenceWaiter { receiver }
     }
+}
 
+/// How [`PersistenceCoordinatorState::admit`] decided a submitted revision.
+enum Admission {
+    /// The caller is answered at once.
+    Answer(Result<(), PersistenceFailure>),
+    /// The caller waits for the revision to become durable; `wake_worker`
+    /// says the snapshot is new work for the persistence worker.
+    Wait { wake_worker: bool },
+}
+
+impl PersistenceCoordinatorState {
+    fn admit(&mut self, revision: u64, snapshot: PersistedState) -> Admission {
+        if self.closing {
+            return Admission::Answer(Err(PersistenceFailure::Uncommitted(
+                "identity persistence coordinator is shutting down".into(),
+            )));
+        }
+        if revision <= self.durable_revision {
+            return Admission::Answer(Ok(()));
+        }
+        let covered_by_newer_work = self.in_flight.is_some_and(|in_flight| in_flight >= revision)
+            || self.pending.range(revision..).next().is_some();
+        if revision < self.highest_seen_revision {
+            if covered_by_newer_work {
+                return Admission::Wait { wake_worker: false };
+            }
+            let message = self
+                .last_failure
+                .as_ref()
+                .filter(|(failed_revision, _)| *failed_revision >= revision)
+                .map(|(_, message)| message.clone())
+                .unwrap_or_else(|| {
+                    PersistenceFailure::Uncommitted(format!(
+                        "identity revision {revision} was superseded before it became durable"
+                    ))
+                });
+            return Admission::Answer(Err(message));
+        }
+        if revision > self.highest_seen_revision {
+            self.highest_seen_revision = revision;
+        }
+        if covered_by_newer_work {
+            return Admission::Wait { wake_worker: false };
+        }
+        self.pending.clear();
+        self.pending.insert(revision, snapshot);
+        Admission::Wait { wake_worker: true }
+    }
+}
+
+impl PersistenceCoordinator {
     fn close_and_join(&self) -> Result<(), IdentityError> {
         self.close_and_join_with_cleanup(|_| Ok(()))
     }
@@ -1198,6 +1207,7 @@ impl AuthDatabase {
             (pending.decision, persistence)
         };
         let (completed_tx, completed_rx) = oneshot::channel();
+        // supervise-allow: one denial's completion; a panic drops `completed_tx` and `decision`, so this caller and the waiting device both get an error.
         tokio::spawn(async move {
             let result = persistence.wait_result().await;
             let authorization = match &result {
@@ -1306,6 +1316,11 @@ fn rollback_approval(
     previous_expiration: u64,
     previous_device: Option<DeviceRecord>,
 ) {
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: approve_durably found this invitation and holds the auth-state lock \
+                  until the rollback, so nothing removed it"
+    )]
     let invitation = state
         .invitations
         .get_mut(invitation_id)
@@ -1620,6 +1635,7 @@ impl Drop for PendingDecisionCleanup {
         let invitation_id = self.invitation_id.clone();
         let token = Arc::clone(&self.token);
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            // supervise-allow: Drop cannot await; one map removal under a tokio Mutex (no poison), and a panic leaves only this expired entry.
             runtime.spawn(async move {
                 let mut locked = state.lock().await;
                 remove_pending_decision(&mut locked, &invitation_id, &token);
@@ -1630,6 +1646,7 @@ impl Drop for PendingDecisionCleanup {
         let synchronous_fallback = Arc::clone(&state);
         let fallback_invitation_id = invitation_id.clone();
         let fallback_token = Arc::clone(&token);
+        // supervise-allow: Drop outside a runtime; one map removal, and a panic leaves only this expired entry.
         if cmux_threads::spawn(
             "cmux-pending-enrollment-cleanup",
             cmux_threads::ThreadQos::Utility,

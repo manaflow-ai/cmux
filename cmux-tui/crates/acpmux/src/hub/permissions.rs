@@ -2,6 +2,8 @@
 
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 
 impl Hub {
     // ------------------------------------------------------------- inbound
@@ -30,7 +32,7 @@ impl Hub {
                     // of its own.
                     let ask = (m == method::SESSION_REQUEST_PERMISSION)
                         .then(|| super::permission_groups::AskInFlight::new(&session));
-                    tokio::spawn(async move {
+                    self.supervise("hub.agent-request", Fatal, ShutdownBehavior::Skip, async move {
                         hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
                     });
                 }
@@ -38,7 +40,7 @@ impl Hub {
                     let line = short_text(&line, 4000);
                     tracing::debug!(session = %session.id, "stderr: {line}");
                     if !line.trim().is_empty() {
-                        let mut tail = session.stderr_tail.lock().unwrap();
+                        let mut tail = session.stderr_tail.lock_or_recover();
                         if tail.len() >= 6 {
                             tail.pop_front();
                         }
@@ -117,12 +119,10 @@ impl Hub {
                     let mut preview = m.preview.clone().unwrap_or_default();
                     preview.push_str(text);
                     if preview.len() > 2000 {
-                        let cut = preview.len() - 2000;
-                        let mut idx = cut;
-                        while !preview.is_char_boundary(idx) {
-                            idx += 1;
+                        let cut = preview.ceil_char_boundary(preview.len() - 2000);
+                        if let Some(kept) = preview.get(cut..) {
+                            preview = kept.to_owned();
                         }
-                        preview = preview[idx..].to_owned();
                     }
                     m.preview = Some(preview);
                 }
@@ -383,7 +383,8 @@ impl Hub {
                 let start = l.unwrap_or(1) - 1;
                 let lines: Vec<&str> = text.lines().collect();
                 let end = n.map_or(lines.len(), |n| start.saturating_add(n).min(lines.len()));
-                if start >= lines.len() { String::new() } else { lines[start..end].join("\n") }
+                // A start past the end reads nothing.
+                lines.get(start..end).map(|l| l.join("\n")).unwrap_or_default()
             }
         };
         Ok(json!({"content": content}))
@@ -431,7 +432,7 @@ impl Hub {
         let needs_person = super::questions::needs_person(&request);
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
-            let mut state = session.permissions.lock().unwrap();
+            let mut state = session.permissions.lock_or_recover();
             if session.permission_epoch.load(Ordering::SeqCst) != epoch
                 || stale_turn(session, &turn_id)
             {
@@ -583,12 +584,11 @@ impl Hub {
         // only, never sent to the agent.
         let answered_by = outcome.as_object_mut().and_then(|o| o.remove(ANSWERED_BY_SLOT));
         self.settle_permission(session, &permission_id, outcome.clone(), answered_by, prev);
+        // The agent reads the answer's `_meta` beside `outcome`, not in it.
+        let meta = outcome.as_object_mut().and_then(|o| o.remove("_meta"));
         let mut out = json!({"outcome": outcome});
-        if let Some(m) = out["outcome"].get("_meta").cloned() {
-            out["_meta"] = m;
-            if let Some(o) = out["outcome"].as_object_mut() {
-                o.remove("_meta");
-            }
+        if let Some(m) = meta {
+            out.set("_meta", m);
         }
         out
     }
@@ -607,10 +607,10 @@ impl Hub {
     ) {
         let mut decision = json!({"permissionId": permission_id, "outcome": outcome});
         if let Some(by) = answered_by {
-            decision["answeredBy"] = by;
+            decision.set("answeredBy", by);
         }
         self.append(session, "mux", "permission_decision", decision);
-        let state = session.permissions.lock().unwrap();
+        let state = session.permissions.lock_or_recover();
         if state.pending.is_empty()
             && session.status() == SessionStatus::Waiting
             && !self.secrets.waiting_in(&session.id)
@@ -636,7 +636,7 @@ impl Hub {
         self.web_control_check(session, control)?;
         let cfg = self.config.read().await;
         let pending = {
-            let mut state = session.permissions.lock().unwrap();
+            let mut state = session.permissions.lock_or_recover();
             let map = &mut state.pending;
             let p = map.get(permission_id).ok_or_else(|| {
                 RpcError::not_found(format!("no pending permission {permission_id}"))
@@ -644,18 +644,20 @@ impl Hub {
             // Legacy clients may answer items in a group, but cannot bypass
             // a policy edit or choose an absent/ambiguous option.
             if let Some(o) = &option_id {
-                let offered: Vec<_> = p.request["options"]
+                let offered: Vec<_> = p
+                    .request
+                    .field("options")
                     .as_array()
                     .into_iter()
                     .flatten()
                     .filter(|x| x["optionId"] == *o)
                     .collect();
-                if offered.len() != 1 {
+                let [offered] = offered.as_slice() else {
                     return Err(RpcError::invalid_params(format!(
                         "option {o:?} was not uniquely offered for permission {permission_id}"
                     )));
-                }
-                let kind = offered[0]["kind"].as_str();
+                };
+                let kind = offered.field("kind").as_str();
                 // A Web answer allows once or denies once: never a lasting grant.
                 if control == Control::Web && !matches!(kind, Some("allow_once" | "reject_once")) {
                     return Err(super::web_control::lasting_grant_refused(kind.unwrap_or("?")));
@@ -696,7 +698,7 @@ impl Hub {
             // prompt, which is checked again and spent with the answer.
             if !answerer.person {
                 let rejects = option_id.as_ref().is_some_and(|o| {
-                    p.request["options"].as_array().into_iter().flatten().any(|x| {
+                    p.request.field("options").as_array().into_iter().flatten().any(|x| {
                         x["optionId"] == *o
                             && matches!(x["kind"].as_str(), Some("reject_once" | "reject_always"))
                     })
@@ -714,8 +716,10 @@ impl Hub {
                     && p.ancestor_may_answer
                     && super::questions::trust_cwd(&p.request).is_none()
                     && option_id.as_deref().is_some_and(|o| {
-                        option_kind(p.request["options"].as_array().map_or(&[], Vec::as_slice), o)
-                            == Some("allow_once")
+                        option_kind(
+                            p.request.field("options").as_array().map_or(&[], Vec::as_slice),
+                            o,
+                        ) == Some("allow_once")
                     });
                 if (allows || answered_by.is_some()) && !ancestor_answers {
                     let proved = match (&option_id, answerer.decision) {
@@ -761,7 +765,9 @@ impl Hub {
                     }
                 }
             }
-            let p = map.remove(permission_id).unwrap();
+            let p = map.remove(permission_id).ok_or_else(|| {
+                RpcError::not_found(format!("no pending permission {permission_id}"))
+            })?;
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
             {
                 self.append(session, "mux", "permission_group", json!({"group":group}));
@@ -775,11 +781,11 @@ impl Hub {
         if let Some(a) = answers {
             let mut input =
                 pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
-            input["answers"] = a;
-            outcome["_meta"] = json!({"updatedInput": input});
+            input.set("answers", a);
+            outcome.set("_meta", json!({"updatedInput": input}));
         }
         if let Some(by) = answered_by {
-            outcome[ANSWERED_BY_SLOT] = by;
+            outcome.set(ANSWERED_BY_SLOT, by);
         }
         let _ = pending.reply.send(outcome);
         Ok(())
@@ -787,7 +793,7 @@ impl Hub {
 
     pub(super) fn cancel_pending_permissions(&self, session: &Session) {
         let drained: Vec<_> = {
-            let mut state = session.permissions.lock().unwrap();
+            let mut state = session.permissions.lock_or_recover();
             session.permission_epoch.fetch_add(1, Ordering::SeqCst);
             let drained: Vec<_> = state.pending.drain().collect();
             for (id, _) in &drained {

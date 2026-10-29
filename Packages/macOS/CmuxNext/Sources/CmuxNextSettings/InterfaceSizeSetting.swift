@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextAppearance
 import CoreGraphics
 
 /// `appearance.metrics.chromeFontSize` in cmux.json: the legacy interface size.

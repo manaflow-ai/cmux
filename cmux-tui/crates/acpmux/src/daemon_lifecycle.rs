@@ -1,4 +1,4 @@
-//! A leftover daemon exits (p07-memory-063, behind the default-off
+//! A leftover daemon exits (behind the default-off
 //! `leftoverDaemonIdleExit` feature in `schemas/features/features.d`).
 //!
 //! Every cmux app, tagged dev build and CLI start leaves an acpmux daemon
@@ -38,10 +38,11 @@
 //! follows the same rules ([`wait_for_daemon_exit`]); a daemon with no
 //! owning app (the CLI's) still runs until it is stopped.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use tokio::sync::watch;
+use cmux_tui_platform::process_priority::{PriorityError, ProcessPriority, SelfLowered};
+use tokio::sync::{Notify, watch};
 
 use crate::clock::Clock;
 
@@ -60,46 +61,176 @@ pub const OWNER_EXIT_GRACE: Duration = Duration::from_secs(2);
 /// the daemon stays, connected or not.
 pub const OWNER_APP_PID_ENV: &str = "ACPMUX_OWNER_APP_PID";
 
-/// Connected clients, how many ever connected, and whether the daemon is
-/// closing (no connection is taken any more).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Connected clients, how many ever connected, whether the daemon is
+/// closing (no connection is taken any more), and whether it runs
+/// best-effort ([`ClientPresence::run_idle_priority`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Presence {
     clients: usize,
     arrivals: u64,
     closing: bool,
+    background: bool,
+    /// What the best-effort change lowered, for the change back.
+    lowered: SelfLowered,
+    /// Bumped by each [`ClientPresence::foreground`]: a best-effort change
+    /// decided before one is not applied after it.
+    starts: u64,
 }
 
+/// Sets this process's priority (`cmux_tui_platform::process_priority::set_self`).
+pub type SelfPriority =
+    Arc<dyn Fn(ProcessPriority, &mut SelfLowered) -> Result<(), PriorityError> + Send + Sync>;
+
 /// The daemon's client connections, counted by [`ClientGuard`]s.
-#[derive(Debug)]
-pub struct ClientPresence(Arc<watch::Sender<Presence>>);
+pub struct ClientPresence {
+    presence: Arc<watch::Sender<Presence>>,
+    /// Set with the `idleHelperBackgroundPriority` feature
+    /// ([`ClientPresence::install_priority`]).
+    priority: Arc<OnceLock<SelfPriority>>,
+    /// Woken when what `run_idle_priority`'s `quiet` reads changed
+    /// ([`ClientPresence::work_changed`]).
+    work: Arc<Notify>,
+}
+
+impl std::fmt::Debug for ClientPresence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientPresence").field("presence", &*self.presence.borrow()).finish()
+    }
+}
 
 impl Default for ClientPresence {
     fn default() -> Self {
-        Self(Arc::new(watch::channel(Presence::default()).0))
+        Self {
+            presence: Arc::new(watch::channel(Presence::default()).0),
+            priority: Arc::default(),
+            work: Arc::default(),
+        }
+    }
+}
+
+/// Applies `priority` with `set` and records it in `presence`; a change the
+/// kernel refused leaves the record as it was, so the next turn tries again.
+fn change_priority(set: Option<&SelfPriority>, presence: &mut Presence, priority: ProcessPriority) {
+    let Some(set) = set else { return };
+    let background = priority == ProcessPriority::BestEffort;
+    if presence.background == background {
+        return;
+    }
+    match set(priority, &mut presence.lowered) {
+        Ok(()) => presence.background = background,
+        Err(e) => tracing::warn!("acpmux priority stays as it was ({priority:?}): {e}"),
     }
 }
 
 impl ClientPresence {
     /// A client connected; it counts until the guard drops. None once the
-    /// daemon is closing: the connection is refused.
+    /// daemon is closing: the connection is refused. A daemon that ran
+    /// best-effort is back at its normal priority before it is served.
     pub fn connect(&self) -> Option<ClientGuard> {
         let mut taken = false;
-        self.0.send_if_modified(|presence| {
+        self.presence.send_if_modified(|presence| {
             taken = !presence.closing;
             if taken {
+                change_priority(self.priority.get(), presence, ProcessPriority::UserVisible);
                 presence.clients += 1;
                 presence.arrivals += 1;
             }
             taken
         });
-        taken.then(|| ClientGuard(self.0.clone()))
+        taken.then(|| ClientGuard(self.presence.clone()))
+    }
+
+    /// Run idle phases best-effort with `set` (once per daemon; false when
+    /// one was installed before).
+    pub fn install_priority(&self, set: SelfPriority) -> bool {
+        self.priority.set(set).is_ok()
+    }
+
+    /// The daemon at its normal priority, before it starts an agent or a
+    /// pooled host: a process it starts inherits its priority. Call it once
+    /// the start counts in `run_idle_priority`'s `quiet`: a best-effort
+    /// change decided before this call is then not applied.
+    pub fn foreground(&self) {
+        self.presence.send_if_modified(|presence| {
+            presence.starts += 1;
+            change_priority(self.priority.get(), presence, ProcessPriority::UserVisible);
+            false
+        });
+    }
+
+    /// What `run_idle_priority`'s `quiet` reads changed (an agent or a turn
+    /// ended, startup finished, a pooled start ended): it is asked again.
+    pub fn work_changed(&self) {
+        self.work.notify_one();
+    }
+
+    /// Whether the daemon runs best-effort now.
+    pub fn background(&self) -> bool {
+        self.presence.borrow().background
+    }
+
+    /// Runs the daemon best-effort while no client is connected and `quiet`
+    /// (no agent runs, no pooled start is under way), and at its normal
+    /// priority again when work runs without a client, as Chromium runs a
+    /// renderer nobody shows (`RenderProcessHostImpl::UpdateProcessPriority`).
+    /// `quiet` is asked when the presence changes and on each
+    /// [`ClientPresence::work_changed`]. A connection
+    /// ([`ClientPresence::connect`]) or a start
+    /// ([`ClientPresence::foreground`]) puts it back in its own turn. Does
+    /// nothing until [`ClientPresence::install_priority`].
+    pub fn run_idle_priority(
+        &self,
+        quiet: impl Fn() -> bool + Send + 'static,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let sender = self.presence.clone();
+        let priority = self.priority.clone();
+        let work = self.work.clone();
+        let mut presence = sender.subscribe();
+        async move {
+            loop {
+                let (clients, closing, arrivals, starts) = {
+                    let seen = presence.borrow_and_update();
+                    (seen.clients, seen.closing, seen.arrivals, seen.starts)
+                };
+                let mut again = false;
+                if priority.get().is_some() && clients == 0 && !closing {
+                    let wanted = if quiet() {
+                        ProcessPriority::BestEffort
+                    } else {
+                        ProcessPriority::UserVisible
+                    };
+                    // Fenced as the idle exit is: only when no client arrived
+                    // and nothing started since `quiet` was read.
+                    sender.send_if_modified(|now| {
+                        let unchanged = now.clients == 0
+                            && now.arrivals == arrivals
+                            && now.starts == starts
+                            && !now.closing;
+                        if unchanged {
+                            change_priority(priority.get(), now, wanted);
+                        } else {
+                            // A start raced the read: read again.
+                            again = now.clients == 0 && now.arrivals == arrivals;
+                        }
+                        false
+                    });
+                }
+                if again {
+                    continue;
+                }
+                tokio::select! {
+                    changed = presence.changed() => if changed.is_err() { return },
+                    () = work.notified() => {}
+                }
+            }
+        }
     }
 
     /// Closes the presence when no client is connected and none arrived
     /// since `arrivals` was read; true when it closed.
     fn close_if_unchanged(&self, arrivals: u64) -> bool {
         let mut closed = false;
-        self.0.send_if_modified(|presence| {
+        self.presence.send_if_modified(|presence| {
             closed = presence.clients == 0 && presence.arrivals == arrivals;
             presence.closing |= closed;
             closed
@@ -109,16 +240,16 @@ impl ClientPresence {
 
     /// Takes connections again after a close that found live work.
     fn reopen(&self) {
-        self.0.send_if_modified(|presence| std::mem::replace(&mut presence.closing, false));
+        self.presence.send_if_modified(|presence| std::mem::replace(&mut presence.closing, false));
     }
 
     /// Connected clients now.
     pub fn clients(&self) -> usize {
-        self.0.borrow().clients
+        self.presence.borrow().clients
     }
 
     fn subscribe(&self) -> watch::Receiver<Presence> {
-        self.0.subscribe()
+        self.presence.subscribe()
     }
 }
 
@@ -239,7 +370,7 @@ pub async fn wait_for_idle_exit(
     let mut owner_exit = std::pin::pin!(owner_exit);
     let mut watching_owner = true;
     loop {
-        let seen = *rx.borrow_and_update();
+        let seen = rx.borrow_and_update().clone();
         policy.presence(clock.now(), seen.clients, seen.arrivals != last_arrivals);
         last_arrivals = seen.arrivals;
         let step = policy.step(clock.now(), || keeps_daemon(liveness));
@@ -326,11 +457,16 @@ impl OwnerApp {
     pub async fn exited(self) {
         let Some(pid) = self.pid else { return std::future::pending().await };
         let (done, exit) = tokio::sync::oneshot::channel::<()>();
-        let watch = std::thread::Builder::new().name("acpmux-owner-exit".into()).spawn(move || {
-            if wait_for_process_exit(pid) {
-                let _ = done.send(());
-            }
-        });
+        // Scoped to this wait: a panic in the thread drops `done`, which ends the wait below.
+        let watch = crate::supervised::scoped_thread(
+            "acpmux-owner-exit",
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                if wait_for_process_exit(pid) {
+                    let _ = done.send(());
+                }
+            },
+        );
         if watch.is_err() || exit.await.is_err() {
             // No watch: only the grace ends this daemon.
             std::future::pending::<()>().await;
@@ -456,7 +592,7 @@ fn enabled(features: &cmux_features::Snapshot) -> bool {
 /// (`cmux_features::sources`): the channel of the app bundle this daemon
 /// ships in, the feature lists, then managed policy and the signed
 /// document's `DisabledFeatures`, which win.
-fn daemon_features() -> cmux_features::Snapshot {
+pub(crate) fn daemon_features() -> cmux_features::Snapshot {
     let exe = std::env::current_exe().ok();
     let kind = exe.as_deref().and_then(cmux_features::sources::bundle_kind);
     cmux_features::sources::daemon_snapshot(kind)
@@ -498,3 +634,10 @@ pub async fn run_for_daemon(hub: Arc<crate::hub::Hub>) {
 #[cfg(test)]
 #[path = "daemon_lifecycle_tests.rs"]
 mod idle_exit_tests;
+
+#[path = "daemon_idle_priority.rs"]
+pub(crate) mod idle_priority;
+
+#[cfg(test)]
+#[path = "daemon_priority_tests.rs"]
+mod idle_priority_tests;

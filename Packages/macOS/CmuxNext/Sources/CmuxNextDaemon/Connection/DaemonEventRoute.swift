@@ -13,12 +13,12 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// Chrome's IO thread hands each IPC message to its listener's task runner with no task in between
 /// (ipc/ipc_channel_proxy.cc, `ChannelProxy::Context::OnMessageReceivedNoFilter`). A stream put one
 /// Swift cooperative-pool job, at user-initiated, between the user-interactive reader and the store's
-/// inbox for every event, so the echo of a person's action waited behind whatever ran on the pool
-/// (p02-threads-133). The other consumers are the IO thread's message filters
+/// inbox for every event, so the echo of a person's action waited behind whatever ran on the pool.
+/// The other consumers are the IO thread's message filters
 /// (`ChannelProxy::Context::AddFilter`): each sees every message on the reader, in order, and none
 /// waits for another.
 ///
-/// Bounded (p05-ipc-093): nothing here grows with the events no one took. The backlog is an
+/// Bounded: nothing here grows with the events no one took. The backlog is an
 /// ``EventInbox`` that holds at most 4096 events of every kind, collapsed or not
 /// (``EventInbox/Retention/upToLimit``: coalescing, one `overflow` marker that the store answers
 /// with one resync), as mojo bounds what a receiver leaves unread
@@ -26,7 +26,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// where mojo ends the pipe at its quota, the consumer re-reads. A sink that attaches takes the backlog first, under the route's lock, so it
 /// sees one order with the events emitted after it.
 ///
-/// Backpressure (p07-memory-098): the reader counts the line bytes of each event it adds to the
+/// Backpressure: the reader counts the line bytes of each event it adds to the
 /// backlog. Past ``highWater`` bytes, while a live stream consumer reads it, the reader thread waits,
 /// after the line and outside its hang scope (``waitWhileReaderParked()``), until the consumer takes
 /// the backlog, so the socket stops draining and the daemon's bounded outbound queue (cmux-tui-core
@@ -132,8 +132,9 @@ final class DaemonEventRoute: Sendable {
     ///
     /// - Parameters:
     ///   - bytes: The event's line bytes, counted until a consumer takes the backlog.
-    ///   - parksReader: True only on the reader thread: past ``highWater`` it marks the reader parked,
-    ///     and the reader waits in ``waitWhileReaderParked()`` once it has handled the line.
+    ///   - parksReader: True only for an event the reader routed (its handler runs on the connection's decode
+    ///     lane): past ``highWater`` it marks the reader parked, and the reader waits in
+    ///     ``waitWhileReaderParked()`` after a line it handles.
     func emit(_ envelope: DaemonEventEnvelope, bytes: Int = 0, parksReader: Bool = false) {
         let (woken, release) = state.withLock { state -> ((OnceContinuation<Step, OnceContinuationError>, Step)?, Bool) in
             guard !state.finished else { return (nil, false) }
@@ -168,7 +169,7 @@ final class DaemonEventRoute: Sendable {
     }
 
     /// The reader's backpressure wait, after it handled a line and outside the line's hang scope
-    /// (`LineTransport`'s `waitForConsumer`): when an emit parked it, it waits until the consumer has
+    /// (`LineTransport`'s ``EventDispatch/readerWait``): when an emit parked it, it waits until the consumer has
     /// taken the backlog, stopped taking it, a sink took over, or the route finished. Returns at once
     /// otherwise.
     func waitWhileReaderParked() {

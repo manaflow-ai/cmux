@@ -1,5 +1,6 @@
 // "Thinking 4s": a running turn before its first output, with the time since the prompt (`since`),
-// ticking each second, so a long first think never reads as a stuck label. No mark blinks before it
+// ticking each second, then each minute past the first ("Thinking 3m", ui/useElapsedNow.ts), so a
+// long first think never reads as a stuck label. No mark blinks before it
 // (Leo, 2026-10-20: "wtf have we removed this yet"); the word itself carries the motion, as the Codex
 // and ChatGPT apps draw it: a light band in the theme accent sweeps across it (`is-shimmer`,
 // conversation.css), still under Reduce Motion and the static status look. Before the turn, while
@@ -12,9 +13,10 @@ import { useContext, useLayoutEffect, useState } from "react";
 import { usePaneLanguage, useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
 import { ShimmerText } from "./ShimmerText";
-import { formatDuration } from "./turns";
+import type { PageClock } from "../../../ui/pageClock";
+import { useElapsedNow } from "../../../ui/useElapsedNow";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
-import { useTicking, WorkingCountsContext, workingParts, workingTokens } from "./WorkingFor";
+import { WorkingCountsContext, workingParts, workingTime, workingTokens } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
 export const QUIET_MS = 1200;
@@ -43,12 +45,12 @@ function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
 /// reports them), or the call in flight ("Running bun test 13s", or what it says it does, "Run the
 /// web tests 13s"), its time from the call's start, or "Writing a command 9s" while the agent still
 /// writes the command (`draft`). All shimmer. While text streams (`quietKey` moves) the line keeps
-/// its height but draws nothing.
+/// its height but draws nothing. `clock` is the page's clock (pageClock.ts); a test passes its own.
 export function Thinking({
   status,
   onCancel,
   since,
-  now = Date.now,
+  clock,
   doing,
   doingAt,
   doingShell = false,
@@ -61,7 +63,7 @@ export function Thinking({
   status?: string;
   onCancel?: () => void;
   since?: number;
-  now?: () => number;
+  clock?: PageClock;
   doing?: string;
   doingAt?: number;
   doingShell?: boolean;
@@ -78,7 +80,7 @@ export function Thinking({
   const waiting = useContext(WaitingOnContext);
   const from = doing !== undefined ? doingAt : untimed ? undefined : since;
   const timed = !status && !waiting && from !== undefined;
-  const time = useTicking(timed, now);
+  const time = useElapsedNow(from, { clock, enabled: timed });
   const quiet = useQuiet(status || waiting || doing !== undefined ? undefined : quietKey);
   const label =
     status ??
@@ -110,7 +112,7 @@ export function Thinking({
           {status ? label : <ShimmerText text={label} />}
         </output>
       )}
-      {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - from))}</span>}
+      {timed && <span className="cv-worked__time">{workingTime(from, time)}</span>}
       {showTokens && (
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">

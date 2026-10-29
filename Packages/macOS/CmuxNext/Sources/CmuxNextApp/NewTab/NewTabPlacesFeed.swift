@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
-import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// Keeps every open New Tab page's open tabs and workspaces current (Leo 2026-10-11: after rapid
@@ -12,25 +12,34 @@ import Foundation
 ///
 /// Cheap while idle: with no New Tab page open it observes only the pages' ids. With one open, a
 /// change compares a plain key (ids, titles, addresses, folders), and the rows, favicons
-/// included, are built only when that key changed.
+/// included, are built only when that key changed. The pages' push is a write to their page
+/// models (a hidden page's router holds it), so it is a ``ServiceObservation`` in the visible
+/// class: one flush per frame behind the person's input, however many tabs an agent renames.
 @MainActor
-enum NewTabPlacesFeed {
+final class NewTabPlacesFeed {
+    private var last: [String] = []
+    private var observation: ServiceObservation<[String]>?
+
+    /// Starts the feed of `tabs`' pages; `tabs` keeps it (``AgentTabStore/placesFeed``).
     static func wire(_ tabs: AgentTabStore, services: AppServices) {
-        Task { [weak tabs, weak services] in
-            var last: [String] = []
-            let keys = ObservationStream { [weak tabs, weak services] in
-                guard let tabs, let services, !tabs.pageTabs.ids.isEmpty else { return [String]() }
-                return key(services)
-            }
-            for await key in keys where key != last {
-                guard let tabs, let services else { return }
-                // The first page to open read its places itself.
-                let opened = last.isEmpty
-                last = key
-                if key.isEmpty || opened { continue }
-                push(tabs, services: services)
-            }
+        guard tabs.placesFeed == nil else { return }
+        let feed = NewTabPlacesFeed()
+        tabs.placesFeed = feed
+        feed.observation = ServiceObservation(.visible, owner: "NewTab.places", on: services.mainWork) { [weak tabs, weak services] in
+            guard let tabs, let services, !tabs.pageTabs.ids.isEmpty else { return [String]() }
+            return key(services)
+        } apply: { [weak feed, weak tabs, weak services] key in
+            guard let feed, let tabs, let services else { return }
+            feed.changed(to: key, tabs: tabs, services: services)
         }
+    }
+
+    private func changed(to key: [String], tabs: AgentTabStore, services: AppServices) {
+        // The first page to open read its places itself.
+        let opened = last.isEmpty
+        last = key
+        if key.isEmpty || opened { return }
+        Self.push(tabs, services: services)
     }
 
     /// Everything the bar's rows are made of, as plain text: a change here is a change of rows.

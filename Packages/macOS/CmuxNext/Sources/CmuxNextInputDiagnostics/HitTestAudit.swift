@@ -4,7 +4,7 @@ internal import Foundation
 internal import ObjectiveC
 
 /// What window hit testing costs, per input event, per hit test and per `-hitTest:` implementation, for
-/// `debug.input hittest` (p04-input-098, MQ-hittest). Debug and bench builds only (`DEBUG || CMUX_BENCH_HOOKS`): no
+/// `debug.input hittest` (MQ-hittest). Debug and bench builds only (`DEBUG || CMUX_BENCH_HOOKS`): no
 /// other build compiles the hooks, and ``install()`` returns false there.
 ///
 /// Nothing is hooked until someone asks: ``install()`` scans the loaded classes off the main thread, replaces
@@ -256,7 +256,7 @@ public nonisolated struct HitTestAuditThresholds: Sendable, Equatable, Codable {
     }
 }
 
-/// `debug.input` action `hittest` (p04-input-098): the first request installs the audit's hooks and answers the
+/// `debug.input` action `hittest`: the first request installs the audit's hooks and answers the
 /// empty report; each later one answers what was recorded since that install. `reset` uninstalls and clears, so
 /// the next request installs again. `since_launch` changes nothing: recording starts at the install.
 ///

@@ -4,7 +4,7 @@ import CmuxNextInput
 import CmuxNextInputCore
 import Testing
 
-/// Swipe Back and Forward hear the app's input tap (p04-input-018): one scroll intercept, active only
+/// Swipe Back and Forward hear the app's input tap: one scroll intercept, active only
 /// while a gesture over a page goes on or the scroll is in a Chromium page window (a child window over
 /// its cmux window), so a scroll anywhere else costs no page search and always goes on.
 @MainActor @Suite(.serialized) struct CEFSwipeNavigationTests {

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// Terminal views as client-minted streams on the app's control connection (attach-streams-v1, p05-ipc-095):
+/// Terminal views as client-minted streams on the app's control connection (attach-streams-v1):
 /// a view opens no connection and sends no handshake of its own, its commands name its stream, detaching
 /// cancels the stream, and its `stream-end` frees the id. DaemonWireStatsTests'
 /// `twoTerminalsOnAFakeDaemonOpenThreeConnectionsAndCopyTheirOutput` is the per-view baseline (3 connections).
@@ -278,6 +278,9 @@ struct TerminalAttachmentStreamTests {
 
 /// The client-minted id table of one connection (``AttachStreamTable``).
 struct AttachStreamTableTests {
+    /// A sink that reads nothing.
+    private static let sink = AttachStreamSink(dispatch: .control) { _ in }
+
     private static func delivers(_ route: AttachStreamTable.Route) -> Bool {
         if case .deliver = route { true } else { false }
     }
@@ -313,7 +316,7 @@ struct AttachStreamTableTests {
     @Test func aStaleHandleNeverTouchesANewerStreamOfItsID() throws {
         var table = AttachStreamTable()
         let old = try Self.reserve(&table)
-        let boundOld = table.bind(old) { _ in }
+        let boundOld = table.bind(old, Self.sink)
         #expect(boundOld)
         let ended = table.route(old.id, ended: true)
         #expect(Self.delivers(ended), "the open stream gets its end")
@@ -323,7 +326,7 @@ struct AttachStreamTableTests {
         table.release(old)
         let cancelledOld = table.cancel(old)
         #expect(!cancelledOld)
-        let boundNewer = table.bind(newer) { _ in }
+        let boundNewer = table.bind(newer, Self.sink)
         #expect(boundNewer)
         let routed = table.route(newer.id, ended: false)
         #expect(Self.delivers(routed), "the newer stream still routes")
@@ -338,7 +341,7 @@ struct AttachStreamTableTests {
         #expect(Self.drops(reserved))
         let stale = table.route(9, ended: false)
         #expect(Self.drops(stale), "once streams are minted, an id not held is no control line")
-        let bound = table.bind(handle) { _ in }
+        let bound = table.bind(handle, Self.sink)
         let cancelled = table.cancel(handle)
         #expect(bound && cancelled)
         let afterCancel = table.route(handle.id, ended: false)
@@ -352,7 +355,7 @@ struct AttachStreamTableTests {
     @Test func connectionLossTellsEveryOpenStreamAndMintsNoMore() throws {
         var table = AttachStreamTable()
         let open = try Self.reserve(&table)
-        let bound = table.bind(open) { _ in }
+        let bound = table.bind(open, Self.sink)
         #expect(bound)
         _ = table.reserve()
         let told = table.endAll()

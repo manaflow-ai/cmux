@@ -19,6 +19,7 @@ extension SessionInputPending {
         /// How long a trackpad phase end waits for its momentum.
         public var momentumWait: TimeInterval
 
+        /// The windows, in seconds; the defaults are Chromium's wheel latching and momentum waits.
         public init(wheelLatching: TimeInterval = 0.5, momentumWait: TimeInterval = 0.1) {
             self.wheelLatching = wheelLatching
             self.momentumWait = momentumWait

@@ -1,5 +1,6 @@
 import Darwin
 import Network
+import CmuxNextCompat
 
 /// Who is on the other end of a loopback TCP connection to the proxy.
 ///
@@ -69,12 +70,12 @@ enum PeerProcess {
         remoteAddress: Address,
         remotePort: UInt16
     ) -> Bool {
-        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        let bytes = blockingProcPidInfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
         guard bytes > 0 else { return false }
         let capacity = Int(bytes) / MemoryLayout<proc_fdinfo>.stride + 16
         var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: capacity)
         let used = fds.withUnsafeMutableBytes { raw in
-            proc_pidinfo(pid, PROC_PIDLISTFDS, 0, raw.baseAddress, Int32(raw.count))
+            blockingProcPidInfo(pid, PROC_PIDLISTFDS, 0, raw.baseAddress, Int32(raw.count))
         }
         guard used > 0 else { return false }
         for fd in fds.prefix(Int(used) / MemoryLayout<proc_fdinfo>.stride) where fd.proc_fdtype == PROX_FDTYPE_SOCKET {

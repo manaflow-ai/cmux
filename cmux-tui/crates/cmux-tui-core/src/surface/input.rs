@@ -46,6 +46,61 @@ fn flow_holder(pty: &PtySurface, flow: u64) -> Option<Arc<crate::holder_runtime:
     }
 }
 
+#[cfg(unix)]
+impl From<crate::pty_write::DeliveryFailure> for ConfirmedInputFailure {
+    fn from(failure: crate::pty_write::DeliveryFailure) -> Self {
+        match failure {
+            crate::pty_write::DeliveryFailure::NotDelivered(error) => Self::Known(error),
+            crate::pty_write::DeliveryFailure::Partial(error) => Self::Indeterminate(error),
+        }
+    }
+}
+
+/// Notes input about to be written to `pty` (`ShellActivity::note_input`):
+/// its shell is not idle until the prompt that answers its lines. True when an
+/// idle fact may have been published, so the caller queues a publication. A
+/// memory write under the metadata lock, before the bytes leave, so every read
+/// and record built after it says not idle; the record that tells clients
+/// leaves on the work lane, after the bytes (a client that sent this input
+/// must not trust an idle fact it read before, `TabModel.shellIdleSinceMs`).
+/// A prompt mark parsed after it may predate it (typed ahead): the prompt
+/// count in `ShellActivity` keeps that prompt not idle.
+fn note_shell_input(pty: &PtySurface, bytes: &[u8]) -> bool {
+    !bytes.is_empty()
+        && !only_focus_reports(bytes)
+        && pty
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .activity
+            .note_input(bytes)
+}
+
+/// [`note_shell_input`] for a paste: the writer wraps it in bracketed paste
+/// marks when the program turned that mode on (2004), so its line breaks are
+/// text for the line editor, not Returns; the note reads it wrapped the same way.
+fn note_shell_paste(pty: &PtySurface, bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    let bracketed = pty.term.lock().unwrap_or_else(PoisonError::into_inner).mode(2004, false);
+    if !bracketed {
+        return note_shell_input(pty, bytes);
+    }
+    let mut wrapped = Vec::with_capacity(bytes.len() + 12);
+    wrapped.extend_from_slice(b"\x1b[200~");
+    wrapped.extend_from_slice(bytes);
+    wrapped.extend_from_slice(b"\x1b[201~");
+    note_shell_input(pty, &wrapped)
+}
+
+/// Whether `bytes` are only focus reports (`CSI I`, `CSI O`): a view that
+/// gained or lost focus while the program asked for them (fish's line editor
+/// does), not input anyone typed.
+fn only_focus_reports(bytes: &[u8]) -> bool {
+    bytes.len() % 3 == 0 && bytes.chunks(3).all(|report| report == b"\x1b[I" || report == b"\x1b[O")
+}
+
 /// The error of an input write to a browser surface.
 fn not_a_terminal() -> std::io::Error {
     std::io::Error::new(
@@ -77,8 +132,50 @@ impl Surface {
         self.write_bytes_flow(bytes, 0)
     }
 
-    /// [`Self::write_bytes`] of the key press `flow` (0: none,
-    /// p09-observability-018). The PTY owner's first read after the bytes
+    /// [`Self::write_bytes_flow`] of a key press the daemon received at
+    /// `received_ns` (trace clock; 0: unknown): the terminal's stage ring
+    /// records the receive before the write, since the echo
+    /// can be read before the write returns, and the PTY write after it.
+    /// Tests only: `send` writes its parts in one turn ([`Self::write_key_flow_in`]).
+    #[cfg(test)]
+    pub(crate) fn write_key_flow(
+        &self,
+        bytes: &[u8],
+        flow: u64,
+        received_ns: u64,
+    ) -> std::io::Result<()> {
+        let turn = self.input_turn().ok_or_else(not_a_terminal)?;
+        self.write_key_flow_in(&turn, bytes, flow, received_ns)
+    }
+
+    /// [`Self::write_key_flow`] in the input turn `turn` of this terminal.
+    pub(crate) fn write_key_flow_in(
+        &self,
+        turn: &InputTurn<'_>,
+        bytes: &[u8],
+        flow: u64,
+        received_ns: u64,
+    ) -> std::io::Result<()> {
+        let stages = self.as_pty().map(|pty| &*pty.input_stages);
+        if let Some(stages) = stages {
+            stages.received(flow, received_ns);
+        }
+        let result = self.write_bytes_in(turn, bytes, flow);
+        if let (Ok(()), Some(stages)) = (&result, stages)
+            && flow != 0
+        {
+            stages.written(flow, crate::input_stages::now_ns());
+        }
+        result
+    }
+
+    /// The terminal's key-stage ring; `None` for a browser surface.
+    pub(crate) fn input_stages(&self) -> Option<Arc<crate::input_stages::InputStageRing>> {
+        self.as_pty().map(|pty| pty.input_stages.clone())
+    }
+
+    /// [`Self::write_bytes`] of the key press `flow` (0: none).
+    /// The PTY owner's first read after the bytes
     /// reached the PTY echoes it, and that read's `output` event carries
     /// `flow`, once: a hosted terminal's host stamps its read
     /// (`FLAG_INPUT_FLOW`); a master the daemon writes itself, its reader's
@@ -91,6 +188,29 @@ impl Surface {
 
     /// [`Self::write_bytes_flow`] in the input turn `turn` of this terminal.
     pub(crate) fn write_bytes_in(
+        &self,
+        turn: &InputTurn<'_>,
+        bytes: &[u8],
+        flow: u64,
+    ) -> std::io::Result<()> {
+        let publish = note_shell_input(self.pty_in(turn)?, bytes);
+        // Not idle in memory before the bytes; the record that says so is queued here and leaves after them.
+        if publish {
+            self.post_pending_publications();
+        }
+        self.write_unnoted_in(turn, bytes, flow)
+    }
+
+    /// Writes the terminal's own replies to the program's queries (device
+    /// attributes, cursor position, colors): bytes no one typed, so they
+    /// leave the shell's idle fact alone (`terminal_activity`).
+    pub(crate) fn write_terminal_reply(&self, bytes: &[u8]) -> std::io::Result<()> {
+        let turn = self.input_turn().ok_or_else(not_a_terminal)?;
+        self.write_unnoted_in(&turn, bytes, 0)
+    }
+
+    /// [`Self::write_bytes_in`] without noting the input.
+    fn write_unnoted_in(
         &self,
         turn: &InputTurn<'_>,
         bytes: &[u8],
@@ -120,24 +240,42 @@ impl Surface {
         slot.arm(flow);
         let reached_pty = {
             let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-            match &mut *runtime {
-                PtyRuntime::Local { writer, master, .. } => {
-                    let master = master.as_deref().map(|master| master as &dyn MasterPty);
-                    // Waits while the child does not read its input.
-                    crate::request_path::will_block(|| {
-                        crate::pty_input_room::write_input(master, writer.as_mut(), bytes)
+            // A holder terminal's `pty-writer` queue takes the bytes in the
+            // key lane: the request never waits for the child.
+            #[cfg(unix)]
+            let queued = match &*runtime {
+                PtyRuntime::Local { master, holder: Some(holder), .. } => {
+                    holder.input().map(|input| {
+                        let master = master.as_deref().map(|master| master as &dyn MasterPty);
+                        crate::pty_input_room::queue_input(master, input, bytes)
                     })
                 }
-                // The host stamps its own read of the echo.
-                #[cfg(any(unix, windows))]
-                PtyRuntime::Hosted(host) => crate::request_path::will_block(|| {
-                    host.send_flow(MessageKind::Input, bytes, flow).map(|()| false)
-                }),
-                // A keep-on-exit terminal outlives its child, so typing into the
-                // dead PTY is an expected interaction: drop the bytes silently
-                // instead of failing every keystroke on the final screen.
-                #[cfg(any(unix, windows))]
-                PtyRuntime::ExitedHosted => Ok(false),
+                _ => None,
+            };
+            #[cfg(not(unix))]
+            let queued = None;
+            if let Some(queued) = queued {
+                queued
+            } else {
+                match &mut *runtime {
+                    PtyRuntime::Local { writer, master, .. } => {
+                        let master = master.as_deref().map(|master| master as &dyn MasterPty);
+                        // Waits while the child does not read its input.
+                        crate::request_path::will_block(|| {
+                            crate::pty_input_room::write_input(master, writer.as_mut(), bytes)
+                        })
+                    }
+                    // The host stamps its own read of the echo.
+                    #[cfg(any(unix, windows))]
+                    PtyRuntime::Hosted(host) => crate::request_path::will_block(|| {
+                        host.send_flow(MessageKind::Input, bytes, flow).map(|()| false)
+                    }),
+                    // A keep-on-exit terminal outlives its child, so typing into the
+                    // dead PTY is an expected interaction: drop the bytes silently
+                    // instead of failing every keystroke on the final screen.
+                    #[cfg(any(unix, windows))]
+                    PtyRuntime::ExitedHosted => Ok(false),
+                }
             }
         };
         // Dropped, handed to a host, or failed: no echo of this write comes to this slot.
@@ -222,10 +360,35 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ConfirmedInputFailure::Known(not_a_terminal()));
         };
+        let publish = note_shell_input(pty, bytes);
+        // Not idle in memory before the bytes; the record that says so is queued here and leaves after them.
+        if publish {
+            self.post_pending_publications();
+        }
+        Self::deliver_confirmed(pty, bytes)
+    }
+
+    /// [`Self::write_bytes_confirmed`] after the input was noted.
+    fn deliver_confirmed(pty: &PtySurface, bytes: &[u8]) -> Result<(), ConfirmedInputFailure> {
         // The request is sent in its turn; its acknowledgement is awaited
         // after the turn ended, as after the runtime lock.
         let turn = pty.input_fifo.enter();
         let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
+        // A holder terminal's `pty-writer` queue takes the bytes after every
+        // earlier input and answers once its PTY took the last one. The wait
+        // runs after the runtime lock and the input turn are released.
+        #[cfg(unix)]
+        if let PtyRuntime::Local { holder: Some(holder), .. } = &*runtime
+            && let Some(input) = holder.input()
+        {
+            let receipt = input
+                .send_receipted(bytes, crate::pty_write::InputLane::Bulk)
+                .map_err(ConfirmedInputFailure::Known)?;
+            drop(runtime);
+            drop(turn);
+            return crate::request_path::will_block(|| receipt.wait())
+                .map_err(ConfirmedInputFailure::from);
+        }
         match &mut *runtime {
             PtyRuntime::Local { writer, .. } => crate::request_path::will_block(|| {
                 writer.write_all(bytes).and_then(|()| writer.flush())
@@ -285,6 +448,21 @@ impl Surface {
         bytes: &[u8],
         timeout: Option<Duration>,
     ) -> std::io::Result<()> {
+        let publish = note_shell_paste(self.pty_in(turn)?, bytes);
+        // Not idle in memory before the bytes; the record that says so is queued here and leaves after them.
+        if publish {
+            self.post_pending_publications();
+        }
+        self.write_paste_unnoted_in(turn, bytes, timeout)
+    }
+
+    /// [`Self::write_paste_in`] without noting the input.
+    fn write_paste_unnoted_in(
+        &self,
+        turn: &InputTurn<'_>,
+        bytes: &[u8],
+        timeout: Option<Duration>,
+    ) -> std::io::Result<()> {
         let pty = self.pty_in(turn)?;
         if bytes.is_empty() {
             return Ok(());
@@ -305,7 +483,14 @@ impl Surface {
             reason = "INVARIANT: send_hosted_input took every hosted runtime, and a local \
                       runtime is never replaced by a hosted one"
         )]
-        let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
+        let PtyRuntime::Local {
+            writer,
+            master,
+            #[cfg(unix)]
+            holder,
+            ..
+        } = &mut *runtime
+        else {
             unreachable!("hosted paste returned above")
         };
         #[cfg(not(unix))]
@@ -317,6 +502,12 @@ impl Surface {
         payload.extend_from_slice(bytes);
         if bracketed {
             payload.extend_from_slice(b"\x1b[201~");
+        }
+        // A holder terminal's `pty-writer` queue takes the paste whole, after
+        // every key typed before it, without waiting for the child.
+        #[cfg(unix)]
+        if let Some(input) = holder.as_ref().and_then(|holder| holder.input()) {
+            return input.send(&payload, crate::pty_write::InputLane::Bulk);
         }
         // Waits while the child does not read its input.
         crate::request_path::will_block(|| {
@@ -345,5 +536,19 @@ impl Surface {
             panic!("input test requires the in-process test runtime");
         };
         *writer = replacement;
+    }
+}
+
+#[cfg(test)]
+mod shell_idle_focus_report_tests {
+    use super::only_focus_reports;
+
+    #[test]
+    fn only_focus_reports_are_not_typed_input() {
+        assert!(only_focus_reports(b"\x1b[I"));
+        assert!(only_focus_reports(b"\x1b[O\x1b[I"));
+        assert!(!only_focus_reports(b"\x1b[Ix"));
+        assert!(!only_focus_reports(b"ls"));
+        assert!(!only_focus_reports(b"\x1b[A"), "an arrow key is input");
     }
 }

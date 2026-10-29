@@ -8,12 +8,16 @@ public import Foundation
 /// returns (the shim copies everything before it returns). The row buffer is
 /// zeroed before it is freed.
 ///
-/// Memory safety (p10-stability-067): the row buffer is this object's own allocation of
+/// Not `Sendable`: the rows are built, handed to the shim and zeroed in one
+/// isolation domain (the import's write on the main actor), so the compiler
+/// keeps `copied()` and the buffers from being reached from two threads.
+///
+/// Memory safety: the row buffer is this object's own allocation of
 /// `max(count, 1) * stride` bytes, and every write below stays inside row `index < count` at an offset
 /// under `stride` (the header's field offsets); the password pointers are the caller's, valid while it
 /// holds them (``init(_:afterCopy:)``).
 @safe
-public nonisolated final class ChromiumPasswordRows: @unchecked Sendable {
+public nonisolated final class ChromiumPasswordRows {
     static let stride = 72
     let count: Int
     let rows: UnsafeMutableRawPointer

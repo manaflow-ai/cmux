@@ -7,7 +7,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -23,14 +25,35 @@ mod apps {
         child: Child,
         write: UnixStream,
         read: BufReader<UnixStream>,
+        /// The host's own home folder: its black box goes under it, not the
+        /// person's.
+        home: PathBuf,
+    }
+
+    impl Drop for Host {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.home);
+        }
     }
 
     impl Host {
         fn spawn() -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let home = std::env::temp_dir().join(format!(
+                "cmux-app-host-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&home).expect("home");
             let (ours, theirs) = UnixStream::pair().expect("socketpair");
             let fd = theirs.as_raw_fd();
             let mut command = Command::new(BIN);
-            command.env_clear().stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::inherit());
+            command
+                .env_clear()
+                .env("HOME", &home)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit());
             // SAFETY: dup2 is async-signal-safe; it runs in the child before exec.
             unsafe {
                 command.pre_exec(move || {
@@ -45,7 +68,14 @@ mod apps {
             drop(theirs);
             ours.set_read_timeout(Some(Duration::from_secs(10))).expect("timeout");
             let read = BufReader::new(ours.try_clone().expect("clone"));
-            Self { child, write: ours, read }
+            Self { child, write: ours, read, home }
+        }
+
+        /// Where this host's black box is (`cmux_trace::process_dir` with its
+        /// environment: only `HOME`).
+        fn blackbox(&self) -> PathBuf {
+            cmux_trace::process_dir_with(|_| None, Some(self.home.clone()))
+                .join(cmux_trace::blackbox_file_name(cmux_trace::Role::AppHost, self.child.id()))
         }
 
         fn send(&mut self, message: Value) {
@@ -111,6 +141,23 @@ mod apps {
         }
         let all: String = seen.iter().map(Value::to_string).collect::<String>() + &scene_text;
         assert!(all.contains("1 working · 1 waiting"), "{all}");
+        host.send(json!({ "t": "shutdown" }));
+        assert_eq!(host.child.wait().expect("wait").code(), Some(0));
+    }
+
+    /// The host maps its black box before it enters
+    /// the sandbox (which refuses opening files), so a sandboxed host that
+    /// serves has its ring file, with its pid and role.
+    #[test]
+    fn the_black_box_file_is_mapped_before_the_sandbox() {
+        let mut host = Host::spawn();
+        host.send(json!({ "t": "init", "app": { "id": "local/ring", "version": "1.0.0" }, "api_version": "1.0.0", "main": common::app("return { render: () => null }") }));
+        let mut seen = Vec::new();
+        host.until("ready", &|_| json!({}), &mut seen);
+        let ring = std::fs::read(host.blackbox()).expect("the host's black box file");
+        assert_eq!(&ring[..8], b"CMXTRACE");
+        assert_eq!(u32::from_le_bytes(ring[16..20].try_into().expect("pid")), host.child.id());
+        assert_eq!(u16::from_le_bytes(ring[20..22].try_into().expect("role")), 9, "app host");
         host.send(json!({ "t": "shutdown" }));
         assert_eq!(host.child.wait().expect("wait").code(), Some(0));
     }

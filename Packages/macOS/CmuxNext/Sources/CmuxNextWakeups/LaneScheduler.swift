@@ -114,12 +114,7 @@ final class LaneScheduler: Sendable {
         init(threshold: Duration, clock: any Clock<Duration>) {
             self.threshold = threshold
             self.clock = clock
-            elapsed = Self.elapsedReader(clock)
-        }
-
-        private static func elapsedReader<C: Clock<Duration>>(_ clock: C) -> @Sendable () -> Duration {
-            let start = clock.now
-            return { start.duration(to: clock.now) }
+            elapsed = clock.stopwatch()
         }
     }
 

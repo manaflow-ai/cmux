@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import QuartzCore
 import Testing
 
-/// p06-scheduler-208: the completion of a person's action (once the remote half of an `.applied`
+/// The completion of a person's action (once the remote half of an `.applied`
 /// or `.waiting` effect answered: the rollback and notice of a failure, the answer to the person's
 /// key on success) runs as one userBlocking task on the app's main-thread scheduler, under the
 /// person's cause, and its commit closes the key's input response. A CLI run's completion is not

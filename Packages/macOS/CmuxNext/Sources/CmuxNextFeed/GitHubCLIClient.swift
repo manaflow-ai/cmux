@@ -9,9 +9,13 @@ import CmuxNextWakeups
 /// `gh` spawn, the HTTP parse and the JSON decode of up to 100 items must never run on the main thread.
 public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
     public var executable: String
+    /// gh's environment; nil inherits the App's. With `/usr/bin/env` as ``executable``, its PATH is where
+    /// gh is found.
+    public var environment: [String: String]?
 
-    public init(executable: String = "/usr/bin/env") {
+    public init(executable: String = "/usr/bin/env", environment: [String: String]? = nil) {
         self.executable = executable
+        self.environment = environment
     }
 
     public func notifications(etag: String?) async throws -> GitHubAPIResponse<[GitHubNotification]> {
@@ -42,7 +46,7 @@ public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
     @concurrent private func request<Value: Decodable & Sendable>(
         path: String, fields: [String: String], etag: String?, listKey: String? = nil
     ) async throws -> GitHubAPIResponse<[Value]> {
-        let result = try await Self.run(executable: executable, path: path, fields: fields, etag: etag)
+        let result = try await Self.run(executable: executable, environment: environment, path: path, fields: fields, etag: etag)
         guard result.status != 304 else {
             return GitHubAPIResponse(value: nil, etag: result.etag, notModified: true)
         }
@@ -65,7 +69,7 @@ public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
     }
 
     @concurrent private static func run(
-        executable: String, path: String, fields: [String: String], etag: String?
+        executable: String, environment: [String: String]?, path: String, fields: [String: String], etag: String?
     ) async throws -> CommandResult {
         let command = ["gh", "api", "--include", "-X", "GET", path]
             + fields.sorted(by: { $0.key < $1.key }).flatMap { ["-f", "\($0.key)=\($0.value)"] }
@@ -75,7 +79,7 @@ public nonisolated struct GitHubCLIClient: GitHubFeedAPI {
         let outcome: ProcessOutcome
         do {
             outcome = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: executable), arguments,
-                                                                  errorOutput: .merge))
+                                                                  environment: environment, errorOutput: .merge))
         } catch ProcessFailure.launch(let message) {
             throw GitHubFeedError.cliUnavailable(message)
         }

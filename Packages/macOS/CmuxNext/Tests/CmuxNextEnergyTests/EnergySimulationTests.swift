@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// `debug.energy.simulate` (p14-energy-123): a simulation lays inputs over the Mac's in the monitor, the
+/// `debug.energy.simulate`: a simulation lays inputs over the Mac's in the monitor, the
 /// driver resolves the policy from them in the same turn, and clearing it restores the Mac's inputs. Fleet
 /// Macs have no battery, so 15% on battery is how the bench sees the `auto` saver's `battery` reason.
 /// Low Power Mode and the thermal state go through the Mac's own seams, so every reader sees them; a

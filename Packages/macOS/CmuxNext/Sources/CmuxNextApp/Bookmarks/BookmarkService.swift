@@ -111,7 +111,7 @@ final class BookmarkService {
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .bookmarksChanged(let profile, _) = event { self?.daemonChanged(profile) }
         }
-        let mainWork = services.mainWork, syncStarted = syncStarted
+        let mainWork = services.mainWork, work = services.work, syncStarted = syncStarted
         // task-owner: one-shot launch read of the bookmark file. The file actor reads off main; the trees apply as
         // one posted `visible` task (bars and stars show them), then the legacy imports migrate once, after the sync
         // started (``startSync()``, `LaunchStart.bookmarkSync`).
@@ -120,7 +120,7 @@ final class BookmarkService {
             await mainWork.apply(.visible, owner: "BookmarkService.fileLoaded") { [weak self] () -> Void in self?.fileRead(loaded) }
             for await _ in syncStarted {}
             guard let importStore, let self else { return }
-            await self.migrateLegacyImports(store: importStore, directory: directory, mainWork: mainWork)
+            await self.migrateLegacyImports(store: importStore, directory: directory, mainWork: mainWork, work: work)
         }
     }
 

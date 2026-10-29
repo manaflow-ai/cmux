@@ -5,7 +5,7 @@ import CmuxNextSignposts
 import Foundation
 import Testing
 
-/// The omnibar's side of `key.omnibar_suggest` (p09-observability-040, perf-hot `omnibar-key`): each typed key's
+/// The omnibar's side of `key.omnibar_suggest` (perf-hot `omnibar-key`): each typed key's
 /// reducer pass is one slice whose end holds the popup's rows, and the pass that takes the query's rows when they land
 /// is one slice of its own.
 @Suite struct OmnibarSuggestSignpostTests {

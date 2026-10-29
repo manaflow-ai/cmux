@@ -66,6 +66,17 @@ impl Surface {
         #[cfg(any(unix, windows))]
         {
             let turn = pty.input_fifo.enter();
+            // A host on the alternate screen types the fallback key itself:
+            // input, so the shell is not idle until its next prompt
+            // (`terminal_activity`). Noted before the request, whether or not
+            // the host types it.
+            let hosted = matches!(&*pty.runtime.lock().recover_poison(), PtyRuntime::Hosted(_));
+            if hosted
+                && fallback_key.is_some()
+                && pty.terminal_metadata.lock().recover_poison().activity.note_input(&[])
+            {
+                self.post_pending_publications();
+            }
             let pending = match &*pty.runtime.lock().recover_poison() {
                 PtyRuntime::Hosted(host) => Some(host.begin_clear_history(fallback_key)?),
                 PtyRuntime::ExitedHosted => {
@@ -125,7 +136,14 @@ impl Surface {
                         reason = "INVARIANT: the hosted runtimes returned above, and a runtime \
                                   never changes between local and hosted after construction"
                     )]
-                    let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
+                    let PtyRuntime::Local {
+                        writer,
+                        master,
+                        #[cfg(unix)]
+                        holder,
+                        ..
+                    } = &mut *runtime
+                    else {
                         unreachable!("a local PTY runtime cannot become hosted")
                     };
                     let Some(master) = master.as_deref() else {
@@ -134,7 +152,34 @@ impl Surface {
                         )));
                     };
                     drop(term);
-                    return write_clear_history_fallback(master, writer.as_mut(), &encoded);
+                    // The fallback key is input: the shell is not idle until
+                    // its next prompt (`terminal_activity`), noted before it
+                    // is written.
+                    let publish =
+                        pty.terminal_metadata.lock().recover_poison().activity.note_input(&[]);
+                    // A holder terminal's keys go through its `pty-writer`
+                    // queue, so the fallback key follows them in order. The
+                    // wait for its delivery runs after the runtime lock is
+                    // released.
+                    #[cfg(unix)]
+                    if let Some(input) = holder.as_ref().and_then(|holder| holder.input()) {
+                        let receipt = queue_clear_history_fallback(input, &encoded);
+                        drop(runtime);
+                        drop(turn);
+                        if publish {
+                            self.post_pending_publications();
+                        }
+                        return crate::request_path::will_block(|| {
+                            wait_clear_history_fallback(receipt?)
+                        });
+                    }
+                    let written = write_clear_history_fallback(master, writer.as_mut(), &encoded);
+                    drop(runtime);
+                    drop(turn);
+                    if publish {
+                        self.post_pending_publications();
+                    }
+                    return written;
                 }
                 ClearHistoryTransition::Noop => return Ok(()),
                 ClearHistoryTransition::Cleared(clear) => {
@@ -241,16 +286,54 @@ fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> Clear
     }
 }
 
-pub(crate) fn write_clear_history_fallback(
-    master: &dyn MasterPty,
-    writer: &mut dyn Write,
-    bytes: &[u8],
-) -> Result<(), ClearHistoryFailure> {
+fn check_clear_history_fallback_size(bytes: &[u8]) -> Result<(), ClearHistoryFailure> {
     if bytes.len() > CLEAR_HISTORY_FALLBACK_MAX_BYTES {
         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
             "encoded clear-history fallback exceeds {CLEAR_HISTORY_FALLBACK_MAX_BYTES} bytes"
         )));
     }
+    Ok(())
+}
+
+/// [`write_clear_history_fallback`] for a holder terminal: queued in the
+/// key lane of its `pty-writer` queue. A queue that refuses it (full or
+/// closed) took none of it.
+#[cfg(unix)]
+fn queue_clear_history_fallback(
+    input: &crate::pty_write::PtyInputQueue,
+    bytes: &[u8],
+) -> Result<crate::pty_write::InputReceipt, ClearHistoryFailure> {
+    check_clear_history_fallback_size(bytes)?;
+    input
+        .send_receipted(bytes, crate::pty_write::InputLane::Key)
+        .map_err(|error| ClearHistoryFailure::known_not_delivered(error.into()))
+}
+
+/// Waits, as long as the bounded write of other terminals, until the PTY
+/// took the queued fallback key. One that timed out before the PTY took a
+/// byte of it is taken back, so it is known not delivered.
+#[cfg(unix)]
+fn wait_clear_history_fallback(
+    receipt: crate::pty_write::InputReceipt,
+) -> Result<(), ClearHistoryFailure> {
+    use crate::pty_write::DeliveryFailure;
+    let deadline = Instant::now() + CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT;
+    receipt.wait_until(deadline, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR).map_err(|failure| {
+        match failure {
+            DeliveryFailure::NotDelivered(error) => {
+                ClearHistoryFailure::known_not_delivered(error.into())
+            }
+            DeliveryFailure::Partial(error) => ClearHistoryFailure::ambiguous(error.into()),
+        }
+    })
+}
+
+pub(crate) fn write_clear_history_fallback(
+    master: &dyn MasterPty,
+    writer: &mut dyn Write,
+    bytes: &[u8],
+) -> Result<(), ClearHistoryFailure> {
+    check_clear_history_fallback_size(bytes)?;
 
     #[cfg(unix)]
     if let Some(fd) = master.as_raw_fd() {

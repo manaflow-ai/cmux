@@ -23,6 +23,7 @@ mod host_state;
 mod input;
 mod local_output;
 mod local_reader;
+mod memory_usage;
 mod metadata;
 mod mouse_input;
 mod options;
@@ -42,6 +43,7 @@ pub use color_overrides::apply_terminal_color_overrides;
 pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
 pub(crate) use host_launch::HostLaunch;
 pub use host_state::{TerminalHostConnectionState, TerminalHostFallback};
+pub(crate) use memory_usage::{PtyHome, SurfaceMemory, TerminalMemory};
 // Hosted (unix) code and the unit tests are the only callers.
 use clear_history::LOCAL_PASTE_WRITE_TIMEOUT;
 pub use clear_history::{
@@ -171,6 +173,7 @@ use crate::mux::ResourceWaitWake;
 use crate::panic_free::RecoverPoison;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use crate::terminal_end::TerminalEnd;
 use crate::terminal_host_protocol::TerminalExit;
 use crate::{Mux, MuxEvent, SurfaceId};
@@ -187,8 +190,8 @@ use crate::browser::{
 use crate::terminal_host_protocol::PROTOCOL_VERSION;
 #[cfg(any(unix, windows))]
 use crate::terminal_host_protocol::{
-    CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, FLAG_INPUT_FLOW, Frame, MessageKind,
-    decode_terminal_exit, split_flow_trailer,
+    CLEAR_HISTORY_ACK_OK, FLAG_COLORS_FOLLOW, FLAG_INPUT_FLOW, FLAG_INPUT_STAGES, Frame,
+    MessageKind, decode_terminal_exit, split_flow_trailer, split_stages_trailer,
 };
 
 /// Default maximum retained scrollback backing storage per terminal, in bytes:
@@ -303,7 +306,7 @@ pub enum AttachFrame {
     /// PTY output; all viewers of one read share its buffer (attach_tap.rs).
     Output(bytes::Bytes),
     /// [`Self::Output`] of the PTY owner's first read after a `send` with
-    /// key press `flow` (never 0) reached the PTY: its echo (p09-observability-018).
+    /// key press `flow` (never 0) reached the PTY: its echo.
     FlowOutput {
         output: bytes::Bytes,
         flow: u64,
@@ -357,6 +360,7 @@ mod attach_tap;
 pub use attach_tap::AttachFrameReceiver;
 pub(crate) use attach_tap::AttachLifecycle;
 pub(crate) use attach_tap::AttachResize;
+pub(crate) use attach_tap::TapVisibility;
 pub(crate) use attach_tap::ViewerEvent;
 #[cfg(test)]
 use attach_tap::{
@@ -697,6 +701,7 @@ impl Surface {
         let control_responses = attachment.control_responses();
         let smart_renderer = attachment.is_smart_renderer();
         let input_flow = attachment.input_flow;
+        let input_stages = attachment.input_stages;
         let snapshot = attachment.snapshot.clone();
         let applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
@@ -713,6 +718,11 @@ impl Surface {
         // adopts a terminal after a restart does not read it as idle.
         if let Some(activity) = snapshot.shell_activity {
             terminal_metadata.activity.restore(activity);
+        }
+        // A host another daemon ran may hold renderer connections that
+        // daemon granted; they write input this daemon never sees.
+        if adopted {
+            terminal_metadata.activity.note_unseen_input();
         }
         term.resize(
             snapshot.cols,
@@ -867,6 +877,7 @@ impl Surface {
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
+                input_stages: Default::default(),
                 input_fifo: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
@@ -914,6 +925,7 @@ impl Surface {
             protocol_version,
             smart_renderer,
             input_flow,
+            input_stages,
             applied_color_overrides,
             applied_color_revision: initial_color_revision,
             applied_cursor_activity: initial_cursor_activity,
@@ -932,10 +944,12 @@ impl Surface {
         // Echo path class, or utility while no view shows the terminal
         // (surface/thread_qos.rs); blocking is disallowed while it streams a
         // host connection (`HostedReader::run`), not between connections.
-        let reader_thread = cmux_threads::spawn_following(
+        let reader_thread = supervised::spawn_following(
             format!("surface-{id}-host"),
             crate::echo_thread::ECHO_PATH_QOS,
             terminal.thread_qos.clone(),
+            Fatal,
+            ShutdownBehavior::Continue,
             {
                 let surface = surface.clone();
                 move || hosted_reader.run(surface, reader)
@@ -973,7 +987,11 @@ impl Surface {
             .and_then(|mux| mux.take_test_terminal_host_disconnect_after_spawn())
         {
             let test_surface = surface.clone();
-            let _ = std::thread::Builder::new().name("terminal-host-test-disconnect".into()).spawn(
+            let _ = supervised::spawn_at(
+                "terminal-host-test-disconnect",
+                cmux_threads::ThreadQos::Utility,
+                Fatal,
+                ShutdownBehavior::Continue,
                 move || {
                     crate::request_path::sleep(delay);
                     if let Some(pty) = test_surface.as_pty()

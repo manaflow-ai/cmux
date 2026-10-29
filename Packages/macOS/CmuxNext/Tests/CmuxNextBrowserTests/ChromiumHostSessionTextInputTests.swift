@@ -4,7 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// The page view's text input on the session's wire (p01-process-043): the session asks the host
+/// The page view's text input on the session's wire: the session asks the host
 /// for its text input state, applies each push to the view, and sends the view's ops on the same
 /// stream as its key and mouse frames, each after the frames written before it.
 extension ChromiumHostSessionTests {

@@ -34,12 +34,12 @@ pub use relay::{
     RelaySocketAttachment, RelayTicketClaims,
 };
 pub use rpc::{
-    ByteString, ComputerUseAction, ComputerUseCapability, ComputerUseFeature,
-    ComputerUseInvocation, ComputerUseInvocationId, ComputerUseOutput, ComputerUseResult,
-    DiffFormat, DirectoryEntry, FileKind, FilePrecondition, FileStat, GitChange, GitStatus,
-    KeyAction, MUX_INPUT_V1_FEATURE, OperationId, PageCursor, PatchFileAction, PatchFileResult,
-    PointerAction, ProcessDescriptor, ProcessEnvironment, ProcessEvent, ProcessId, ProcessIo,
-    ProcessIoKind, ProcessLifetime, ProcessOutputStream, ProcessOutputTruncationReason,
+    BRIDGE_FRAMES_V1_FEATURE, ByteString, ComputerUseAction, ComputerUseCapability,
+    ComputerUseFeature, ComputerUseInvocation, ComputerUseInvocationId, ComputerUseOutput,
+    ComputerUseResult, DiffFormat, DirectoryEntry, FileKind, FilePrecondition, FileStat, GitChange,
+    GitStatus, KeyAction, MUX_INPUT_V1_FEATURE, OperationId, PageCursor, PatchFileAction,
+    PatchFileResult, PointerAction, ProcessDescriptor, ProcessEnvironment, ProcessEvent, ProcessId,
+    ProcessIo, ProcessIoKind, ProcessLifetime, ProcessOutputStream, ProcessOutputTruncationReason,
     ProcessReplayRange, ProcessSignal, ProcessState, ProcessTerminalColor, ProcessTerminalCursor,
     ProcessTerminalCursorStyle, ProcessTerminalRow, ProcessTerminalSize, ProcessTerminalSnapshot,
     ProcessTerminalStyledRun, ProcessTerminalUnderline, PtyEofPolicy, RemoteCapability, RequestId,

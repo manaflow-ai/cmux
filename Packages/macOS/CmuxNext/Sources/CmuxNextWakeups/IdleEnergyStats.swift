@@ -3,7 +3,7 @@ public import CoreFoundation
 import Darwin
 
 /// The main process's idle interrupt wakeups per second over this launch, as a histogram with
-/// fixed buckets (p14-energy-008, `debug.energy`'s `idle`).
+/// fixed buckets (`debug.energy`'s `idle`).
 ///
 /// Chrome samples the same counter (`ProcessMetrics::GetIdleWakeupsPerSecond` in
 /// `base/process/process_metrics_apple.mm` reads `ri_interrupt_wkups`) from the repeating timer of
@@ -48,6 +48,7 @@ public struct IdleEnergyStats: Sendable, Equatable {
         case measuring(since: UInt64, wakeups: UInt64, inputs: UInt64)
     }
 
+    /// An empty histogram, before the first wake.
     public init() {}
 
     /// Samples recorded this launch.
@@ -133,11 +134,14 @@ public struct IdleEnergyStats: Sendable, Equatable {
 public final class IdleEnergyMonitor {
     /// Where the monitor reads its counters (the tests' seam).
     public struct Sources: Sendable {
+        /// Monotonic nanoseconds, `CLOCK_UPTIME_RAW`.
         public var uptimeNanos: @Sendable () -> UInt64
         /// The main process's interrupt wakeups, nil when `proc_pid_rusage` fails.
         public var interruptWakeups: @Sendable () -> UInt64?
+        /// The input events dispatched since launch: a change means the person was not idle.
         public var inputEvents: @Sendable () -> UInt64
 
+        /// The sources the monitor reads.
         public init(uptimeNanos: @escaping @Sendable () -> UInt64,
                     interruptWakeups: @escaping @Sendable () -> UInt64?,
                     inputEvents: @escaping @Sendable () -> UInt64) {
@@ -160,6 +164,7 @@ public final class IdleEnergyMonitor {
     /// it; releasing the token removes it (``mainRunLoopWakes(_:_:)`` in the app, a fake in tests).
     public typealias WakeRegistration = @MainActor (_ activities: CFRunLoopActivity, _ onWake: @escaping @MainActor () -> Void) -> AnyObject
 
+    /// The histogram of idle wake rates recorded this launch.
     public private(set) var stats = IdleEnergyStats()
     private let sources: Sources
     private let observeWakes: WakeRegistration

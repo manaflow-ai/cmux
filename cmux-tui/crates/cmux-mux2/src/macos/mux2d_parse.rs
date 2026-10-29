@@ -60,6 +60,7 @@ pub(super) fn spawn_parse_workers() -> Vec<std::sync::mpsc::Sender<ParseJob>> {
             let (tx, rx) = std::sync::mpsc::channel::<ParseJob>();
             // Output parsing the person waits for: UserInitiated, not the
             // closed user-interactive list (threading-model.md).
+            // supervise-allow: Fatal by hand: a parse that panics aborts mux2d below, never a server whose batch waits forever.
             cmux_threads::spawn(
                 format!("mux2-parse-{i}"),
                 cmux_threads::ThreadQos::UserInitiated,

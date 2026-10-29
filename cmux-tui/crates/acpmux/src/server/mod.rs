@@ -8,9 +8,9 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use crate::session_identity::SessionReceipt;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use anyhow::{Context, Result};
 use cmux_local_auth::{ListenerPolicy, Refusal};
-use cmux_panic_log::crash_keys::{self, Key};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -372,7 +372,7 @@ fn enqueue_outbound(
             let out = out.clone();
             pending_controls.fetch_add(1, Ordering::AcqRel);
             let pending_controls = Arc::clone(pending_controls);
-            tokio::spawn(async move {
+            crate::supervised::spawn_scoped(async move {
                 let _ = out.send(line).await;
                 pending_controls.fetch_sub(1, Ordering::AcqRel);
             });
@@ -407,7 +407,7 @@ fn report_outbound_loss_locked(
         let dropped = Arc::clone(dropped);
         let gap_pending = Arc::clone(gap_pending);
         let outbound_lock = Arc::clone(outbound_lock);
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             let permit = out.reserve().await;
             let Ok(permit) = permit else {
                 gap_pending.store(false, Ordering::Release);
@@ -451,12 +451,12 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
         }
         tokio::fs::remove_file(path).await?;
     }
-    let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await?;
-    }
+    // Bound 0600 in a private staging directory and renamed into place, so
+    // the socket is never reachable with the umask's mode (cmux-unix-socket).
+    let std_listener =
+        cmux_unix_socket::bind_private(path).with_context(|| format!("bind {}", path.display()))?;
+    std_listener.set_nonblocking(true)?;
+    let listener = UnixListener::from_std(std_listener)?;
     tracing::info!("listening on {}", path.display());
     Ok(listener)
 }
@@ -472,7 +472,7 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
             }
         };
         let hub = hub.clone();
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             // Named by its audit token, read once here, never by pid.
             let peer = {
                 use std::os::fd::AsRawFd;
@@ -491,19 +491,49 @@ const INDEX_HTML: &str = include_str!("../../web/index.html");
 ///
 /// Every request passes the localhost listener rule first
 /// (plans/cmux-next/identity.md section 4): a loopback `Host`, no foreign
-/// `Origin`, and the token, which is mandatory.
+/// `Origin`, and, for the WebSocket, the token, which is mandatory and
+/// comes only from a header (`ws_auth.rs`).
 pub async fn listen_ws(hub: Arc<Hub>, addr: String, token: String) -> Result<()> {
     let listener = bind_ws(&addr).await?;
     serve_ws(hub, listener, token).await
 }
 
-/// Bind the dashboard/WebSocket port. `127.0.0.1:0` picks a free port; read
-/// it back with `local_addr`.
+/// Bind the dashboard/WebSocket port on loopback. `127.0.0.1:0` picks a free
+/// port; read it back with `local_addr`. A network address is refused
+/// (`ws_auth::check_listen`); [`bind_ws_with`] takes the person's opt-in.
 pub async fn bind_ws(addr: &str) -> Result<TcpListener> {
+    bind_ws_with(addr, false).await
+}
+
+/// [`bind_ws`], binding a network (non-loopback) address too when
+/// `allow_network` (`--insecure-network-listen`,
+/// `websocket.allowInsecureNetwork`).
+pub async fn bind_ws_with(addr: &str, allow_network: bool) -> Result<TcpListener> {
+    check_listen_address(addr, allow_network).await?;
     let listener = TcpListener::bind(addr).await.with_context(|| format!("bind {addr}"))?;
-    let local = listener.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| addr.to_owned());
-    tracing::info!("web + websocket listening on {local}");
+    let bound = listener.local_addr().with_context(|| format!("bind {addr}"))?;
+    // The address that was bound, should a name resolve differently now.
+    ws_auth::check_listen(addr, &[bound], allow_network)?;
+    if !ws_auth::is_loopback(&bound) {
+        tracing::warn!(
+            "the web + websocket listener {bound} is on a network address (opted in): plain ws:// sends the listener token in clear"
+        );
+    }
+    tracing::info!("web + websocket listening on {bound}");
     Ok(listener)
+}
+
+/// Refuse `addr` before binding it when any address it names is not
+/// loopback and the person did not opt in.
+pub async fn check_listen_address(addr: &str, allow_network: bool) -> Result<()> {
+    if allow_network {
+        return Ok(());
+    }
+    let addrs: Vec<std::net::SocketAddr> = match addr.parse() {
+        Ok(one) => vec![one],
+        Err(_) => tokio::net::lookup_host(addr).await.map(Iterator::collect).unwrap_or_default(),
+    };
+    ws_auth::check_listen(addr, &addrs, false)
 }
 
 /// The origin of the app's bundled agent pane page (a `cmux-agent` URL
@@ -647,7 +677,9 @@ pub async fn serve_ws_with(
         let policy = policy.clone();
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
-        tokio::spawn(async move {
+        // A ticket redeems and a paired machine opens on the hub: Fatal, as its connection.
+        let supervising = hub.clone();
+        supervising.supervise("server.ws-connection", Fatal, ShutdownBehavior::Skip, async move {
             let mut head = [0u8; 4096];
             let n = match tokio::time::timeout(HANDSHAKE, stream.peek(&mut head)).await {
                 Ok(Ok(n)) => n,
@@ -658,7 +690,7 @@ pub async fn serve_ws_with(
             // upgrade request for the callback.
             let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
             if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
-                serve_http(stream, &policy, &token, peer).await;
+                serve_http(stream, &policy, peer).await;
                 return;
             }
             let expected = token.clone();
@@ -694,15 +726,22 @@ pub async fn serve_ws_with(
                     values("origin").into_iter().map(str::to_owned).collect();
                 *record_peer.lock().unwrap_or_else(|e| e.into_inner()) =
                     values(peer_auth::HEADER).into_iter().map(str::to_owned).collect();
-                let header = req
-                    .headers()
-                    .get("authorization")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(cmux_local_auth::bearer_token);
-                let query = req.uri().query().and_then(cmux_local_auth::query_token);
+                // Only a header carries the token, never the URL (`ws_auth.rs`).
+                let presented =
+                    ws_auth::presented(&values("authorization"), &values("sec-websocket-protocol"))
+                        .map_err(refuse)?;
                 let tickets = values(crate::pairing::TICKET_HEADER);
-                let proof = pairing::admit(&pairing_hub, peer, header.or(query), &tickets, &expected);
+                let proof = pairing::admit(&pairing_hub, peer, presented.token, &tickets, &expected);
                 *record_admitted.lock().unwrap_or_else(|e| e.into_inner()) = proof.map_err(refuse)?;
+                let mut resp = resp;
+                if presented.answer_protocol {
+                    resp.headers_mut().insert(
+                        "sec-websocket-protocol",
+                        tokio_tungstenite::tungstenite::http::HeaderValue::from_static(
+                            ws_auth::PROTOCOL,
+                        ),
+                    );
+                }
                 Ok(resp)
             };
             // A client that stalls mid-upgrade gets the same deadline as the peek above: it
@@ -798,7 +837,7 @@ pub async fn serve_ws_with(
             // Ends the writer when the server ends the connection itself:
             // other tasks may still hold a clone of `out_tx`.
             let (stop, mut stopped) = tokio::sync::oneshot::channel::<()>();
-            tokio::spawn(async move {
+            crate::supervised::spawn_scoped(async move {
                 loop {
                     let line = tokio::select! {
                         line = out_rx.recv() => line,
@@ -910,12 +949,12 @@ async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
 }
 
 /// Minimal HTTP for the dashboard. The whole head passes the listener rule
-/// first; then GET / with a matching token serves the page, and anything
-/// else is 401 or 404.
+/// first; then GET / serves the page, and anything else is 404. The page is
+/// static and holds no secret: it reads the token from its URL fragment,
+/// which never reaches a server, and its WebSocket presents it.
 async fn serve_http(
     mut stream: tokio::net::TcpStream,
     policy: &ListenerPolicy,
-    token: &str,
     peer: std::net::SocketAddr,
 ) {
     let Some(head) = read_http_head(&mut stream).await else {
@@ -931,22 +970,18 @@ async fn serve_http(
     let mut parts = first.split_whitespace();
     let method_ = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("/");
-    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let path = target.split_once('?').map_or(target, |(path, _)| path);
     let (status, body, ctype) = if !method_.eq_ignore_ascii_case("get") {
         ("405 Method Not Allowed", "method not allowed".to_owned(), "text/plain")
     } else if path == "/health" {
         ("200 OK", "ok".to_owned(), "text/plain")
     } else if path == "/" || path == "/index.html" {
-        if cmux_local_auth::check_token(cmux_local_auth::query_token(query), token).is_ok() {
-            ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
-        } else {
-            ("401 Unauthorized", "<!doctype html><meta charset=utf-8><title>acpmux</title><p style=\"font-family:system-ui;padding:2rem\">This dashboard needs its token. Run <code>acpmux web</code> in a terminal to get the full link.</p>".to_owned(), "text/html; charset=utf-8")
-        }
+        ("200 OK", INDEX_HTML.to_owned(), "text/html; charset=utf-8")
     } else {
         ("404 Not Found", "not found".to_owned(), "text/plain")
     };
     let response = format!(
-        "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\ncache-control: no-store\r\nreferrer-policy: no-referrer\r\nconnection: close\r\n\r\n{body}",
         body.len()
     );
     let _ = stream.write_all(response.as_bytes()).await;
@@ -1032,8 +1067,8 @@ pub async fn serve_connection_device(
     serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id)).await
 }
 
-/// `serve_connection_authed` for a unix socket peer named by its audit token.
-async fn serve_connection_from(
+/// The body of `serve_connection_from` (`connection_task.rs`), under the hub's supervisor.
+async fn serve_connection_body(
     hub: Arc<Hub>,
     mut inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
@@ -1047,37 +1082,7 @@ async fn serve_connection_from(
         return;
     }
     let Some(_client) = hub.clients.connect() else { return }; // exiting idle (daemon_lifecycle)
-    let raw_text = !peer_text::masks(origin);
-    let conn = Arc::new(Conn {
-        id: uuid::Uuid::now_v7().to_string(),
-        origin,
-        auth,
-        device,
-        raw_text,
-        name: StdMutex::new(String::new()),
-        out,
-        outbound_lock: Arc::new(StdMutex::new(())),
-        outbound_dropped: Arc::new(AtomicU64::new(0)),
-        outbound_gap_pending: Arc::new(AtomicBool::new(false)),
-        outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
-        subs: StdMutex::new(HashMap::new()),
-        mailbox_bindings: StdMutex::new(HashMap::new()),
-        watch_all: AtomicBool::new(false),
-        watch_inventory: StdMutex::new(false),
-        peer,
-        requests: std::sync::atomic::AtomicU64::new(0),
-        challenged: AtomicBool::new(false),
-        nonce: crate::hub::person::new_nonce(),
-        person: AtomicBool::new(false),
-        holds_calls: std::sync::atomic::AtomicU32::new(0),
-        caller: std::sync::OnceLock::new(),
-        unproven_caller: std::sync::OnceLock::new(),
-        agent_tools: std::sync::OnceLock::new(),
-        peer_leases: StdMutex::new(Some(Vec::new())),
-        ephemeral: StdMutex::new(Some(Vec::new())),
-        media: crate::hub::media_handles::Handles::default(),
-        memory_vote: std::sync::OnceLock::new(),
-    });
+    let conn = Arc::new(Conn::new(origin, auth, device, peer, out));
     tracing::debug!(conn = %conn.id, "client connected");
 
     let fan = fanout::start(hub.clone(), conn.clone());
@@ -1085,20 +1090,7 @@ async fn serve_connection_from(
     let (notification_tx, notification_rx) =
         mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
     let (cancel_tx, cancel_rx) = mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
-    let notification_handler = {
-        let hub = hub.clone();
-        let conn = conn.clone();
-        move |method: String, params| {
-            let hub = hub.clone();
-            let conn = conn.clone();
-            // An agent tool server's notifications are MCP (`agent_mcp.rs`): nothing to do.
-            async move {
-                if conn.agent_tools().is_none() {
-                    handle_notification(&hub, &conn, &method, params).await
-                }
-            }
-        }
-    };
+    let notification_handler = connection_task::notification_handler(&hub, &conn);
     let notification_worker =
         spawn_notification_worker(notification_rx, notification_handler.clone());
     let cancel_worker = spawn_notification_worker(cancel_rx, notification_handler);
@@ -1139,32 +1131,7 @@ async fn serve_connection_from(
                     conn.send(&Message::err(id, refused));
                     continue;
                 }
-                // From the dispatch to the reply queued, on every path out of the task.
-                let slice = crate::trace_layer::RequestSlice::begin(&conn.id, &id, &m);
-                // A panic in the request names its method (cmux-panic-log crash keys):
-                // set on whichever worker polls it, for each poll.
-                let method_key = crash_keys::stable_key(&m);
-                let hub = hub.clone();
-                let conn = conn.clone();
-                tokio::spawn(slice.wrap(crash_keys::keyed(
-                    Key::ActionId,
-                    method_key,
-                    async move {
-                        let _slot = slot;
-                        let params = params.unwrap_or(Value::Null);
-                        let result = match conn.agent_tools() {
-                            // Boxed: the tool calls hold a whole `chats::route` of their own.
-                            Some(tools) => {
-                                Box::pin(agent_mcp::handle(&hub, &conn, tools, &m, params)).await
-                            }
-                            None => chats::route(&hub, &conn, &m, params).await,
-                        };
-                        conn.send(&match result {
-                            Ok(v) => Message::ok(id, v),
-                            Err(e) => Message::err(id, e),
-                        });
-                    },
-                )));
+                request_task::spawn(&hub, &conn, id, m, params, slot);
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
@@ -1456,11 +1423,14 @@ mod pending;
 mod place;
 mod processes;
 mod worktrees;
+pub mod ws_auth;
 use crate::hub::is_permission_ask;
 pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
+mod connection_task;
 mod redact;
 pub(crate) mod remote_guard;
+mod request_task;
 mod requests;
 mod routes;
 mod secrets;
@@ -1472,7 +1442,7 @@ mod view;
 mod wait;
 #[cfg(windows)]
 mod windows_socket;
-use requests::handle_notification;
+use connection_task::serve_connection_from;
 
 #[cfg(test)]
 mod request_admission_tests {

@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Saved environments on the New Tab page: `environment.list|save|remove` reach the App's store
 /// only from a New Tab page, the store keeps what the contract allows and refuses the rest, and
@@ -19,7 +20,7 @@ struct SavedEnvironmentsTests {
 
     /// A New Tab page on `store`, as AgentPageChats seeds every page.
     private static func page(_ store: SavedEnvironments, sessionId: String? = nil) -> AgentPaneModel {
-        let model = AgentPaneModel(host: NoHost(), sessionId: sessionId, newTab: AgentPaneNewTab(kind: .agent))
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: sessionId, newTab: AgentPaneNewTab(kind: .agent))
         model.startFolders.environments = store
         return model
     }
@@ -126,7 +127,7 @@ struct SavedEnvironmentsTests {
         _ = try await store.save(AgentPaneEnvironment(name: "Kept", kind: .local))
         // A chat with a session, and a chat page that never was a New Tab page.
         let chat = Self.page(store, sessionId: "session-1")
-        let plain = AgentPaneModel(host: NoHost())
+        let plain = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         plain.startFolders.environments = store
         for model in [chat, plain] {
             for (method, params) in [("environment.list", [:]), ("environment.save", ["environment": Self.ssh()]),

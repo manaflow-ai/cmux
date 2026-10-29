@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextAgentActivity
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextOnboarding
 import CmuxNextSettings
 import CmuxNextWakeups

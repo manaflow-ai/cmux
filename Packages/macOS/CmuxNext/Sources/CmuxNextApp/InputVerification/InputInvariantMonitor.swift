@@ -4,6 +4,7 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import os
+import CmuxNextCompat
 
 /// Checks the world and geometry invariants (plans/cmux-next/input-spec.md 2.5, 2.6)
 /// against live AppKit, Ghostty and Chromium state once input settles, and
@@ -46,9 +47,10 @@ final class InputInvariantMonitor {
     /// - Parameters:
     ///   - tag: The tagged build's name, which names the report folder.
     ///   - deadlines: The app's deadline placer (`AppServices.mainDeadlines`).
-    init(tag: String?, deadlines: MainDeadlineScheduler) {
+    ///   - runner: The app's blocking-work lanes (`AppServices.work`): the desync reports are written there.
+    init(tag: String?, deadlines: MainDeadlineScheduler, runner: any MayBlockRunner) {
         self.tag = tag
-        store = DesyncReportStore(tag: tag)
+        store = DesyncReportStore(tag: tag, runner: runner)
         settle = MainDeadline(owner: "InputInvariantMonitor.settle", workClass: .background, scheduler: deadlines)
     }
 

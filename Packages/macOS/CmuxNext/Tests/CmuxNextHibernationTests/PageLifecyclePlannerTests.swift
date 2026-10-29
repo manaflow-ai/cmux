@@ -280,7 +280,7 @@ import Testing
     }
 
     /// Only a freeze blocker that an event or a setting sets thaws a frozen page; time and the order of
-    /// hides never do (p13-webui-022: the controller reads this, it keeps no list of its own).
+    /// hides never do (the controller reads this, it keeps no list of its own).
     @Test func onlyEventAndSettingFreezeBlockersThawAFrozenPage() {
         let thawing = Set(Reason.allCases.filter(\.thawsFrozenPage))
         #expect(!thawing.contains(.recentlyVisible))

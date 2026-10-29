@@ -20,7 +20,7 @@ import Testing
         return tabs.awake(radius: radius)
     }
 
-    /// The intent prewarm sizes a hidden page to the pane whose strip lists it (p04-input-042).
+    /// The intent prewarm sizes a hidden page to the pane whose strip lists it.
     @Test func thePaneListingATabIsTheOneWhoseOrderHasIt() {
         var tabs = NeighborTabs()
         tabs.set(pane, order: order, selected: "c")

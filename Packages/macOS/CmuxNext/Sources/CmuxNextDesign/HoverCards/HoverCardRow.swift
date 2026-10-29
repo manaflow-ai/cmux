@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The inks a hover card row draws in, resolved in the card's theme scope (Leo 2026-10-19: the
 /// Codex sidebar card and Claude desktop's PR list: "better symbolic depictions of things, maybe

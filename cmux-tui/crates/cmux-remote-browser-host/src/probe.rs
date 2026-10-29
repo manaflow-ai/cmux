@@ -343,14 +343,16 @@ fn probe(
     sock.write_all(&hello(token)).map_err(|e| e.to_string())?;
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
     let mut reader = sock.try_clone().map_err(|e| e.to_string())?;
-    std::thread::spawn(move || {
+    // supervise-allow: the probe CLI's socket reader; a panic drops `tx`, so the probe's receive loop sees the stream end and reports it.
+    cmux_threads::spawn("rb-probe-read", cmux_threads::ThreadQos::UserInitiated, move || {
         let mut buf = vec![0u8; 64 * 1024];
         while let Ok(n) = reader.read(&mut buf) {
             if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
                 return;
             }
         }
-    });
+    })
+    .map_err(|e| e.to_string())?;
     let t0 = Instant::now();
     let now = || u64::try_from(t0.elapsed().as_micros()).unwrap_or(u64::MAX);
     let mut core = Session::new(Carrier::Stream, 500_000, 50_000);

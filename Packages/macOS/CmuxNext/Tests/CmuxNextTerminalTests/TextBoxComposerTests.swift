@@ -214,7 +214,7 @@ struct TextBoxComposerTests {
         #expect(view.string.isEmpty, "the second Undo did not take back the typing")
     }
 
-    /// p03-rendering-069: a box shown without the keyboard lays out in the window's next pass; only a
+    /// A box shown without the keyboard lays out in the window's next pass; only a
     /// focus reads the editor's frame in the turn.
     @Test func aBoxShownWithoutTheKeyboardLaysOutInTheWindowsPass() throws {
         let harness = try Self.harness()

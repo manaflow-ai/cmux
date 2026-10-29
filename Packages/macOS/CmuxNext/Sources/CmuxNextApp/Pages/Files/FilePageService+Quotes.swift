@@ -21,15 +21,21 @@ extension FilePageService {
         let registry = services?.registry
         for id in ["home.sendSelectionToChief", "home.sendSelectionTo"] as [ActionID] {
             guard let registry, let title = registry.title(for: id) else { continue }
-            rows.append(.init(title: title) { [weak page] in
-                // task-owner: one selection read per menu choice; ends with the page's answer
-                Task { @MainActor in
-                    guard let text = await page?.selectedText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                    _ = registry.perform(id, invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
-                }
+            rows.append(.init(title: title) { [weak self, weak page] in
+                if let page { self?.performOnSelection(id, of: key, page: page, registry: registry) }
             })
         }
         ViewerSelectionMenu(rows: rows, then: then).install(on: page)
+    }
+
+    /// Reads the page's selected text, then runs action `id` on it as a reply on tab `key`'s queue.
+    private func performOnSelection(_ id: ActionID, of key: String, page: PageWebView, registry: ActionRegistry) {
+        // The read is the page's own (main-actor) call, so the operation runs isolated to the main actor:
+        // the page view is not Sendable and never leaves it.
+        replies.reply(for: key) { @MainActor [weak page] in await page?.selectedText() } apply: { text in
+            guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            _ = registry.perform(id, invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
+        }
     }
 
     /// Reads the page's selection, asks for a comment when `askComment`, and sends the quote.
@@ -37,10 +43,14 @@ extension FilePageService {
         guard let file = file(key) else { return }
         let op = kind.op("selection")
         let viewer: ChatQuote.Kind = kind == .markdown ? .markdown : .code
-        // task-owner: one page call per menu choice; ends with the page's reply (the router fails it when the page closes).
-        Task { @MainActor [weak self, weak page] in
-            guard let page, let reply = try? await page.router.callPage(op, params: .object([:])),
-                  let quote = ChatQuote(selection: reply, source: file.path, kind: viewer) else { return }
+        // The page's call (the router fails it when the page closes), then the quote and its prompt as a
+        // reply on the tab's queue. The call goes through the page's router (main-actor isolated, so
+        // Sendable); the page view itself is not Sendable and stays with the main-actor reply.
+        let router = page.router
+        replies.reply(for: key) { [router] in
+            try? await router.callPage(op, params: .object([:]))
+        } apply: { [weak self, weak page] reply in
+            guard let page, let reply, let quote = ChatQuote(selection: reply, source: file.path, kind: viewer) else { return }
             let deliver = { [weak self, weak page] (quote: ChatQuote) in
                 guard let services = self?.services else { return }
                 ChatQuoteDelivery(services: services).deliver(quote, from: page?.window)
@@ -51,8 +61,8 @@ extension FilePageService {
                 deliver(quote)
                 // The comment also stays in the Markdown viewer, as a margin marker on its lines.
                 guard let provider = self?.provider(key) else { return }
-                // task-owner: one store write per added comment; ends when the write does.
-                Task { @MainActor in await provider.addComment(quote) }
+                // task-owner: one store write per added comment; ends when the write does. It only starts it.
+                Task { @concurrent in _ = await provider.addComment(quote) }
             }
         }
     }

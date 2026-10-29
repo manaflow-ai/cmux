@@ -193,7 +193,7 @@ fn helper_reads(enabled: bool, cause: EventCause) -> HelperReads {
             let creator_live = cmux_threads::current();
             let reachable = ThreadQos::ALL.map(cmux_threads::reachable);
             let (declared, work, live) = RequestQos { enabled }
-                .spawn_helper("mux-helper-test", Some(256 * 1024), || {
+                .spawn_helper("mux-helper-test", || {
                     let declared = cmux_threads::current_slot().expect("registered").declared();
                     (declared, cmux_tui_platform::qos::work_qos(), cmux_threads::current())
                 })
@@ -206,7 +206,7 @@ fn helper_reads(enabled: bool, cause: EventCause) -> HelperReads {
     creator.expect("spawn the creator").join().expect("the creator returns")
 }
 
-/// A request's one-shot helper (p05-ipc-080) starts at the dispatcher's
+/// A request's one-shot helper starts at the dispatcher's
 /// class, never the class it would inherit from its creator, and with the
 /// feature on runs at the class of the request's cause; with it off it
 /// keeps its declared class. Where the process cannot reach a class (Linux

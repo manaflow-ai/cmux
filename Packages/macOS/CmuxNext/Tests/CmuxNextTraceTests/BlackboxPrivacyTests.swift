@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The keystroke-timing privacy gate (p09-observability-128, rule 5): no key-timing, per-key PTY or flow
+/// The keystroke-timing privacy gate: no key-timing, per-key PTY or flow
 /// record leaves the Mac, and none is written while secure input or a password prompt is on.
 @Suite(.serialized)
 struct BlackboxPrivacyTests {

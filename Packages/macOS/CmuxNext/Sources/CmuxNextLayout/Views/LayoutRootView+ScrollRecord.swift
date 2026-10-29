@@ -1,7 +1,7 @@
 public import CoreGraphics
 
 /// The camera of one screen, kept while its workspace is unmounted and given back when it mounts
-/// again (`WorkspaceViewRecord`, p07-memory-033): the column strip's offset (nil on a split screen),
+/// again (`WorkspaceViewRecord`): the column strip's offset (nil on a split screen),
 /// each overflowing row column's and each scroll area's. Content-space offsets where each scroll
 /// settles; a remount clamps them to its layout and still reveals the focused pane.
 public nonisolated struct LayoutScreenScroll: Hashable, Sendable {

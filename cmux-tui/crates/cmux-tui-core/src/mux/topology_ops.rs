@@ -3,6 +3,7 @@
 //! and commits through the ordinary topology path.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     #[track_caller]
@@ -15,7 +16,8 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RunCommandResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         let selectors = self
             .ordinary_workspace_selectors(workspace)
             .with_context(|| format!("unknown workspace {workspace}"))?;
@@ -54,7 +56,8 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         let selectors = self
             .ordinary_workspace_selectors(workspace)
             .with_context(|| format!("unknown workspace {workspace}"))?;
@@ -95,9 +98,10 @@ impl Mux {
         {
             return self.new_browser_column_beside_lone_dock(actor, url, dock, size, extra_fields);
         }
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         let selectors = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let target = match pane {
                 Some(id) => {
                     if !state.panes.contains_key(&id) {
@@ -151,7 +155,8 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
         {
@@ -195,7 +200,8 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
@@ -231,7 +237,8 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<(Arc<Surface>, ScreenId)> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         let selectors = match workspace {
             Some(workspace) => self
                 .ordinary_workspace_selectors(workspace)
@@ -261,7 +268,7 @@ impl Mux {
             .with_state(|state| {
                 let pane = state.pane_of(surface.id)?;
                 let (wi, si) = state.screen_of(pane)?;
-                Some(state.workspaces[wi].screens[si].id)
+                Some(state.screen_at(wi, si).ok()?.id)
             })
             .context("created screen disappeared")?;
         drop(_creation_handoff);
@@ -284,9 +291,10 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         let selectors = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let target = match pane {
                 Some(id) => {
                     if !state.panes.contains_key(&id) {
@@ -354,7 +362,8 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         let mut fields =
             Map::from_iter([("initial_content".into(), Value::String("terminal".into()))]);
         Self::insert_optional_string(&mut fields, "name", name);
@@ -377,7 +386,8 @@ impl Mux {
         argv: Vec<String>,
         options: RunCommandOptions,
     ) -> anyhow::Result<RunCommandResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         let RunCommandOptions { pane, new_workspace, workspace_key, cwd, name, size } = options;
         if workspace_key.is_some() && !new_workspace {
             anyhow::bail!("workspace key requires a new workspace");
@@ -385,7 +395,7 @@ impl Mux {
         let (operation, selectors) = if new_workspace {
             (ResourceOperation::WorkspaceCreate, Self::ordinary_resource_selectors())
         } else {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let target = match pane {
                 Some(id) => {
                     if !state.panes.contains_key(&id) {
@@ -451,7 +461,8 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;

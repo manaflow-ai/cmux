@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import CmuxNextCompatCore
 public import Foundation
 
 /// The helper's listener: accepts a connection only from the app bundle that
@@ -27,10 +27,11 @@ public final nonisolated class ServerHelperListener {
 
     public func resume() { listener.resume() }
 
-    /// The team identifier of the running process, or nil when it is unsigned or ad hoc
-    /// (``SigningTeamInstall/process``: the helper reads it once, at start, before it serves anyone).
-    public static func ownTeamIdentifier() -> String? {
-        SigningTeamInstall.process.team
+    /// The team identifier of the running process, or nil when it is unsigned or ad hoc: the helper reads
+    /// it once, at start, before it serves anyone (`RunningCodeSigningTeam`; the app reads its own team
+    /// from CmuxNextCompat's `SigningTeamInstall.process`, which a lane loads at launch).
+    static func ownTeamIdentifier() -> String? {
+        RunningCodeSigningTeam().read()
     }
 }
 

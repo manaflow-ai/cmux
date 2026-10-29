@@ -11,6 +11,8 @@
 //! therefore end their hosts in parallel instead of one after another on the
 //! requesting connection.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
+
 #[cfg(any(unix, windows))]
 use std::collections::VecDeque;
 #[cfg(any(unix, windows))]
@@ -87,10 +89,16 @@ impl TerminalHostCloses {
             return;
         }
         let closes = self.clone();
-        if std::thread::Builder::new()
-            .name("terminal-host-close".into())
-            .spawn(move || closes.work())
-            .is_err()
+        if supervised::spawn_at(
+            "terminal-host-close",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                closes.work();
+            },
+        )
+        .is_err()
         {
             // Thread exhaustion must not strand a queued close: finish the
             // queue on this thread instead.

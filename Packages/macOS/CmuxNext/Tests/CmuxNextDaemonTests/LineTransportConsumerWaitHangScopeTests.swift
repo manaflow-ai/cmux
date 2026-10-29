@@ -6,8 +6,8 @@ import Testing
 
 /// The reader's wait for a consumer behind the event backlog's byte bound (``DaemonEventRoute``) is idle
 /// time, not a hang: it runs after the line's `daemon.line` scope closed (HangWatchScoping.swift: "never
-/// a wait for a queue slot"), so a designed backpressure wait never shows as a reader hang
-/// (p07-memory-098). A fixture bridge sends 32 event lines of 1 KiB to a route whose high water is
+/// a wait for a queue slot"), so a designed backpressure wait never shows as a reader hang.
+/// A fixture bridge sends 32 event lines of 1 KiB to a route whose high water is
 /// 4 KiB, then exits; the consumer takes nothing until the reader parks.
 @Suite(.timeLimit(.minutes(1))) struct LineTransportConsumerWaitHangScopeTests {
     @Test func theReaderWaitsForItsConsumerOutsideTheLineScope() async throws {
@@ -29,12 +29,15 @@ import Testing
                                                      role: .control, stats: nil, hangs: hangs)
         defer { transport.close() }
         transport.start(
+            // Light: each emit runs inline on the reader (its lane stays idle), so the park is owed before the
+            // reader's wait after that line; on a heavy lane the wait lags the emits by the lane's backlog,
+            // and the fixture's EOF could come first.
+            dispatch: EventDispatch(weigh: { _, _ in .light }, readerWait: { route.waitWhileReaderParked() }),
             onCausedEvent: { _, line, index, _ in
                 // A bell: the backlog coalesces titles of one surface, so each line stays one event.
                 route.emit(DaemonEventEnvelope(sequence: index, event: .bell(surface: 1)),
                            bytes: line.count, parksReader: true)
             },
-            waitForConsumer: { route.waitWhileReaderParked() },
             onClose: { _ in route.finish() })
 
         var parkWaits = parks.makeAsyncIterator()

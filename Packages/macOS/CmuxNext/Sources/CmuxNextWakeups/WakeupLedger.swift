@@ -9,15 +9,20 @@ import CmuxNextCompat
 /// `debug.wakeups` reads ``snapshot(now:)``; the busy watchdog reads
 /// ``activitySequence`` to know whether anything woke since its last look.
 public final class WakeupLedger: Sendable {
+    /// The process's ledger: wakeup sites in every module record into it.
     public static let shared = WakeupLedger()
 
     /// Seconds of history kept per owner; the rate covers the last
     /// `rateWindow` complete seconds.
     static let bucketCount = 16
+    /// Complete seconds a rate covers.
     public static let rateWindow = 10
 
+    /// One owner and reason: its wakeups and their rate.
     public struct Entry: Sendable, Equatable {
+        /// What woke (a timer's, a link's or a task's owner).
         public var owner: String
+        /// Why it woke (`fire`, `deadline`, `frame`, ...).
         public var reason: String
         /// Wakeups since launch (or the last ``reset()``).
         public var count: UInt64
@@ -71,8 +76,8 @@ public final class WakeupLedger: Sendable {
     private let activity = Atomic<UInt64>(0)
     private let uptime: @Sendable () -> UInt64
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The timers, deadlines and watches that record here, armed before startup completed (`debug.startup.arms`,
-    /// p08-startup-085). It records only once started (`CMUX_NEXT_ARM_CENSUS=1`) and reads this ledger's clock.
+    /// The timers, deadlines and watches that record here, armed before startup completed (`debug.startup.arms`).
+    /// It records only once started (`CMUX_NEXT_ARM_CENSUS=1`) and reads this ledger's clock.
     public let armCensus: ArmCensus
     #endif
 
@@ -118,6 +123,7 @@ public final class WakeupLedger: Sendable {
         return entries.sorted { ($0.perSecond, $0.count, $1.owner) > ($1.perSecond, $1.count, $0.owner) }
     }
 
+    /// Drops every count (tests, and `debug.wakeups` with reset).
     public func reset() {
         counters.withLock { $0.removeAll() }
     }

@@ -3,6 +3,7 @@ import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
@@ -35,6 +36,7 @@ enum SidebarDocWiring {
         let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.sidebarDoc) }
         let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
         SidebarDocStore.current = store
+        if services.features.isEnabled(.sidebarDocChunkedShow) { store.showInChunks(on: services.mainWork) }
         AppMemoryConsumers(services: services).registerSidebarDoc(store)
         // Under `top` a new workspace lists at the daemon's slot for it until its item comes (sidebar-ordering-DESIGN.md);
         // `afterCurrent` keeps its row at the window's slot (PendingWorkspaceRows), `bottom` lists it last.

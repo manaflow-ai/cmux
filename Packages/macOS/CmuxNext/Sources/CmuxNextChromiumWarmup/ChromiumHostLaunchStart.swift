@@ -1,6 +1,6 @@
 public import CmuxNextWakeups
 
-/// When the launch starts the Chromium Host (`BrowserBackend.host`, p08-startup-046).
+/// When the launch starts the Chromium Host (`BrowserBackend.host`).
 ///
 /// With the host, Chromium's start holds the main thread only for its shim calls: the host is spawned
 /// on the child-process launcher, the remote shim opens and attaches off main, the start's disk reads
@@ -8,7 +8,7 @@ public import CmuxNextWakeups
 /// (chrome/browser/ui/startup/startup_browser_creator_impl.cc opens the visible tabs first, and
 /// chrome/browser/after_startup_task_utils.cc holds the rest): a Chromium page in a shown pane, or
 /// Chromium as the default engine (every new browser tab is a Chromium tab), starts the host right after
-/// the first frame (p01-process-086), so the first Cmd-Shift-L finds a warm host; a hidden restored
+/// the first frame, so the first Cmd-Shift-L finds a warm host; a hidden restored
 /// Chromium tab starts it after startup; and with none of these the host stays unspawned until a
 /// Chromium tab asks. The first frame never waits for the host: the start is posted behind it.
 public struct ChromiumHostLaunchStart: Equatable, Sendable {

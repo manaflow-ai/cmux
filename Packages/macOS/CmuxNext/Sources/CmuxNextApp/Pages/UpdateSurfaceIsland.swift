@@ -5,6 +5,7 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
+import CmuxNextWakeups
 
 /// The React update surfaces in the sidebar (cx-urd.61.2): the changelog
 /// page's bundle, opened on `#/surface/ready` (the staged update's
@@ -64,7 +65,9 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     /// - Parameter terms: The app's overlay page terms for the highlights (`.ready`) page; nil makes the page
     ///   now and keeps it while the card shows.
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?, release terms: OverlayPageReleaseTerms? = nil) {
-        let provider = UpdateSurfaceProvider(kind: kind, services: services)
+        // No services (no app): no page subscribes, so a scheduler of its own does nothing.
+        let provider = UpdateSurfaceProvider(kind: kind, services: services,
+                                             mainWork: services?.mainWork ?? MainWorkScheduler(budget: MainFrameBudget()))
         self.provider = provider
         self.kind = kind
         self.services = services
@@ -158,6 +161,9 @@ final class UpdateSurfaceProvider: PageProvider {
 
     let kind: SidebarUpdateSurfaceKind
     private weak var services: AppServices?
+    /// The app's main-thread scheduler, held strongly: the changes stream flushes on it even after
+    /// `services` is gone.
+    private let mainWork: MainWorkScheduler
     var onHeight: ((CGFloat) -> Void)?
     /// The page ran an action (the popover closes).
     var onAction: (() -> Void)?
@@ -165,9 +171,11 @@ final class UpdateSurfaceProvider: PageProvider {
     /// card-dismiss path; the provider never dismisses on its own.
     var onDismiss: (() -> Void)?
 
-    init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
+    /// - Parameter mainWork: The app's main-thread scheduler (`AppServices.mainWork`).
+    init(kind: SidebarUpdateSurfaceKind, services: AppServices?, mainWork: MainWorkScheduler) {
         self.kind = kind
         self.services = services
+        self.mainWork = mainWork
     }
 
     private var highlights: UpdateHighlights? {
@@ -207,22 +215,34 @@ final class UpdateSurfaceProvider: PageProvider {
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == Self.changesStream else { throw PageError.unknownOp(stream) }
-        // task-owner: the page's subscription; cancelled with it.
-        let task = Task { @MainActor [weak self] in
-            for await highlights in ObservationStream({ [weak self] in self?.highlights }) {
-                guard let self else { return }
-                guard let value = try? json(highlights) else { continue }
-                services?.updater.log.append("update surface \(kind.rawValue): data \(highlights == nil ? "none" : "\(highlights?.items.count ?? 0) items")")
-                onEvent(value)
-            }
+        let mainWork = mainWork
+        // The page's router holds events while the page is hidden: a service observation, one flush per
+        // frame. The stream starts with the current highlights, sent in a posted task after the subscribe
+        // returned; the value applied inside `init` is that one.
+        let subscribed = PageStreamStart()
+        let observation = ServiceObservation(.visible, owner: "update-surface.changes", on: mainWork) { [weak self] in
+            self?.highlights
+        } apply: { [weak self] highlights in
+            if subscribed.isDone { self?.send(highlights, onEvent) }
+        }
+        subscribed.finish()
+        mainWork.post(.visible, owner: "update-surface.changes") { [weak self] in
+            guard let self, !observation.isCancelled else { return }
+            send(highlights, onEvent)
         }
         // Each event carries the whole highlights value: the newest replaces the rest.
-        return PageSubscription(frozenDelivery: .latest) { task.cancel() }
+        return PageSubscription(frozenDelivery: .latest) { observation.cancel() }
+    }
+
+    private func send(_ highlights: UpdateHighlights?, _ onEvent: @MainActor (JSONValue) -> Void) {
+        guard let value = try? json(highlights) else { return }
+        services?.updater.log.append("update surface \(kind.rawValue): data \(highlights == nil ? "none" : "\(highlights?.items.count ?? 0) items")")
+        onEvent(value)
     }
 }
 
 extension PageDescriptor {
-    /// The sidebar's update surfaces (p13-webui-054): the changelog page's bundle and origin with
+    /// The sidebar's update surfaces: the changelog page's bundle and origin with
     /// only what a card uses, so the card is app content and opens in the `privileged` group, never
     /// in a WebKit process of its own (p13-webui.md 3.F). Its ops are the surface's own
     /// (``UpdateSurfaceProvider``) and the signed notes' `list`, `get` and `reel` (null: the card's

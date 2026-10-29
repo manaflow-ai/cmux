@@ -45,17 +45,24 @@ import CoreGraphics
 public final class SessionInputPending: InputPendingSource {
     /// The kinds of input pending at one check: the bitset the pending-input state publishes.
     public struct Kinds: OptionSet, Sendable, Hashable {
+        /// The kinds' bits.
         public let rawValue: UInt8
+        /// Kinds from their bits.
         public init(rawValue: UInt8) { self.rawValue = rawValue }
 
+        /// A key-down.
         public static let key = Kinds(rawValue: 1 << 0)
+        /// A mouse-button-down.
         public static let click = Kinds(rawValue: 1 << 1)
+        /// The first scroll of a new scroll sequence.
         public static let scrollBegin = Kinds(rawValue: 1 << 2)
+        /// A drag of the left button.
         public static let drag = Kinds(rawValue: 1 << 3)
     }
 
     /// One input event AppKit dispatched in this app.
     public struct Dispatched: Sendable, Equatable {
+        /// What the event was, as the pending-input check tells events apart.
         public enum Kind: Sendable, Equatable {
             /// A key-down, or a right or other mouse-button-down.
             case keyOrClick
@@ -73,8 +80,10 @@ public final class SessionInputPending: InputPendingSource {
 
         /// Seconds since boot (the `NSEvent.timestamp` base).
         public var timestamp: TimeInterval
+        /// What the event was.
         public var kind: Kind
 
+        /// An event dispatched at `timestamp` (seconds since boot).
         public init(timestamp: TimeInterval, kind: Kind) {
             self.timestamp = timestamp
             self.kind = kind
@@ -131,7 +140,7 @@ public final class SessionInputPending: InputPendingSource {
     public var staleAfter: TimeInterval { max(2 * refreshInterval, Self.minimumStaleAfter) }
 
     /// The display's refresh interval in seconds; 60 Hz when it reports none (the MainJobGate's
-    /// deadline, p04-input-076).
+    /// deadline).
     public var refreshInterval: TimeInterval {
         let interval = events.refreshInterval
         return interval.isFinite && interval > 0 ? interval : 1.0 / 60
@@ -164,16 +173,18 @@ public final class SessionInputPending: InputPendingSource {
         onInputDispatched?()
     }
 
+    /// Whether any input the app has not dispatched yet is waiting at `uptime` (seconds since boot).
     public func hasPendingInput(uptime: TimeInterval) -> Bool {
         !scan(uptime: uptime, firstOnly: true).isEmpty
     }
 
+    /// Whether a mouse button, a scroll begin or a drag is pending: input that goes to the view under the pointer.
     public func hasPendingPointerInput(uptime: TimeInterval) -> Bool {
         !pendingKinds(uptime: uptime).subtracting(.key).isEmpty
     }
 
     /// Every kind of input pending at `uptime` (seconds since boot), for the pending-input state's
-    /// once-per-run-loop-turn publisher (InputPendingState, p04-input-021). Empty when the app is
+    /// once-per-run-loop-turn publisher (InputPendingState). Empty when the app is
     /// inactive. Safe next to the budget's checks: the only state a check keeps is when it first
     /// saw an undispatched scroll begin or drag, which is the same whoever looks.
     public func pendingKinds(uptime: TimeInterval) -> Kinds {

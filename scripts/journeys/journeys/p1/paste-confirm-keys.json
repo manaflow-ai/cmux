@@ -1,0 +1,53 @@
+{
+  "id": "paste-confirm-keys",
+  "priority": "P1",
+  "title": "Multi-line paste into a running program: the confirm dialog's accept key pastes, Esc denies, and no typed character is lost",
+  "why": "QA chrome-parity-v2-1 (bug 3, low): the 'Paste into the terminal?' dialog opened with focus on Deny; Return did nothing, and typing 'seq 1 10' let the dialog eat 'seq' while the Space pressed Deny, so the paste and part of the next command were lost. cmux dialogs answer keys one way (CmuxDialogKeys): Return presses the default button, Escape the cancel one. A person confirms a dialog with Return.",
+  "source": "independent QA bug (qa-chrome-parity-v2-1.json bugs[2]); repro: printf 'L1\\nL2\\n' | pbcopy, cat -n, Cmd+V, Return, then type",
+  "budget_seconds": 90,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-paste-confirm"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "awk '{print \"got-\" $0; fflush()}'", "enter": true, "mark": "awk"},
+    {"do": "expect", "title": "awk reads the terminal (bracketed paste off, so a multi-line paste asks first)", "since": "awk", "timeout": 10,
+     "all": [{"process_present": {"match": "^awk ", "foreground": true}}]},
+
+    {"do": "clipboard_set", "text": "L1-${nonce}\nL2-${nonce}\n"},
+    {"do": "key", "key": "v", "modifiers": ["cmd"], "mark": "paste"},
+    {"do": "expect", "title": "Cmd+V asks first: the paste dialog shows", "since": "paste", "timeout": 5,
+     "all": [
+       {"app_rpc": {"method": "debug.dialog", "path": "dialogs.0.identifier", "equals": "cmux.dialog.terminalClipboard"}},
+       {"daemon_lacks": "got-L1-${nonce}"},
+       {"frame_text": "Paste into the terminal"}
+     ]},
+    {"do": "key", "key": "return", "modifiers": [], "mark": "accept"},
+    {"do": "expect", "title": "Return (the dialog keyboard's accept key) pastes both lines once and closes the dialog", "since": "accept", "within": 2, "timeout": 5,
+     "all": [
+       {"app_rpc": {"method": "debug.dialog", "path": "dialogs", "len": 0}},
+       {"daemon_line": "got-L1-${nonce}"},
+       {"daemon_line": "got-L2-${nonce}"},
+       {"app_text_line": "got-L2-${nonce}"},
+       {"frame_text": "got-L2-${nonce}"}
+     ]},
+
+    {"do": "clipboard_set", "text": "M1-${nonce}\nM2-${nonce}\n"},
+    {"do": "key", "key": "v", "modifiers": ["cmd"], "mark": "paste2"},
+    {"do": "expect", "title": "a second multi-line paste asks again", "since": "paste2", "timeout": 5,
+     "all": [{"app_rpc": {"method": "debug.dialog", "path": "dialogs.0.identifier", "equals": "cmux.dialog.terminalClipboard"}}]},
+    {"do": "key", "key": "escape", "modifiers": [], "mark": "deny"},
+    {"do": "expect", "title": "Esc denies: the dialog closes and nothing is pasted", "since": "deny", "within": 2, "timeout": 5, "settle": 1,
+     "all": [
+       {"app_rpc": {"method": "debug.dialog", "path": "dialogs", "len": 0}},
+       {"daemon_lacks": "M1-${nonce}"},
+       {"app_text_lacks": "M1-${nonce}"}
+     ]},
+    {"do": "type", "text": "seq 1 10 ${nonce}", "enter": true, "mark": "retype"},
+    {"do": "expect", "title": "the line typed after the dialog arrives whole", "since": "retype", "within": 2, "timeout": 5,
+     "all": [
+       {"daemon_line": "got-seq 1 10 ${nonce}"},
+       {"app_text_line": "got-seq 1 10 ${nonce}"},
+       {"frame_text": "got-seq 1 10 ${nonce}"}
+     ]},
+    {"do": "key", "key": "c", "modifiers": ["control"]}
+  ]
+}

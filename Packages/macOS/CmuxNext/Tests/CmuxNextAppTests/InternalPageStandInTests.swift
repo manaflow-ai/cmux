@@ -4,10 +4,12 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 @testable import CmuxNextPages
 @testable import CmuxNextTabs
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 import WebKit
 
-/// The cold-open stand-in in a page tab (p13-webui-048, feature `pageStandIn`): the tab's first build
+/// The cold-open stand-in in a page tab (feature `pageStandIn`): the tab's first build
 /// shows it in the open's turn when the feature gave it a title, never under a discarded tab's picture,
 /// and a pane swaps to it at once instead of holding the old content until the page's first frame
 /// (Chrome shows a new tab's base background before the renderer's first frame,
@@ -19,7 +21,7 @@ import WebKit
         return PageWebView(descriptor: PageDescriptor(id: "test.stand-in", resource: "stand-in", processGroup: .solo, namespaces: []),
                            configuration: configuration, inputReadiness: PageInputReadiness(configuration: configuration),
                            routes: [], route: nil, options: .standard, surface: nil, dynamicResources: nil, pooled: false,
-                           load: false, chromium: nil)
+                           load: false, chromium: nil, deadlines: .testing())
     }
 
     /// A 2x2 picture, as a discarded tab's last frame.

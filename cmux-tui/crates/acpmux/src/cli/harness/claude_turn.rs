@@ -7,6 +7,7 @@
 
 use super::*;
 use crate::byo_endpoint::{self, Kind};
+use crate::no_panic::StrExt;
 
 /// The least time the turn gets: a first request through a slow endpoint.
 const TURN_LIMIT: Duration = Duration::from_secs(60);
@@ -96,7 +97,7 @@ pub(super) async fn run(
         text.trim().to_owned()
     };
     let tail: Vec<&str> = outcome.stderr.lines().filter(|l| !l.trim().is_empty()).collect();
-    let tail = tail[tail.len().saturating_sub(8)..].join("\n");
+    let tail = tail.rchunks(8).next().unwrap_or_default().join("\n");
     if !tail.is_empty() {
         detail.push_str(&format!("\nstderr:\n{tail}"));
     }
@@ -149,9 +150,5 @@ fn clip(text: &str) -> String {
     if text.len() <= DETAIL_MAX {
         return text.to_owned();
     }
-    let mut end = DETAIL_MAX;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    format!("{}…", &text[..end])
+    format!("{}…", text.head(DETAIL_MAX))
 }

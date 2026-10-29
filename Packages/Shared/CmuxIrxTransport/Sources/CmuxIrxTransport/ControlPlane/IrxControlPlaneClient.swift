@@ -156,7 +156,8 @@ public actor IrxControlPlaneClient {
             ) { group in
                 group.addTask { try await task.receive() }
                 group.addTask {
-                    try await Task.sleep(for: Self.receiveTimeout)
+                    // wakeup-allow: deadline of one receive, raced against it and cancelled when it answers
+                    try await Task.sleep(for: Self.receiveTimeout, tolerance: IrxWakeLeeway(delay: Self.receiveTimeout).tolerance)
                     throw ReceiveTimeout()
                 }
                 defer { group.cancelAll() }
@@ -272,6 +273,7 @@ public actor IrxControlPlaneClient {
     // MARK: - Connection loop
 
     private func run(generation: UInt64) async {
+        // wakeup-allow: backoff each pass is one socket that serves until it ends, then a capped backoff
         while !Task.isCancelled && generation == loopGeneration {
             do {
                 try await retryAfterGate.wait()
@@ -307,7 +309,8 @@ public actor IrxControlPlaneClient {
                     "server_floor_s": retryAfterSeconds.map(String.init) ?? "-",
                 ]
             )
-            try? await Task.sleep(for: delay)
+            // wakeup-allow: backoff 1 s doubling to 30 s after a socket ended, or the server's Retry-After
+            try? await Task.sleep(for: delay, tolerance: IrxWakeLeeway(delay: delay).tolerance)
         }
     }
 
@@ -360,6 +363,7 @@ public actor IrxControlPlaneClient {
             ["have_rev": cursorCache.load()?.haveRev.map(String.init) ?? "-"]
         )
 
+        // wakeup-allow: bounded each pass awaits one WebSocket message; an error or a newer generation ends it
         while !Task.isCancelled && generation == loopGeneration {
             let message: URLSessionWebSocketTask.Message
             do {

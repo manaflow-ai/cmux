@@ -94,7 +94,7 @@ struct ControlSnapshotSequenceTests {
     }
 
     /// A tab title is read by the workspace's cache entry, whose tracking the build's own tracking merged when it
-    /// built the entry: both see the change, and it costs one build, not one per tracking (p04-input-026).
+    /// built the entry: both see the change, and it costs one build, not one per tracking.
     @Test func aCachedWorkspaceChangeBuildsOnce() async {
         let rig = await Self.rig()
         defer { rig.stop() }
@@ -109,7 +109,7 @@ struct ControlSnapshotSequenceTests {
     }
 
     /// A sequence that moves in the batch of a topology change rides on the topology publish: a sequence-only publish
-    /// would show the new sequence beside the old topology (p04-input-026).
+    /// would show the new sequence beside the old topology.
     @Test func aSequenceBeforeATopologyChangeIsNotPublishedBesideTheOldTopology() async {
         let rig = await Self.rig()
         defer { rig.stop() }

@@ -1,10 +1,12 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p13-webui-031: a cmux page in Chromium discards through its tab's in-place discard. Chromium
+/// A cmux page in Chromium discards through its tab's in-place discard. Chromium
 /// reloads the discarded entry when the page shows, so the page host's show and load of the same URL
 /// send no reload or navigation of cmux's own; once the entry commits again a load navigates. A fork
 /// without the export answers false so the page host closes the page. Against a spy shim.
@@ -68,6 +70,25 @@ import Testing
         #expect(PageDiscardSpy.discarded.isEmpty)
     }
 
+    /// The crash watch is a service observation (the page host reloads a crashed page,
+    /// shown or not). A renderer already gone when the host listens is one `.crashed`, sent by the posted
+    /// check after the listen, never inside it; a later exit after a reload is one more.
+    @Test func aCrashPresentAtTheListenIsOneEventAfterAFrame() throws {
+        let rig = try PageDiscardRig(exportsDiscard: true)
+        defer { rig.close() }
+        let frames = PageFrameRig()
+        let page = try rig.page(mainWork: frames.work)
+        page.tab.rendererTerminated(BrowserProcessExit(reason: .crashed))
+        var crashes = 0
+        page.onEvent = { event in if event == .crashed { crashes += 1 } }
+        #expect(crashes == 0, "the crash was sent inside the listen")
+        frames.frame()
+        #expect(crashes == 1, "the crash present at the listen was not sent once")
+        frames.frame()
+        #expect(crashes == 1, "the same crash was sent again")
+        page.onEvent = nil
+    }
+
     @MainActor final class PageDiscardRig {
         let runtime: CEFRuntime
         let root: URL
@@ -78,8 +99,8 @@ import Testing
             runtime = CEFRuntime(shim: try PageDiscardSpy.library(), storage: CEFProfileStorage(root: root))
         }
 
-        /// A page whose tab's browser 7 exists (AFTER_CREATED).
-        func page() throws -> CEFPageChromiumPage {
+        /// A page whose tab's browser 7 exists (AFTER_CREATED); its crash watch flushes on `mainWork`.
+        func page(mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) throws -> CEFPageChromiumPage {
             let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
             let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
             host.add(tab)
@@ -87,7 +108,7 @@ import Testing
             let request = try #require(runtime.pendingWindows.keys.first)
             runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
             try #require(tab.browserID == 7)
-            return CEFPageChromiumPage(tab: tab, pageID: "cmux.markdown")
+            return CEFPageChromiumPage(tab: tab, pageID: "cmux.markdown", mainWork: mainWork)
         }
 
         func close() {

@@ -295,12 +295,8 @@ cmd_all() {
     use_target "$t" "${MIN_OS[$t]}"
     local start; start=$(date +%s)
     local build="cargo build --release --locked --target $t"
-    # The daemon's pinned PGO profile for this target, if any (rust-pgo.sh, task 056); the Mac build does the same.
-    local pgo pgo_env=""
-    pgo="$("$repo_root/scripts/cmux-next/pgo/rust-pgo.sh" rustflags cmux-tui --target "$t" --strict)"
-    [[ -z "$pgo" ]] || pgo_env="RUSTFLAGS=$(q "${RUSTFLAGS:+$RUSTFLAGS }$pgo")"
     "$repo_root/scripts/ci/cargo-groups.sh" "$target_dir" "$t" \
-      "cmux-tui cmux-tui-hook cmux-tui-host" "cd $(q "$tui") && $stamps $pgo_env $build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
+      "cmux-tui cmux-tui-hook cmux-tui-host" "cd $(q "$tui") && $stamps $build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
       "cmux-holder" "cd $(q "$tui") && $stamps $build -p cmux-holder --bin cmux-holder" \
       "cmux-app-host" "cd $(q "$tui") && $stamps $build -p cmux-app-host --bin cmux-app-host" \
       "cmux-browser-host" "cd $(q "$tui") && CMUX_BUILD_SHA=$(q "$sha") $build -p cmux-browser-host --bin cmux-browser-host" \

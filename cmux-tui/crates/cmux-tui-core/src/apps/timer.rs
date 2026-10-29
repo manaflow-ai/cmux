@@ -3,6 +3,8 @@
 //! condition variable until the earliest deadline or a change; with nothing
 //! scheduled it blocks without a timeout (no polling, idle-wakeups.md).
 
+use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -29,16 +31,20 @@ pub struct TimerId(Instant, u64);
 impl Timers {
     pub fn schedule(&self, after: Duration, job: impl FnOnce() + Send + 'static) -> TimerId {
         let (lock, wake) = &*self.shared;
-        let mut state = lock.lock().unwrap();
+        let mut state = lock.lock().recover_poison();
         state.next_id += 1;
         let key = (Instant::now() + after, state.next_id);
         state.jobs.insert(key, Box::new(job));
         if !state.started {
             state.started = true;
             let shared = self.shared.clone();
-            let _ = std::thread::Builder::new()
-                .name("cmux-apps-timers".into())
-                .spawn(move || run(&shared));
+            let _ = supervised::spawn_at(
+                "cmux-apps-timers",
+                cmux_threads::ThreadQos::Utility,
+                Fatal,
+                ShutdownBehavior::Continue,
+                move || run(&shared),
+            );
         }
         wake.notify_one();
         TimerId(key.0, key.1)
@@ -46,14 +52,14 @@ impl Timers {
 
     pub fn cancel(&self, id: TimerId) {
         let (lock, wake) = &*self.shared;
-        lock.lock().unwrap().jobs.remove(&(id.0, id.1));
+        lock.lock().recover_poison().jobs.remove(&(id.0, id.1));
         wake.notify_one();
     }
 
     /// Ends the thread; pending jobs never run.
     pub fn stop(&self) {
         let (lock, wake) = &*self.shared;
-        let mut state = lock.lock().unwrap();
+        let mut state = lock.lock().recover_poison();
         state.stopped = true;
         state.jobs.clear();
         wake.notify_one();
@@ -62,7 +68,7 @@ impl Timers {
 
 fn run(shared: &(Mutex<State>, Condvar)) {
     let (lock, wake) = shared;
-    let mut state = lock.lock().unwrap();
+    let mut state = lock.lock().recover_poison();
     loop {
         if state.stopped {
             return;
@@ -70,13 +76,13 @@ fn run(shared: &(Mutex<State>, Condvar)) {
         let now = Instant::now();
         match state.jobs.keys().next().copied() {
             Some(key) if key.0 <= now => {
-                let job = state.jobs.remove(&key).expect("due job");
+                let Some((_, job)) = state.jobs.pop_first() else { continue };
                 drop(state);
                 job();
-                state = lock.lock().unwrap();
+                state = lock.lock().recover_poison();
             }
-            Some(key) => state = wake.wait_timeout(state, key.0 - now).unwrap().0,
-            None => state = wake.wait(state).unwrap(),
+            Some(key) => state = wake.wait_timeout(state, key.0 - now).recover_poison().0,
+            None => state = wake.wait(state).recover_poison(),
         }
     }
 }

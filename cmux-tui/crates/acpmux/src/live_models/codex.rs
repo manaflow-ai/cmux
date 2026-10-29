@@ -74,8 +74,8 @@ pub fn parse(rows: &[Value]) -> Vec<LiveModel> {
             out.push(model);
         }
     }
-    if let Some(at) = out.iter().position(|m| m.is_default) {
-        out[..=at].rotate_right(1);
+    if let Some(head) = out.iter().position(|m| m.is_default).and_then(|at| out.get_mut(..=at)) {
+        head.rotate_right(1);
     }
     out
 }

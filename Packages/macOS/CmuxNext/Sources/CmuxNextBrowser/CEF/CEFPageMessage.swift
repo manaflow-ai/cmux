@@ -55,7 +55,7 @@ nonisolated struct CEFPageMessage: Equatable, Sendable {
     /// The largest payload accepted on a browser-tab channel and the first paint.
     static let maxPayloadBytes = 64 * 1024
     /// The largest page host post (4 MiB, as the page's binding call); the Chromium Host sends one
-    /// over 64 KiB as a sealed shared memory region (p01-process-020).
+    /// over 64 KiB as a sealed shared memory region.
     static let maxPageHostPayloadBytes = 4 << 20
 
     let channel: Channel

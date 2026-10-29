@@ -2,7 +2,7 @@ import CmuxNextCompat
 import Darwin
 import Testing
 
-/// `ProcessRole` (p02-threads-235), the Swift twin of `cmux_threads::process_role`: the default role reads
+/// `ProcessRole`, the Swift twin of `cmux_threads::process_role`: the default role reads
 /// foreground, suppression sets `PRIO_DARWIN_BG` and foreground clears it, and a parent suppresses a child by pid.
 /// The role and `PRIO_DARWIN_BG` are process-wide and the other suites of this test process run beside this one,
 /// so every change to this process's role runs in an exit-test child (``ProcessRoleChild``). This process only

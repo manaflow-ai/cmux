@@ -1,4 +1,4 @@
-// Debug Settings keeps its scroll across a discard (p13-webui-082); the app keeps its search and
+// Debug Settings keeps its scroll across a discard; the app keeps its search and
 // selection (DebugSettingsModel), so the page saves no inputs of its own.
 import { describe, expect, test } from "bun:test";
 import { BridgePageClient, type ReplyHandler } from "../shared/pageClient";

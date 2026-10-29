@@ -1,6 +1,6 @@
 package import CmuxNextWakeups
 
-/// Energy Saver's CPU rule for hidden pages (p14-energy-039), Chrome's `FreezingPolicy` under battery saver
+/// Energy Saver's CPU rule for hidden pages, Chrome's `FreezingPolicy` under battery saver
 /// (components/performance_manager/freezing/freezing_policy.cc): in the saver, a hidden page whose renderers used at
 /// least ``highProportion`` of one core over its last reading window counts as past the freeze grace, so the freeze
 /// plan takes it at once; every other hidden page keeps `browser.freezeHiddenTabs`. The freeze plan's exemptions and

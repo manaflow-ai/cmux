@@ -58,15 +58,16 @@ import Testing
         #expect(Self.sharingSwitches(arguments) == ["cmux-page-scheme-process-per-site=cmux.agent:8,cmux.cloud:8,cmux.history:8"])
     }
 
-    /// The fork train numbers p13-webui-011, the switch's reader, with the train's API (32,
-    /// scripts/cmux-next/cef-fork-train.json): a fork at that number must get the switch.
+    /// The fork train (manaflow-ai/cef `cp/p13-webui-086`) gives p13-webui-011, the switch's
+    /// reader, API 42: a fork at that number must get the switch.
     @Test func theTrainsForkGetsTheSwitch() {
-        let arguments = Self.arguments(forkAPI: 32, caps: CEFPageSchemes.siteCaps(Self.table))
+        let arguments = Self.arguments(forkAPI: 42, caps: CEFPageSchemes.siteCaps(Self.table))
         #expect(Self.sharingSwitches(arguments).count == 1, "\(arguments)")
     }
 
-    /// The renderer-path fork (29) and the API 31 trains have no reader: the switch would do nothing there.
-    @Test(arguments: [Int32(0), 24, 29, 31])
+    /// The renderer-path fork (29), the API 31 trains and every number below 42 have no reader: the switch
+    /// would do nothing there. 32 is p03-rendering-042's resize fence, 38-41 are the other p13 exports.
+    @Test(arguments: [Int32(0), 24, 29, 31, 32, 37, 41])
     func anOlderForkNeverGetsTheSwitch(forkAPI: Int32) {
         let arguments = Self.arguments(forkAPI: forkAPI, caps: CEFPageSchemes.siteCaps(Self.table))
         #expect(Self.sharingSwitches(arguments).isEmpty, "\(arguments)")

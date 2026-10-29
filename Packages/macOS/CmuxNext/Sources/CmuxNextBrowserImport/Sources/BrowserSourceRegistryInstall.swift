@@ -5,8 +5,7 @@ public import CmuxNextWakeups
 /// lane at launch (``load(on:)``), so the import pickers, the detector and the Passwords page find it in
 /// memory (a `PreloadedValue`). A read before the load (a test, or a reader that beat the lane) reads the
 /// file itself through the checked seam, so on the main thread the blocking detector records it. It replaces
-/// a static initializer that read the file on whichever thread asked first while the others waited
-/// (p02-threads-122).
+/// a static initializer that read the file on whichever thread asked first while the others waited.
 public nonisolated final class BrowserSourceRegistryInstall: Sendable {
     /// The process's install: the registry is the bundle's checked-in data, the same for every reader.
     public static let shared = BrowserSourceRegistryInstall()

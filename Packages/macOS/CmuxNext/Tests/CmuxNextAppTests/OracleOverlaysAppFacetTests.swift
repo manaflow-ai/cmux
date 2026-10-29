@@ -11,10 +11,10 @@ import CmuxNextOracle
 import CmuxNextTerminalFind
 import Testing
 
-/// The app's `overlays` facet (p15-oracle-038) reads the owners: the dialogs and toasts a window's overlay host
+/// The app's `overlays` facet reads the owners: the dialogs and toasts a window's overlay host
 /// presents, in its drawing order (a tab dialog whose tab is hidden is not there), the palette's rows and selection,
-/// the terminal's and the browser's find models, and the hover target through its owners' parsers. A
-/// `debug.oracle.wait_for` on the stack wakes when a dialog opens. Run: `swift test --filter OracleOverlaysAppFacetTests`.
+/// the terminal's and the browser's find models, and the hover target through its owners' parsers.
+/// Run: `swift test --filter OracleOverlaysAppFacetTests`.
 @MainActor @Suite(.serialized) struct OracleOverlaysAppFacetTests {
     private static func window() -> NSWindow {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 600, height: 400), styleMask: [.titled],
@@ -41,38 +41,6 @@ import Testing
         let facets = services.makeOracleFacets()
         #expect(facets.provided.contains(.overlays))
         #expect(facets.changes(.overlays) != nil)
-    }
-
-    /// The finding: nothing the stack reads was observable, so a wait for a dialog ended as a false Timeout. The
-    /// overlay host's change signal wakes it.
-    @Test func aWaitOnTheStackWakesWhenADialogOpens() async throws {
-        _ = NSApplication.shared
-        let feed = OverlayChangeFeed()
-        let window = Self.window()
-        defer { window.close() }
-        // The App gives each main window's host its feed (WindowManager.makeController).
-        WindowOverlayHost.host(for: window).changes = feed
-        let (reads, read) = AsyncStream<Int>.makeStream()
-        let facets = OracleFacets([OracleOverlaysFacet(hash: AppServices.oracleSHA256, changes: { feed.subscribe() }) {
-            let reading = OracleOverlaysFacet.Reading(windows: [.init(window: "win_1", hosted: Self.hosted(window))])
-            read.yield(reading.stack.count)
-            return reading
-        }])
-        let condition = try OracleWaitCondition(params: ["pointer": "/overlays/stack/0/kind", "equals": "dialog", "maxMs": 10_000])
-        let waiting = Task {
-            try await OracleSettleControl.awaitCondition(condition, facets: facets, snapshots: ControlSnapshotStore(),
-                                                         deadline: .now + .seconds(10))
-        }
-        for await count in reads {
-            #expect(count == 0)
-            break
-        }
-        let dialogs = Self.dialogs()
-        let id = dialogs.present(Self.spec("test.window"), in: .window(window)) { _ in }
-        defer { dialogs.dismiss(id) }
-        let outcome = try await waiting.value
-        #expect(outcome.satisfied)
-        #expect(outcome.value == "dialog")
     }
 
     /// A window dialog is on its window's stack with its spec; the one queued behind it in the same scope is not

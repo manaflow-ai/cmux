@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compiles the Chromium Host's focus rule (CEFShim/src/embedder_focus_policy.h,
-# no CEF needed) and runs its cases (task p01-process-032). Small: one clang++
+# no CEF needed) and runs its cases. Small: one clang++
 # call. Not in CI (no new CI tests); run it when you change the rule.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

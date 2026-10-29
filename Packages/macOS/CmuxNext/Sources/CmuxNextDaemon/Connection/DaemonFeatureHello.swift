@@ -1,7 +1,7 @@
 import CmuxNextCompat
 
 /// The app's daemon features (process `daemon` or `both`) that its main connection sends in every
-/// `client-hello`, and the daemon's answer (p12-perf-process-150). The daemon outlives the app: it
+/// `client-hello`, and the daemon's answer. The daemon outlives the app: it
 /// turns off a verified app's `daemon` kill switch at once and keeps its own value for every other
 /// difference until it restarts, which it reports as pending. The app then runs each pending feature
 /// with the daemon's value too (``sessionValues``), so a `both` feature has one value in both processes

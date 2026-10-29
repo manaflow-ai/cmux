@@ -70,7 +70,13 @@ typedef struct {
   uint64_t unsendable;         // ops not sent: over a frame bound, or no host
   uint64_t replies_unhandled;  // REPLY frames with no reply callback
   uint64_t unsupported;        // optional ops refused: the host's HELLO did not list the export
+  uint64_t input_acks_unhandled;  // input ack records with no input ack callback
 } cmux_remote_shim_stats;
+
+// Main thread. The host dispatched a page's pointer move (kind 3) or wheel tick (kind 4) with
+// input seq `seq` on its UI thread (kOpInputAck): the page view sends that
+// page's next waiting one (ChromiumHostInputPacer).
+typedef void (*cmux_remote_input_ack_fn)(void* ctx, int32_t browser_id, int32_t kind, uint32_t seq);
 
 // Main thread, before the first attach; the callbacks are copied.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_configure(const cmux_remote_shim_callbacks* callbacks);
@@ -100,6 +106,9 @@ CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_last_reply_token(void);
 // callback and its ctx (task 018: CEFRemoteShim hands them to CEFHostReplies); NULL drops them
 // (replies_unhandled). The next cmux_remote_shim_configure sets them again.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply);
+// Main thread. kOpInputAck records go to `ack(ctx, ...)`, in the host's dispatch order; NULL
+// drops them (input_acks_unhandled). Detach keeps it: the next host's acks go there too.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_input_ack(void* ctx, cmux_remote_input_ack_fn ack);
 // Main thread. The channel's end goes to `ended(ctx, reason)` from now on, in place of the
 // configured callback and its ctx (task 091: CEFRemoteShim hands it to CEFHostReplies, whose
 // tokens then resolve as hostGone in that turn); NULL drops it. A detach cmux asks for is never
@@ -113,7 +122,7 @@ CMUX_REMOTE_EXPORT void cmux_remote_shim_set_ended(void* ctx, cmux_remote_ended_
 // "One ordered input stream"). With no host attached it returns 0 and `ctl_seq` 0: the writer
 // writes nothing for that frame. Both seqs start again with the next host.
 CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq);
-// What the host watch callback hears (task p01-process-084; host_hang_watcher.h).
+// What the host watch callback hears (host_hang_watcher.h).
 typedef enum {
   CMUX_REMOTE_HOST_INPUT_OUTSTANDING = 0,  // input the host has not dispatched yet: the first seq waits
   CMUX_REMOTE_HOST_INPUT_PROGRESS = 1,     // the host dispatched input; later input still waits
@@ -158,6 +167,14 @@ typedef int (*cmux_remote_fence_send_fn)(unsigned int channel, unsigned int fenc
 // Mach message of host_resize.h (SendFence), which sends nothing where there is no Mach; the
 // tests pass their own to drive the fenced path on Linux.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send);
+// Main thread. The browser host's provider link for the Chromium Host (kOpProviderLink,
+// ChromiumHost/src/host_provider_link.h): its socket (NULL or "" ends the
+// link), the relay credential derived from the daemon-minted secret, the link id cmux names the
+// host by, and the pids the socket's peer may be. Kept for every host of the session, as the
+// Energy Saver is. 1 when the attached host takes it (its HELLO listed cmux_host_provider_link)
+// and it went out; 0 otherwise (no host yet: the next attach sends it).
+CMUX_REMOTE_EXPORT int cmux_remote_shim_set_provider_link(const char* socket, const char* credential,
+                                                          const char* link_id, int host_pid, int listener_pid);
 
 }  // extern "C"
 
@@ -192,7 +209,7 @@ bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args);
 // host's verdict once (PostForReply). Returns the client's check of the arguments, the
 // in-process shim's own: 1 accepted, 0 refused (nothing recorded).
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args);
-// cmux_shim_password_reveal's wire (task p01-process-025), for remote_shim_local.mm's
+// cmux_shim_password_reveal's wire, for remote_shim_local.mm's
 // LocalTransport::send_password_reveal, with its DeliverPasswordReveal as `revealed`:
 // kOpPasswordReveal with str profile_cache_path and str id under `token`. The host's REPLY is
 // one bytes field, the password, or none when its shim found none; it goes to `revealed` once,

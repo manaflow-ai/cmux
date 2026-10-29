@@ -6,16 +6,16 @@ import Foundation
 /// launch's milestones (``noteLaunch(_:)``) while hang reports are on, into a ``StallAggregate``
 /// that ``HangReportService`` drains into each report.
 ///
-/// ``noteStall(durationNanos:cpuNanos:addresses:)`` runs on the main thread at the end of each
+/// ``noteStall(durationNanos:cpuNanos:addresses:startup:)`` runs on the main thread at the end of each
 /// stall over the watchdog's threshold: off, it is one atomic load; on, a lock over a few integer
 /// adds. Only a stall that earns a stack slot (250 ms and up, among the longest 8) leaves the
 /// main thread: its addresses are reduced to ``HangReportFrame``s on a utility task (`resolve`, which
 /// reads dyld and the classifier) and kept after that. ``noteBlocking(_:)`` runs on the detector's
 /// drain queue, already off the main thread, and resolves there. Nothing here runs while the app is idle.
 ///
-/// A hang of ``blackBoxHangMs`` or more (at its end in ``noteStall(durationNanos:cpuNanos:addresses:)``, or still
-/// running in ``noteHang(durationNanos:addresses:task:)``), or a key frame over ``blackBoxKeyFrameMicros``, takes the
-/// merged black box once per report (schema 3's `blackbox[]`, p09-observability-063): the trigger is one more check
+/// A hang of ``blackBoxHangMs`` or more (at its end in ``noteStall(durationNanos:cpuNanos:addresses:startup:)``, or still
+/// running in ``noteHang(durationNanos:addresses:task:startup:)``), or a key frame over ``blackBoxKeyFrameMicros``, takes the
+/// merged black box once per report (schema 3's `blackbox[]`): the trigger is one more check
 /// under the lock, and the rings are read by `captureBlackBox` off the main thread.
 ///
 /// ```swift
@@ -160,8 +160,9 @@ public final class HangReportCollector: Sendable {
         isEnabled || !decided.load(ordering: .relaxed)
     }
 
-    /// One finished stall (main thread, from the watchdog's `onStall`).
-    public func noteStall(durationNanos: UInt64, cpuNanos: UInt64, addresses: [UInt]) {
+    /// One finished stall (main thread, from the watchdog's `onStall`), with where the launch was when it
+    /// ran before startup completed (nil after).
+    public func noteStall(durationNanos: UInt64, cpuNanos: UInt64, addresses: [UInt], startup: HangSample.Startup? = nil) {
         guard isEnabled else { return }
         let ms = Self.milliseconds(durationNanos)
         // A stall of a hang's length is only counted: its stack came from `noteHang`, sampled
@@ -174,19 +175,22 @@ public final class HangReportCollector: Sendable {
         // threshold, at most one per its report interval.
         if ms >= Self.blackBoxHangMs { startBlackBoxCapture() }
         guard sample else { return }
-        keepLater(HangSample(source: .watchdog, kind: .stall, durationMs: ms, cpuMs: Self.milliseconds(cpuNanos), frames: []),
+        keepLater(HangSample(source: .watchdog, kind: .stall, durationMs: ms, cpuMs: Self.milliseconds(cpuNanos), frames: [],
+                             startup: startup),
                   addresses: addresses)
     }
 
     /// One hang still running (watchdog thread, from the watchdog's `onHang`), with the scheduled task it
-    /// caught (``HangSample/MainTask/unattributed`` when none ran; nil when the caller does not know). A hang that
-    /// never ends takes the black box here.
-    public func noteHang(durationNanos: UInt64, addresses: [UInt], task: HangSample.MainTask? = nil) {
+    /// caught (``HangSample/MainTask/unattributed`` when none ran; nil when the caller does not know) and where the
+    /// launch was before startup completed (nil after). A hang that never ends takes the black box here.
+    public func noteHang(durationNanos: UInt64, addresses: [UInt], task: HangSample.MainTask? = nil,
+                         startup: HangSample.Startup? = nil) {
         guard isEnabled else { return }
         let ms = Self.milliseconds(durationNanos)
         if ms >= Self.blackBoxHangMs { startBlackBoxCapture() }
         guard !addresses.isEmpty, state.withLock({ $0.aggregate.wantsHangSample(durationMs: ms) }) else { return }
-        keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: [], mainTask: task), addresses: addresses)
+        keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: [], mainTask: task, startup: startup),
+                  addresses: addresses)
     }
 
     /// One watched thread still in its hang-watch scope 2 s past its budget (watchdog thread, from the watchdog's
@@ -202,7 +206,7 @@ public final class HangReportCollector: Sendable {
         keepLater(.threadHang(thread, durationMs: ms, frames: []), addresses: addresses)
     }
 
-    /// One hang of the Chromium Host's UI thread, 250 ms or longer (main thread; task p01-process-084): the host
+    /// One hang of the Chromium Host's UI thread, 250 ms or longer (main thread): the host
     /// measured it and sends no stack (its stack is in the host's own dump at 10 s), so it is kept frameless, as a
     /// watched thread's hang named ``hostUIThread``, in the thread hang slots: it never pushes the app's own main
     /// thread hang out, and it counts in none of the app's histograms. Nothing when the wire schema has none.

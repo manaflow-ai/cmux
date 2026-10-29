@@ -139,7 +139,7 @@ final class NewTabPreload {
 
     // MARK: Launch
 
-    /// Probes WebKit's setup off the main thread, no page yet (a first load held launch >10 s, cua-2); an afterStartup post (p08-startup-042).
+    /// Probes WebKit's setup off the main thread, no page yet (a first load held launch >10 s, cua-2); an afterStartup post.
     func prewarm() {
         if agentTabs.canHostChat { webKit.probe { [weak self] in self?.scheduleWarm() } }
     }
@@ -147,7 +147,7 @@ final class NewTabPreload {
     /// Follow the key main window; park in the first visible one. The launch posts this with
     /// `holdingWarm` after the first frame, so Cmd-T and Cmd-N find the hooks and the target window,
     /// and ``startWarming()`` at afterStartup, so the first load never lands in the second after the
-    /// first frame (p08-startup-017).
+    /// first frame.
     func start(holdingWarm: Bool = false) {
         warmHeld = holdingWarm
         agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }

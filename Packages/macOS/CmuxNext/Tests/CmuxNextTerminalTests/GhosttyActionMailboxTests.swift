@@ -7,7 +7,7 @@ import Testing
 
 /// A surface's Ghostty state actions apply once per frame of its window, latest wins per slot; a discrete
 /// action, a clipboard request and a close flush what waits and run after it, in order; an idle mailbox has
-/// no frame client (p04-input-079). Drives a real ``SurfaceBridge`` (its ``SurfaceBridge/deliver(_:runtime:)``
+/// no frame client. Drives a real ``SurfaceBridge`` (its ``SurfaceBridge/deliver(_:runtime:)``
 /// and Ghostty's clipboard and close callbacks) whose target records what reaches it, on a fake-link
 /// scheduler that ticks only when the test calls ``Rig/frame()``.
 @MainActor @Suite(.timeLimit(.minutes(1)))

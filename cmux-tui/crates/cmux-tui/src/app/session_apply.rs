@@ -431,22 +431,19 @@ impl App {
             return;
         };
 
-        let location_is_current = self
+        let Some(pane) = self
             .tree
-            .workspaces()
-            .get(workspace_index)
-            .and_then(|workspace| workspace.screens.get(screen_index))
-            .and_then(|screen| screen.panes.get(pane_index))
-            .and_then(|pane| pane.tabs.get(tab_index))
-            .is_some_and(|tab| tab.surface == surface);
-        if !location_is_current {
+            .workspaces_mut()
+            .get_mut(workspace_index)
+            .and_then(|workspace| workspace.screens.get_mut(screen_index))
+            .and_then(|screen| screen.panes.get_mut(pane_index))
+            .filter(|pane| pane.tabs.get(tab_index).is_some_and(|tab| tab.surface == surface))
+        else {
             self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
             return;
-        }
+        };
 
         let shifted_tabs = {
-            let pane = &mut self.tree.workspaces_mut()[workspace_index].screens[screen_index].panes
-                [pane_index];
             pane.tabs.remove(tab_index);
             adjust_active_tab_after_removal(pane, tab_index);
             pane.tabs
@@ -495,7 +492,7 @@ impl App {
             .front()
             .is_some_and(|completion| completion.mutation_generation <= authoritative_generation)
         {
-            let completion = self.pending_session_completions.pop_front().unwrap();
+            let Some(completion) = self.pending_session_completions.pop_front() else { break };
             self.apply_session_completion(completion);
             applied = true;
         }

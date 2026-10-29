@@ -2,7 +2,7 @@
 import CmuxNextCompat
 import Testing
 
-/// The main-job census's ring (p08-startup-080): bounded, the enqueuer's stack, priority and label per job, timed runs
+/// The main-job census's ring: bounded, the enqueuer's stack, priority and label per job, timed runs
 /// of every kind, and nothing recorded once frozen. A test ring is never installed as the runtime's hook.
 struct MainJobRingTests {
     /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds). Nonisolated: the ring reads its clock on the enqueuing

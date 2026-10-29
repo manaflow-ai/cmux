@@ -85,6 +85,7 @@ public final class VSyncHub {
 
     /// One vsync of a display (Chrome's `BeginFrameArgs`: frame time, deadline, sequence).
     public struct Tick: Sendable, Equatable {
+        /// The display that ticked.
         public let display: CGDirectDisplayID
         /// When the frame that is showing now was shown (`CACurrentMediaTime` timebase).
         public let timestamp: CFTimeInterval
@@ -93,6 +94,7 @@ public final class VSyncHub {
         /// Counts this display's vsyncs, from 1.
         public let sequence: UInt64
 
+        /// A tick from its values (the hub makes them; tests build them).
         public init(display: CGDirectDisplayID, timestamp: CFTimeInterval, targetTimestamp: CFTimeInterval, sequence: UInt64) {
             self.display = display
             self.timestamp = timestamp

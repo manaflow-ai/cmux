@@ -267,14 +267,22 @@ fn normalize_receipt(intent: &AgentCLIIntent, receipt: &Value) -> anyhow::Result
     TabPublicId::parse(text(path, "tab_id")?.to_owned())?;
     TerminalPublicId::parse(text(path, "terminal_id")?.to_owned())?;
     let mut receipt = receipt.clone();
-    receipt["replayed"] = json!(true);
+    set_field(&mut receipt, "replayed", json!(true))?;
     Ok(receipt)
 }
 
 fn row_value(intent: &AgentCLIIntent, receipt: Option<Value>) -> anyhow::Result<Value> {
     let mut value = serde_json::to_value(intent)?;
-    value["receipt"] = receipt.unwrap_or(Value::Null);
+    set_field(&mut value, "receipt", receipt.unwrap_or(Value::Null))?;
     Ok(value)
+}
+
+fn set_field(object: &mut Value, field: &str, value: Value) -> anyhow::Result<()> {
+    object
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("agent CLI intent value is not an object"))?
+        .insert(field.into(), value);
+    Ok(())
 }
 
 fn read_rows(db: &Connection, actor: &str, now_ms: i64) -> anyhow::Result<Vec<Value>> {

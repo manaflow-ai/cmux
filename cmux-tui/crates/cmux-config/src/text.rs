@@ -103,11 +103,11 @@ impl ThemeSpec {
 }
 
 fn prefixed(text: &str, prefix: &str) -> Option<String> {
-    let head = text.get(..prefix.len())?;
+    let (head, rest) = text.split_at_checked(prefix.len())?;
     if !head.eq_ignore_ascii_case(prefix) {
         return None;
     }
-    let name = trim_whitespaces(&text[prefix.len()..]);
+    let name = trim_whitespaces(rest);
     (!name.is_empty()).then(|| name.to_string())
 }
 

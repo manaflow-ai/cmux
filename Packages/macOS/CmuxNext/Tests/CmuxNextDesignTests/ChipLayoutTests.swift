@@ -2,7 +2,7 @@ import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
 
-/// p03-rendering-073: pane chrome chips (the terminal's status banner and "Sized for" chip, the
+/// Pane chrome chips (the terminal's status banner and "Sized for" chip, the
 /// omnibar's badges) lay out by frames from ``ChipLayout``, a pure function, not Auto Layout. A pane
 /// resized every frame of a drag then solves no constraints for them (Chromium's views::BoxLayout).
 struct ChipLayoutTests {

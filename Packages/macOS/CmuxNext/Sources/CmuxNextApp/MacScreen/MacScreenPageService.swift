@@ -112,7 +112,7 @@ final class MacScreenPageService: InternalPageProvider {
     func restore(_ route: String, for key: String) { pages.restore(route, for: key) }
     func title(forRoute route: String) -> String? { pages.title(forRoute: route) }
 
-    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-028)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// Released when its stream stops: a hidden screen keeps its session for the pane's hidden
     /// grace (switching tabs back and forth stays live), then ends it (``MacScreenPane/pause()``),
@@ -182,8 +182,8 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), deadlines: services.mainDeadlines,
-                                   appEvents: services.appEvents)
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID, runner: services.work),
+                                   deadlines: services.mainDeadlines, appEvents: services.appEvents)
         pages.useShortcuts(of: services.registry)
         pages.pointerFrames = { [weak services] in services?.remotePointerFrames }
         pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }

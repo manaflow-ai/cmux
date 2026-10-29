@@ -30,7 +30,7 @@ public nonisolated struct LaunchSignposts: Sendable {
         case windowBuild = 4
         /// `dfl.windows` to `first_window_frame_committed`: the built window to its first committed frame.
         case firstCommit = 5
-        /// `crash.sentry_start` to `crash.sentry_started`: `SentrySDK.start` on main (p08-startup-032).
+        /// `crash.sentry_start` to `crash.sentry_started`: `SentrySDK.start` on main.
         case sentryStart = 6
 
         /// The interval's signpost name.
@@ -95,7 +95,7 @@ public nonisolated struct LaunchSignposts: Sendable {
     }
 
     /// A one-time native library call of the launch, timed where it runs: no launch mark bounds it, because
-    /// it runs in a module below the app's mark sink (p08-startup-068). Like ``Interval``, each step has a fixed
+    /// it runs in a module below the app's mark sink. Like ``Interval``, each step has a fixed
     /// signpost id and runs once per process, so it has one begin and one end.
     public enum Step: UInt64, Sendable, CaseIterable {
         /// `ghostty_init` (`GhosttyRuntime.initializeLibrary`), in `main` before any other thread starts.
@@ -103,12 +103,20 @@ public nonisolated struct LaunchSignposts: Sendable {
         /// `ghostty_app_new` (`GhosttyRuntime.start(with:)`): libghostty's app, its render device and its two
         /// detached warm-up threads (font discovery, Metal), before the first window.
         case ghosttyAppNew = 33
+        /// The first `ghostty_surface_new` (`TerminalFirstSurfaceSplit`): the font grid, the
+        /// renderer and its thread of the first terminal, on main.
+        case firstSurfaceNew = 34
+        /// The terminal's launch prefetch (`TerminalLaunchPrefetch`): the Metal device and the
+        /// terminal's fonts, on their own launch thread.
+        case terminalPrefetch = 35
 
         /// The step's signpost name.
         public var name: StaticString {
             switch self {
             case .ghosttyInit: "launch.ghostty_init"
             case .ghosttyAppNew: "launch.ghostty_app_new"
+            case .firstSurfaceNew: "launch.first_surface_new"
+            case .terminalPrefetch: "launch.terminal_prefetch"
             }
         }
 

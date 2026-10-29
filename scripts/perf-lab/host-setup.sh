@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Makes one perf lab host the same as the others (p12-perf-process-130). An operator runs it on the host:
+# Makes one perf lab host the same as the others. An operator runs it on the host:
 #
 #   ssh -t NODE 'cd CHECKOUT && sudo scripts/perf-lab/host-setup.sh --host NODE --bench-user USER [--grant-privileged]'
 #   ssh -t NODE 'cd CHECKOUT && sudo scripts/perf-lab/host-setup.sh --host NODE --bench-user USER --check'

@@ -14,6 +14,7 @@ use serde_json::{Map, Value, json};
 
 use super::super::command::{AgentRosterView, AgentSort, RequestPlan, ResponseView};
 use super::{append_table_row, human_cell, sanitize_human_cell};
+use crate::cli::json_fields::JsonFields;
 
 /// The states in the order the counts line names them.
 const STATES: [&str; 5] = ["blocked", "working", "idle", "done", "unknown"];
@@ -138,7 +139,7 @@ pub(super) fn shape(rows: Value, terminals: &[Value], view: AgentRosterView, now
 /// shown as `~` in FOLDER.
 pub(super) fn human(result: &Value, home: Option<&str>) -> String {
     let agents = result["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
-    let count = |key: &str| result["counts"][key].as_u64().unwrap_or(0);
+    let count = |key: &str| result["counts"].field(key).as_u64().unwrap_or(0);
     let total = count("total");
     if total == 0 {
         return "No agents.\n".to_owned();
@@ -181,7 +182,8 @@ pub(super) fn human(result: &Value, home: Option<&str>) -> String {
         .map(|index| {
             std::iter::once(&header)
                 .chain(&rows)
-                .map(|row| usize::from(row[index].cell_width()))
+                .filter_map(|row| row.get(index))
+                .map(|cell| usize::from(cell.cell_width()))
                 .max()
                 .unwrap_or(0)
         })

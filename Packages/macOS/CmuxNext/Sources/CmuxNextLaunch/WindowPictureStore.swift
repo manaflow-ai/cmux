@@ -109,7 +109,7 @@ public final class WindowPictureStore {
     let directory: URL?
     private let work: BackgroundWork
     private let encode: @Sendable (CGImage) -> Data?
-    /// The launch's read of the front window's picture (WindowPictureStore+LaunchRead.swift, p08-startup-058).
+    /// The launch's read of the front window's picture (WindowPictureStore+LaunchRead.swift).
     let launch: FrontRead
 
     /// - Parameters:
@@ -126,8 +126,9 @@ public final class WindowPictureStore {
     }
 
     /// The pictures in `state`, the tag's state directory (beside its launch snapshot).
-    public convenience init(state: URL?, work: BackgroundWork) {
-        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory), work: work)
+    /// `reader` reads the launch's files; the app's skips every one in a crash streak's safe launch (`LaunchSafeMode`).
+    public convenience init(state: URL?, work: BackgroundWork, reader: LaunchFileReader = LaunchFileReader()) {
+        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory), work: work, reader: reader)
     }
 
     /// `root` as AppKit draws it now, at its window's backing scale, with `backdrop` (the window's material and

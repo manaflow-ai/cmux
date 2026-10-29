@@ -1,5 +1,6 @@
 import CmuxNextFileGrid
 public import Foundation
+import CmuxNextCompat
 
 /// Finds the folders the Screenshots pane lists: macOS's screenshot folder,
 /// macOS's floating-preview folder, every installed tool's save folder and
@@ -123,7 +124,7 @@ public nonisolated struct ScreenshotSourceDetector: Sendable {
     /// - Parameter folder: a folder URL.
     public static func realFolder(_ folder: URL) -> URL {
         let resolved = folder.withUnsafeFileSystemRepresentation { path -> String? in
-            guard let path, let real = realpath(path, nil) else { return nil }
+            guard let path, let real = blockingRealpath(path, nil) else { return nil }
             defer { free(real) }
             return String(cString: real)
         }

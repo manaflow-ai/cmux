@@ -1,15 +1,0 @@
-{ 
-  "sidebar": {
-    "workspaceRow": {
-      "mixed": {
-        "agentStatus": null
-      },
-      "agent": {
-        "working": true
-      }
-    }
-  },
-  "appearance": {
-    "hue": 20E-1
-  }
-}

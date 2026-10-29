@@ -6,6 +6,7 @@ use serde_json::{Map, Value, json};
 
 use super::CloudError;
 use super::service::HttpReply;
+use crate::panic_free::JsonFields as _;
 
 /// Op kinds `cloud-conversation-op` forwards. Every other kind is refused
 /// before any network call (default deny).
@@ -461,7 +462,7 @@ pub(crate) fn snapshot_data(frame: &Value) -> Result<Value, CloudError> {
 /// when the owner sent them (an older owner does not).
 fn with_threads(mut data: Value, owner: &Value) -> Value {
     if let Some(threads) = owner.get("threads").filter(|threads| threads.is_array()) {
-        data["threads"] = threads.clone();
+        data.insert("threads", threads.clone());
     }
     data
 }

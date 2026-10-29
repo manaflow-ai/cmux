@@ -114,8 +114,7 @@ pub(super) fn positional_rename(
     words: &mut Vec<String>,
     flags: &mut super::Flags,
 ) -> Result<(), super::UsageError> {
-    let count = words.len();
-    if count < 3 || words[count - 2] != "rename" {
+    if words.len() < 3 || words.iter().rev().nth(1).is_none_or(|word| word != "rename") {
         return Ok(());
     }
     let Some(name) = words.pop() else { return Ok(()) };

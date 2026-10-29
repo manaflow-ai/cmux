@@ -107,7 +107,7 @@ fn probe(addr: SocketAddr) -> Option<bool> {
             // The server closed: the answer is whole.
             Ok(0) => return Some(answers_like_devtools(&answer)),
             Err(_) => break,
-            Ok(read) => answer.extend_from_slice(&chunk[..read]),
+            Ok(read) => answer.extend(chunk.iter().take(read)),
         }
     }
     (!answer.is_empty()).then(|| answers_like_devtools(&answer))

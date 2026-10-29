@@ -601,10 +601,23 @@ pub trait Store: Send + Sync {
     }
 }
 
+/// The store of a process with no supervisor of its own (tests, one-shot commands):
+/// [`crate::supervised::embedded`].
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
+    open_supervised(config, root, &crate::supervised::embedded())
+}
+
+/// The store; its writer thread runs under `supervisor` (the daemon's).
+pub fn open_supervised(
+    config: &StoreConfig,
+    root: &Path,
+    supervisor: &crate::supervised::Supervisor,
+) -> Result<Box<dyn Store>> {
     Ok(match config.mode {
         StoreMode::Memory => Box::new(MemoryStore::default()),
-        StoreMode::Local => Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?),
+        StoreMode::Local => {
+            Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes, supervisor)?)
+        }
     })
 }
 
@@ -709,7 +722,7 @@ const OPEN_LOGS_MAX: usize = 2048;
 /// from [`OPEN_LOGS`] (the 256 of launchd) to [`OPEN_LOGS_MAX`]. With 64 at the daemon's raised
 /// limit, more than 64 agents that stream at once closed one log and opened another on every
 /// record: 100 fake agents logged about 700 records a second in all, and each agent's unlogged
-/// entries waited in the daemon (p07-memory-064).
+/// entries waited in the daemon.
 pub(crate) fn open_logs_for(soft: u64) -> usize {
     usize::try_from(soft / 4).unwrap_or(usize::MAX).clamp(OPEN_LOGS, OPEN_LOGS_MAX)
 }
@@ -732,13 +745,18 @@ fn soft_open_file_limit() -> u64 {
 }
 
 impl LocalStore {
-    pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
+    pub fn new(
+        root: PathBuf,
+        segment_bytes: u64,
+        supervisor: &crate::supervised::Supervisor,
+    ) -> Result<Self> {
         crate::config::private_state_dir(&root)
             .with_context(|| format!("create private store {}", root.display()))?;
         let log = log_writer::LogWriter::start(
             root.clone(),
             segment_bytes.max(64 * 1024),
             open_logs_for(soft_open_file_limit()),
+            supervisor,
         );
         Ok(Self { root, log })
     }
@@ -1285,108 +1303,7 @@ fn open_private_append(path: &Path) -> Result<File> {
 }
 
 #[cfg(all(test, unix))]
-mod permission_tests {
-    use super::*;
-    use std::os::unix::fs::PermissionsExt;
-
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new() -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "acpmux-store-permissions-{}-{}",
-                std::process::id(),
-                uuid::Uuid::now_v7()
-            ));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn mode(path: &Path) -> u32 {
-        std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
-    }
-
-    #[test]
-    fn local_store_makes_existing_state_private_and_writes_private_events() {
-        let temp = TempDir::new();
-        let root = temp.0.join("sessions");
-        let session = root.join("session-1");
-        let events = session.join("events");
-        std::fs::create_dir_all(&events).unwrap();
-        let metadata = session.join("session.json");
-        let first = events.join("000001.ndjson");
-        let second = events.join("000002.ndjson");
-        std::fs::write(&metadata, "{}").unwrap();
-        std::fs::write(&first, "").unwrap();
-        std::fs::write(&second, "").unwrap();
-        for directory in [&root, &session, &events] {
-            std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
-        for file in [&metadata, &first, &second] {
-            std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o644)).unwrap();
-        }
-
-        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
-        let _ = store.list().unwrap();
-        store
-            .append(
-                "session-1",
-                &EventRecord {
-                    seq: 1,
-                    at: 1,
-                    dir: "mux".into(),
-                    kind: "test".into(),
-                    msg: serde_json::json!({"text": "private"}),
-                    host_seq: None,
-                },
-            )
-            .unwrap();
-        // Old segments are authenticated and narrowed when a read reaches
-        // them. Merely finding their names stays lazy so a tail page never
-        // opens an older segment it does not need.
-        store.events("session-1", 0, usize::MAX).unwrap();
-
-        assert_eq!(mode(&root), 0o700, "the sessions root contains every chat");
-        assert_eq!(mode(&session), 0o700);
-        assert_eq!(mode(&events), 0o700);
-        assert_eq!(mode(&metadata), 0o600);
-        assert_eq!(mode(&first), 0o600);
-        assert_eq!(mode(&second), 0o600);
-    }
-
-    #[test]
-    fn local_store_refuses_a_symlinked_existing_session() {
-        let temp = TempDir::new();
-        let root = temp.0.join("sessions");
-        let outside = temp.0.join("outside");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::create_dir_all(&outside).unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("linked-session")).unwrap();
-        let store = LocalStore::new(root, 64 * 1024).unwrap();
-        assert!(store.list().is_err());
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn local_store_refuses_a_state_root_with_an_extended_acl() {
-        let temp = TempDir::new();
-        let root = temp.0.join("sessions");
-        std::fs::create_dir_all(&root).unwrap();
-        let status = std::process::Command::new("/bin/chmod")
-            .args(["+a", "group:staff allow read", root.to_str().unwrap()])
-            .status()
-            .unwrap();
-        assert!(status.success());
-        assert!(LocalStore::new(root, 64 * 1024).is_err());
-    }
-}
+mod permission_tests;
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;

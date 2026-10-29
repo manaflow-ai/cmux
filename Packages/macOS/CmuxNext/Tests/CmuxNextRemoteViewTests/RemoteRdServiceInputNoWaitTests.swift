@@ -4,7 +4,7 @@ import os
 import Testing
 
 /// `RemoteRdStreamTransport.sendServiceInput` returns its input sequence number without waiting for the
-/// transport queue (p02-threads-035): a remote browser key's turn on the main thread called it, and its
+/// transport queue: a remote browser key's turn on the main thread called it, and its
 /// `queue.sync` waited for whatever the queue ran (an ingest of a large read, a stalled carrier send). The
 /// host still gets the caller's service controls and input events in call order.
 @Suite(.serialized, .timeLimit(.minutes(1)))

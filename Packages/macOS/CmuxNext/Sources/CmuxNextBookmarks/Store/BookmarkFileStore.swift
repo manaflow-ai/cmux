@@ -6,6 +6,14 @@ public import Foundation
 /// actor, so reads and writes stay off the main thread; each save writes
 /// the whole file atomically.
 public actor BookmarkFileStore {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.bookmarks.file`): its file reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.bookmarks.file
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.bookmarks.file", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public let file: URL
     private var cache: [String: [BookmarkNode]]?
 

@@ -100,7 +100,7 @@ final class ColdDiagrams: HomeDiagramRendering {
         return HomeDiagramRowProvider.source(c)
     }
 
-    /// p07-memory-082: the engine loads only for a transcript that holds a Mermaid fence; a fence still
+    /// The engine loads only for a transcript that holds a Mermaid fence; a fence still
     /// streaming in warms a cold renderer off the main thread, so the closed fence does not wait for it.
     @MainActor @Test(.timeLimit(.minutes(1))) func aStreamingFenceWarmsAColdRenderer() async {
         let cold = ColdDiagrams()

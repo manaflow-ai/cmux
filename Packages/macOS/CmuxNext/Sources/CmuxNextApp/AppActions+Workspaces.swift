@@ -40,7 +40,7 @@ extension AppActions {
         // visible item in shown order (SIDEBAR-NUMBERING-AND-STEPPING).
         // Workspaces as tabs' Cmd-Shift-] / [ pass `scope` (workspaces only, wrapping); the table holds them
         // only while its Debug tunable is on.
-        // From a key, the item one more step that way prewarms (`directionalPrewarm`, p04-input-044).
+        // From a key, the item one more step that way prewarms (`directionalPrewarm`).
         registry.bindEffect("nextSidebarTab", effect: { SidebarNavigation.stepAction(by: 1, $0, services) })
         registry.bindEffect("prevSidebarTab", effect: { SidebarNavigation.stepAction(by: -1, $0, services) })
         registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabs.value }
@@ -125,9 +125,14 @@ extension AppActions {
     /// also brings that window forward and activates the app
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
+        // Who asked: the run's own origin (a handler's nested run keeps its outer run's, ActionRouting), not the handed
+        // invocation's, which a nested run builds with the default user origin.
+        let byPerson = (ActionRunScope.current?.origin ?? invocation.origin) == .user
         var spawn = WorkspaceSpawn(invocation)
+        // Only the person's own run opens the New Tab page (and its key hold); automation gets a terminal.
+        if !byPerson { spawn.opensNewTabPage = false }
         // The press's own key or click (or the stamp a gate carried), so its row's create.workspace reports that age.
-        if invocation.origin == .user {
+        if byPerson {
             spawn.inputTimestamp = ActionRegistry.inputTimestamp(of: services.registry.dispatchingInputEvent()) ?? invocation.inputTimestamp
         }
         spawn.followClassicMode(services) // before the key hold below, which waits only for a page
@@ -135,7 +140,7 @@ extension AppActions {
         let show = focus.shows
         // A person's Cmd-N starts where they work: the focused terminal's folder or the focused
         // agent chat's exact folder, unless `window-inherit-working-directory = false`.
-        if invocation.origin == .user, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
+        if byPerson, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
            let focused = services.windows.active?.focusedPane, focused.daemon === services.daemon {
             spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
         }
@@ -160,15 +165,47 @@ extension AppActions {
             && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
         let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
         spawn.inputToken = keys
+        // The person's own new workspace with a terminal (a terminal-first Cmd-N, the menu, the palette) shown in the
+        // window they type in: every key from this moment is that terminal's, it waits for it, and the window's keyboard
+        // stays the terminal's until the person's next intent there (dogfood v2.2.3: the keys went to the Chief as a
+        // message). A script's newTab holds no key of the person's: automation never competes with them.
+        let terminalWindow = byPerson && show && hasOpenWindow && target == windows.active?.state.id
+            && !WorkspaceCreation.opensPage(spawn, on: daemon ?? services.daemon, tabs: services.agentTabs) ? windows.active : nil
+        let terminalKeys = services.keyRouter.creationInputCoordinator.beginWorkspace(in: terminalWindow)
+        let keyWindow = terminalWindow?.window
+        // Automation never competes with the person (CLAUDE.md, "Go past Chrome where cmux is scripted"): a script's,
+        // the CLI's, MCP's or the socket's new workspace with focus is made and listed without being shown, and the window
+        // shows it once it exists only if no text input has the person's keyboard then (`hasTextInputKeyboard`): decided
+        // when it would show, so a person who started typing meanwhile keeps their input.
+        let quiet = !byPerson && show && hasOpenWindow ? ActionRunScope(origin: ActionRunScope.current?.origin ?? invocation.origin, allowsViewChange: false) : nil
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
-        let create = BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) }
-        services.registry.track(Task {
+        let create: () async throws -> String = BenchSpans.measure("cmdN.start") {
+            guard let quiet else { return windows.startWorkspace(spawn, on: daemon, into: target) }
+            return ActionRunScope.carrying(quiet) { windows.startWorkspace(spawn, on: daemon, into: target) }
+        }
+        // A script's create runs without view change, its tasks included; the show below asks for it again.
+        let run = { services.registry.track(Task {
             var pageMade = false
-            defer { input.endIncoming(keys, pageMade: pageMade) }
+            var made: String?
+            defer {
+                input.endIncoming(keys, pageMade: pageMade)
+                services.keyRouter.creationInputCoordinator.resolve(terminalKeys, workspace: made, in: keyWindow)
+            }
             do {
-                _ = try await create(); BenchSpans.mark("cmdN.created")
+                made = try await create(); BenchSpans.mark("cmdN.created")
                 pageMade = true
-                if focus.activatesApp, let target { focusWindow(windows, target) }
+                // A window with no controller yet (a launch window still to build, a new one) has nobody typing in it.
+                if let quiet, let made, let target, windows.controller(for: target)?.hasTextInputKeyboard != true {
+                    // Claimed again, out loud: shown now when the store has it, else when it lists it (reconcile).
+                    windows.quietClaims.remove(made)
+                    let shows = ActionRunScope(origin: quiet.origin, allowsViewChange: true)
+                    ActionRunScope.carrying(shows) {
+                        windows.claimNew(workspaceID: made, window: target)
+                        if focus.activatesApp { focusWindow(windows, target) }
+                    }
+                } else if quiet == nil, focus.activatesApp, let target {
+                    focusWindow(windows, target)
+                }
                 return nil
             } catch is CancellationError {
                 return nil // a close took it before it started (WorkspaceLanes)
@@ -176,7 +213,8 @@ extension AppActions {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new workspace", error)
             }
-        })
+        }) }
+        if let quiet { ActionRunScope.carrying(quiet, run) } else { run() }
     }
 
     /// Close Workspace. With no target, a close pressed while the window's

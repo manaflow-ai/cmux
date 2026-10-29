@@ -11,6 +11,7 @@ use super::connection::{CdpConnection, CdpEvent};
 use super::dispatch::Dispatch;
 use super::state::{AGENT_WORLD, FollowUp, State, TabState};
 use crate::driver::{Driver, EventSink};
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, ErrorCode, timeout_of};
 use serde_json::{Value, json};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak, mpsc};
@@ -108,7 +109,7 @@ impl CdpDriver {
             .map(str::to_owned)
             .ok_or_else(|| DriverError::invalid("attach_page needs a page-rooted connection"))?;
         let reply = conn.call(Some(&alias), "Target.getTargetInfo", json!({}), INTERNAL_TIMEOUT)?;
-        let info = reply["targetInfo"].clone();
+        let info = reply.field("targetInfo").clone();
         let target_id = info
             .get("targetId")
             .and_then(Value::as_str)
@@ -187,7 +188,7 @@ impl CdpDriver {
         )?;
         // Pages that existed before auto-attach (the launch tab) are attached explicitly.
         let targets = conn.call(None, "Target.getTargets", json!({}), INTERNAL_TIMEOUT)?;
-        for info in targets["targetInfos"].as_array().into_iter().flatten() {
+        for info in targets.field("targetInfos").as_array().into_iter().flatten() {
             let (Some("page"), Some(target_id)) = (
                 info.get("type").and_then(Value::as_str),
                 info.get("targetId").and_then(Value::as_str),
@@ -257,7 +258,7 @@ impl CdpDriver {
     ) -> Result<String, DriverError> {
         let mut params = json!({"proxyServer": server});
         if let Some(bypass) = bypass {
-            params["proxyBypassList"] = json!(bypass);
+            params.insert("proxyBypassList", json!(bypass));
         }
         super::cookies::new_context(&self.inner, params)
     }
@@ -456,9 +457,12 @@ impl Inner {
         }
         for follow_up in applied.follow_ups {
             let inner = self.clone();
-            let spawned = std::thread::Builder::new()
-                .name("cmux-browser-host-cdp-setup".into())
-                .spawn(move || inner.run_follow_up(follow_up));
+            // supervise-allow: one target's setup calls; a panic ends that target's setup only, which leaves the target as a failed setup call does.
+            let spawned = cmux_threads::spawn(
+                "cmux-browser-host-cdp-setup",
+                cmux_threads::ThreadQos::UserInitiated,
+                move || inner.run_follow_up(follow_up),
+            );
             if spawned.is_err() {
                 self.conn.close("could not start a CDP setup thread");
             }
@@ -589,7 +593,7 @@ impl Inner {
             self.seed_load_state(target_id, session_id);
         }
         if let Some(Ok(tree)) = results.get(1) {
-            let frame = &tree["frameTree"]["frame"];
+            let frame = tree.field("frameTree").field("frame");
             let mut state = self.lock();
             if let Some(tab) = state.tabs.get_mut(target_id)
                 && tab.main_frame.is_none()
@@ -763,7 +767,7 @@ impl Inner {
                     "windowId": 1,
                 });
                 if let Some(opener) = &tab.opener {
-                    entry["openerTargetId"] = json!(opener);
+                    entry.insert("openerTargetId", json!(opener));
                 }
                 entry
             })
@@ -785,7 +789,7 @@ impl Inner {
         let background = params.get("background").and_then(Value::as_bool).unwrap_or(false);
         let mut create = json!({"url": "about:blank", "background": true});
         if let Some(context) = context {
-            create["browserContextId"] = json!(context);
+            create.insert("browserContextId", json!(context));
         }
         let created = self.conn.call(None, "Target.createTarget", create, INTERNAL_TIMEOUT)?;
         let target_id = created
@@ -886,7 +890,7 @@ impl Inner {
         let accept = params.get("accept").and_then(Value::as_bool).unwrap_or(false);
         let mut args = json!({"accept": accept});
         if let Some(text) = params.get("promptText").and_then(Value::as_str) {
-            args["promptText"] = json!(text);
+            args.insert("promptText", json!(text));
         }
         let deadline = Instant::now() + timeout_of(params);
         self.send_on(&session_id, "Page.handleJavaScriptDialog", args, deadline)?;
@@ -959,7 +963,8 @@ pub(super) fn cookie_matches(cookie: &Value, url: &url::Url) -> bool {
     let url_path = url.path();
     let path_ok = url_path == path
         || (url_path.starts_with(path)
-            && (path.ends_with('/') || url_path[path.len()..].starts_with('/')));
+            && (path.ends_with('/')
+                || url_path.get(path.len()..).is_some_and(|rest| rest.starts_with('/'))));
     let secure_ok =
         cookie["secure"].as_bool() != Some(true) || url.scheme() == "https" || host == "localhost";
     domain_ok && path_ok && secure_ok
