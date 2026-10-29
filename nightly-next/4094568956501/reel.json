@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4094568956501",
+  "notes": "notes/4094568956501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27086,
+      "title": "fix(passwords): keep hover feedback on row action buttons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26558,
+      "title": "PR4: plain tab plus with separate workspace chooser",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27515,
+      "title": "cmux-next: Chief pet grid reads its character PNGs only when drawn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27067,
+      "title": "fix(sidebar): finish leaving rows on non-animated reload",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27381,
+      "title": "gallery: give composer-context#computer-search a stage that holds its menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27361,
+      "title": "ci(cmux-next): clear stale SwiftPM modules and rebuild once on an undefined-symbol link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27517,
+      "title": "cmux-sdk: drop the cmux-json dependency (adapters --locked, MSRV 1.88, cargo package)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27023,
+      "title": "Recover offline peer chats and label Cloud machine states",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
