@@ -84,11 +84,10 @@ impl Hub {
             .session_summaries_of(&[query.to_owned()])
             .remove(query)
             .ok_or_else(|| RpcError::not_found(self.unfound(query, None, shown)))?;
-        let mut session = card(&summary, None);
-        // Preserve the summary's locality markers. A display-only machine
-        // name from the general resolver must not alter a folder decision.
-        session["host"] = summary["host"].clone();
-        session["hostKind"] = summary["hostKind"].clone();
+        // `card` derives the display host from the cached row's peer marker.
+        // Session summaries do not carry a host field, so do not overwrite
+        // that derived locality with a missing value.
+        let session = card(&summary, None);
         Ok(json!({"session": session}))
     }
 

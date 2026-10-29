@@ -2971,6 +2971,7 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
         .unwrap();
     assert_eq!(r["session"]["sessionId"], far, "{r}");
     assert_eq!(r["session"]["peer"], "b", "{r}");
+    assert_eq!(r["session"]["host"], "b", "{r}");
 
     // A peer's session, from the native link the app opens: the host it names ranks first.
     let native = format!("cmux://agent/{family}/{far_agent}?host=b");
