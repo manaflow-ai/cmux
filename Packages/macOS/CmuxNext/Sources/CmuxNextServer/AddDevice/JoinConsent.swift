@@ -124,6 +124,8 @@ public final class JoinConsentModel {
     /// Shows and hides the sheet; the app sets the panel, tests record it.
     @ObservationIgnored public var present: @MainActor (Bool) -> Void = { _ in }
     @ObservationIgnored private let services: JoinConsentServices
+    /// The newest status read: an older read that answers later never overwrites it.
+    @ObservationIgnored private var generation = 0
 
     public init(services: JoinConsentServices) {
         self.services = services
@@ -133,7 +135,11 @@ public final class JoinConsentModel {
     public var shown: Bool { services.enabled() && status?.credentialPresent == true && status?.revoked != true }
 
     public func refresh() async {
-        status = services.enabled() ? await services.status() : nil
+        generation += 1
+        let mine = generation
+        let next = services.enabled() ? await services.status() : nil
+        guard mine == generation else { return }
+        status = next
         // The Labs switch went off (or the join went away): an open sheet can no longer allow.
         if !shown, ask != nil { dismissAsk() }
     }

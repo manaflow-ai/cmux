@@ -69,7 +69,7 @@ import Testing
             #expect(error == JoinConsentStrings.onFailed)
         }
         #expect(fake.writes.isEmpty, "no on reached acpmux")
-        #expect(fake.lines.allSatisfy(\.closed))
+        #expect(fake.lines.allSatisfy { $0.closed })
     }
 
     @Test func thePersonTurnsASwitchOnAndAnyLineTurnsItOff() async {
@@ -126,6 +126,41 @@ import Testing
         #expect(model.ask == nil)
         #expect(await model.answer(allow: true) == nil)
         #expect(fake.writes.isEmpty)
+    }
+
+    @Test func anOlderStatusReadThatAnswersLateNeverOverwritesANewerOne() async {
+        let gate = Gate()
+        var reads = 0
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: {
+                reads += 1
+                if reads == 1 {
+                    await gate.wait()
+                    return JoinStatus(credentialPresent: true, name: "old")
+                }
+                return JoinStatus(credentialPresent: true, name: "new")
+            },
+            openLine: { nil }, enabled: { true }, askShown: { false }, markAskShown: {}))
+        let first = Task { await model.refresh() }
+        while reads < 1 { await Task.yield() }
+        await model.refresh()
+        gate.open()
+        await first.value
+        #expect(model.status?.name == "new")
+    }
+
+    @MainActor final class Gate {
+        private var waiter: CheckedContinuation<Void, Never>?
+        private var opened = false
+        func wait() async {
+            if opened { return }
+            await withCheckedContinuation { waiter = $0 }
+        }
+        func open() {
+            opened = true
+            waiter?.resume()
+            waiter = nil
+        }
     }
 
     @Test func noAcpmuxIsAFailureNeverAnOn() async {
