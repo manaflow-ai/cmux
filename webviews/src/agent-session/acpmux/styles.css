@@ -124,7 +124,8 @@
 .acpmux-composer-plus .acpmux-menu-header{background-image:linear-gradient(var(--surface-popup),var(--surface-popup))}
 .acpmux-menu-item{display:flex;align-items:center;gap:8px;min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius)}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.acpmux-menu .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--acpmux-composer-dim);font-family:var(--font-ui);font-size:var(--text-detail);line-height:1;letter-spacing:var(--text-detail--letter-spacing)}
+.ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:1}
+.acpmux-menu .ui-menu-check{width:16px;height:16px;color:var(--acpmux-composer-dim);font-family:var(--font-ui);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-menu-active{background:var(--acpmux-menu-hover)}
 .acpmux-menu-item.acpmux-unrestricted{color:var(--acpmux-warning)}
 .acpmux-menu-text{flex:1;min-width:0;display:flex;flex-direction:column}
