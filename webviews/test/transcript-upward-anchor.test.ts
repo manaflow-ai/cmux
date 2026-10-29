@@ -72,4 +72,30 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       await page.close();
     }
   });
+  test("received card folds preserve painted row-box adjacency while streaming", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    try {
+      await installPaintedFrames(page);
+      await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-fling.html`);
+      await page.waitForFunction(() => "__debug" in window);
+      const seeded = (await page.evaluate(`window.__debug.seedRows(9000)`)) as { rows: number };
+      expect(seeded.rows).toBe(9000);
+      await page.evaluate(() => (window as unknown as { __seedFoldStream(): void }).__seedFoldStream());
+      const card = page.locator('[data-row-id="gap-incoming"]');
+      await card.waitFor();
+      await card.evaluate((node) => node.scrollIntoView({ block: "start" }));
+      const result = await page.evaluate(traceUpwardAnchors, {
+        steps: Array.from({ length: 112 }, () => 0),
+        foldStream: true,
+      });
+      console.log(`transcript-fold-stream: ${JSON.stringify({ sourceRows: seeded.rows, turns: 3000, ...result })}`);
+      expect(result.blankFrames).toBe(0);
+      expect(result.blankBandFrames).toBe(0);
+      expect(result.maxRowBoxGap).toBeLessThanOrEqual(1 / 64);
+    } finally {
+      await page.close();
+    }
+  });
+
 });

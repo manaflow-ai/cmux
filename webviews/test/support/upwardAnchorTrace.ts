@@ -8,12 +8,17 @@ export type UpwardAnchorFrame = {
   scrollTop: number;
   anchorId: string | null;
   drift: number | null;
+  wheelGeometryPixels: number;
   rowBoxGap: number;
   rowBoxIds: string[];
 };
 
 /** Runs in the page with paintedFrames installed; it deliberately closes over no test state. */
-export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: number[]; restFrames?: number }) {
+export async function traceUpwardAnchors({
+  steps,
+  restFrames = 24,
+  foldStream = false,
+}: { steps: number[]; restFrames?: number; foldStream?: boolean }) {
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) throw new Error("transcript scroller missing");
   const read = () => {
@@ -29,7 +34,7 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
   const samples: UpwardAnchorFrame[] = [];
   let cancelledWheels = 0;
   const commands = [...steps, ...Array.from({ length: restFrames }, () => 0)];
-  const driven = new Map<number, { asked: number; applied: number }>();
+  const driven = new Map<number, { asked: number; applied: number; geometry: number }>();
   let next = 0;
   // Keep the next callback registered before this frame's rendering. Sequential frame awaits
   // can miss an intermediate painted state while their posted task waits on a busy event loop.
@@ -58,6 +63,7 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
           topRowY: top?.y ?? null,
           requestedPixels: command.asked,
           wheelPixels: command.applied,
+          wheelGeometryPixels: command.geometry,
           scrollTop: scroller.scrollTop,
           anchorId: anchor?.id ?? null,
           drift,
@@ -72,8 +78,15 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
       },
       (paint) => {
         if (next >= commands.length) return;
+        const frame = next;
         const asked = commands[next++]!;
+        if (foldStream) {
+          (window as unknown as { __stepFoldStream(): void }).__stepFoldStream();
+          if ([4, 32, 60, 88].includes(frame))
+            scroller.querySelector<HTMLButtonElement>('[data-row-id="gap-incoming"] .cv-received__toggle')?.click();
+        }
         let applied = 0;
+        let geometry = 0;
         if (asked !== 0) {
           // A precise pixel wheel goes through the real reader-intent/cancellation handlers. A
           // synthetic event has no native default, so apply exactly that default here, recording
@@ -81,11 +94,14 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
           const wheel = new WheelEvent("wheel", { deltaY: asked, deltaMode: 0, bubbles: true, cancelable: true });
           if (scroller.dispatchEvent(wheel)) {
             const before = scroller.scrollTop;
+            const probe = scroller.querySelector<HTMLElement>(".acpmux-row");
+            const beforeY = probe?.getBoundingClientRect().top;
             scroller.scrollTop = before + asked;
             applied = scroller.scrollTop - before;
+            geometry = probe && beforeY !== undefined ? beforeY - probe.getBoundingClientRect().top : applied;
           } else cancelledWheels += 1;
         }
-        driven.set(paint, { asked, applied });
+        driven.set(paint, { asked, applied, geometry });
       },
     );
   });
@@ -99,6 +115,7 @@ export async function traceUpwardAnchors({ steps, restFrames = 24 }: { steps: nu
     maxRowBoxGap: Math.max(0, ...samples.map((sample) => sample.rowBoxGap)),
     cancelledWheels,
     wheelPixels: samples.reduce((sum, sample) => sum + sample.wheelPixels, 0),
+    maxImmediateReadbackError: Math.max(0, ...samples.map((sample) => Math.abs(sample.wheelGeometryPixels - sample.wheelPixels))),
     maxDrift: Math.max(0, ...compared.map((sample) => Math.abs(sample.drift!))),
     totalDrift: compared.reduce((sum, sample) => sum + Math.abs(sample.drift!), 0),
     samples,
