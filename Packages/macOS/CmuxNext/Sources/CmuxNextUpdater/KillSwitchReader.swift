@@ -24,6 +24,7 @@ public final class KillSwitchReader {
     /// Invalidate every earlier read when a later ring/read request is observed, including a move
     /// back to a cohort whose name matches the earlier request.
     private var generation = 0
+    private var stopped = false
     /// A read was asked while ``reading`` ran: one more runs after it.
     private var readsAgain = false
 
@@ -59,6 +60,7 @@ public final class KillSwitchReader {
 
     /// Follows the updater while it lives (see the type's note).
     public func follow() {
+        stopped = false
         observation?.cancel()
         let changes = ObservationStream({ [weak updater] in (updater?.ring, updater?.flow.phase == .checking) })
         observation = Task { [weak self] in
@@ -75,8 +77,13 @@ public final class KillSwitchReader {
 
     /// Ends ``follow()``'s observation; the switches keep their last verified list.
     public func stop() {
+        stopped = true
+        generation &+= 1
         observation?.cancel()
         observation = nil
+        reading?.task.cancel()
+        reading = nil
+        readsAgain = false
     }
 
     /// Reads the document once and replaces the turned-off switches: a verified document's list for
@@ -84,7 +91,7 @@ public final class KillSwitchReader {
     /// that follows it. Nil when the updater is gone.
     @discardableResult
     func read() -> Task<Void, Never>? {
-        guard let updater else { return nil }
+        guard !stopped, let updater else { return nil }
         generation &+= 1
         let requestedGeneration = generation
         let cohort = updater.ring.rawValue
@@ -101,7 +108,7 @@ public final class KillSwitchReader {
         let switches = switches
         let task = Task { [weak self] in
             let off = await store?.flags()?.off(cohort: cohort) ?? []
-            guard let self else { return }
+            guard let self, !Task.isCancelled, !self.stopped else { return }
             reading = nil
             if self.generation == requestedGeneration, self.updater?.ring.rawValue == cohort,
                off != switches.off {

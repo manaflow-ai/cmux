@@ -157,6 +157,26 @@ import Testing
         await joined.value
         #expect(switches.off == ["pr-2"])
     }
+    @Test func stoppingAnOldReaderPreventsItsInFlightReadFromOverwritingItsReplacement() async throws {
+        let oldFixture = Fixture()
+        let newFixture = Fixture()
+        defer { oldFixture.tearDown(); newFixture.tearDown() }
+        let oldGate = Gate()
+        let oldNetwork = Network(files: try oldFixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-1"]}}"#))
+        await oldNetwork.hold(oldGate)
+        let newNetwork = Network(files: try newFixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-2"]}}"#))
+        let switches = KillSwitches()
+        let (oldUpdater, oldReader) = try Self.reader(store: try oldFixture.store(oldNetwork), switches: switches)
+        let (newUpdater, newReader) = try Self.reader(store: try newFixture.store(newNetwork), switches: switches)
+        defer { withExtendedLifetime((oldUpdater, newUpdater)) {} }
+        let oldRead = try #require(oldReader.read())
+        oldReader.stop()
+        await newReader.read()?.value
+        #expect(switches.off == ["pr-2"])
+        await oldGate.release()
+        await oldRead.value
+        #expect(switches.off == ["pr-2"])
+    }
     @Test func aRingThatReturnsBeforeTheFirstReadFinishesStillInvalidatesTheOldResult() async throws {
         let fixture = Fixture()
         defer { fixture.tearDown() }
