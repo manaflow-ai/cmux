@@ -120,7 +120,8 @@ pub enum Verdict {
 }
 
 /// The verdict for a daemon of `home` run from `exe`. `default_home` is the
-/// person's `~/.acpmux`; a default home that itself sits in a temporary
+/// person's `~/.acpmux`; `verified_clone` comes only from the signature verifier.
+/// A default home that itself sits in a temporary
 /// folder (a test's `HOME`) is not the person's.
 pub fn verdict(
     exe: &Path,
@@ -128,6 +129,7 @@ pub fn verdict(
     default_home: &Path,
     temp_dir: &Path,
     allow: bool,
+    _verified_clone: bool,
 ) -> Verdict {
     let Some(why) = classify(exe, temp_dir) else { return Verdict::Stable };
     if home != default_home || classify(home, temp_dir).is_some() {
@@ -179,6 +181,7 @@ fn current(allow: bool) -> Verdict {
         &resolved(&crate::config::default_home()),
         &resolved(&std::env::temp_dir()),
         allow || allowed_by_env(),
+        cmux_link::app_caller::verified_clone_executable(&exe).is_some(),
     )
 }
 
@@ -241,6 +244,7 @@ pub fn shutdown_refusal(
     default_home: &Path,
     temp_dir: &Path,
     allow: bool,
+    _verified_clone: bool,
 ) -> Option<String> {
     if home != default_home || classify(home, temp_dir).is_some() {
         return None;
@@ -273,13 +277,15 @@ pub fn peer_shutdown_refusal(
     peer: Option<&cmux_link::app_caller::PeerToken>,
     allow: bool,
 ) -> Option<String> {
-    let exe = cmux_link::app_caller::executable_path(peer?)?;
+    let peer = peer?;
+    let exe = cmux_link::app_caller::executable_path(peer)?;
     shutdown_refusal(
         &resolved(&exe),
         &resolved(&crate::config::home()),
         &resolved(&crate::config::default_home()),
         &resolved(&std::env::temp_dir()),
         allow,
+        cmux_link::app_caller::verified_clone_peer(peer).is_some(),
     )
 }
 
