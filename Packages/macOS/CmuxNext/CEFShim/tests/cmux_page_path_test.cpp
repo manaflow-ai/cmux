@@ -99,6 +99,33 @@ int main() {
     navigation(false, "about:blank", page, artifact, false);
     navigation(false, "", page, artifact, false);
     navigation(true, "about:blank", "", artifact, true);
+    const std::string artifacts_page = "cmux-page://cmux.artifacts/";
+    navigation(false, "about:blank", artifacts_page, artifact, false);
+    navigation(false, "", artifacts_page, artifact, false);
+    for (const auto& parent : {"cmux-page://cmux.artifacts.evil/", "cmux-page://cmux.artifactsx/",
+                               "cmux-page://evil@cmux.artifacts/", "cmux-page://cmux.artifacts:42/",
+                               "https://cmux.artifacts/", "cmux-page://cmux.settings/",
+                               "cmux-page://cmux.artifacts@evil/", "cmux-page://cmux.artifacts./"}) {
+      navigation(false, "about:blank", parent, artifact, true);
+    }
+    for (const auto& target : {artifact, artifact + "?copy=1", artifact + "#copy", artifacts_page,
+                               std::string("cmux-page://cmux.agent/bridge.js"),
+                               std::string("cmux-page://cmux.artifacts/__artifact"),
+                               std::string("about:srcdoc"), std::string("about:blank"),
+                               std::string("https://example.test/"), std::string("file:///tmp/a.html"),
+                               std::string("data:text/html,replace"), std::string("javascript:alert(1)")}) {
+      navigation(false, artifact, artifacts_page, target, true);
+      navigation(false, "about:srcdoc", artifacts_page, target, true);
+      navigation(false, "about:blank", artifact, target, true);
+    }
+    navigation(false, "about:blank", artifacts_page, artifact + "?copy=1", true);
+    navigation(false, "about:blank", artifacts_page, artifact + "#copy", true);
+    navigation(false, artifacts_page, artifacts_page, artifact, true);
+    Allowed(false, artifact, artifacts_page, "cmux.artifacts", false);
+    Allowed(false, "about:blank", artifact, "cmux.artifacts", false);
+    Allowed(false, "about:srcdoc", artifacts_page, "cmux.artifacts", false);
+    Allowed(false, artifacts_page, "", "cmux.agent", false);
+
     for (const auto& parent : {"https://evil.test/", "cmux-page://cmux.agent.evil/",
                                "cmux-page://cmux.history/", "cmux-page://evil@cmux.agent/"}) {
       navigation(false, "about:blank", parent, artifact, true);
