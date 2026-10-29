@@ -35,27 +35,38 @@ script=$(CDPATH= cd -P -- "$(dirname -- "$script")" && pwd -P)/$(basename -- "$s
 tmp_parent=${TMPDIR:-/tmp}
 tmp_parent=${tmp_parent%/}
 proxy_dir=
+proxy_dir_pending=
 sandbox_pid=
 cloud_relay_pid=
-# A cancel sends TERM to this whole process group and once more to this shell.
-# The traps are set before the directory exists, and cleanup ignores a second
-# INT/TERM and waits for the helpers, so a cancel at any point leaves no
-# directory behind.
+# A cancel sends TERM to this whole process group, once more to this shell, and
+# KILL to the group 250 ms later. The traps are set before the directory exists
+# and its path is known before it is made; cleanup ignores a second INT/TERM and
+# only waits on helpers it has killed with KILL, so a cancel leaves no directory
+# behind unless that group KILL lands mid-cleanup.
 cleanup() {
   trap '' INT TERM
   if [ -n "$sandbox_pid" ]; then kill "$sandbox_pid" 2>/dev/null || true; sandbox_pid=; fi
-  # Wait for the helpers to exit: one still starting can bind its socket in
-  # the directory while rm runs, and rm then leaves it behind.
+  # KILL, then reap: the helpers keep nothing worth a graceful exit, KILL cannot
+  # be ignored, so the wait is bounded, and a helper still starting can no longer
+  # bind its socket in the directory while rm walks it.
   for pid in "${proxy_pid:-}" "${cloud_relay_pid:-}"; do
     [ -n "$pid" ] || continue
-    kill "$pid" 2>/dev/null || true
+    kill -KILL "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
   done
-  if [ -n "$proxy_dir" ]; then rm -rf "$proxy_dir"; fi
+  if [ -n "$proxy_dir" ]; then
+    rm -rf "$proxy_dir"
+  elif [ -n "$proxy_dir_pending" ]; then
+    # Interrupted around mkdir: remove the directory only if it is ours and empty.
+    rmdir "$proxy_dir_pending" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 trap 'exit 143' INT TERM
-proxy_dir=$(mktemp -d "$tmp_parent/cmux-code-mode-proxy.XXXXXX")
+suffix=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+proxy_dir_pending="$tmp_parent/cmux-code-mode-proxy.$suffix"
+mkdir -m 700 "$proxy_dir_pending"
+proxy_dir=$proxy_dir_pending
 # A killed realpath must not blank proxy_dir: set -e exits and cleanup removes it.
 proxy_dir_real=$(realpath "$proxy_dir")
 proxy_dir=$proxy_dir_real
