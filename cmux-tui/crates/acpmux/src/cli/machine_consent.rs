@@ -4,7 +4,7 @@
 //! enrollment writes this authority before redeem. Arbitrary branch-only old
 //! ACPMUX_HOME state has no cross-tag upgrade path and must rejoin; inspecting
 //! the current daemon's state below is defense in depth, not global discovery.
-use super::cloud_join::{Consent, ConsentState};
+use super::cloud_join::{Consent, ConsentState, HeldLock};
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -76,9 +76,7 @@ impl Authority {
     }
 
     pub(super) fn retain_own_requirement(&self) -> Result<()> {
-        if exists(&self.legacy.join("machine-credential.json"))?
-            || exists(&self.legacy.join("consent.json"))?
-        {
+        if has_own_requirement(&self.legacy)? {
             self.enroll()?;
         }
         Ok(())
@@ -151,7 +149,7 @@ impl Authority {
     }
 
     #[cfg(unix)]
-    fn lock(&self) -> Result<std::fs::File> {
+    fn lock(&self) -> Result<HeldLock> {
         use std::os::fd::AsRawFd;
         let file = crate::config::private_state_rw(&self.root.join("write.lock"))?;
         // SAFETY: file is a live owned descriptor. Nonblocking avoids stalling
@@ -160,12 +158,18 @@ impl Authority {
             unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
             "consent update in progress"
         );
-        Ok(file)
+        Ok(HeldLock(file))
     }
     #[cfg(not(unix))]
-    fn lock(&self) -> Result<std::fs::File> {
+    fn lock(&self) -> Result<HeldLock> {
         anyhow::bail!("consent unavailable")
     }
+}
+
+/// Whether this daemon's own state (`legacy`, its `ACPMUX_HOME`) holds a machine join or a
+/// consent record, which the account-wide authority must keep requiring.
+pub(super) fn has_own_requirement(legacy: &Path) -> Result<bool> {
+    Ok(exists(&legacy.join("machine-credential.json"))? || exists(&legacy.join("consent.json"))?)
 }
 
 fn exists(path: &Path) -> Result<bool> {

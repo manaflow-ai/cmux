@@ -27,6 +27,7 @@ use crate::cli::command::{HarnessCmd, SecretCmd};
 use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
+use cmux_json::JsonSet as _;
 
 mod claude_turn;
 mod program;
@@ -1176,7 +1177,7 @@ async fn handshake(
                 step.reason = Some("harness_protocol_mismatch");
                 let mut data = json!({"try": "acpmux daemon harnesses"});
                 if codex {
-                    data["next"] = json!("acpmux new --host HOST -m codex -d");
+                    data.set("next", json!("acpmux new --host HOST -m codex -d"));
                 }
                 step.data = Some(data);
             }
