@@ -23,6 +23,8 @@ BLOCK beats an earlier SHIP wherever it sits. A first line that says it carries 
 head's receipt only when no independent verdict names the head and the newest independent verdict on the pull
 request is a SHIP (next-autoland's ship_receipt, cmuxterm-hq#4975). cmux#27189 landed 2026-10-29 on
 "Review (Astra; carried): SHIP at 127a023e" while the box review of its pre-merge head had returned BLOCK.
+Carried receipts also require both history windows to be below their limits: a full window could hide a verdict naming
+the target head, which a carry cannot replace.
 
 Before that, as next-autoland's review_state() judges it, the newest review-like word on any head must not say wait:
 a change request, "Review (codex): BLOCK", "Verdict: BLOCK", a bare first line "BLOCK at <sha>", "NOT SHIP" or "Do
@@ -210,11 +212,12 @@ def ship_receipt(pr: dict, head: str) -> tuple[str, str] | None:
     latest = newest_independent(pr)
     if own:
         at, kind, detail = max(own, key=lambda f: f[0])
-        if kind != "ship" or (latest and latest[1] == "block" and latest[0] > at):
+        blocks = [f for f in head_verdicts(pr, None) if f[1] == "block"]
+        if kind != "ship" or any(block[0] > at for block in blocks):
             return None
         return at, detail
     carry = [f for f in found if f[1] == "carried"]
-    if not carry or not latest or latest[1] != "ship":
+    if not carry or not latest or latest[1] != "ship" or window_cut_off(pr, None):
         return None
     return latest[0], max(carry, key=lambda f: f[0])[2]
 
@@ -225,14 +228,15 @@ def receipt(pr: dict, head: str) -> str:
     return found[1] if found else ""
 
 
-def window_cut_off(pr: dict, since: str) -> str:
+def window_cut_off(pr: dict, since: str | None) -> str:
     """The list ("reviews" or "comments") that came back full and reaches back no further than `since`, so items
-    newer than `since` may have been cut off from it; "" when both lists reach past it."""
+    newer than `since` may have been cut off from it; "" when both lists reach past it. With None, any full
+    window is ambiguous: a carried receipt needs complete history to prove no verdict names its head."""
     for key, cap, stamp in (("reviews", REVIEWS_WINDOW, "submittedAt"), ("comments", COMMENTS_WINDOW, "createdAt")):
         nodes = [node for node in (pr.get(key) or {}).get("nodes") or [] if node]
         # A pending review has no timestamp; it says nothing about how far back the window reaches.
         stamps = [node[stamp] for node in nodes if node.get(stamp)]
-        if len(nodes) >= cap and min(stamps, default=since) >= since:
+        if len(nodes) >= cap and (since is None or min(stamps, default=since) >= since):
             return key
     return ""
 
