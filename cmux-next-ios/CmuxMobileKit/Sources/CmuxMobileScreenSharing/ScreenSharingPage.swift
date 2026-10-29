@@ -159,7 +159,7 @@ struct ScreenSharingViewerScreen: View {
             if let screen = viewer.screen {
                 ScreenSessionView(session: screen, features: .all, close: close)
             } else {
-                card.background(theme.colors.bg.ignoresSafeArea())
+                card.background(theme.colors.bg.color.ignoresSafeArea())
             }
         }
         .onAppear { ScreenSharingOrientation.shared.begin() }
