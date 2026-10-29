@@ -8,8 +8,9 @@ import Testing
 /// crash in one does not hide the others. Every line starts with "S7MOTION".
 @MainActor
 enum S7MotionProbe {
-    static func run(_ name: String, counting: Bool, stats: Bool) async throws {
+    static func run(_ name: String, counting: Bool, stats: Bool, frameWaits: Bool = false) async throws {
         print("S7MOTION \(name) start")
+        if frameWaits { print("S7MOTION \(name) animatesHere=\(await GUIAnimationTestSupport.animatesHere())") }
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 200), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -33,6 +34,10 @@ enum S7MotionProbe {
                 view.animator().alphaValue = 1
             }, completion: { landed = true })
             Motion.reduceMotionOverride = nil
+            if frameWaits, let screen = view.window?.screen {
+                print("S7MOTION \(name) nextFrame=\(await GUIAnimationTestSupport.nextFrame(on: screen))")
+                armed?.reset()
+            }
             // Two seconds of main-actor turns: the display link fires the animation in them.
             _ = await GUIAnimationTestSupport.settle(within: 2) { false }
             print("S7MOTION \(name) survived landed=\(landed) frame=\(view.frame)")
@@ -46,3 +51,8 @@ enum S7MotionProbe {
 @MainActor @Suite(.renderHooks) struct S7MotionProbePlainStats { @Test func run() async throws { try await S7MotionProbe.run("plain-stats", counting: false, stats: true) } }
 @MainActor @Suite struct S7MotionProbeCountingNoStats { @Test func run() async throws { try await S7MotionProbe.run("counting-nostats", counting: true, stats: false) } }
 @MainActor @Suite(.renderHooks) struct S7MotionProbeCountingStats { @Test func run() async throws { try await S7MotionProbe.run("counting-stats", counting: true, stats: true) } }
+/// The test's own frame waits (its `.enabled` trait's animatesHere() and perFrameWrites' nextFrame), each a
+/// CADisplayLink on the screen, around the same change.
+@MainActor @Suite struct S7MotionProbeFrameWaitsOnly { @Test func run() async throws { print("S7MOTION frame-waits-only animatesHere=\(await GUIAnimationTestSupport.animatesHere())") } }
+@MainActor @Suite struct S7MotionProbeCountingNoStatsFrames { @Test func run() async throws { try await S7MotionProbe.run("counting-nostats-frames", counting: true, stats: false, frameWaits: true) } }
+@MainActor @Suite(.renderHooks) struct S7MotionProbeCountingStatsFrames { @Test func run() async throws { try await S7MotionProbe.run("counting-stats-frames", counting: true, stats: true, frameWaits: true) } }
