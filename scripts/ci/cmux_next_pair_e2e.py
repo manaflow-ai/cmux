@@ -314,9 +314,12 @@ def main():
             # its launch environment gets it there (in the environment only, never in argv or a log).
             subprocess.run(simctl + ["terminate", a.udid, a.bundle_id], capture_output=True, timeout=60)
             if takes_pair_url_env():
-                started = subprocess.run(simctl + ["launch", a.udid, a.bundle_id, "-cmux-mobile-settings-page", "devices"],
-                                         env=dict(phone_env, SIMCTL_CHILD_CMUX_MOBILE_PAIR_URL=url),
-                                         capture_output=True, text=True, timeout=60)
+                try:  # the environment holds the code: an error is raised with neither it nor argv
+                    started = subprocess.run(simctl + ["launch", a.udid, a.bundle_id, "-cmux-mobile-settings-page", "devices"],
+                                             env=dict(phone_env, SIMCTL_CHILD_CMUX_MOBILE_PAIR_URL=url),
+                                             capture_output=True, text=True, timeout=60)
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    raise SystemExit(f"simctl launch with the code failed ({type(error).__name__})") from None
                 if started.returncode != 0:
                     raise SystemExit(f"simctl launch with the code failed ({started.returncode}): "
                                      f"{redact(started.stderr.strip())[-400:]}")
@@ -324,8 +327,8 @@ def main():
                 # As the Camera opens a scanned code: cmux-next://pair?... (RootView .onOpenURL).
                 try:  # a TimeoutExpired names its argv, the link with its token: never raised with it
                     opened = subprocess.run(simctl + ["openurl", a.udid, url], capture_output=True, text=True, timeout=60)
-                except subprocess.TimeoutExpired:
-                    raise SystemExit("simctl openurl took more than 60 s") from None
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    raise SystemExit(f"simctl openurl failed ({type(error).__name__})") from None
                 if opened.returncode != 0:  # the error names the link: redacted, never raised with it
                     raise SystemExit(f"simctl openurl failed ({opened.returncode}): {redact(opened.stderr.strip())[-400:]}")
             paired = mac_log.wait(PAIRED, 180)
