@@ -500,6 +500,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
             crate::cli::hosts::hold(name, reason, until, release, json_out)
         }
+        // This machine's join: no daemon connection (a daemon that is down is a step).
+        Command::Host(PeerCmd::Doctor { here: true, fix, .. }) => {
+            let print = if json_out {
+                crate::cli::host_join_doctor::Print::Lines
+            } else {
+                crate::cli::host_join_doctor::Print::Human
+            };
+            let code = crate::cli::host_join_doctor::run_here(fix, print, &mut std::io::stdout());
+            if code != 0 {
+                return Err(crate::cli::errors::AppError::new(
+                    crate::cli::errors::Code::Runtime,
+                    "unhealthy",
+                    "this machine's join needs attention",
+                )
+                .into());
+            }
+            Ok(())
+        }
         // The ticket is read (stdin, or argv with a warning) and checked
         // before a daemon is reached or started.
         Command::Host(PeerCmd::Join { ticket, name, peer_name, advertise }) => {
@@ -672,7 +690,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     );
                     return crate::cli::host_enroll::run(client, plan, true, json_out).await;
                 }
-                PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse } => {
+                PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse, .. } => {
+                    let target = target.unwrap_or_default();
                     let peers = client.request("_acpmux/peers", json!({})).await?;
                     let list =
                         peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
