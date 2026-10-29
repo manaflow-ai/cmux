@@ -80,6 +80,40 @@ test("browser profile edits run the profile's actions with its target", async ()
   page.unmount();
 });
 
+test("name-derived Settings marks keep their first grapheme and existing whitespace policy", async () => {
+  const examples = [
+    ["🦊 Fox", "🦊"],
+    ["👩🏽‍💻 Priya", "👩🏽‍💻"],
+    ["𠮷田", "𠮷"],
+    ["e\u0301lodie", "E\u0301"],
+    ["  Sam Lee", " "],
+    ["ß", "SS"],
+    ["", "?"],
+  ] as const;
+  for (const surface of ["rooms", "machines", "browser"] as const) {
+    const page = await renderPage({
+      path: `/settings/${surface}`,
+      setup: (provider) => {
+        const rows = examples.map(([name], index) => ({
+          id: `initial-${index}`, title: name, subtitle: null, icon: null, active: false,
+        }));
+        provider.setHost({
+          ...provider.host,
+          rooms: rows,
+          machines: rows,
+          browser_profiles: rows.map((row) => ({
+            id: row.id, name: row.title, color: null, icon: null, is_default: false, source: null,
+          })),
+        });
+      },
+    });
+    const card = surface === "browser" ? "browserProfiles" : surface;
+    expect(Array.from(page.container.querySelectorAll(`[data-card="${card}"] .host-avatar`), (mark) => mark.textContent))
+      .toEqual(examples.map(([, expected]) => expected));
+    page.unmount();
+  }
+});
+
 test("a space and a browser profile with a stored image or SVG icon draw it from the host's icon resource", async () => {
   // cx-qno.2.3: an `svg:`/`image:` asset ref draws as the host's PNG of it (`icon/<ref>`), never
   // as the ref's text.
