@@ -167,7 +167,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            crate::daemon::run(DaemonOptions {
+            let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
                 memory,
@@ -176,7 +176,24 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 dev_origins: allow_dev_origin,
                 dev,
             })
-            .await?;
+            .await;
+            if let Err(error) = result {
+                // A systemd start can race the daemon that is handing over
+                // this home. Keep its lock refusal a distinct, prevented
+                // restart status; detached clients still use the readiness
+                // line and retry through `connect`.
+                if error.to_string().starts_with("another acpmux daemon holds ") {
+                    let error: anyhow::Error = crate::cli::errors::AppError::new(
+                        crate::cli::errors::Code::Runtime,
+                        "daemon_lock_held",
+                        error.to_string(),
+                    )
+                    .with_exit(75)
+                    .into();
+                    crate::cli::errors::exit_with(&error, false);
+                }
+                return Err(error);
+            }
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
             // (a launcher `--version` check can take 20 s).
