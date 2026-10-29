@@ -115,14 +115,6 @@ impl Translator {
                         // never emit its boundary/result, so clear its live compaction state here
                         // while retaining the separate late-result attribution marker.
                         self.compacting.store(false, Ordering::SeqCst);
-                        self.local_command.store(
-                            content
-                                .first()
-                                .and_then(|b| b.get("text"))
-                                .and_then(Value::as_str)
-                                .is_some_and(|text| text.trim_start().starts_with('/')),
-                            Ordering::SeqCst,
-                        );
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
