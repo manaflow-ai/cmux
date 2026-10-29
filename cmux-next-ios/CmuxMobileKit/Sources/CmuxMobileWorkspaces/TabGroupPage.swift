@@ -39,6 +39,7 @@ struct TabGroupPage: View {
                     .accessibilityIdentifier("tabGroup.rename.field")
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.editGroup(.rename(name), group: groupID) } }
+                    .keyboardShortcut(.defaultAction)
             }
             .alert("Set Tab Group Icon", isPresented: $choosingEmoji) {
                 TextField("Emoji", text: $emojiText)
@@ -47,6 +48,7 @@ struct TabGroupPage: View {
                     if let emoji = WorkspaceIcon.emoji(emojiText) { Task { await source.editGroup(.setIcon(emoji), group: groupID) } }
                 }
                 .disabled(WorkspaceIcon.emoji(emojiText) == nil)
+                    .keyboardShortcut(.defaultAction)
             } message: {
                 Text("One emoji.")
             }

@@ -185,6 +185,8 @@ public final class WindowOverlayHost {
 
     func tearDown() {
         isTearingDown = true
+        // A reveal still waiting for frames ends with the window (the panel closes below).
+        if revealFramesLeft > 0 { revealFramesLeft = 0; revealClient.deactivate() }
         for handle in handles { handle.dismiss() }
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
