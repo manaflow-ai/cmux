@@ -35,6 +35,25 @@ const top = topModelsFor("claude");
 const names = (list: readonly { name: string }[]) => list.map((model) => model.name);
 
 describe("Retry's model list", () => {
+  test("reported provider identities survive name deduplication and unavailable alternatives", () => {
+    const models = [
+      { id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol" },
+      { id: "azure/gpt-6.1-sol", name: "GPT-6.1 Sol" },
+    ];
+    for (const current of [undefined, models[1]!.id]) {
+      const result = retryModelSections(models, current, "OpenCode", [models[1]!.id]);
+      expect(result.latest.map((model) => model.id)).toEqual([current ?? models[0]!.id]);
+      expect(result.more).toEqual([]);
+    }
+    const result = retryModelSections(
+      [{ ...models[0]!, unavailable: "not signed in" }, models[1]!],
+      undefined,
+      "OpenCode",
+      [models[1]!.id],
+    );
+    expect(result.latest.map((model) => model.id)).toEqual([models[1]!.id]);
+  });
+
   for (const current of ["claude-opus-5-5", "opus", "claude-opus-4-8", "opusplan", undefined])
     test(`has no duplicate ids or names (running ${current ?? "nothing"})`, () => {
       const { latest, more } = retryModelSections(claude, current, "Claude Code", top);

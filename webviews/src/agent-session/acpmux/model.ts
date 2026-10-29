@@ -515,6 +515,9 @@ export type AcpmuxPermission = {
 export type AcpmuxCatalogModel = {
   id: string;
   name?: string;
+  /** Daemon catalog metadata is not proof the account reported this model. */
+  curated?: boolean;
+  declared?: boolean;
   unavailable?: string;
   shortName?: string;
   family?: string;

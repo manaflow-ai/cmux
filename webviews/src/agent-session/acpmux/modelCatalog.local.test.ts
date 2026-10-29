@@ -1,6 +1,37 @@
 import { expect, test } from "bun:test";
 import { mergeModelCatalog } from "./modelCatalog";
 
+test("daemon fallback identities stay unverified through the wire join", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const fallback = BUNDLED_MODEL_CATALOG.harnesses.find((harness) => harness.id === "codex")!.models;
+  for (const id of ["codex", "codex-sr"]) {
+    const join = (topModels?: string[], declared = false, current?: string) => {
+      const acpmux = mergeModelCatalog(
+        { harnesses: [{ id, family: id }] },
+        {
+          harnesses: [
+            {
+              harness: id,
+              topModels,
+              models: fallback.map((model) => ({ ...model, curated: true, declared })),
+            },
+          ],
+        },
+      );
+      return buildPickerCatalog({
+        catalog: BUNDLED_MODEL_CATALOG,
+        acpmux,
+        session: { harness: id, model: current },
+      }).harnesses.find((harness) => harness.id === id)!.models.map((model) => model.id);
+    };
+    expect(join()).not.toContain("gpt-6.1-terra");
+    expect(join()).not.toContain("gpt-6.1-luna");
+    expect(join(["gpt-6.1-terra"])).toContain("gpt-6.1-terra");
+    expect(join(undefined, true)).toContain("gpt-6.1-terra");
+    expect(join(undefined, false, "gpt-6.1-terra")).toContain("gpt-6.1-terra");
+  }
+});
+
 test("model routers are not harness choices, while cmux-prefixed launchers remain available", async () => {
   const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
   const catalog = mergeModelCatalog(

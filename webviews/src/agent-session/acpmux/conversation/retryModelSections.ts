@@ -22,14 +22,15 @@ const nameKey = (name: string) =>
     .trim()
     .toLowerCase();
 
+const sameModel = (a: RetryModel, b: RetryModel) =>
+  a.id === b.id || (a.release ?? a.id) === (b.release ?? b.id) || nameKey(a.name) === nameKey(b.name);
+
 /** Each model once, in list order. Of two rows for the same model the first stays, unless the second
  *  is `current`, so the model the chat runs is always the checked row. */
 export function uniqueRetryModels(models: readonly RetryModel[], current: string | undefined): RetryModel[] {
   const kept: RetryModel[] = [];
-  const same = (a: RetryModel, b: RetryModel) =>
-    a.id === b.id || (a.release ?? a.id) === (b.release ?? b.id) || nameKey(a.name) === nameKey(b.name);
   for (const model of models) {
-    const index = kept.findIndex((other) => same(other, model));
+    const index = kept.findIndex((other) => sameModel(other, model));
     if (index < 0) kept.push(model);
     else if (model.id === current && kept[index]!.id !== current) kept[index] = model;
   }
@@ -49,14 +50,21 @@ export function retryModelSections(
 ): RetrySections {
   const isCurrent = (model: RetryModel) =>
     typeof current === "string" && current.length > 0 && (model.id === current || model.release === current);
-  const unique = uniqueRetryModels(models, current).filter((model) => isCurrent(model) || !model.unavailable);
+  const available = models.filter((model) => isCurrent(model) || !model.unavailable);
+  const unique = uniqueRetryModels(available, current);
   // A running model can be temporarily unavailable to the probe while still being the only
   // valid checked choice for this turn. Treat just that row as available for grouping; App.tsx
   // filters unavailable alternatives before constructing this list.
   const candidates = unique.map((model) =>
     isCurrent(model) && model.unavailable ? { ...model, unavailable: undefined } : model,
   );
-  const { shown, more } = relevantModelSections(candidates, top);
+  // A deduplicated row still represents each provider/alias identity the harness reported.
+  const mappedTop = top?.flatMap((id) => {
+    const reported = available.find((model) => model.id === id || model.release === id);
+    const kept = reported && unique.find((model) => sameModel(model, reported));
+    return kept ? [kept.id] : [];
+  });
+  const { shown, more } = relevantModelSections(candidates, mappedTop);
   const original = new Map(unique.map((model) => [model.id, model]));
   return {
     latest: shown.map((model) => original.get(model.id) ?? model),

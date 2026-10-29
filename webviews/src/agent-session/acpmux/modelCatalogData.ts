@@ -411,6 +411,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);
   const models: PickerModel[] = listed.map((model) => listedModel(model, harness.id, probed, join));
   for (const probe of probed) {
+    if (!includeReportedIdentity(probe, chosen, harness.id, runs, join)) continue;
     if (listed.some((model) => model.id === probe.id)) continue;
     if (isHiddenByUser(harness.id, probe.id, join)) continue;
     if (hiddenReleases.has(probe.id)) continue;
@@ -462,6 +463,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
       ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
   );
   const models = entry.models
+    .filter((probe) => includeReportedIdentity(probe, entry, kin?.id ?? entry.id, runs, join))
     .filter((probe) => !isHiddenByUser(entry.id, probe.id, join) && !hiddenReleases.has(probe.id))
     .map((probe) => probedModel(probe, entry.id, join, kin?.id));
   addSessionModels(models, live, entry.id, listed, join, hiddenReleases, kin?.id);
@@ -754,6 +756,24 @@ function catalogIdentity(id: string, harnessId: string, join: Join): HarnessMode
   return join.sourceCatalog.harnesses
     .find((harness) => harness.id === harnessId)
     ?.models.find((model) => model.id === id && isIdentityOnlyCurrentModel(model));
+}
+
+/** The daemon also returns curated fallback rows when a probe has no answer. Only its
+ * reported menu, an explicit profile declaration, or the running session verifies those IDs. */
+function includeReportedIdentity(
+  probe: AcpmuxModel,
+  profile: AcpmuxHarness | undefined,
+  harnessId: string,
+  runs: string | undefined,
+  join: Join,
+): boolean {
+  return (
+    !probe.curated ||
+    probe.declared === true ||
+    probe.id === runs ||
+    profile?.topModels?.includes(probe.id) === true ||
+    catalogIdentity(probe.id, harnessId, join) === undefined
+  );
 }
 
 function isHiddenByUser(harnessId: string, modelId: string, join: Join): boolean {
