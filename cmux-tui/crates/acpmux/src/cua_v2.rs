@@ -19,6 +19,12 @@
 //! A host crash leaves `endpoint.json` behind: [`active_dir`] checks that
 //! its helper still runs and removes a stale file ([`liveness`], cx-zgk0).
 //!
+//! Before every tool action, the admitted helper answers `machine/consent`
+//! with `{consentRequired: bool, consent: {screen, control}}`, each state
+//! `none` or `granted`. The helper obtains this from its established app-owned
+//! daemon connection; a child environment or request never picks the authority.
+//! Missing support, malformed replies and a two-second timeout deny the action.
+//!
 //! Tool names and arguments stay upstream-shaped. The trusted bridge adds
 //! the session's target allow-list to the helper envelope, outside model
 //! arguments; the Swift host resolves targets and enforces the policy.
@@ -195,8 +201,27 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         arguments: Value,
     ) -> Result<Value> {
         if method == "tools/call" {
-            require_tool_consent(name.unwrap_or_default())?;
+            // Only the admitted host can select the machine's consent authority.
+            // Never consult this agent descendant's HOME, ACPMUX_HOME or socket env.
+            let status = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                self.exchange("machine/consent", None, Value::Null),
+            )
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED))?;
+            require_tool_consent(name.unwrap_or_default(), &status)?;
         }
+        self.exchange(method, name, arguments).await
+    }
+
+    async fn exchange(
+        &mut self,
+        method: &str,
+        name: Option<&str>,
+        arguments: Value,
+    ) -> Result<Value> {
         let id = self.next_id;
         self.next_id += 1;
         let mut message = json!({ "id": id, "method": method });
@@ -285,27 +310,18 @@ where
                 .await
                 .map(tools_list_result),
             "tools/call" => {
-                if let Err(error) =
-                    require_tool_consent(message["params"]["name"].as_str().unwrap_or_default())
-                {
-                    Ok(
-                        json!({"content": [{"type": "text", "text": error.to_string()}], "isError": true}),
-                    )
-                } else {
-                    let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
-                    let arguments =
-                        message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
-                    Ok(
-                        match forward(&mut helper, &connect, "tools/call", Some(&name), arguments)
-                            .await
-                        {
-                            Ok(result) => call_result(result),
-                            Err((_, text)) => {
-                                json!({"content": [{"type": "text", "text": text}], "isError": true})
-                            }
-                        },
-                    )
-                }
+                let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
+                let arguments =
+                    message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
+                Ok(
+                    match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
+                    {
+                        Ok(result) => call_result(result),
+                        Err((_, text)) => {
+                            json!({"content": [{"type":"text", "text":text}], "isError":true})
+                        }
+                    },
+                )
             }
             _ => Err((-32601, format!("method not found: {method}"))),
         };
@@ -324,8 +340,20 @@ where
 /// consent. Every other operation (including future tools) may both act and
 /// return a post-action screenshot, so it needs both independent grants. An
 /// include_screenshot flag is not a consent bypass: errors may attach captures.
-fn require_tool_consent(name: &str) -> Result<()> {
-    crate::cli::cloud_join::require_joined_consent("screen")?;
+fn require_tool_consent(name: &str, status: &Value) -> Result<()> {
+    let denied = || anyhow!(crate::cli::cloud_join::CONSENT_REQUIRED);
+    let required = status["consentRequired"].as_bool().ok_or_else(denied)?;
+    let screen = status["consent"]["screen"].as_str().ok_or_else(denied)?;
+    let control = status["consent"]["control"].as_str().ok_or_else(denied)?;
+    if !matches!(screen, "none" | "granted") || !matches!(control, "none" | "granted") {
+        return Err(denied());
+    }
+    if !required {
+        return Ok(());
+    }
+    if screen != "granted" {
+        return Err(denied());
+    }
     if !matches!(
         name,
         "screenshot"
@@ -334,8 +362,9 @@ fn require_tool_consent(name: &str) -> Result<()> {
             | "get_app_state"
             | "list_apps"
             | "list_windows"
-    ) {
-        crate::cli::cloud_join::require_joined_consent("control")?;
+    ) && control != "granted"
+    {
+        return Err(denied());
     }
     Ok(())
 }
@@ -362,6 +391,9 @@ where
         match current.request(method, name, arguments.clone()).await {
             Ok(result) => return Ok(result),
             Err(e) => {
+                if e.to_string() == crate::cli::cloud_join::CONSENT_REQUIRED {
+                    return Err((-32020, crate::cli::cloud_join::CONSENT_REQUIRED.to_owned()));
+                }
                 *helper = None;
                 if attempt == 1 || !is_connection_error(&e) {
                     return Err((-32000, format!("{e:#}")));

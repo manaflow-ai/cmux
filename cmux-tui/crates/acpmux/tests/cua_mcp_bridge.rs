@@ -275,3 +275,44 @@ async fn in_memory_target_scope_cannot_come_from_the_bridge_or_arguments() {
         json!({"id": request["id"], "method": "tools/call", "name": "click", "arguments": arguments})
     );
 }
+
+#[tokio::test]
+async fn missing_failed_or_malformed_host_consent_never_forwards_a_tool() {
+    use acpmux::cua_v2::Helper;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+    for reply in [
+        json!({"ok":false,"error":"unknown method"}),
+        json!({"ok":true,"result":{}}),
+        json!({"ok":true,"result":{"consentRequired":"false","consent":{"screen":"granted","control":"granted"}}}),
+        json!({"ok":true,"result":{"consentRequired":false,"consent":{"screen":"invalid","control":"granted"}}}),
+        json!({"ok":true,"result":{"consentRequired":true,"consent":{"screen":"none","control":"granted"}}}),
+    ] {
+        let (client, server) = tokio::io::duplex(4096);
+        let peer = tokio::spawn(async move {
+            let mut server = tokio::io::BufReader::new(server);
+            let mut line = String::new();
+            server.read_line(&mut line).await.unwrap();
+            server.get_mut().write_all(b"{\"ok\":true,\"protocol\":1}\n").await.unwrap();
+            line.clear();
+            server.read_line(&mut line).await.unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], "machine/consent");
+            let mut reply = reply;
+            reply["id"] = request["id"].clone();
+            server.get_mut().write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+            line.clear();
+            assert_eq!(
+                server.read_line(&mut line).await.unwrap(),
+                0,
+                "no tool may reach the helper"
+            );
+        });
+        let mut helper = Helper::admit(client, SECRET).await.unwrap();
+        assert_eq!(
+            helper.request("tools/call", Some("click"), json!({})).await.unwrap_err().to_string(),
+            "consent_required"
+        );
+        drop(helper);
+        peer.await.unwrap();
+    }
+}

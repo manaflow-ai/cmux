@@ -370,11 +370,11 @@ pub async fn join_with_token(
         revoked: false,
         wg_public_key: returned_key.to_owned(),
     };
-    save(&record).map_err(|e| {
+    save(&record).map_err(|_| {
         crate::cli::errors::AppError::new(
             crate::cli::errors::Code::Runtime,
             "join.store",
-            e.to_string(),
+            "join token was used but the credential could not be saved; fix local storage, then run machine add again for a fresh token",
         )
         .with_exit(5)
     })?;
