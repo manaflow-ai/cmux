@@ -2,7 +2,7 @@
 // holds this app's socket and the app may replace it). While the restart runs, no handshake
 // starts, including a Retry queued behind an attempt in flight; when it ends, the pane asks once.
 import { expect, test } from "bun:test";
-import { AcpmuxRestartGate, hostIsReconnecting, offersAcpmuxRestart } from "./hostRetry";
+import { AcpmuxRestartGate, hostDaemonStopped, hostIsReconnecting, offersAcpmuxRestart } from "./hostRetry";
 
 test("only a typed recovery or an unclassified lost transport is neutral", () => {
   expect(hostIsReconnecting({ code: "host_unavailable", details: { reconnecting: true }, retryable: false })).toBe(
@@ -27,6 +27,14 @@ test("only a refusal the host marked restartAcpmux offers Restart acpmux", () =>
   expect(offersAcpmuxRestart({ code: "host_unavailable" })).toBe(false);
   expect(offersAcpmuxRestart(null)).toBe(false);
   expect(offersAcpmuxRestart("refused")).toBe(false);
+});
+
+test("only a refusal the host marked daemonStopped gets the stopped hint", () => {
+  expect(hostDaemonStopped({ code: "host_unavailable", details: { daemonStopped: true } })).toBe(true);
+  expect(hostDaemonStopped({ code: "host_unavailable", details: { restartAcpmux: true } })).toBe(false);
+  expect(hostDaemonStopped({ code: "host_unavailable", details: { daemonStopped: "yes" } })).toBe(false);
+  expect(hostDaemonStopped({ code: "host_unavailable" })).toBe(false);
+  expect(hostDaemonStopped(null)).toBe(false);
 });
 
 /// The pane's loop as App.tsx runs it: an attempt in flight, a Retry queued behind it, an

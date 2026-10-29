@@ -5,6 +5,14 @@ export function offersAcpmuxRestart(error: unknown): boolean {
   return !!details && typeof details === "object" && (details as { restartAcpmux?: unknown }).restartAcpmux === true;
 }
 
+/// A daemon this app owns was stopped cleanly (`details.daemonStopped`). The automatic retries
+/// never start it (they reconnect, which restarts a daemon only after a crash); the card's Retry
+/// does, so the card's hint says so instead of the generic "tries again on its own".
+export function hostDaemonStopped(error: unknown): boolean {
+  const details = (error as { details?: unknown } | null)?.details;
+  return !!details && typeof details === "object" && (details as { daemonStopped?: unknown }).daemonStopped === true;
+}
+
 /// A host-owned update handoff or a lost transport is still recovering. A definite host refusal
 /// (missing binary, stopped daemon, unsupported machine, untrusted folder) keeps its instructions.
 /// Older bridges may omit retryability on socket failures; only errors without an owned code fall

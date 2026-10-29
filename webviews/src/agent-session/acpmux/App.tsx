@@ -408,7 +408,7 @@ import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
-import { AcpmuxRestartGate, hostIsReconnecting, offersAcpmuxRestart } from "./hostRetry";
+import { AcpmuxRestartGate, hostDaemonStopped, hostIsReconnecting, offersAcpmuxRestart } from "./hostRetry";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { AgentRunCard } from "./subagents/AgentRunCard";
@@ -6868,6 +6868,8 @@ function AcpmuxPane() {
   const cancelRetry = useRef<(() => void) | undefined>(undefined);
   /// The host refused a daemon another binary runs on this app's socket: the card offers Restart acpmux.
   const [acpmuxRestartOffered, setAcpmuxRestartOffered] = useState(false);
+  /// The host's daemon was stopped cleanly: only Retry starts it, and the card's hint says so.
+  const [hostStopped, setHostStopped] = useState(false);
   /// A Restart acpmux in flight (state for the card; the gate keeps the retry loop from asking the
   /// old daemon again while it stops, hostRetry.ts).
   const [restartingAcpmux, setRestartingAcpmux] = useState(false);
@@ -7556,6 +7558,7 @@ function AcpmuxPane() {
         setHostError(undefined);
         setHostRetrying(false);
         setAcpmuxRestartOffered(false);
+        setHostStopped(false);
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         // A refreshed harness list or live model list re-reads the catalog (no polling).
@@ -8230,6 +8233,7 @@ function AcpmuxPane() {
           setMachineName((current) => refusedMachine(error) ?? current);
           // Another binary's daemon on this app's socket: the card offers Restart acpmux.
           setAcpmuxRestartOffered(offersAcpmuxRestart(error));
+          setHostStopped(hostDaemonStopped(error));
           // Back off so a host without a daemon is not asked four times a second. A Restart acpmux
           // in flight asks again itself when it ends.
           if (restartGate.mayAsk()) {
@@ -9819,6 +9823,7 @@ function AcpmuxPane() {
     >
       <HostError
         message={hostError ?? ""}
+        {...(hostStopped && !acpmuxRestartOffered ? { hint: t("host.stoppedHint") } : {})}
         reconnecting={hostRetrying || restartingAcpmux}
         retrying={retryQueued}
         onRetry={() => retryHost.current?.()}

@@ -26269,7 +26269,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Retry starts acpmux. Your prompt stays here."
+            "value": "cmux tries again on its own. Your prompt stays here until acpmux connects."
           }
         },
         "es": {
@@ -26366,6 +26366,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux 會自動重試。在 acpmux 連線之前，你的提示會保留在這裡。"
+          }
+        }
+      }
+    },
+    "host.stoppedHint": {
+      "comment": "Agent pane: the hint under a cleanly stopped acpmux; the card's Retry starts it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة المحاولة تشغّل acpmux. يبقى الـ prompt هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovni pokušaj pokreće acpmux. Vaš prompt ostaje ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv igen starter acpmux. Din prompt bliver her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Erneut versuchen“ startet acpmux. Dein Prompt bleibt hier."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry starts acpmux. Your prompt stays here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reintentar inicia acpmux. Tu prompt se queda aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réessayer démarre acpmux. Votre prompt reste ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riprova avvia acpmux. Il prompt resta qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "再試行すると acpmux が起動します。プロンプトはここに残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការព្យាយាមម្ដងទៀតនឹងចាប់ផ្ដើម acpmux។ prompt របស់អ្នកនៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다시 시도하면 acpmux가 시작됩니다. 프롬프트는 여기에 남아 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv igjen starter acpmux. Prompten din blir her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponów uruchamia acpmux. Twój prompt zostaje tutaj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentar novamente inicia o acpmux. Seu prompt fica aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Повторить» запускает acpmux. Ваш промпт остаётся здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลองอีกครั้งจะเริ่ม acpmux พรอมต์ของคุณยังอยู่ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden dene acpmux'u başlatır. İsteminiz burada kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Повторити» запускає acpmux. Ваш промпт залишається тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thử lại sẽ khởi động acpmux. Prompt của bạn vẫn ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重试会启动 acpmux。你的提示词会保留在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重試會啟動 acpmux。你的提示詞會保留在這裡。"
           }
         }
       }

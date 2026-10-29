@@ -7226,25 +7226,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux لا يعمل. افتح محادثة وكيل جديدة لتشغيله."
+            "value": "توقف acpmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux nije pokrenut. Otvorite novi chat s agentom da ga pokrenete."
+            "value": "acpmux je zaustavljen."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux kører ikke. Åbn en ny agentchat for at starte den."
+            "value": "acpmux er stoppet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux läuft nicht. Öffne einen neuen Agenten-Chat, um es zu starten."
+            "value": "acpmux wurde beendet."
           }
         },
         "en": {
@@ -7256,97 +7256,97 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux no se está ejecutando. Abre un nuevo chat con el agente para iniciarlo."
+            "value": "acpmux se detuvo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux n’est pas en cours d’exécution. Ouvrez une nouvelle discussion avec l’agent pour le démarrer."
+            "value": "acpmux s’est arrêté."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux non è in esecuzione. Apri una nuova chat con l’agente per avviarlo."
+            "value": "acpmux si è fermato."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux が実行されていません。新しいエージェントチャットを開くと起動します。"
+            "value": "acpmux が停止しました。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux មិនកំពុងដំណើរការទេ។ បើកការជជែកភ្នាក់ងារថ្មី ដើម្បីចាប់ផ្តើមវា។"
+            "value": "acpmux បានឈប់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux가 실행 중이 아닙니다. 새 에이전트 채팅을 열면 시작됩니다."
+            "value": "acpmux가 중지되었습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux kjører ikke. Åpne en ny agentchat for å starte den."
+            "value": "acpmux har stoppet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux nie działa. Otwórz nowy czat z agentem, aby go uruchomić."
+            "value": "acpmux został zatrzymany."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O acpmux não está em execução. Abra um novo chat com o agente para iniciá-lo."
+            "value": "O acpmux parou."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux не запущен. Откройте новый чат с агентом, чтобы запустить его."
+            "value": "acpmux остановлен."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux ไม่ได้ทำงานอยู่ เปิดแชตเอเจนต์ใหม่เพื่อเริ่มการทำงาน"
+            "value": "acpmux หยุดทำงานแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux çalışmıyor. Başlatmak için yeni bir ajan sohbeti açın."
+            "value": "acpmux durdu."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux не запущено. Відкрийте новий чат з агентом, щоб запустити його."
+            "value": "acpmux зупинено."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux không chạy. Mở một cuộc trò chuyện tác tử mới để khởi động nó."
+            "value": "acpmux đã dừng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 未运行。打开新的代理聊天即可启动它。"
+            "value": "acpmux 已停止。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "acpmux 未執行。開啟新的代理聊天即可啟動它。"
+            "value": "acpmux 已停止。"
           }
         }
       }
