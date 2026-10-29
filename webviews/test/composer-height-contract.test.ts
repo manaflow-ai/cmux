@@ -18,6 +18,7 @@ test("all composer fields share the Goldilocks twelve-line, forty-percent cap", 
 test("height comparison fixtures use the production typography and padding tokens", () => {
   expect(chatGallery).toContain("var(--text-content--line-height)");
   expect(chatGallery).not.toContain("var(--text-body--line-height");
-  expect(newTabGallery).toContain("2 * var(--nt-input-pad-block)");
+  expect(newTabGallery).toContain('const PAD_BLOCK = "var(--nt-input-pad-block)"');
+  expect(newTabGallery).toContain("2 * ${PAD_BLOCK}");
   expect(newTabGallery).not.toContain("+ 32px");
 });
