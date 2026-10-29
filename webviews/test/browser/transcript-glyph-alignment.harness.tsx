@@ -5,9 +5,10 @@ import "../../src/agent-session/acpmux/conversation/conversation.css";
 import "../../src/agent-session/acpmux/inspector/inspector.css";
 import type { CSSProperties } from "react";
 import { Icon } from "../../src/agent-session/acpmux/icons/Icon";
+import { Check } from "../../src/agent-session/acpmux/conversation/icons";
 import { ToolRow } from "../../src/agent-session/acpmux/conversation/ToolRow";
 import { WorkedFor } from "../../src/agent-session/acpmux/conversation/TurnRows";
-import { PromptActions } from "../../src/agent-session/acpmux/conversation/MessageActions";
+import { PromptActions, ReceivedActions } from "../../src/agent-session/acpmux/conversation/MessageActions";
 import { TurnActionsContext } from "../../src/agent-session/acpmux/conversation/turnActions";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 
@@ -55,6 +56,12 @@ function FixtureRow({ kind, height }: { kind: string; height: number }) {
 function FooterRow({ height }: { height: number }) {
   const row = { id: "footer-fixture", kind: "user", at: Date.now(), text: "Synthetic sent message", resend: "Synthetic sent message" } as unknown as AcpmuxRow;
   return <div data-footer-row="true" style={{ height: `${height}px` }}><TurnActionsContext.Provider value={{ retry: () => undefined, retryWith: { models: [{ id: "model-a", name: "Model A" }, { id: "model-b", name: "Model B" }], current: "model-a", retry: () => undefined } }}><PromptActions row={row} text="Synthetic sent message" /></TurnActionsContext.Provider></div>;
+}
+
+function ReceivedFixture() {
+  const row = { id: "received-fixture", kind: "user", at: Date.now(), text: "Synthetic received message", resend: "Synthetic received message" } as unknown as AcpmuxRow;
+  const actions = { retry: () => undefined, retryWith: { models: [{ id: "model-a", name: "Model A" }, { id: "model-b", name: "Model B" }], current: "model-a", retry: () => undefined } };
+  return <><div data-received-row="nonretryable"><TurnActionsContext.Provider value={actions}><ReceivedActions row={row} text="Synthetic received message" /></TurnActionsContext.Provider></div><div className="acpmux-row" data-retryable data-received-row="retryable"><TurnActionsContext.Provider value={actions}><ReceivedActions row={row} text="Synthetic received message" /></TurnActionsContext.Provider></div></>;
 }
 
 function App() {
@@ -108,6 +115,7 @@ function App() {
       <FixtureRow kind="received" height={height} />
       <FixtureRow kind="session-info" height={height} />
       <FooterRow height={height} />
+      <ReceivedFixture />
     </main>
   );
 }

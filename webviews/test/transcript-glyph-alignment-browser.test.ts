@@ -73,6 +73,8 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
         const footer = await measureFooter(page);
         expect(footer).toHaveLength(3);
         for (const glyph of footer) expect(glyph.delta, `${theme}/${height}/footer/${glyph.kind}`).toBeLessThanOrEqual(0.5);
+        expect(await page.locator('[data-received-row="nonretryable"] .cv-message-retry').evaluate((el) => getComputedStyle(el).display)).toBe("none");
+        expect(await page.locator('[data-received-row="retryable"] .cv-message-retry').evaluate((el) => getComputedStyle(el).display)).toBe("inline-flex");
         await page.close();
       });
     }

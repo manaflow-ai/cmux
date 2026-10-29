@@ -644,6 +644,9 @@
   min-height: var(--cv-meta-row);
   white-space: nowrap;
 }
+.cv-message-footer-row.cv-turn-footer-row {
+  gap: 8px;
+}
 .cv-message-footer-row > :is(.cv-user__time, .cv-turn-time) {
   display: inline-flex;
   align-items: center;
@@ -658,10 +661,6 @@
 }
 .cv-message-footer-row .cv-iconbtn.cv-turn-retry-menu {
   width: var(--cv-footer-chevron-slot);
-}
-.cv-message-footer-row .cv-message-retry {
-  display: inline-flex;
-  align-items: center;
 }
 /* Claude's fade: in after a beat when the pointer arrives, at once from the keyboard, out quickly. */
 @media (prefers-reduced-motion: no-preference) {
@@ -1562,7 +1561,7 @@ pre.cv-math-source {
   background: var(--cv-rule);
 }
 .cv-worked__chevron {
-  margin-top: 3px;
+  margin-top: 0;
   margin-left: 2px;
 }
 /* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
@@ -1866,7 +1865,7 @@ pre.cv-math-source {
 /* The folded label uses the same row height as tools; full thought text keeps its padding. */
 .cv-thought.is-toggle {
   display: grid;
-  grid-template-columns: var(--cv-glyph-slot) minmax(0, 1fr) auto var(--cv-disclosure-slot);
+  grid-template-columns: auto minmax(0, 1fr) auto var(--cv-disclosure-slot);
   align-items: center;
   padding-block: 0;
 }
@@ -2772,6 +2771,11 @@ a.cv-sha:focus-visible {
   min-width: 0;
   padding: 0;
   margin-left: -3px;
+}
+.cv-message-footer-row .cv-iconbtn.cv-turn-retry-menu {
+  width: var(--cv-footer-chevron-slot);
+  min-width: var(--cv-footer-chevron-slot);
+  margin-left: 0;
 }
 .cv-iconbtn:hover {
   color: var(--cv-text);
