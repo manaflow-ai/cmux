@@ -13,6 +13,8 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
   const SESSION = "0190a000-0000-7000-8000-0000000000f1";
   const PROMPT = "p-waiting-footer";
   const TEXT = "Please use the cache directory";
+  const WRAPPING_TEXT = "Keep the queued prompt in the same place when it sends. ".repeat(8).trim();
+  const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
   const start = Date.UTC(2026, 9, 26, 20);
   const calls: { method: string; params: Record<string, unknown> }[] = [];
   let seq = 0;
@@ -44,7 +46,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     turn: { turnId: "turn-1", promptId: "p-turn", startedAt: start },
     updatedAt: start,
   });
-  const opening = (text = TEXT) => {
+  const opening = (text = TEXT, withAttachment = false) => {
     seq = 0;
     return [
       record("user_message", { text: "Check the cache", promptId: "p-turn", turnId: "turn-1" }),
@@ -64,7 +66,21 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
         },
         "in",
       ),
-      record("user_message", { text, promptId: PROMPT, turnId: "turn-1", steer: true }),
+      record("user_message", {
+        text,
+        promptId: PROMPT,
+        turnId: "turn-1",
+        steer: true,
+        ...(withAttachment
+          ? {
+              images: [{ id: "queued-image", mimeType: "image/png", name: "queued.png", width: 1, height: 1 }],
+              inlineParts: [
+                { kind: "text", text },
+                { kind: "image", id: "queued-image", mimeType: "image/png", name: "queued.png" },
+              ],
+            }
+          : {}),
+      }),
     ];
   };
   let history = opening();
@@ -84,7 +100,10 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
           return new Promise((resolve) => {
             resolveEdit = resolve;
           });
+        if (params.op === "withdraw" && accept) event("steer_withdrawn", { promptId: PROMPT, turnId: "turn-1" });
         return { ok: accept, sent: accept ? "now" : null };
+      case "_acpmux/attachment":
+        return { mimeType: "image/png", data: PNG };
       default:
         return null;
     }
@@ -126,16 +145,14 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     await vite?.close();
     await daemon?.stop(true);
   });
-  const open = async (text = TEXT) => {
+  const open = async (text = TEXT, withAttachment = false) => {
     calls.length = 0;
     accept = true;
     hold = false;
     resolveEdit = undefined;
-    history = opening(text);
-    const evidence = process.env.CMUX_QUEUE_FOOTER_EVIDENCE;
+    history = opening(text, withAttachment);
     const context = await browser.newContext({
       viewport: { width: 880, height: 650 },
-      ...(evidence ? { recordVideo: { dir: evidence, size: { width: 880, height: 650 } } } : {}),
     });
     const page = await context.newPage();
     const address = vite.httpServer!.address() as { port: number };
@@ -162,52 +179,72 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
     }
   };
   for (const width of [880, 360]) {
-    test(`waiting steer actions stay beside a short bubble at ${width}px`, async () => {
-      const page = await open("helo");
-      try {
-        await page.setViewportSize({ width, height: 650 });
-        const row = page.locator(".cv-user", { has: page.locator(".cv-user__pending") });
-        const bubble = row.locator(".cv-user__bubble");
-        await bubble.hover();
-        const evidence = process.env.CMUX_QUEUE_FOOTER_EVIDENCE;
-        if (evidence) {
-          for (const isDark of [true, false]) {
+    for (const [length, text] of [
+      ["short", "helo"],
+      ["wrapping", WRAPPING_TEXT],
+    ] as const) {
+      for (const dark of [true, false]) {
+        const themeName = dark ? "dark" : "light";
+        test(`queued and sent bubble and footer keep their position at ${width}px, ${length}, ${themeName}`, async () => {
+          const page = await open(text);
+          try {
+            await page.setViewportSize({ width, height: 650 });
             const theme = agentPaneTheme(
               deriveTokens({
                 ...GHOSTTY_DEFAULT,
-                background: rgbHex(isDark ? 0x1e1e1e : 0xffffff),
-                foreground: rgbHex(isDark ? 0xe5e5e5 : 0x1c1c1c),
+                background: rgbHex(dark ? 0x1e1e1e : 0xffffff),
+                foreground: rgbHex(dark ? 0xe5e5e5 : 0x1c1c1c),
               }),
               true,
             );
             await page.evaluate((theme) => window.cmuxAcpmuxBridge!.applyTheme(theme), theme);
-            await page.screenshot({
-              path: path.join(evidence, `attached-${width}-${isDark ? "dark" : "light"}.png`),
-            });
+            const row = page.locator(".cv-user", { has: page.locator(".cv-user__pending") });
+            const stableRow = page.locator(".cv-user", { has: page.locator(".cv-user__bubble", { hasText: text }) });
+            const bubble = row.locator(".cv-user__bubble");
+            await bubble.hover();
+            const measure = () =>
+              stableRow.evaluate((element) => {
+                const bubble = element.querySelector(".cv-user__bubble")!.getBoundingClientRect();
+                const footer = element.querySelector(".cv-user__actions")!.getBoundingClientRect();
+                const row = element.getBoundingClientRect();
+                return {
+                  bubbleLeft: bubble.left,
+                  bubbleRight: bubble.right,
+                  bubbleWidth: bubble.width,
+                  footerRight: footer.right,
+                  footerGap: footer.top - bubble.bottom,
+                  footerHeight: footer.height,
+                  rowRight: row.right,
+                };
+              });
+            const evidence = process.env.CMUX_QUEUE_FOOTER_EVIDENCE;
+            const stem = `${width}-${length}-${themeName}`;
+            const before = await measure();
+            if (evidence) await page.screenshot({ path: path.join(evidence, `${stem}-queued.png`) });
+            await row.locator(".cv-user__send-now").click();
+            await stableRow.locator(".cv-user__pending").waitFor({ state: "detached" });
+            await stableRow.locator(".cv-user__bubble").hover();
+            const after = await measure();
+            if (evidence) await page.screenshot({ path: path.join(evidence, `${stem}-sent.png`) });
+            console.log("QUEUE_FOOTER_GEOMETRY", JSON.stringify({ width, length, themeName, before, after }));
+            expect(before.footerGap).toBeGreaterThanOrEqual(0);
+            expect(Math.abs(before.bubbleRight - before.rowRight)).toBeLessThanOrEqual(1);
+            expect(Math.abs(before.footerRight - before.bubbleRight)).toBeLessThanOrEqual(1);
+            for (const key of [
+              "bubbleLeft",
+              "bubbleRight",
+              "bubbleWidth",
+              "footerRight",
+              "footerGap",
+              "footerHeight",
+            ] as const)
+              expect(Math.abs(after[key] - before[key])).toBeLessThanOrEqual(1);
+          } finally {
+            await page.context().close();
           }
-        }
-        const geometry = await row.evaluate((element) => {
-          const bubble = element.querySelector(".cv-user__bubble")!.getBoundingClientRect();
-          const actions = element.querySelector(".cv-user__pending")!.getBoundingClientRect();
-          const buttons = [...element.querySelectorAll(".cv-user__pending button")].map((button) =>
-            button.getBoundingClientRect(),
-          );
-          return {
-            gap: actions.left - bubble.right,
-            centerOffset: Math.abs((actions.top + actions.bottom - bubble.top - bubble.bottom) / 2),
-            overflow: actions.right - element.getBoundingClientRect().right,
-            controlGap: buttons[1]!.left - buttons[0]!.right,
-          };
         });
-        expect(geometry.gap).toBeGreaterThanOrEqual(4);
-        expect(geometry.gap).toBeLessThanOrEqual(8);
-        expect(geometry.centerOffset).toBeLessThanOrEqual(1);
-        expect(geometry.overflow).toBeLessThanOrEqual(1);
-        expect(geometry.controlGap).toBeGreaterThanOrEqual(4);
-      } finally {
-        await page.context().close();
       }
-    });
+    }
   }
   test("an unread steer shows only queue controls; pointer Send now reaches its prompt and accepted delivery shows only hover actions", async () => {
     const page = await open();
@@ -221,6 +258,11 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
           .locator(".cv-user__read, .cv-user__dot, .cv-user__time, button[aria-label='Copy'], .cv-message-retry")
           .count(),
       ).toBe(0);
+      const before = await row.evaluate((element) => {
+        const bubble = element.querySelector(".cv-user__bubble")!.getBoundingClientRect();
+        const footer = element.querySelector(".cv-user__actions")!.getBoundingClientRect();
+        return { left: bubble.left, right: bubble.right, footerRight: footer.right };
+      });
       hold = true;
       await row.locator(".cv-user__send-now").click();
       await page.waitForFunction(
@@ -238,6 +280,14 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       expect(await row.locator(".cv-user__time").count()).toBe(1);
       expect(await row.getByRole("button", { name: "Copy", exact: true }).count()).toBe(1);
       expect(await row.locator(".cv-user__read, .cv-user__dot").count()).toBe(0);
+      const after = await row.evaluate((element) => {
+        const bubble = element.querySelector(".cv-user__bubble")!.getBoundingClientRect();
+        const footer = element.querySelector(".cv-user__actions")!.getBoundingClientRect();
+        return { left: bubble.left, right: bubble.right, footerRight: footer.right };
+      });
+      expect(Math.abs(after.left - before.left)).toBeLessThanOrEqual(1);
+      expect(Math.abs(after.right - before.right)).toBeLessThanOrEqual(1);
+      expect(Math.abs(after.footerRight - before.footerRight)).toBeLessThanOrEqual(1);
       await capture(page, "accepted");
       // The daemon still reports waiting until its next agent message: controls stay gone.
       event(
@@ -258,6 +308,32 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       await page.getByText("Using the cache directory.", { exact: true }).waitFor();
       expect(await row.locator(".cv-user__pending").count()).toBe(0);
       await capture(page, "read");
+    } finally {
+      await page.context().close();
+    }
+  });
+  test("taking a waiting steer back restores its draft and image attachment", async () => {
+    const page = await open(TEXT, true);
+    try {
+      const row = footer(page);
+      await row.locator(".cv-user__take-back").click();
+      await page.waitForFunction((text) => {
+        const field = document.querySelector<HTMLElement>(".acpmux-md-field");
+        return field?.textContent?.includes(text) === true;
+      }, TEXT);
+      const restoredImage = page.locator('.acpmux-composer img[alt="queued.png"]');
+      await restoredImage.waitFor();
+      await page.waitForFunction(
+        () => document.querySelector<HTMLImageElement>('.acpmux-composer img[alt="queued.png"]')?.naturalWidth === 1,
+      );
+      expect(await restoredImage.count()).toBe(1);
+      expect(await restoredImage.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
+      expect(calls.some((call) => call.method === "_acpmux/attachment" && call.params.id === "queued-image")).toBe(
+        true,
+      );
+      expect(calls.filter((call) => call.method === "_acpmux/queue_edit")).toEqual([
+        { method: "_acpmux/queue_edit", params: { sessionId: SESSION, promptId: PROMPT, op: "withdraw" } },
+      ]);
     } finally {
       await page.context().close();
     }
