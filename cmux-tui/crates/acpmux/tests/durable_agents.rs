@@ -1845,8 +1845,9 @@ async fn an_answered_queue_removal_survives_a_crash_right_after_its_answer() {
 
 /// The same rule for a permission answer: its `permission_decision` record is appended by the
 /// task that asked, after the answer wakes it, so the answer must wait for that task's record.
-/// Lost, the restarted daemon finds the agent's ask unanswered and asks the person again
-/// (`permission_reissued`).
+/// Lost, the restarted daemon's log has the ask and no answer (the first red, fleet 0492f8bf:
+/// the agent host, adopted, had the answer and finished its turn, so the chat's card for the ask
+/// never shows it was answered); with no host it is asked again (`permission_reissued`).
 #[tokio::test]
 async fn an_answered_permission_survives_a_crash_right_after_its_answer() {
     let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
@@ -1872,24 +1873,22 @@ async fn an_answered_permission_survives_a_crash_right_after_its_answer() {
     daemon.sigkill();
     drop((client, rpc));
     daemon.start();
-    let first = daemon.wait_event(&session, "the decision or a second ask", |e| {
-        matches!(e["kind"].as_str(), Some("permission_decision" | "permission_reissued"))
-            && e["msg"]["permissionId"] == permission_id
-    });
-    assert_eq!(
-        first["kind"],
-        "permission_decision",
-        "an answered permission was lost and asked again: {:#}",
-        json!(daemon.events(&session))
-    );
     let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
     assert_eq!(result["msg"]["status"], "completed", "{:#}", json!(daemon.events(&session)));
     let events = daemon.events(&session);
-    assert!(
-        !events.iter().any(|e| e["kind"] == "permission_reissued"),
-        "the person was asked again: {:#}",
+    let of_ask = |kind: &str| {
+        events
+            .iter()
+            .filter(|e| e["kind"] == kind && e["msg"]["permissionId"] == permission_id)
+            .count()
+    };
+    assert_eq!(
+        of_ask("permission_decision"),
+        1,
+        "an answered permission's decision was lost in the crash: {:#}",
         json!(events)
     );
+    assert_eq!(of_ask("permission_reissued"), 0, "the person was asked again: {:#}", json!(events));
 }
 
 /// A queued prompt that left the queue for its turn (`dequeued`) when the daemon died, before
