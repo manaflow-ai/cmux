@@ -181,8 +181,11 @@ pub(crate) struct ShellActivity {
     /// A `C` or `D` came since the last `A`: the next `A` is a new prompt.
     command_since_prompt: bool,
     /// The shell sent a `C` or `D`: it marks its new prompts with one, so an
-    /// `A` without one is a redraw. Set for good once seen, and after a
-    /// restore (the marks before it are unknown: the strict rule).
+    /// `A` without one is a redraw. Set for good once seen. A host's state
+    /// does not carry it: a reconnect keeps this daemon's
+    /// ([`Self::keep_output_of`]); a terminal created from a host's state has
+    /// seen no mark (a fresh host) or reads not idle for good (one adopted
+    /// from another daemon: `unseen_input`).
     sends_command_marks: bool,
     /// The shell printed its first prompt: the first `A` answers the spawn,
     /// not a line, so input typed before it stays owed.
@@ -582,7 +585,6 @@ impl ShellActivity {
         self.in_paste = false;
         self.line_since_prompt = false;
         self.command_since_prompt = false;
-        self.sends_command_marks = true;
         self.shell_foreground = None;
         self.foreground_leader = None;
         self.epoch = self.epoch.wrapping_add(1);
@@ -1112,18 +1114,22 @@ mod tests {
         assert!(activity.idle_since().is_some());
     }
 
-    /// After a restore the marks before it are unknown: an `A` with no `C`
-    /// or `D` since pays nothing (the strict rule).
+    /// A reconnect keeps what this daemon saw: a shell that sent `C` or `D`
+    /// keeps the rule that only an `A` after one pays, so a redraw after a
+    /// Return still pays nothing.
     #[test]
-    fn shell_idle_after_a_restore_only_a_command_mark_lets_a_prompt_pay() {
-        let mut previous = idle_at(1_000);
-        previous.note_input(b"true\r");
+    fn shell_idle_a_reconnect_keeps_the_command_mark_rule() {
+        let mut previous = ShellActivity::default();
+        previous.observe(ShellMark::CommandEnd { exit_code: None }, 900);
+        previous.observe(ShellMark::PromptStart, 1_000);
+        check_at_b(&mut previous, 1_001);
+        previous.note_input(b"sleep 600\r");
         let mut activity = ShellActivity::default();
         activity.restore(previous.snapshot());
-        activity.note_input(b"ls\r");
+        activity.keep_output_of(&previous);
         activity.observe(ShellMark::PromptStart, 2_000);
         check_at_b(&mut activity, 2_001);
-        assert_eq!(activity.idle_since(), None, "no C or D: maybe a redraw");
+        assert_eq!(activity.idle_since(), None, "a redraw: `sleep 600` is not answered");
     }
 
     /// Review of cp/fix-tip-continuation-prompt-idle-2, finding 1: several
