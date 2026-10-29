@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: Загалом 2 збережені ВМ, включно з призупиненими",
+      "savedMessage": "Starter: Загалом 1 збережена ВМ, включно з призупиненою",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: До 2 активних віртуальних машин Cloud",
+      "activeMessage": "Starter: 1 віртуальна машина Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 80 спільних ВМ-годин на місяць; після досягнення ліміту ВМ призупиняються",
+      "hoursMessage": "Starter: Без місячного ліміту годин",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: Кожна ВМ: 2 vCPU, 4 ГіБ оперативної пам’яті та 16 ГіБ диска",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "Локальна історія сеансів"
           ],
           "go": [
-            "До 2 активних віртуальних машин Cloud",
+            "1 віртуальна машина Cloud",
             "Кожна ВМ: 2 vCPU, 4 ГіБ оперативної пам’яті та 16 ГіБ диска",
-            "Загалом 2 збережені ВМ, включно з призупиненими",
-            "80 спільних ВМ-годин на місяць; після досягнення ліміту ВМ призупиняються"
+            "Підтримка спільноти",
+            "Без місячного ліміту годин"
           ],
           "pro": [
             "Хмарні агенти на Cloud VMs",
@@ -5414,10 +5414,10 @@
       "cta": "Обрати Starter",
       "featuresLead": "Включено:",
       "features": [
-        "До 2 активних віртуальних машин Cloud",
+        "1 віртуальна машина Cloud",
         "Кожна ВМ: 2 vCPU, 4 ГіБ оперативної пам’яті та 16 ГіБ диска",
-        "Загалом 2 збережені ВМ, включно з призупиненими",
-        "80 спільних ВМ-годин на місяць; після досягнення ліміту ВМ призупиняються"
+        "Підтримка спільноти",
+        "Без місячного ліміту годин"
       ]
     }
   },

@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: រក្សាទុក VM សរុប 2 គ្រឿង រួមទាំងម៉ាស៊ីនដែលបានផ្អាក",
+      "savedMessage": "Starter: រក្សាទុក VM សរុប 1 គ្រឿង រួមទាំងម៉ាស៊ីនដែលបានផ្អាក",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: Cloud VM សកម្មរហូតដល់ 2 គ្រឿង",
+      "activeMessage": "Starter: Cloud VM ចំនួន 1 គ្រឿង",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: ប្រើពេលវេលា VM រួមគ្នា 80 ម៉ោងក្នុងមួយខែ ហើយ VM នឹងផ្អាកនៅពេលដល់កម្រិត",
+      "hoursMessage": "Starter: គ្មានកំណត់ម៉ោងប្រចាំខែ",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: VM នីមួយៗ៖ 2 vCPU, RAM 4 GiB និងថាស 16 GiB",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "ប្រវត្តិវគ្គក្នុងម៉ាស៊ីន"
           ],
           "go": [
-            "Cloud VM សកម្មរហូតដល់ 2 គ្រឿង",
+            "Cloud VM ចំនួន 1 គ្រឿង",
             "VM នីមួយៗ៖ 2 vCPU, RAM 4 GiB និងថាស 16 GiB",
-            "រក្សាទុក VM សរុប 2 គ្រឿង រួមទាំងម៉ាស៊ីនដែលបានផ្អាក",
-            "ប្រើពេលវេលា VM រួមគ្នា 80 ម៉ោងក្នុងមួយខែ ហើយ VM នឹងផ្អាកនៅពេលដល់កម្រិត"
+            "ការគាំទ្រពីសហគមន៍",
+            "គ្មានកំណត់ម៉ោងប្រចាំខែ"
           ],
           "pro": [
             "ភ្នាក់ងារពពកនៅលើ Cloud VMs",
@@ -5342,10 +5342,10 @@
       "cta": "ជ្រើសរើស Starter",
       "featuresLead": "រួមមាន៖",
       "features": [
-        "Cloud VM សកម្មរហូតដល់ 2 គ្រឿង",
+        "Cloud VM ចំនួន 1 គ្រឿង",
         "VM នីមួយៗ៖ 2 vCPU, RAM 4 GiB និងថាស 16 GiB",
-        "រក្សាទុក VM សរុប 2 គ្រឿង រួមទាំងម៉ាស៊ីនដែលបានផ្អាក",
-        "ប្រើពេលវេលា VM រួមគ្នា 80 ម៉ោងក្នុងមួយខែ ហើយ VM នឹងផ្អាកនៅពេលដល់កម្រិត"
+        "ការគាំទ្រពីសហគមន៍",
+        "គ្មានកំណត់ម៉ោងប្រចាំខែ"
       ]
     }
   },

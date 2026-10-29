@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: Łącznie 2 zapisane maszyny wirtualne, w tym wstrzymane",
+      "savedMessage": "Starter: Łącznie 1 zapisana maszyna wirtualna, także wstrzymana",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: Do 2 aktywnych maszyn wirtualnych Cloud",
+      "activeMessage": "Starter: 1 maszyna wirtualna Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 80 współdzielonych godzin maszyn wirtualnych miesięcznie; po osiągnięciu limitu maszyny są wstrzymywane",
+      "hoursMessage": "Starter: Bez miesięcznego limitu godzin",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: Każda maszyna: 2 vCPU, 4 GiB RAM i 16 GiB dysku",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "Lokalna historia sesji"
           ],
           "go": [
-            "Do 2 aktywnych maszyn wirtualnych Cloud",
+            "1 maszyna wirtualna Cloud",
             "Każda maszyna: 2 vCPU, 4 GiB RAM i 16 GiB dysku",
-            "Łącznie 2 zapisane maszyny wirtualne, w tym wstrzymane",
-            "80 współdzielonych godzin maszyn wirtualnych miesięcznie; po osiągnięciu limitu maszyny są wstrzymywane"
+            "Wsparcie społeczności",
+            "Bez miesięcznego limitu godzin"
           ],
           "pro": [
             "Agenci w chmurze na Cloud VMs",
@@ -5344,10 +5344,10 @@
       "cta": "Wybierz Starter",
       "featuresLead": "Obejmuje:",
       "features": [
-        "Do 2 aktywnych maszyn wirtualnych Cloud",
+        "1 maszyna wirtualna Cloud",
         "Każda maszyna: 2 vCPU, 4 GiB RAM i 16 GiB dysku",
-        "Łącznie 2 zapisane maszyny wirtualne, w tym wstrzymane",
-        "80 współdzielonych godzin maszyn wirtualnych miesięcznie; po osiągnięciu limitu maszyny są wstrzymywane"
+        "Wsparcie społeczności",
+        "Bez miesięcznego limitu godzin"
       ]
     }
   },

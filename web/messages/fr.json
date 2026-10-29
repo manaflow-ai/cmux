@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: 2 VM conservées au total, y compris les machines en pause",
+      "savedMessage": "Starter: 1 VM conservée au total, même en pause",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: Jusqu’à 2 VM Cloud actives",
+      "activeMessage": "Starter: 1 VM Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 80 heures de VM partagées par mois ; les VM se mettent en pause à la limite",
+      "hoursMessage": "Starter: Aucun plafond mensuel d’heures",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: Par VM : 2 vCPU, 4 Gio de RAM et 16 Gio de disque",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "Historique des sessions en local"
           ],
           "go": [
-            "Jusqu’à 2 VM Cloud actives",
+            "1 VM Cloud",
             "Par VM : 2 vCPU, 4 Gio de RAM et 16 Gio de disque",
-            "2 VM conservées au total, y compris les machines en pause",
-            "80 heures de VM partagées par mois ; les VM se mettent en pause à la limite"
+            "Assistance communautaire",
+            "Aucun plafond mensuel d’heures"
           ],
           "pro": [
             "Agents cloud sur des Cloud VMs",
@@ -5346,10 +5346,10 @@
       "cta": "Choisir Starter",
       "featuresLead": "Comprend :",
       "features": [
-        "Jusqu’à 2 VM Cloud actives",
+        "1 VM Cloud",
         "Par VM : 2 vCPU, 4 Gio de RAM et 16 Gio de disque",
-        "2 VM conservées au total, y compris les machines en pause",
-        "80 heures de VM partagées par mois ; les VM se mettent en pause à la limite"
+        "Assistance communautaire",
+        "Aucun plafond mensuel d’heures"
       ]
     }
   },

@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: جهازان محفوظان إجمالاً، بما في ذلك الأجهزة المتوقفة مؤقتاً",
+      "savedMessage": "Starter: جهاز افتراضي محفوظ واحد إجمالاً، بما في ذلك الجهاز المتوقف مؤقتاً",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: حتى جهازين افتراضيين نشطين في Cloud",
+      "activeMessage": "Starter: جهاز افتراضي واحد في Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 80 ساعة تشغيل مشتركة شهرياً؛ تتوقف الأجهزة مؤقتاً عند بلوغ الحد",
+      "hoursMessage": "Starter: بلا حد شهري لساعات التشغيل",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: لكل جهاز: 2 vCPU و4 GiB من RAM و16 GiB من القرص",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "سجل الجلسات المحلي"
           ],
           "go": [
-            "حتى جهازين افتراضيين نشطين في Cloud",
+            "جهاز افتراضي واحد في Cloud",
             "لكل جهاز: 2 vCPU و4 GiB من RAM و16 GiB من القرص",
-            "جهازان محفوظان إجمالاً، بما في ذلك الأجهزة المتوقفة مؤقتاً",
-            "80 ساعة تشغيل مشتركة شهرياً؛ تتوقف الأجهزة مؤقتاً عند بلوغ الحد"
+            "دعم المجتمع",
+            "بلا حد شهري لساعات التشغيل"
           ],
           "pro": [
             "وكلاء سحابيون على Cloud VMs",
@@ -5341,10 +5341,10 @@
       "cta": "اختر Starter",
       "featuresLead": "يشمل:",
       "features": [
-        "حتى جهازين افتراضيين نشطين في Cloud",
+        "جهاز افتراضي واحد في Cloud",
         "لكل جهاز: 2 vCPU و4 GiB من RAM و16 GiB من القرص",
-        "جهازان محفوظان إجمالاً، بما في ذلك الأجهزة المتوقفة مؤقتاً",
-        "80 ساعة تشغيل مشتركة شهرياً؛ تتوقف الأجهزة مؤقتاً عند بلوغ الحد"
+        "دعم المجتمع",
+        "بلا حد شهري لساعات التشغيل"
       ]
     }
   },

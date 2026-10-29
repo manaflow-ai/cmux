@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: 일시 정지된 머신을 포함하여 총 2대의 VM 저장",
+      "savedMessage": "Starter: 일시 정지된 머신을 포함하여 총 1대의 VM 저장",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: 활성 Cloud VM 최대 2대",
+      "activeMessage": "Starter: Cloud VM 1대",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 매월 80 VM 시간을 공유하며 한도에 도달하면 VM이 일시 정지됩니다",
+      "hoursMessage": "Starter: 월간 시간 제한 없음",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: VM당 2 vCPU, 4 GiB RAM, 16 GiB 디스크",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "로컬 세션 기록"
           ],
           "go": [
-            "활성 Cloud VM 최대 2대",
+            "Cloud VM 1대",
             "VM당 2 vCPU, 4 GiB RAM, 16 GiB 디스크",
-            "일시 정지된 머신을 포함하여 총 2대의 VM 저장",
-            "매월 80 VM 시간을 공유하며 한도에 도달하면 VM이 일시 정지됩니다"
+            "커뮤니티 지원",
+            "월간 시간 제한 없음"
           ],
           "pro": [
             "Cloud VM의 클라우드 에이전트",
@@ -5341,10 +5341,10 @@
       "cta": "Starter 이용하기",
       "featuresLead": "포함 사항:",
       "features": [
-        "활성 Cloud VM 최대 2대",
+        "Cloud VM 1대",
         "VM당 2 vCPU, 4 GiB RAM, 16 GiB 디스크",
-        "일시 정지된 머신을 포함하여 총 2대의 VM 저장",
-        "매월 80 VM 시간을 공유하며 한도에 도달하면 VM이 일시 정지됩니다"
+        "커뮤니티 지원",
+        "월간 시간 제한 없음"
       ]
     }
   },

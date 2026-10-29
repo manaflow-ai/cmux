@@ -110,7 +110,7 @@ describe("Stripe catalog provisioning", () => {
     const description = (productId: string) => result.calls
       .find((call) => call.args.includes(`https://api.stripe.com/v1/products/${productId}`) && call.args.includes("POST"))
       ?.args.find((argument) => argument.startsWith("description="));
-    expect(description("prod_starter")).toContain("80 shared VM-hours per month; 2 saved machines total");
+    expect(description("prod_starter")).toContain("1 Cloud VM with 2 vCPU, 4 GiB RAM, and 16 GiB disk. No monthly hour cap.");
     expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app.");
     expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.");
     expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
@@ -127,7 +127,7 @@ describe("Stripe catalog provisioning", () => {
     );
     expect(maxPriceLookups.length).toBeGreaterThan(0);
     expect(result.calls.some((call) => call.args.includes("lookup_keys[]=cmux-go-monthly-10"))).toBe(true);
-    expect(result.calls.some((call) => call.args.includes("lookup_keys[]=cmux-starter-monthly-20"))).toBe(true);
+    expect(result.calls.some((call) => call.args.includes("lookup_keys[]=cmux-starter-monthly-15"))).toBe(true);
     expect(result.calls.some((call) => call.args.some((argument) => argument.includes("lookup_keys[]=cmux-max-yearly-1920")))).toBe(true);
     const portalCreate = result.calls.find(
       (call) =>
@@ -430,7 +430,7 @@ const products = {
   },
 };
 const prices = {
-  "cmux-starter-monthly-20": { id: "price_starter_month_20", unit_amount: 2000, interval: "month", product: "starter" },
+  "cmux-starter-monthly-15": { id: "price_starter_month_15", unit_amount: 1500, interval: "month", product: "starter" },
   "cmux-go-monthly-10": {
     id: "price_go_month_10",
     unit_amount: 1000,

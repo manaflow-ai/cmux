@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: บันทึก VM ได้ทั้งหมด 2 เครื่อง รวมเครื่องที่หยุดชั่วคราว",
+      "savedMessage": "Starter: บันทึก VM ได้ทั้งหมด 1 เครื่อง รวมเครื่องที่หยุดชั่วคราว",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: Cloud VM ที่ทำงานพร้อมกันได้สูงสุด 2 เครื่อง",
+      "activeMessage": "Starter: Cloud VM 1 เครื่อง",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: ใช้เวลา VM ร่วมกัน 80 ชั่วโมงต่อเดือน และจะหยุดชั่วคราวเมื่อถึงขีดจำกัด",
+      "hoursMessage": "Starter: ไม่จำกัดชั่วโมงรายเดือน",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: แต่ละ VM: 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "ประวัติเซสชันในเครื่อง"
           ],
           "go": [
-            "Cloud VM ที่ทำงานพร้อมกันได้สูงสุด 2 เครื่อง",
+            "Cloud VM 1 เครื่อง",
             "แต่ละ VM: 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
-            "บันทึก VM ได้ทั้งหมด 2 เครื่อง รวมเครื่องที่หยุดชั่วคราว",
-            "ใช้เวลา VM ร่วมกัน 80 ชั่วโมงต่อเดือน และจะหยุดชั่วคราวเมื่อถึงขีดจำกัด"
+            "การสนับสนุนจากชุมชน",
+            "ไม่จำกัดชั่วโมงรายเดือน"
           ],
           "pro": [
             "เอเจนต์บนคลาวด์ใน Cloud VMs",
@@ -5349,10 +5349,10 @@
       "cta": "เลือก Starter",
       "featuresLead": "ประกอบด้วย:",
       "features": [
-        "Cloud VM ที่ทำงานพร้อมกันได้สูงสุด 2 เครื่อง",
+        "Cloud VM 1 เครื่อง",
         "แต่ละ VM: 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
-        "บันทึก VM ได้ทั้งหมด 2 เครื่อง รวมเครื่องที่หยุดชั่วคราว",
-        "ใช้เวลา VM ร่วมกัน 80 ชั่วโมงต่อเดือน และจะหยุดชั่วคราวเมื่อถึงขีดจำกัด"
+        "การสนับสนุนจากชุมชน",
+        "ไม่จำกัดชั่วโมงรายเดือน"
       ]
     }
   },

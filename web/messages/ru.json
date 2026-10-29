@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: Всего 2 сохранённые ВМ, включая приостановленные",
+      "savedMessage": "Starter: Всего 1 сохранённая ВМ, включая приостановленную",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: До 2 активных виртуальных машин Cloud",
+      "activeMessage": "Starter: 1 виртуальная машина Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 80 общих ВМ-часов в месяц; при достижении лимита ВМ приостанавливаются",
+      "hoursMessage": "Starter: Без месячного лимита часов",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: Каждая ВМ: 2 vCPU, 4 ГиБ ОЗУ и 16 ГиБ диска",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "Локальная история сеансов"
           ],
           "go": [
-            "До 2 активных виртуальных машин Cloud",
+            "1 виртуальная машина Cloud",
             "Каждая ВМ: 2 vCPU, 4 ГиБ ОЗУ и 16 ГиБ диска",
-            "Всего 2 сохранённые ВМ, включая приостановленные",
-            "80 общих ВМ-часов в месяц; при достижении лимита ВМ приостанавливаются"
+            "Поддержка сообщества",
+            "Без месячного лимита часов"
           ],
           "pro": [
             "Облачные агенты на Cloud VMs",
@@ -5344,10 +5344,10 @@
       "cta": "Выбрать Starter",
       "featuresLead": "Включено:",
       "features": [
-        "До 2 активных виртуальных машин Cloud",
+        "1 виртуальная машина Cloud",
         "Каждая ВМ: 2 vCPU, 4 ГиБ ОЗУ и 16 ГиБ диска",
-        "Всего 2 сохранённые ВМ, включая приостановленные",
-        "80 общих ВМ-часов в месяц; при достижении лимита ВМ приостанавливаются"
+        "Поддержка сообщества",
+        "Без месячного лимита часов"
       ]
     }
   },

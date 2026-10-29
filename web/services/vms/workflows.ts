@@ -96,7 +96,6 @@ import {
   VmSnapshotNotFoundError,
   VmSnapshotInProgressError,
   VmSnapshotIdempotencyConflictError,
-  VmUsageLimitExceededError,
   VmPlanBudgetExceededError,
   VmGoShapeError,
   VM_MODEL_PLANE_FAILURE_CODES,
@@ -119,9 +118,8 @@ import {
   vmFreeAccessWindowDays,
   type VmResourcePoolPolicy,
 } from "./entitlements";
-import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "./planUsage";
-import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
+import { GO_PAUSE_INTENT_KEY } from "./goPause";
 import { networkSlugForTeam, networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirectory";
 import { detachNetworkTunnels } from "./teamNetworkAccess";
@@ -1165,7 +1163,7 @@ function requestedCreateDiskMb(input: Pick<Parameters<typeof createVm>[0], "imag
   return (input.resourceReservation ?? vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })).diskMb;
 }
 
-/** Read and reserve the caller's remaining Go runtime allowance; check the Pro and Max allowances. */
+/** Check the fixed Starter shape and any enabled Pro or Max allowances. */
 function requirePlanCreate(input: Pick<Parameters<typeof createVm>[0], "billingPlanId" | "userId" | "imageSize" | "resourceReservation" | "memoryMb">) {
   return Effect.gen(function* () {
     if (isBudgetPlanId(input.billingPlanId)) {
@@ -1176,16 +1174,8 @@ function requirePlanCreate(input: Pick<Parameters<typeof createVm>[0], "billingP
       yield* requireGoShape("go", input.resourceReservation ?? (input.imageSize ? {
         vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
       } : null));
-      const usage = yield* Effect.tryPromise({
-        try: () => getGoVmUsage(input.userId),
-        catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }),
-      });
-      if (usage && usage.remainingSeconds <= 0) {
-        return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
-      }
-      if (!usage) return yield* Effect.fail(new VmBillingError({ operation: "go_runtime", cause: "Go subscription is not active" }));
-      return usage.remainingSeconds;
     }
+    return undefined;
   });
 }
 
@@ -3758,46 +3748,20 @@ function resumeAfterLostRace(
   });
 }
 
-/** False when the Go allowance is used up, so the machine stays paused. */
+/** Clear any legacy cap before giving a Starter machine back after a race. */
 function restoreGoRuntimeBudget(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
 ): Effect.Effect<boolean, never> {
-  return Effect.gen(function* () {
-    const usage = yield* Effect.tryPromise(() => getGoVmUsage(vm.userId)).pipe(Effect.either);
-    if (usage._tag === "Left") {
-      yield* Effect.logWarning("Could not read Go usage for a machine a re-pause raced", {
-        event: "cloud_vm.repause_race.go_usage_unreadable",
-        vmId: vm.id,
-        providerVmId,
-        cause: usage.left,
-      });
-      return true;
-    }
-    if (usage.right && usage.right.remainingSeconds <= 0) {
-      yield* Effect.logWarning("Left a raced Go machine paused: its allowance is used up", {
-        event: "cloud_vm.repause_race.go_allowance_exhausted",
-        vmId: vm.id,
-        providerVmId,
-      });
-      return false;
-    }
-    const remainingSeconds = usage.right?.remainingSeconds ?? null;
-    yield* Effect.gen(function* () {
-      yield* setRuntimeBudget(providers, vm, providerVmId, remainingSeconds);
-    }).pipe(
-      Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
-      Effect.tapError((cause) => Effect.logWarning("Could not restore the runtime budget of a machine a re-pause raced", {
-        event: "cloud_vm.repause_race.go_budget_failed",
-        vmId: vm.id,
-        providerVmId,
-        cause,
-      })),
-      Effect.catchAll(() => Effect.void),
-    );
-    return true;
-  });
+  return setRuntimeBudget(providers, vm, providerVmId, null).pipe(
+    Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+    Effect.tapError((cause) => Effect.logWarning("Could not clear the runtime cap of a machine a re-pause raced", {
+      event: "cloud_vm.repause_race.go_budget_failed", vmId: vm.id, providerVmId, cause,
+    })),
+    Effect.catchAll(() => Effect.void),
+    Effect.as(true),
+  );
 }
 
 function boundedVmStatusReconcileLimit(limit: number | undefined): number {
@@ -3906,9 +3870,7 @@ function resumeUntilRunning(
     const resume = providers.resume;
     if (!resume) return;
     if (vm.billingPlanId === "go") {
-      const usage = yield* Effect.tryPromise({ try: () => getGoVmUsage(vm.userId), catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }) });
-      if (usage && usage.remainingSeconds <= 0) return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
-      yield* setRuntimeBudget(providers, vm, providerVmId, usage?.remainingSeconds ?? null);
+      yield* setRuntimeBudget(providers, vm, providerVmId, null);
     } else {
       yield* requirePlanBudget(vm.billingPlanId, vm.userId, null);
     }
@@ -4046,16 +4008,6 @@ function preflightResumeIfSuspended(
     const getStatus = providers.getStatus;
     const resume = providers.resume;
     if (!getStatus || !resume) return false;
-    if (vm.billingPlanId === "go") {
-      const usage = yield* Effect.tryPromise({
-        try: () => getGoVmUsage(vm.userId),
-        catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }),
-      });
-      if (usage && usage.remainingSeconds <= 0) {
-        yield* pauseGoVm(repo, providers, vm, providerVmId, usage.usedSeconds);
-        return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
-      }
-    }
     const forceProviderProbe = options.forceProviderProbe === true;
     // A passive/exec path can trust the row and let the provider operation
     // perform its own wake. User-open paths opt into a live probe because a
@@ -5867,14 +5819,12 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
     }
     if (vm.providerMetadata[GO_PAUSE_INTENT_KEY] != null) {
       const repo = yield* VmRepository;
+      if (!repo.mergeProviderMetadata) return yield* Effect.fail(new VmDatabaseError({ operation: "cancel_go_pause", cause: "Durable metadata writes are unavailable" }));
       if (vm.billingPlanId === "go") {
         const providers = yield* VmProviderGateway;
-        yield* pauseGoVm(repo, providers, vm, input.providerVmId);
-        vm = { ...vm, status: "paused" };
-      } else {
-        if (!repo.mergeProviderMetadata) return yield* Effect.fail(new VmDatabaseError({ operation: "cancel_go_pause", cause: "Durable metadata writes are unavailable" }));
-        yield* repo.mergeProviderMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
+        yield* setRuntimeBudget(providers, vm, input.providerVmId, null);
       }
+      yield* repo.mergeProviderMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
       vm = { ...vm, providerMetadata: { ...vm.providerMetadata, [GO_PAUSE_INTENT_KEY]: null } };
     }
     // Existing machines are grandfathered during the entitlement rollout.

@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: 2 VM salvate in totale, incluse le macchine in pausa",
+      "savedMessage": "Starter: 1 VM salvata in totale, anche se in pausa",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: Fino a 2 VM Cloud attive",
+      "activeMessage": "Starter: 1 VM Cloud",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 80 ore VM condivise al mese; le VM si mettono in pausa al limite",
+      "hoursMessage": "Starter: Nessun limite mensile di ore",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: Ogni VM: 2 vCPU, 4 GiB di RAM e 16 GiB di disco",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "Cronologia delle sessioni in locale"
           ],
           "go": [
-            "Fino a 2 VM Cloud attive",
+            "1 VM Cloud",
             "Ogni VM: 2 vCPU, 4 GiB di RAM e 16 GiB di disco",
-            "2 VM salvate in totale, incluse le macchine in pausa",
-            "80 ore VM condivise al mese; le VM si mettono in pausa al limite"
+            "Supporto della comunità",
+            "Nessun limite mensile di ore"
           ],
           "pro": [
             "Agenti cloud su Cloud VMs",
@@ -5344,10 +5344,10 @@
       "cta": "Scegli Starter",
       "featuresLead": "Include:",
       "features": [
-        "Fino a 2 VM Cloud attive",
+        "1 VM Cloud",
         "Ogni VM: 2 vCPU, 4 GiB di RAM e 16 GiB di disco",
-        "2 VM salvate in totale, incluse le macchine in pausa",
-        "80 ore VM condivise al mese; le VM si mettono in pausa al limite"
+        "Supporto della comunità",
+        "Nessun limite mensile di ore"
       ]
     }
   },

@@ -379,7 +379,7 @@ pro_product_id="$(canonical_product "cmux-pro-monthly" "cmux Pro" "pro")"
 echo "Resolved Pro product." >&2
 go_product_id="$(canonical_product "cmux-go-monthly-10" "cmux Go" "go")"
 echo "Resolved legacy Go product." >&2
-starter_product_id="$(canonical_product "cmux-starter-monthly-20" "cmux Starter" "go")"
+starter_product_id="$(canonical_product "cmux-starter-monthly-15" "cmux Starter" "go")"
 echo "Resolved Starter product." >&2
 max_product_id="$(canonical_product "cmux-max-monthly-200" "cmux Max" "max")"
 echo "Resolved Max product." >&2
@@ -398,7 +398,7 @@ ensure_product_description() {
     --data-urlencode "description=${description}" >/dev/null
   echo "Set description for ${product_id}." >&2
 }
-ensure_product_description "$starter_product_id" "Up to 2 Cloud VMs, each with 2 vCPU, 4 GiB RAM, and 16 GiB disk. 80 shared VM-hours per month; 2 saved machines total. Community support."
+ensure_product_description "$starter_product_id" "1 Cloud VM with 2 vCPU, 4 GiB RAM, and 16 GiB disk. No monthly hour cap. Community support."
 ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app."
 ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM."
 ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."
@@ -407,7 +407,7 @@ ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, 
 # immutable, so each price change mints a new lookup key carrying the amount.
 ensure_price "$pro_product_id" "cmux-pro-monthly-50" "5000" "month" "cmux Pro Monthly"
 # Starter is monthly only; the original Go price stays active for subscribers.
-ensure_price "$starter_product_id" "cmux-starter-monthly-20" "2000" "month" "cmux Starter Monthly"
+ensure_price "$starter_product_id" "cmux-starter-monthly-15" "1500" "month" "cmux Starter Monthly"
 ensure_price "$go_product_id" "cmux-go-monthly-10" "1000" "month" "cmux Go Monthly"
 # Max is sold monthly or yearly at the same 20% annual discount as Pro.
 ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"

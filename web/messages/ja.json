@@ -297,11 +297,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: 一時停止中を含めて合計 2 台の VM を保存",
+      "savedMessage": "Starter: 一時停止中も含めて保存できる VM は合計 1 台",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: アクティブな Cloud VM は最大 2 台",
+      "activeMessage": "Starter: Cloud VM 1 台",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 毎月 80 VM 時間を共有し、上限で VM は一時停止します",
+      "hoursMessage": "Starter: 月間の時間上限なし",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: 各 VM: 2 vCPU、4 GiB RAM、16 GiB ディスク",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -881,10 +881,10 @@
             "ローカルのセッション履歴"
           ],
           "go": [
-            "アクティブな Cloud VM は最大 2 台",
+            "Cloud VM 1 台",
             "各 VM: 2 vCPU、4 GiB RAM、16 GiB ディスク",
-            "一時停止中を含めて合計 2 台の VM を保存",
-            "毎月 80 VM 時間を共有し、上限で VM は一時停止します"
+            "コミュニティサポート",
+            "月間の時間上限なし"
           ],
           "pro": [
             "Cloud VM 上のクラウドエージェント",
@@ -1837,10 +1837,10 @@
       "cta": "Starter を入手",
       "featuresLead": "含まれるもの:",
       "features": [
-        "アクティブな Cloud VM は最大 2 台",
+        "Cloud VM 1 台",
         "各 VM: 2 vCPU、4 GiB RAM、16 GiB ディスク",
-        "一時停止中を含めて合計 2 台の VM を保存",
-        "毎月 80 VM 時間を共有し、上限で VM は一時停止します"
+        "コミュニティサポート",
+        "月間の時間上限なし"
       ]
     },
     "pro": {
@@ -1976,7 +1976,7 @@
           "max": "5",
           "team": "有料シートごとに 5",
           "enterprise": "カスタム",
-          "go": "2"
+          "go": "1"
         },
         {
           "label": "Cloud VM リソース",

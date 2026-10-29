@@ -2,100 +2,48 @@
 BEGIN;
 DO $$
 DECLARE
-  u text := 'go-meter-test-' || gen_random_uuid();
-  first_id uuid;
-  second_id uuid;
+  u text := 'starter-test-' || gen_random_uuid();
+  machine uuid;
   rejected boolean;
   constraint_seen text;
 BEGIN
   INSERT INTO stripe_subscriptions(id, customer_id, stack_user_id, status, plan, scope, current_period_end, raw)
-    VALUES (u, u, u, 'active', 'go', 'user', now() + interval '27 days',
-      jsonb_build_object('items', jsonb_build_object('data', jsonb_build_array(jsonb_build_object('current_period_start',extract(epoch from now() - interval '3 days'))))));
+    VALUES (u,u,u,'active','go','user',now()+interval '27 days',jsonb_build_object('current_period_start',extract(epoch from now()-interval '3 days')));
   INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
-    VALUES (u,u,'go','freestyle','test','running') RETURNING id INTO first_id;
-  UPDATE cloud_vms SET status='running' WHERE id=first_id;
-  IF (SELECT count(*) FROM cloud_vm_runtime_intervals WHERE vm_id=first_id AND ended_at IS NULL) <> 1 THEN
-    RAISE EXCEPTION 'repeated running update duplicated billing';
+    VALUES (u,u,'go','freestyle','test','running') RETURNING id INTO machine;
+  UPDATE cloud_vms SET status='running' WHERE id=machine;
+  IF (SELECT count(*) FROM cloud_vm_runtime_intervals WHERE vm_id=machine AND ended_at IS NULL) <> 1 THEN
+    RAISE EXCEPTION 'repeated running update duplicated metering';
   END IF;
-  INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
-    VALUES (u,u || '-other-team','go','freestyle','test','running') RETURNING id INTO second_id;
-  IF (SELECT count(*) FROM cloud_vms WHERE user_id=u AND status='running') <> 2 THEN
-    RAISE EXCEPTION 'Starter did not allow both saved machines to run';
-  END IF;
-  UPDATE cloud_vms SET status='paused' WHERE id=first_id;
-  IF EXISTS (SELECT 1 FROM cloud_vm_runtime_intervals WHERE vm_id=first_id AND ended_at IS NULL) THEN
-    RAISE EXCEPTION 'pause did not close runtime';
-  END IF;
-  UPDATE cloud_vms SET status='paused' WHERE id=second_id;
   rejected := false;
   BEGIN
     INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
-      VALUES (u,u,'go','freestyle','test','paused');
+      VALUES (u,u || '-other-team','go','freestyle','test','running');
   EXCEPTION WHEN check_violation THEN
     GET STACKED DIAGNOSTICS constraint_seen=CONSTRAINT_NAME;
     rejected := constraint_seen='cmux_go_saved_limit';
   END;
-  IF NOT rejected THEN RAISE EXCEPTION 'saved cap failed'; END IF;
-  UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '41 hours', ended_at=now() WHERE vm_id IN (first_id, second_id);
-  UPDATE cloud_vms SET status='destroyed', destroyed_at=now() WHERE id=first_id;
-  rejected := false;
-  BEGIN
-    UPDATE cloud_vms SET status='running' WHERE id=second_id;
-  EXCEPTION WHEN check_violation THEN
-    GET STACKED DIAGNOSTICS constraint_seen=CONSTRAINT_NAME;
-    rejected := constraint_seen='cmux_go_hours_limit';
-  END;
-  IF NOT rejected THEN RAISE EXCEPTION 'deleting a VM bypassed the runtime cap'; END IF;
-  UPDATE stripe_subscriptions SET current_period_end=now()+interval '1 month', raw=jsonb_build_object('current_period_start',extract(epoch from now())) WHERE id=u;
-  UPDATE cloud_vms SET status='running' WHERE id=second_id;
-  IF (SELECT status FROM cloud_vms WHERE id=second_id) <> 'running' THEN RAISE EXCEPTION 'renewal did not restore access'; END IF;
-  RAISE NOTICE 'PASS: runtime transitions, cross-team cap, saved cap, shared hours, deleted VM accounting, renewal';
-END;
-$$;
-
--- An App Store Go subscription (no web subscription row) has a billing period.
-DO $$
-DECLARE
-  u text := 'go-meter-apple-' || gen_random_uuid();
-  apple_vm uuid;
-  rejected boolean;
-  constraint_seen text;
-BEGIN
+  IF NOT rejected THEN RAISE EXCEPTION 'second running VM bypassed account cap'; END IF;
+  UPDATE cloud_vms SET status='paused' WHERE id=machine;
+  IF EXISTS (SELECT 1 FROM cloud_vm_runtime_intervals WHERE vm_id=machine AND ended_at IS NULL) THEN
+    RAISE EXCEPTION 'pause did not close runtime';
+  END IF;
   rejected := false;
   BEGIN
     INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
-      VALUES (u,u,'go','freestyle','test','running');
+      VALUES (u,u || '-other-team','go','freestyle','test','paused');
   EXCEPTION WHEN check_violation THEN
     GET STACKED DIAGNOSTICS constraint_seen=CONSTRAINT_NAME;
-    rejected := constraint_seen='cmux_go_period_unavailable';
+    rejected := constraint_seen='cmux_go_saved_limit';
   END;
-  IF NOT rejected THEN RAISE EXCEPTION 'Go started without any subscription'; END IF;
-  INSERT INTO apple_subscriptions(original_transaction_id,user_id,bundle_id,environment,product_id,plan_id,status,
-      purchase_date,expires_at,state_signed_at)
-    VALUES (u,u,'com.cmux.app','Production','com.cmux.app.go.monthly','go','active',
-      now() - interval '4 days', now() + interval '26 days', now());
+  IF NOT rejected THEN RAISE EXCEPTION 'paused VM bypassed saved cap'; END IF;
+  UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '1000 hours', ended_at=now() WHERE vm_id=machine;
+  UPDATE cloud_vms SET status='running' WHERE id=machine;
+  IF (SELECT status FROM cloud_vms WHERE id=machine) <> 'running' THEN RAISE EXCEPTION 'Starter still enforces an hour cap'; END IF;
+  UPDATE cloud_vms SET status='destroyed',destroyed_at=now() WHERE id=machine;
   INSERT INTO cloud_vms(user_id,billing_team_id,billing_plan_id,provider,image_id,status)
-    VALUES (u,u,'go','freestyle','test','running') RETURNING id INTO apple_vm;
-  UPDATE cloud_vms SET status='paused' WHERE id=apple_vm;
-  UPDATE cloud_vm_runtime_intervals SET started_at=now()-interval '81 hours', ended_at=now() WHERE vm_id=apple_vm;
-  rejected := false;
-  BEGIN
-    UPDATE cloud_vms SET status='running' WHERE id=apple_vm;
-  EXCEPTION WHEN check_violation THEN
-    GET STACKED DIAGNOSTICS constraint_seen=CONSTRAINT_NAME;
-    rejected := constraint_seen='cmux_go_hours_limit';
-  END;
-  IF NOT rejected THEN RAISE EXCEPTION 'App Store Go bypassed the runtime cap'; END IF;
-  UPDATE apple_subscriptions SET status='expired' WHERE original_transaction_id=u;
-  rejected := false;
-  BEGIN
-    UPDATE cloud_vms SET status='running' WHERE id=apple_vm;
-  EXCEPTION WHEN check_violation THEN
-    GET STACKED DIAGNOSTICS constraint_seen=CONSTRAINT_NAME;
-    rejected := constraint_seen='cmux_go_period_unavailable';
-  END;
-  IF NOT rejected THEN RAISE EXCEPTION 'an expired App Store Go subscription kept a period'; END IF;
-  RAISE NOTICE 'PASS: App Store Go period, runtime cap, expiry';
+    VALUES (u,u,'go','freestyle','test','running');
+  RAISE NOTICE 'PASS: one saved/active VM across teams, paused cap, no hour cap, replacement after deletion';
 END;
 $$;
 ROLLBACK;

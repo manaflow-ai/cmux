@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: Totalt 2 lagrede VM-er, inkludert maskiner på pause",
+      "savedMessage": "Starter: Totalt 1 lagret VM, også når den er på pause",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: Opptil 2 aktive Cloud-VM-er",
+      "activeMessage": "Starter: 1 Cloud-VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 80 delte VM-timer per måned; VM-er settes på pause ved grensen",
+      "hoursMessage": "Starter: Ingen månedlig timegrense",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: Hver VM: 2 vCPU, 4 GiB RAM og 16 GiB disk",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "Lokal økthistorikk"
           ],
           "go": [
-            "Opptil 2 aktive Cloud-VM-er",
+            "1 Cloud-VM",
             "Hver VM: 2 vCPU, 4 GiB RAM og 16 GiB disk",
-            "Totalt 2 lagrede VM-er, inkludert maskiner på pause",
-            "80 delte VM-timer per måned; VM-er settes på pause ved grensen"
+            "Brukerstøtte fra fellesskapet",
+            "Ingen månedlig timegrense"
           ],
           "pro": [
             "Skyagenter på Cloud VMs",
@@ -5341,10 +5341,10 @@
       "cta": "Velg Starter",
       "featuresLead": "Inkluderer:",
       "features": [
-        "Opptil 2 aktive Cloud-VM-er",
+        "1 Cloud-VM",
         "Hver VM: 2 vCPU, 4 GiB RAM og 16 GiB disk",
-        "Totalt 2 lagrede VM-er, inkludert maskiner på pause",
-        "80 delte VM-timer per måned; VM-er settes på pause ved grensen"
+        "Brukerstøtte fra fellesskapet",
+        "Ingen månedlig timegrense"
       ]
     }
   },

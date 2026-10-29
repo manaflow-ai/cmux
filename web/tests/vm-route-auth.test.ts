@@ -552,7 +552,7 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
-  test("publishes Starter's two-machine and 80-hour allowance in VM list limits", async () => {
+  test("publishes Starter's one-machine allowance without an hourly cap in VM list limits", async () => {
     getUser.mockResolvedValue({
       ...authedStackUser(),
       selectedTeam: null,
@@ -564,11 +564,13 @@ describe("VM REST auth", () => {
     const response = await GET(new Request("https://cmux.test/api/vm"));
 
     expect(response.status).toBe(200);
-    expect((await response.json()).limits).toMatchObject({
+    const { limits } = await response.json();
+    expect(limits).not.toHaveProperty("vmHoursIncluded");
+    expect(limits).not.toHaveProperty("vmHoursUsed");
+    expect(limits).toMatchObject({
       planId: "go",
-      maxActiveVms: 2,
-      savedVmLimit: 2,
-      vmHoursIncluded: 80,
+      maxActiveVms: 1,
+      savedVmLimit: 1,
       maxVcpus: 2,
       maxMemoryMb: 4096,
       maxDiskMb: 16384,

@@ -36,10 +36,10 @@ export const PRO_PRICING_USD = {
 /** Starter keeps the historical `go` plan ID for existing subscriptions. */
 export const GO_PRICING_USD = {
   month: {
-    billedAmount: 20,
-    monthlyEquivalent: 20,
+    billedAmount: 15,
+    monthlyEquivalent: 15,
     discountPercent: 0,
-    lookupKey: "cmux-starter-monthly-20",
+    lookupKey: "cmux-starter-monthly-15",
   },
 } as const satisfies MonthlyOnlyPlanPricing;
 
@@ -108,6 +108,7 @@ export function isPortalSwitchableLookupKey(lookupKey: string | null | undefined
  * the subscription's own Stripe amount, never from these keys.
  */
 export const LEGACY_PRICE_LOOKUP_KEYS = [
+  "cmux-starter-monthly-20", // $20/mo; existing Starter subscriptions only
   "cmux-go-monthly-10", // $10/mo; existing Go subscriptions only
   "cmux-pro-monthly", // $30/mo
   "cmux-pro-yearly", // $240/yr

@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: 共可儲存 2 台 VM，包含已暫停的機器",
+      "savedMessage": "Starter: 共可儲存 1 台 VM，包含已暫停的機器",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: 最多 2 台作用中的 Cloud VM",
+      "activeMessage": "Starter: 1 台 Cloud VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 每月共用 80 VM 小時；達到上限後 VM 將暫停",
+      "hoursMessage": "Starter: 無每月時數上限",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: 每台 VM：2 vCPU、4 GiB 記憶體和 16 GiB 磁碟",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "本機工作階段紀錄"
           ],
           "go": [
-            "最多 2 台作用中的 Cloud VM",
+            "1 台 Cloud VM",
             "每台 VM：2 vCPU、4 GiB 記憶體和 16 GiB 磁碟",
-            "共可儲存 2 台 VM，包含已暫停的機器",
-            "每月共用 80 VM 小時；達到上限後 VM 將暫停"
+            "社群支援",
+            "無每月時數上限"
           ],
           "pro": [
             "在 Cloud VM 上執行雲端代理",
@@ -5343,10 +5343,10 @@
       "cta": "取得 Starter",
       "featuresLead": "包含：",
       "features": [
-        "最多 2 台作用中的 Cloud VM",
+        "1 台 Cloud VM",
         "每台 VM：2 vCPU、4 GiB 記憶體和 16 GiB 磁碟",
-        "共可儲存 2 台 VM，包含已暫停的機器",
-        "每月共用 80 VM 小時；達到上限後 VM 將暫停"
+        "社群支援",
+        "無每月時數上限"
       ]
     }
   },

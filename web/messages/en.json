@@ -297,11 +297,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: 2 saved VMs total, including paused machines",
+      "savedMessage": "Starter: 1 saved VM total, including paused machines",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: Up to 2 active Cloud VMs",
+      "activeMessage": "Starter: 1 Cloud VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 80 shared VM-hours each month; VMs pause at the limit",
+      "hoursMessage": "Starter: No monthly hour cap",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: Each VM: 2 vCPU, 4 GiB RAM, and 16 GiB disk",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -881,10 +881,10 @@
             "Local session history"
           ],
           "go": [
-            "Up to 2 active Cloud VMs",
+            "1 Cloud VM",
             "Each VM: 2 vCPU, 4 GiB RAM, and 16 GiB disk",
-            "2 saved VMs total, including paused machines",
-            "80 shared VM-hours each month; VMs pause at the limit"
+            "Community support",
+            "No monthly hour cap"
           ],
           "pro": [
             "Cloud agents on Cloud VMs",
@@ -1837,10 +1837,10 @@
       "cta": "Get Starter",
       "featuresLead": "Includes:",
       "features": [
-        "Up to 2 active Cloud VMs",
+        "1 Cloud VM",
         "Each VM: 2 vCPU, 4 GiB RAM, and 16 GiB disk",
-        "2 saved VMs total, including paused machines",
-        "80 shared VM-hours each month; VMs pause at the limit"
+        "Community support",
+        "No monthly hour cap"
       ]
     },
     "pro": {
@@ -1976,7 +1976,7 @@
           "max": "5",
           "team": "5 per paid seat",
           "enterprise": "Custom",
-          "go": "2"
+          "go": "1"
         },
         {
           "label": "Cloud VM resources",

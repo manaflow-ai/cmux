@@ -580,7 +580,7 @@ function activeVmLimitForPlan(
     };
   }
 
-  if (planId === GO_PLAN_ID) return { limit: 2, brake: false };
+  if (planId === GO_PLAN_ID) return { limit: 1, brake: false };
 
   // Paid allowance is product policy. Legacy deployment overrides must not
   // silently reduce it or prevent Team seats from scaling. The existing create

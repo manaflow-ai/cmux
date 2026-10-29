@@ -212,7 +212,7 @@ describe("localized pricing page", () => {
       ),
     ).toEqual({
       label: "Concurrent Cloud VMs",
-      go: "2",
+      go: "1",
       free: "false",
       pro: "5",
       max: "5",
@@ -322,9 +322,9 @@ describe("localized pricing page", () => {
     expect(html).toContain("Yearly");
     expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
     expect(html).toContain("Get Starter");
-    expect(html).toContain("$20");
-    expect(html).toContain("80 shared VM-hours each month");
-    expect(html).toContain("Up to 2 active Cloud VMs");
+    expect(html).toContain("$15");
+    expect(html).toContain("No monthly hour cap");
+    expect(html).toContain("1 Cloud VM");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");

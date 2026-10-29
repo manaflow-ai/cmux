@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: Ukupno 2 sačuvane mašine, uključujući pauzirane",
+      "savedMessage": "Starter: Ukupno 1 sačuvana mašina, uključujući pauziranu",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: Do 2 aktivne Cloud virtuelne mašine",
+      "activeMessage": "Starter: 1 Cloud virtuelna mašina",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: 80 zajedničkih sati virtuelnih mašina mjesečno; mašine se pauziraju na ograničenju",
+      "hoursMessage": "Starter: Bez mjesečnog ograničenja sati",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: Svaka mašina: 2 vCPU, 4 GiB RAM-a i 16 GiB diska",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "Lokalna historija sesija"
           ],
           "go": [
-            "Do 2 aktivne Cloud virtuelne mašine",
+            "1 Cloud virtuelna mašina",
             "Svaka mašina: 2 vCPU, 4 GiB RAM-a i 16 GiB diska",
-            "Ukupno 2 sačuvane mašine, uključujući pauzirane",
-            "80 zajedničkih sati virtuelnih mašina mjesečno; mašine se pauziraju na ograničenju"
+            "Podrška zajednice",
+            "Bez mjesečnog ograničenja sati"
           ],
           "pro": [
             "Cloud agenti na Cloud VMs",
@@ -5344,10 +5344,10 @@
       "cta": "Odaberi Starter",
       "featuresLead": "Uključuje:",
       "features": [
-        "Do 2 aktivne Cloud virtuelne mašine",
+        "1 Cloud virtuelna mašina",
         "Svaka mašina: 2 vCPU, 4 GiB RAM-a i 16 GiB diska",
-        "Ukupno 2 sačuvane mašine, uključujući pauzirane",
-        "80 zajedničkih sati virtuelnih mašina mjesečno; mašine se pauziraju na ograničenju"
+        "Podrška zajednice",
+        "Bez mjesečnog ograničenja sati"
       ]
     }
   },

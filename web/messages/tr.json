@@ -130,11 +130,11 @@
       "action": "cmux vm new --size {max}g"
     },
     "goLimit": {
-      "savedMessage": "Starter: Duraklatılan makineler dahil toplam 2 kayıtlı VM",
+      "savedMessage": "Starter: Duraklatılan makine dahil toplam 1 kayıtlı VM",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
-      "activeMessage": "Starter: En fazla 2 etkin Cloud VM",
+      "activeMessage": "Starter: 1 Cloud VM",
       "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
-      "hoursMessage": "Starter: Ayda paylaşılan 80 VM saati; sınıra ulaşınca VM’ler duraklatılır",
+      "hoursMessage": "Starter: Aylık saat sınırı yok",
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Starter: Her VM: 2 vCPU, 4 GiB RAM ve 16 GiB disk",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
@@ -568,10 +568,10 @@
             "Yerel oturum geçmişi"
           ],
           "go": [
-            "En fazla 2 etkin Cloud VM",
+            "1 Cloud VM",
             "Her VM: 2 vCPU, 4 GiB RAM ve 16 GiB disk",
-            "Duraklatılan makineler dahil toplam 2 kayıtlı VM",
-            "Ayda paylaşılan 80 VM saati; sınıra ulaşınca VM’ler duraklatılır"
+            "Topluluk desteği",
+            "Aylık saat sınırı yok"
           ],
           "pro": [
             "Cloud VMs üzerinde bulut ajanları",
@@ -5342,10 +5342,10 @@
       "cta": "Starter seç",
       "featuresLead": "Dahil olanlar:",
       "features": [
-        "En fazla 2 etkin Cloud VM",
+        "1 Cloud VM",
         "Her VM: 2 vCPU, 4 GiB RAM ve 16 GiB disk",
-        "Duraklatılan makineler dahil toplam 2 kayıtlı VM",
-        "Ayda paylaşılan 80 VM saati; sınıra ulaşınca VM’ler duraklatılır"
+        "Topluluk desteği",
+        "Aylık saat sınırı yok"
       ]
     }
   },
