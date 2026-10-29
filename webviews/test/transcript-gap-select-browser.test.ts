@@ -448,12 +448,15 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
       expect(await selected(page)).not.toContain("Invisible duplicate");
       await page.close();
     });
-    test(`${name}: a gap beside a code handoff anchors visible text`, async () => {
+    test(`${name}: padding inside content remains owned by that content`, async () => {
       const page = await open(name, "agent", "agent");
       await page.evaluate(() => {
         const text = document.querySelector('[data-row-id="upper"] .cv-md')!;
         text.innerHTML =
           '<div class="cv-code-handoff is-plain" style="padding-bottom:40px"><pre class="cv-code-plain selectable"><span id="visible-gap-code">upper keeper visible code</span></pre><div class="cv-code-handoff__real" style="top:20px"><pre class="selectable">Invisible duplicate code</pre></div></div>';
+        text.addEventListener("pointerdown", (event) => {
+          document.body.dataset.contentPrevented = String(event.defaultPrevented);
+        });
       });
       await paint(page);
       const point = await page.evaluate(() => {
@@ -464,8 +467,41 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
       });
       const after = await page.locator('[data-row-id="after"] .cv-md').boundingBox();
       await drag(page, point, { x: after!.x + 90, y: after!.y + 8 });
-      expect(await page.evaluate(() => getSelection()?.anchorNode?.parentElement?.id)).toBe("visible-gap-code");
+      expect(await page.locator("body").getAttribute("data-content-prevented")).toBe("false");
       await page.close();
+    });
+    test(`${name}: ReplyMedia native play and seek presses never start transcript selection`, async () => {
+      const page = await open(name, "agent", "agent");
+      try {
+        await page.evaluate(() =>
+          (window as unknown as { __mountReplyMedia(rowId: string): Promise<void> }).__mountReplyMedia("upper"),
+        );
+        const media = page.locator("#gap-reply-media");
+        const video = media.locator("video");
+        await video.waitFor();
+        await media.locator(".cv-media__poster").click();
+        await page.waitForFunction(() => document.querySelector<HTMLVideoElement>("#gap-reply-media video")?.controls);
+        await paint(page);
+        await page.evaluate(() => getSelection()?.removeAllRanges());
+        const box = (await video.boundingBox())!;
+        // Real browser input on the native play and seek strips. Their shadow UI retargets to
+        // <video>; neither the strips nor the video body are transcript padding.
+        const points = [
+          { x: box.x + 18, y: box.y + box.height - 16 },
+          { x: box.x + box.width / 2, y: box.y + box.height - 36 },
+          { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+        ];
+        for (const point of points) {
+          await page.mouse.click(point.x, point.y);
+          await paint(page);
+          expect(await selected(page)).toBe("");
+        }
+      } finally {
+        await page.evaluate(() =>
+          (window as unknown as { __unmountReplyMedia(): Promise<void> }).__unmountReplyMedia(),
+        );
+        await page.close();
+      }
     });
   }
   if (process.env.CMUX_GAP_CAPTURE)

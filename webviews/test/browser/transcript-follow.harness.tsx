@@ -53,6 +53,7 @@ let sessionId = "session-1";
 let dock: HTMLElement | null = null;
 let working = false;
 const shadowMounts: Array<{ root: ReturnType<typeof createRoot>; host: HTMLElement }> = [];
+let mediaMount: { root: ReturnType<typeof createRoot>; host: HTMLElement } | undefined;
 const draw = () =>
   view.render(
     <VirtualTranscript
@@ -136,6 +137,34 @@ const draw = () =>
     host.remove();
   }
   clearShadowHighlight();
+};
+// Actual ReplyMedia and its native controls, inside the transcript selection event surface.
+(window as unknown as { __mountReplyMedia(rowId: string): Promise<void> }).__mountReplyMedia = async (rowId) => {
+  const [{ ReplyMedia }, { seedLinkStore }, { setChipHost }, { LOGIN_TESTS_MP4 }] = await Promise.all([
+    import("../../src/agent-session/acpmux/chips/ReplyMedia"),
+    import("../../src/agent-session/acpmux/chips/linkStore"),
+    import("../../src/agent-session/acpmux/chips/host"),
+    import("../../src/gallery/fixtures/toolImages"),
+  ]);
+  const path = "/tmp/project/gap-selection.mp4";
+  seedLinkStore({ paths: { [path]: { place: "root", folder: false } } });
+  setChipHost(async (method) =>
+    method === "media.load" ? { src: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } : {},
+  );
+  const host = document.createElement("div");
+  host.id = "gap-reply-media";
+  host.style.cssText = "width:360px;max-width:100%";
+  document.querySelector(`[data-row-id="${rowId}"] .cv-md`)!.append(host);
+  const root = createRoot(host);
+  mediaMount = { root, host };
+  root.render(<ReplyMedia path={path} alt="Selection fixture video" />);
+};
+(window as unknown as { __unmountReplyMedia(): Promise<void> }).__unmountReplyMedia = async () => {
+  mediaMount?.root.unmount();
+  mediaMount?.host.remove();
+  mediaMount = undefined;
+  const { setChipHost } = await import("../../src/agent-session/acpmux/chips/host");
+  setChipHost(undefined);
 };
 (window as unknown as { __showRawRows: (rows: AcpmuxRow[]) => void }).__showRawRows = (rows) => {
   rawRows = true;

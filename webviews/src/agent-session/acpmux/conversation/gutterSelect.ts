@@ -79,11 +79,6 @@ type CaretDocument = Document & {
   caretRangeFromPoint?: (x: number, y: number) => Range | null;
 };
 
-// Non-semantic pointer controls mark their own hit area with data-interactive, including their
-// padding and descendants; the selection handler need not know each row component's classes.
-const INTERACTIVE_TARGETS =
-  'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [draggable="true"], [data-interactive], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .cv-worked, .cv-activity, .cv-tool, .cv-iconbtn, .acpmux-row__copy';
-
 /// The caret at a client point: the standard caretPositionFromPoint, else WebKit's and older
 /// Chromium's caretRangeFromPoint.
 export function caretAt(doc: Document, x: number, y: number): Caret | undefined {
@@ -430,18 +425,18 @@ export function installGutterSelect(
     if (shadowTextPress(event)) return;
     // A press that only closes an open composer menu does nothing else (menuPressGuard.ts).
     if (swallowsPress(doc)) return;
-    // Only the transcript's empty gutter or row spacing: the scroller, its spacer and the thread's
-    // own box, plus a row's blank padding. The minimap, Find bar and controls remain in charge of
-    // their presses; the blank composer location strip is the one overlay exception.
+    // Own only known empty layout boxes, never a content element or its descendants. Row-local
+    // padding has an explicit hit target, so native media and future content need no denylist.
     const target = event.target;
     const directTranscriptTarget = target === scroller || target === thread || target === thread.parentElement;
     const targetElement = target instanceof Element ? target : undefined;
-    const targetRow = targetElement?.closest<HTMLElement>(".acpmux-row");
     const rowGapPress = Boolean(
-      targetRow && thread.contains(targetRow) && !targetElement?.closest(INTERACTIVE_TARGETS),
+      targetElement?.closest<HTMLElement>("[data-transcript-gap='row']") &&
+        thread.contains(targetElement.closest("[data-transcript-gap='row']")),
     );
-    const strip = targetElement?.closest<HTMLElement>(".acpmux-composer-strip");
-    const stripPress = Boolean(strip && eventSurface.contains(strip) && !targetElement?.closest(INTERACTIVE_TARGETS));
+    const stripPress = Boolean(
+      targetElement?.matches(".acpmux-composer-strip") && eventSurface.contains(targetElement),
+    );
     if (!directTranscriptTarget && !stripPress && !rowGapPress) return;
     const geometry = measure(scroller, thread);
     if (!geometry) return;
