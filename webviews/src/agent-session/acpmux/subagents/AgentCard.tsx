@@ -1,7 +1,7 @@
 // A sub-session as the transcript's cards draw it (conversation/SubsessionCallCard.tsx): its
 // harness's mark, name, model, state (the working spinner, never a dot), and what its turn does now.
-// Its head is the chat target when one exists. The caller reads its state live (subsessions.ts) and
-// adds a prompt or a reply below.
+// When a session can open, its header row is the chat target. The caller reads its state live
+// (subsessions.ts) and adds a prompt or a reply below.
 import type { ReactNode } from "react";
 import { useAgentAvatar } from "../agentAvatar";
 import { Spinner } from "../conversation/icons";
@@ -34,7 +34,7 @@ export type AgentCardProps = {
   /// Its state's word when the state's own is not it (a run that was stopped).
   stateLabel?: string;
   onOpen?: () => void;
-  /// The accessible name for the chat target.
+  /// The open button's word: "Open chat" when absent.
   openLabel?: string;
   /// Draw this card as a one-line transcript disclosure with its children in a panel.
   disclosure?: boolean;
@@ -66,9 +66,8 @@ export function AgentCard({
   children,
 }: AgentCardProps) {
   const t = useT();
-  // A profile names its family first (`claude-sr2`): its family's mark when it has none.
-  const avatar = useAgentAvatar(sessionId);
   const tone = agentTone(identity ?? sessionId ?? name);
+  const avatar = useAgentAvatar(sessionId);
   const stateText = state
     ? slot
       ? t("subsession.state.slot")
@@ -107,45 +106,42 @@ export function AgentCard({
       </DisclosureRow>
     );
   }
-  const openName = openLabel ?? t("subagents.open", { name });
+  const head = (
+    <>
+      <span className="cv-agent-card__icon" aria-hidden>
+        {avatar ? (
+          <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
+        ) : (
+            <AgentIdentity harness={harness} tone={tone} size={14} />
+        )}
+      </span>
+      <span className="cv-agent-card__name">{name}</span>
+      {model && <span className="cv-agent-card__model">{model}</span>}
+      {state && (
+        <span className="cv-agent-card__state" data-state={slot ? "slot" : state}>
+          {state === "working" && <Spinner size={12} loading />}
+          {slot ? t("subsession.state.slot") : (stateLabel ?? t(SUBSESSION_STATE_LABEL[state]))}
+          {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
+          {time ? ` · ${time}` : ""}
+        </span>
+      )}
+    </>
+  );
   return (
     <div className="cv-agent-card" data-state={state}>
-      <div
-        className="cv-agent-card__head"
-        role={onOpen ? "button" : undefined}
-        tabIndex={onOpen ? 0 : undefined}
-        aria-label={onOpen ? openName : undefined}
-        title={onOpen ? openName : undefined}
-        onClick={onOpen}
-        onKeyDown={
-          onOpen
-            ? (event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onOpen();
-                }
-              }
-            : undefined
-        }
-      >
-        <span className="cv-agent-card__icon" aria-hidden>
-          {avatar ? (
-            <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
-          ) : (
-            <AgentIdentity harness={harness} tone={tone} size={14} />
-          )}
-        </span>
-        <span className="cv-agent-card__name">{name}</span>
-        {model && <span className="cv-agent-card__model">{model}</span>}
-        {state && (
-          <span className="cv-agent-card__state" data-state={slot ? "slot" : state}>
-            {state === "working" && <Spinner size={12} loading />}
-            {slot ? t("subsession.state.slot") : (stateLabel ?? t(SUBSESSION_STATE_LABEL[state]))}
-            {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
-            {time ? ` · ${time}` : ""}
-          </span>
-        )}
-      </div>
+      {onOpen ? (
+        // Its name and state name the button; what a click does (Open chat, Show output) is its title.
+        <button
+          type="button"
+          className="cv-agent-card__head"
+          title={openLabel ?? t("subagents.open", { name })}
+          onClick={onOpen}
+        >
+          {head}
+        </button>
+      ) : (
+        <div className="cv-agent-card__head">{head}</div>
+      )}
       {doing && <div className="cv-agent-card__doing">{doing}</div>}
       {children}
     </div>

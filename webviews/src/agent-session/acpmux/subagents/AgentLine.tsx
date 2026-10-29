@@ -7,18 +7,20 @@
 // its state. A click opens it. With a `card` (the Inspector's Subagents) a hover card names it and
 // says its state, as Claude Code desktop's session panel does, in place of the plain tooltip.
 //
-// In the tray a command line says its kind before its name; agent lines use the harness mark because
-// the tray header already names the agent list. A line that opens something ends in a chevron. A
-// line with nothing to open is a disabled button with no hover at all (subagents.css).
+// In the tray a line also says what kind of thing it is before its name, "Command" or "Subagent"
+// (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
+// subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
+// a disabled button with no hover at all (subagents.css).
 import type { ReactNode } from "react";
+import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
 import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import { TonedIcon } from "./TonedIcon";
 import { Tick } from "./trayMotion";
-import { AgentIdentity } from "./AgentIdentity";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -30,6 +32,7 @@ export function AgentLine({
   time,
   icon = "agent.session",
   mark,
+  tone,
   iconSize = ROW_ICON,
   depth = 0,
   current = false,
@@ -44,7 +47,6 @@ export function AgentLine({
   working = false,
   expanded,
   trayColumns = false,
-  tone,
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -58,6 +60,9 @@ export function AgentLine({
   icon?: string;
   /// The harness of an agent of another family (`codex`), whose mark replaces the icon.
   mark?: string;
+  /// Its stable color (agentTones.ts `agentTone`), for the icon when no harness mark replaces it, so
+  /// lines without a mark still tell apart (Leo, 2026-10-29: "you can just randomize the colors").
+  tone?: number;
   iconSize?: number;
   /// How far it sits under the agent that spawned it.
   depth?: number;
@@ -85,10 +90,10 @@ export function AgentLine({
   expanded?: boolean;
   /// Use the running tray's fixed trailing columns; other AgentLine consumers keep their flow.
   trayColumns?: boolean;
-  /// Stable fallback colour for an unknown harness.
-  tone?: number;
 }) {
   const shimmer = waveProps(wave);
+  const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
+  const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
   const button = (
     <button
       type="button"
@@ -105,17 +110,15 @@ export function AgentLine({
     >
       <span
         className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
-        style={{ ...shimmer.style, ...(working ? { position: "relative" } : {}) }}
+        style={shimmer.style}
         data-state={status}
       >
-        <AgentIdentity harness={mark} tone={tone} size={iconSize} fallback={icon} />
-        {working && (
-          <span
-            aria-hidden="true"
-            style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", transform: "scale(.55)" }}
-          >
-            <Spinner size={iconSize} loading />
-          </span>
+        {working ? (
+          <Spinner size={iconSize} loading />
+        ) : brand ? (
+          <AgentMark agent={brand} size={iconSize} fallback={glyph} />
+        ) : (
+          glyph
         )}
       </span>
       <span className="acpmux-summary-text">

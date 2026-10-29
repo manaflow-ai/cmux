@@ -8,9 +8,10 @@
 import { useT, type StringKey, type Translate } from "../i18n";
 import { Spinner } from "../conversation/icons";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
-import { rowIconSize } from "../icons/iconSize";
-import { AgentIdentity } from "../subagents/AgentIdentity";
+import { AgentMark } from "../../shared/AgentMark";
 import { agentTone } from "../subagents/agentTones";
+import { TonedIcon } from "../subagents/TonedIcon";
+import { rowIconSize } from "../icons/iconSize";
 import type { StartedSession, StartedState } from "../started/startedSessions";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
 
@@ -76,8 +77,18 @@ export function ChildSessionRows({
               disabled={!onOpen}
               onClick={() => onOpen?.(child.sessionId)}
             >
+              {/* Its harness's mark, else the chat icon in its own stable tone (Leo, 2026-10-29: "all of
+                  these icons that are literally all the same icon, that's terrible"). */}
               <span className="acpmux-lineage__icon" data-state={status}>
-                <AgentIdentity harness={child.harness} tone={agentTone(child.sessionId)} size={ROW_ICON} fallback="agent.chat" />
+                {child.harness ? (
+                  <AgentMark
+                    agent={child.harness}
+                    size={ROW_ICON}
+                    fallback={<TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(child.sessionId)} row />}
+                  />
+                ) : (
+                  <TonedIcon name="agent.chat" size={ROW_ICON} tone={agentTone(child.sessionId)} row />
+                )}
               </span>
               <span className="acpmux-summary-text">
                 <span className="acpmux-summary-agent__name">{child.title}</span>

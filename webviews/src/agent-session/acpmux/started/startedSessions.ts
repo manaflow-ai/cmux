@@ -38,8 +38,6 @@ export type StartedPullRequests = {
 export type StartedSession = {
   sessionId: string;
   title: string;
-  /// Its harness identity, used by agent and session lists.
-  harness?: string;
   state: StartedState;
   /// Its last turn ended and nobody has looked at it yet.
   unread?: boolean;
@@ -58,6 +56,8 @@ export type StartedSession = {
   doingTool?: string;
   /// acpmux's retry of its failed turn while one waits (retryState.ts ``sessionRetry``).
   retry?: RetryState;
+  /// The harness it runs (`claude`, `codex`, a profile), whose mark its rows draw.
+  harness?: string;
 };
 
 export function startedState(entry: AcpmuxSessionEntry): StartedState {
@@ -146,7 +146,6 @@ export function startedSessions(
       return {
         sessionId: entry.sessionId,
         title,
-        ...(entry.harness ? { harness: entry.harness } : {}),
         state,
         ...(named ? { named: true } : {}),
         ...(state === "idle" && entry.unread ? { unread: true } : {}),
@@ -156,6 +155,7 @@ export function startedSessions(
         ...(doing && entry.doing ? { doing: entry.doing } : {}),
         ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
         ...(entry.retry ? { retry: entry.retry } : {}),
+        ...(entry.harness ? { harness: entry.harness } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));

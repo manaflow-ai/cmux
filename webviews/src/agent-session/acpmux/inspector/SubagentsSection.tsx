@@ -19,7 +19,7 @@ const ROW_ICON = rowIconSize(12);
 
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
-import { AgentIdentity, isRepeatedAgentKind } from "../subagents/AgentIdentity";
+import { isRepeatedAgentKind } from "../subagents/AgentIdentity";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
 import { agentTone } from "../subagents/agentTones";
@@ -29,6 +29,8 @@ import { subagentStateText, subagentStatus, type SubagentStatus } from "../summa
 import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { InspectorFold } from "./InspectorSection";
+import { AgentMark } from "../../shared/AgentMark";
+import { TonedIcon } from "../subagents/TonedIcon";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -84,6 +86,7 @@ type Line = {
   /// Its whole task, for the hover card.
   task?: string;
   icon: string;
+  /// The harness whose mark it draws (the agent's own, else the chat's for its own subagents).
   mark?: string;
   depth: number;
   /// When it ended (or, for a chat, was made): the ended list's order.
@@ -108,7 +111,15 @@ const EndedAvatars = memo(
               <Avatar agent={item.agent} />
             ) : (
               <span className="cv-subagent-avatar" data-state={item.status}>
-                <AgentIdentity harness={item.mark} tone={agentTone(item.identity)} size={14} fallback={item.icon} />
+                {item.mark ? (
+                  <AgentMark
+                    agent={item.mark}
+                    size={14}
+                    fallback={<TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />}
+                  />
+                ) : (
+                  <TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />
+                )}
               </span>
             )}
           </span>
@@ -127,6 +138,7 @@ const EndedAvatars = memo(
         item.status === next.status &&
         item.working === next.working &&
         item.icon === next.icon &&
+        item.mark === next.mark &&
         item.agent?.state === next.agent?.state &&
         item.agent?.harness === next.agent?.harness
       );
@@ -139,6 +151,7 @@ export function SubagentsSection({
   onOpen,
   sessions = NO_SESSIONS,
   onOpenSession,
+  harness,
 }: {
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
@@ -147,6 +160,9 @@ export function SubagentsSection({
   /// The chats the agent started, and how one opens.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
+  /// The chat's harness: its own subagents (Claude's Agent calls) draw its mark (Leo, 2026-10-29:
+  /// "surely you can just at least say, you know, one of these is Codex, one of these is Claude").
+  harness?: string;
 }) {
   const t = useT();
   const now = useNow(agents.some(running));
@@ -170,6 +186,7 @@ export function SubagentsSection({
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
       icon: "agent.session",
+      mark: agent.harness ?? harness,
       depth,
       at: agent.endedAt ?? agent.startedAt,
       open: onOpen && (() => onOpen(agent.id)),
@@ -179,10 +196,10 @@ export function SubagentsSection({
     key: `session:${child.sessionId}`,
     identity: child.sessionId,
     name: child.title,
-    mark: child.harness,
     status: sessionStatus(child),
     ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
     icon: "agent.chat",
+    mark: child.harness,
     depth: 0,
     at: child.createdAt ?? 0,
     open: onOpenSession && (() => onOpenSession(child.sessionId)),
@@ -219,11 +236,11 @@ export function SubagentsSection({
         working={item.working}
         time={item.time}
         icon={item.icon}
+        mark={item.mark}
+        tone={agentTone(item.identity)}
         depth={item.depth}
         onOpen={item.open}
         wave={inWave ? wave[index] : undefined}
-        mark={item.mark ?? item.agent?.harness}
-        tone={agentTone(item.identity)}
         card={
           <span className="acpmux-agent-card">
             <span className="acpmux-agent-card__name">{item.name}</span>

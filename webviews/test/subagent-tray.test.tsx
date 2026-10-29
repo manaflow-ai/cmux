@@ -60,7 +60,6 @@ const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray }
   await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray, TRAY_OPEN_MAX } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
-const { AgentCard } = await import("../src/agent-session/acpmux/subagents/AgentCard");
 const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { backgroundCommands, commandLabel } = await import("../src/agent-session/acpmux/inspector/processes");
@@ -643,44 +642,16 @@ describe("a tray line says what it is and what a click does", () => {
     }
   });
 
-  test("a subagent uses its harness mark and ends in a chevron", async () => {
-    const items = trayItems(
-      [agent("Reviewer", { startedAt: Date.now(), action: "Read src/app.ts", harness: "codex" })],
-      [],
-      NONE,
-      true,
-    );
+  test("a subagent leads with Subagent and ends in a chevron", async () => {
+    const items = trayItems([agent("Reviewer", { startedAt: Date.now(), action: "Read src/app.ts" })], [], NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
       const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
-      expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
-      expect(line.querySelector(".agent-mark")).not.toBeNull();
+      expect(line.querySelector(".acpmux-agent-line__kind")?.textContent).toBe("Subagent");
       expect(line.querySelector(".acpmux-summary-agent__name")?.textContent).toBe("Reviewer");
       expect(line.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
-    } finally {
-      await done();
-    }
-  });
-
-  test("an agent card opens from its head without an Open chat control", async () => {
-    const opened: string[] = [];
-    const { root, done } = await render(
-      createElement(AgentCard, {
-        name: "Reviewer",
-        identity: "agent-1",
-        onOpen: () => opened.push("open"),
-      }),
-    );
-    try {
-      const head = root.querySelector<HTMLElement>(".cv-agent-card__head")!;
-      expect(head.getAttribute("role")).toBe("button");
-      expect(root.querySelector(".cv-agent-card__open")).toBeNull();
-      await act(async () =>
-        head.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
-      );
-      expect(opened).toEqual(["open"]);
     } finally {
       await done();
     }

@@ -91,7 +91,13 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
     <DisclosureRow
       disclosureKey={`subsession-group:${entries[0]?.tool.id}`}
       findItems={findItems}
-      icon={<AgentIdentity harness={children.find(Boolean)?.harness} tone={agentTone(entries.map(({ call }) => call.sessionId ?? "").join("\u0000"))} size={16} />}
+      icon={
+        <AgentIdentity
+          harness={children.find(Boolean)?.harness}
+          tone={agentTone(entries.map(({ call }) => call.sessionId ?? "").join("\u0000"))}
+          size={16}
+        />
+      }
       label={t("subsession.startedGroup", { n: entries.length, names: names.join(", ") })}
       status={
         status ? (

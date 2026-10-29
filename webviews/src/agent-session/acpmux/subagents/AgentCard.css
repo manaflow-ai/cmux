@@ -21,6 +21,17 @@
   min-width: 0;
   height: 24px;
 }
+button.cv-agent-card__head {
+  appearance: none;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
 /* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's. */
 .cv-agent-avatar {
   display: block;
@@ -57,21 +68,6 @@
 }
 .cv-agent-card__state[data-state="failed"] {
   color: var(--agent-status-failure);
-}
-.cv-agent-card__open {
-  all: unset;
-  flex: none;
-  margin-inline-start: auto;
-  cursor: pointer;
-  color: var(--cv-text-muted);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.cv-agent-card__open:hover,
-.cv-agent-card__open:focus-visible {
-  color: var(--cv-text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 .cv-agent-card__doing {
   margin-inline-start: 24px;

@@ -35,11 +35,7 @@ export function AgentIdentity({
       style={{ color: "var(--agent-tone-ink, var(--agent-muted))", ...style }}
       aria-hidden="true"
     >
-      <AgentMark
-        agent={mark}
-        size={size}
-        fallback={fallbackNode ?? <Icon name={fallback} size={size} row />}
-      />
+      <AgentMark agent={mark} size={size} fallback={fallbackNode ?? <Icon name={fallback} size={size} row />} />
     </span>
   );
 }
