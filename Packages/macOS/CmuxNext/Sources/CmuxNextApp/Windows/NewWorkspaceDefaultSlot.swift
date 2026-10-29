@@ -10,9 +10,9 @@ import CmuxNextSidebar
 /// session, else the owning daemon's order. Either survives a relaunch and
 /// shows in every window.
 ///
-/// The rule: `top` is right below the window's current workspace when that
-/// one is in a group (Cmd-N in a group keeps the new one in it, next to
-/// where you are); else the first slot of the workspace's machine section, which
+/// The rule: `top` is the first slot of the window's current workspace's
+/// group when that one is in a group (Cmd-N in a group keeps the new one in
+/// it, at the group's top, Lawrence 2026-10-28); else the first slot of the workspace's machine section, which
 /// lists no pinned workspace (they show in the Pinned section above), above
 /// every group, and right below the home workspace's row when the list shows
 /// it. `afterCurrent` is right after the workspace the window showed
@@ -44,8 +44,8 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             return Self.top(for: id, section: section, in: sections, home: home)
         case .top:
             if let current, current != id, current != home,
-               WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections)?.group != nil {
-                return .below(current)
+               WorkspaceSlot.top(anchor: current).position(moving: [id], section: section, in: sections)?.group != nil {
+                return .top(anchor: current)
             }
             return Self.top(for: id, section: section, in: sections, home: home)
         }
@@ -61,6 +61,21 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
         guard let slot = slot(for: id, section: section, in: sections, home: home) else { return nil }
         if slot == Self.top(for: id, section: section, in: sections, home: home) { return nil }
         return slot
+    }
+
+    /// The slot for a new workspace made inside group `group` from the group itself (its header's
+    /// +, a double-click in its empty part), whose workspace rows are `members` in order: its
+    /// first slot under `top`, right below the window's current workspace under `afterCurrent`
+    /// when that one is a member (else the first slot), its last slot under `bottom`.
+    func slot(inGroup group: GroupID, members: [String]) -> WorkspaceSlot {
+        let first = members.first.map { WorkspaceSlot.top(anchor: $0) } ?? .endOfGroup(group)
+        switch placement {
+        case .top: return first
+        case .afterCurrent:
+            if let current, members.contains(current) { return .below(current) }
+            return first
+        case .bottom: return .endOfGroup(group)
+        }
     }
 
     /// First in the section, below a leading home row.

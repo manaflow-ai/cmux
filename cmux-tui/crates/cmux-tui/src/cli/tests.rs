@@ -1049,3 +1049,46 @@ fn agent_hook_emit_rejects_a_bad_terminal_like_every_other_terminal_flag() {
 }
 
 mod machine_catalog;
+
+#[test]
+fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        for scope in surface::CMUX_SCOPES.iter().chain(OWN_HELP_SCOPES) {
+            assert!(
+                help.lines().any(|line| line.starts_with(&format!("  {scope} "))),
+                "{locale}: `cmux --help` does not list {scope}"
+            );
+        }
+    }
+    let rewritten = |words: &[&str]| {
+        let mut args = strings(words);
+        rewrite_help_word_on(&mut args, Surface::Cmux);
+        args
+    };
+    for &scope in OWN_HELP_SCOPES {
+        let own_help = if scope == "device" { "help" } else { "--help" };
+        assert_eq!(rewritten(&["help", scope]), strings(&[scope, own_help]), "{scope}");
+    }
+    for with_globals in [
+        vec!["--session", "s", "help", "agents", "--json"],
+        vec!["help", "--json", "agents"],
+        vec!["help", "--session", "s", "agents"],
+        vec!["--session", "help", "help", "agents"],
+    ] {
+        assert_eq!(rewritten(&with_globals), strings(&["agents", "--help"]), "{with_globals:?}");
+    }
+    assert_eq!(rewritten(&["--session", "s", "help", "chats"]), strings(&["chats", "--help"]));
+    for unchanged in [
+        vec!["help", "workspace"],
+        vec!["help", "agents", "chat"],
+        vec!["agents", "help"],
+        vec!["--session", "help", "agents"],
+    ] {
+        assert_eq!(rewritten(&unchanged), strings(&unchanged), "{unchanged:?}");
+    }
+    let os = |words: &[&str]| words.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+    assert_eq!(acp_scope_args(&strings(&["acp", "ls", "--json"])), os(&["ls", "--json"]));
+    assert_eq!(acp_scope_args(&rewritten(&["help", "harness"])), os(&["harness", "--help"]));
+    assert_eq!(acp_scope_args(&rewritten(&["help", "chats"])), os(&["chats", "--help"]));
+}
