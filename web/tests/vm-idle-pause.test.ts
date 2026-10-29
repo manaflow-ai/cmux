@@ -34,7 +34,7 @@ import { enforceVmIdlePause } from "../services/vms/idlePauseJob";
 import { parseCreateIdlePause, parseIdlePauseBody } from "../services/vms/idlePauseRoute";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, vmRepositoryLiveShape, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { execVm, getVm, pauseVm, setVmIdlePause } from "../services/vms/workflows";
+import { execVm, getVm, pauseVm, resizeVm, setVmIdlePause } from "../services/vms/workflows";
 import { runChild } from "./helpers/run-child";
 
 // Idle auto-pause (pilot blocker 1a). The decision is pure and pinned here: a
@@ -741,7 +741,7 @@ function cronFakes(
   }));
   ctx.userPause = userPause;
   ctx.reconcilerSees = reconcilerSees;
-  return { recorded, layer, resume, repo, providerState, userPause, reconcilerSees };
+  return { recorded, layer, resume, repo, provider, providerState, userPause, reconcilerSees };
 }
 
 function byId<T extends { readonly id: string }>(items: readonly T[]): T[] {
@@ -1008,6 +1008,67 @@ describe("API activity", () => {
     await Effect.runPromise(enforceVmIdlePause().pipe(Effect.provide(layer)));
     expect(recorded.execs.at(-1)).toMatchObject({ vmId: VM, asRoot: true });
     expect(recorded.apiActivity).toHaveLength(1);
+  });
+});
+
+describe("resize activity fences", () => {
+  test("a resize fences an overdue cron candidate before provider preflight", async () => {
+    const now = Date.now();
+    const candidate = machineRow({ createdAt: new Date(now), providerMetadata: {
+      networkIpv4: "10.192.0.5",
+      cmuxIdleObservation: { providerVmId: VM, idleSince: now - 31 * MIN, observedAt: now - 5 * MIN, cpuBusyMs: CPU0 },
+    } });
+    const rows = [candidate];
+    const { repo, provider, recorded } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
+    // The cron selected this row before the resize began; its re-read sees live state.
+    const cronLayer = Layer.mergeAll(
+      Layer.succeed(VmRepository, { ...repo, idlePauseCandidates: () => Effect.succeed([candidate]) }),
+      Layer.succeed(VmProviderGateway, provider),
+    );
+    let preflightChecks = 0;
+    const resizeLayer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+      Layer.succeed(VmProviderGateway, {
+        ...provider,
+        getStatus: () => enforceVmIdlePause({ now: () => now }).pipe(
+          Effect.provide(cronLayer),
+          Effect.tap((summary) => Effect.sync(() => {
+            preflightChecks += 1;
+            expect(summary).toMatchObject({ paused: 0, claim_refused: 1 });
+          })),
+          Effect.as("running" as const),
+        ),
+        getStats: () => Effect.succeed({ state: "awake" as const, sampledAt: Date.now(), cpus: 2, memoryTotalMb: 4096, diskTotalMb: 32768 }),
+        resize: () => Effect.void,
+      }),
+    );
+    await Effect.runPromise(resizeVm({ userId: "user-1", billingTeamId: "team-1", teamIds: ["team-1"],
+      providerVmId: VM, cpu: 2 }).pipe(Effect.provide(resizeLayer)));
+    expect(preflightChecks).toBe(1);
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.apiActivity).toHaveLength(1);
+    expect(vmLastApiActivityFromRow(rows[0])).toBeGreaterThanOrEqual(now);
+  });
+
+  test("a resize stops before provider work when its activity write fails", async () => {
+    const { repo, provider } = cronFakes([machineRow({ createdAt: new Date() })], () => "fails");
+    let providerCalls = 0;
+    const failure = new VmDatabaseError({ operation: "recordVmApiActivity", cause: new Error("unavailable") });
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, { ...repo, recordVmApiActivity: () => Effect.fail(failure) }),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+      Layer.succeed(VmProviderGateway, {
+        ...provider,
+        getStatus: () => Effect.sync(() => { providerCalls += 1; return "running" as const; }),
+        getStats: () => Effect.sync(() => { providerCalls += 1; return { state: "awake" as const, sampledAt: Date.now(), cpus: 2, memoryTotalMb: 4096 }; }),
+        resize: () => Effect.sync(() => { providerCalls += 1; }),
+      }),
+    );
+    const result = await Effect.runPromise(resizeVm({ userId: "user-1", billingTeamId: "team-1", teamIds: ["team-1"],
+      providerVmId: VM, cpu: 2 }).pipe(Effect.provide(layer), Effect.either));
+    expect(result).toMatchObject({ _tag: "Left", left: failure });
+    expect(providerCalls).toBe(0);
   });
 });
 
@@ -1771,6 +1832,46 @@ describe("idle pause SQL", () => {
   };
   const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
   const repo = vmRepositoryLiveShape;
+
+  dbTest("resize reservations invalidate an overdue candidate before the cron claims it", async () => {
+    for (const kind of ["compute", "disk"] as const) {
+      const id = randomUUID();
+      const vmId = `fs-resize-${id}`;
+      const scope = `resize-idle-${id}`;
+      const now = Date.now();
+      const metadata = { networkIpv4: "10.192.0.5", cmuxIdleEpoch: 2,
+        cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 },
+        cmuxIdleObservation: { providerVmId: vmId, idleSince: now - 31 * MIN, observedAt: now - 5 * MIN, cpuBusyMs: CPU0 } };
+      await sql`insert into cloud_vms (id, user_id, billing_team_id, provider, provider_vm_id, image_id, status, provider_metadata)
+        values (${id}, ${scope}, ${scope}, 'freestyle', ${vmId}, 'sh-test', 'running', ${JSON.stringify(metadata)}::jsonb)`;
+      try {
+        const lookup = { userId: scope, billingTeamId: scope, providerVmId: vmId, provider: "freestyle" as const };
+        const candidate = await run(repo.findUserVm(lookup));
+        expect(candidate).not.toBeNull();
+        const common = { id, userId: scope, billingTeamId: scope, providerVmId: vmId };
+        const reserved = kind === "compute"
+          ? await run(repo.reserveVmComputeResize!({ ...common, current: metadata.cmuxResourceReservation,
+            requested: { vcpus: 4, memoryMb: 4096 },
+            resourcePool: { capacity: { vcpus: 20, memoryMb: 40960 }, legacyReservation: { vcpus: 32, memoryMb: 65536 }, planId: "pro" } }))
+          : await run(repo.reserveVmResize!({ ...common, currentDiskMb: 32768, storageMb: 65536 }));
+        expect(reserved).not.toBeNull();
+        const { provider, recorded } = cronFakes([], () => ({ exitCode: 0, stdout: probeLine() }));
+        const layer = Layer.mergeAll(
+          Layer.succeed(VmRepository, { ...repo, idlePauseCandidates: () => Effect.succeed([candidate!]) }),
+          Layer.succeed(VmProviderGateway, provider),
+        );
+        const summary = await run(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(layer)));
+        expect(summary).toMatchObject({ paused: 0, claim_refused: 1 });
+        expect(recorded.paused).toEqual([]);
+        const current = (await run(repo.findUserVm(lookup)))!;
+        expect(epochOf(current)).toBeGreaterThan(epochOf(candidate!));
+        expect(vmLastApiActivityFromRow(current)).toBeGreaterThanOrEqual(now);
+        expect(current.providerMetadata?.cmuxIdleObservation).toEqual(metadata.cmuxIdleObservation);
+      } finally {
+        await sql`delete from cloud_vms where id = ${id}`;
+      }
+    }
+  });
 
   dbTest("diagnostics preserve populated lifecycle state and newer decisions, including tied timestamps", async () => {
     const original = await read();
