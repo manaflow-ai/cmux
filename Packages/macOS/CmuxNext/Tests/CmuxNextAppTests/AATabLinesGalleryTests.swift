@@ -73,10 +73,19 @@ import Testing
         list.reload(animated: false)
         list.frame.origin.y = height - list.frame.height
         root.layoutSubtreeIfNeeded()
+        // Redraw the production rows before applying each gallery treatment. The indentation-only
+        // variant intentionally restores primary title ink after this redraw; only those labels
+        // need a second display pass so the gallery image reflects the selected treatment.
         for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }
         apply(hierarchy, to: list)
-        root.layoutSubtreeIfNeeded()
-        for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }
+        if hierarchy != .combined {
+            for row in list.rowViews.values.compactMap({ $0 as? SidebarTabRowView }) {
+                for label in row.subviews where label is ChromeLabel {
+                    label.needsDisplay = true
+                    label.displayIfNeeded()
+                }
+            }
+        }
         CATransaction.flush()
         let rep = try #require(root.bitmapImageRepForCachingDisplay(in: root.bounds))
         root.cacheDisplay(in: root.bounds, to: rep)
