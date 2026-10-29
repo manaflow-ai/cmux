@@ -85,6 +85,21 @@ createRoot(root).render(
       onJump={noop}
       onOpenSession={noop}
       onShowAll={noop}
+      {...(query.has("crowdedSuggestions")
+        ? {
+            onCreate: noop,
+            omnibar: {
+              tabs: [],
+              workspaces: [],
+              folders: [],
+              commands: [],
+              history: Array.from({ length: 4 }, (_, index) => ({
+                url: `https://example.com/project-${index}`,
+                title: `Project notes ${index + 1}`,
+              })),
+            },
+          }
+        : {})}
     />
     <div className="pager" style={{ flex: "none", height: 40 }} />
   </QueryClientProvider>,
