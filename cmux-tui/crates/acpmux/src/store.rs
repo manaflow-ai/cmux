@@ -17,6 +17,8 @@ use std::sync::Mutex;
 
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
+mod superseded;
+pub use superseded::Superseded;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -831,7 +833,9 @@ fn parse_record(line: &[u8]) -> serde_json::Result<EventRecord> {
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
     Ok(match config.mode {
         StoreMode::Memory => Box::new(MemoryStore::default()),
-        StoreMode::Local => Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?),
+        StoreMode::Local => Box::new(
+            LocalStore::new(root.join("sessions"), config.segment_bytes)?.compacting_sealed(),
+        ),
     })
 }
 
@@ -929,6 +933,8 @@ pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
     writers: Mutex<Writers>,
+    /// Compacts each sealed segment (`store/superseded.rs`); None: never.
+    sealing: Option<superseded::Sealing>,
 }
 
 /// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
@@ -972,6 +978,7 @@ impl LocalStore {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
             writers: Mutex::new(Writers::default()),
+            sealing: None,
         })
     }
 
@@ -980,22 +987,7 @@ impl LocalStore {
     }
 
     fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
-        let dir = self.dir(id).join("events");
-        let mut out = Vec::new();
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            return Ok(out);
-        };
-        for entry in rd {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(stem) = name.strip_suffix(".ndjson")
-                && let Ok(idx) = stem.parse::<u32>()
-            {
-                out.push((idx, entry.path()));
-            }
-        }
-        out.sort();
-        Ok(out)
+        segments_in(&self.dir(id).join("events"))
     }
 
     fn list_entry(&self, entry: &std::fs::DirEntry) -> Result<Option<SessionMeta>> {
@@ -1075,6 +1067,25 @@ impl LocalStore {
         let written = file.metadata().map(|m| m.len()).unwrap_or(0);
         Ok(SegmentWriter { index, file, written, used: 0 })
     }
+}
+
+/// The segments in a log's `events` folder, by index.
+fn segments_in(dir: &Path) -> Result<Vec<(u32, PathBuf)>> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Ok(out);
+    };
+    for entry in rd {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Some(stem) = name.strip_suffix(".ndjson")
+            && let Ok(idx) = stem.parse::<u32>()
+        {
+            out.push((idx, entry.path()));
+        }
+    }
+    out.sort();
+    Ok(out)
 }
 
 /// A session record's status alone, read without the rest of the record.
@@ -1393,6 +1404,8 @@ impl Store for LocalStore {
             writers
                 .open
                 .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
+            // The full one is sealed: nothing appends to it again.
+            self.sealed(id);
         }
         let Some(w) = writers.open.get_mut(id) else {
             anyhow::bail!("no segment writer for session {id}");

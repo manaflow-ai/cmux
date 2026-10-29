@@ -319,7 +319,7 @@ fn cut_long_strings(value: &mut Value) -> bool {
 /// Drops a log file's pages from the page cache once it is read or written: a pass reads every
 /// old log once, and a daemon under a memory limit (huge-blue's cgroup) is charged for its cache.
 #[cfg(target_os = "linux")]
-fn drop_cache(file: &File) {
+pub(super) fn drop_cache(file: &File) {
     use std::os::fd::AsRawFd;
     // SAFETY: the descriptor is open for the call; the advice changes no file content.
     unsafe {
@@ -328,7 +328,7 @@ fn drop_cache(file: &File) {
 }
 
 #[cfg(not(target_os = "linux"))]
-fn drop_cache(_file: &File) {}
+pub(super) fn drop_cache(_file: &File) {}
 
 #[cfg(test)]
 #[path = "compact_tests.rs"]

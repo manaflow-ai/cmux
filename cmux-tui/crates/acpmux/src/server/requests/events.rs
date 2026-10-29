@@ -14,7 +14,9 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
     let before = params.get("beforeSeq").and_then(Value::as_u64);
     let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
     let max_bytes = Some(crate::hub::page_bytes(params));
-    let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
+    // A client that bounds its page wants the transcript in it, not superseded tool output.
+    let filter = crate::hub::EventFilter::parse(params.get("kinds"))?
+        .omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
     let (last, created) = {
         let meta = s.meta();
         (meta.last_seq, meta.created_at)

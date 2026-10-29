@@ -67,6 +67,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct EventFilter {
     kinds: Option<Vec<String>>,
+    /// A page read newest first leaves out what newer tool call updates in it make moot
+    /// (`store/superseded.rs`). Pages only; a live stream ignores it.
+    omit_superseded: bool,
 }
 
 impl EventFilter {
@@ -78,7 +81,7 @@ impl EventFilter {
     pub fn parse(v: Option<&Value>) -> Result<Self, RpcError> {
         match v {
             None | Some(Value::Null) => Ok(Self::all()),
-            Some(Value::String(s)) => Ok(Self { kinds: Some(vec![s.clone()]) }),
+            Some(Value::String(s)) => Ok(Self { kinds: Some(vec![s.clone()]), ..Self::default() }),
             Some(Value::Array(a)) => {
                 let mut kinds = Vec::with_capacity(a.len());
                 for k in a {
@@ -87,10 +90,18 @@ impl EventFilter {
                     })?;
                     kinds.push(k.to_owned());
                 }
-                Ok(Self { kinds: Some(kinds) })
+                Ok(Self { kinds: Some(kinds), ..Self::default() })
             }
             Some(_) => Err(RpcError::invalid_params("kinds must be an array of strings")),
         }
+    }
+
+    /// For a page a client bounds by bytes (it names `maxBytes`): the app's open and its older
+    /// pages. Every call still ends as logged; a reader that wants every record (an export, a
+    /// lane report) names no bound and reads them all.
+    pub fn omitting_superseded(mut self, on: bool) -> Self {
+        self.omit_superseded = on;
+        self
     }
 
     pub fn is_all(&self) -> bool {
@@ -268,11 +279,19 @@ impl Hub {
         }
         let mut found = Vec::new();
         let skip = |dir: &[u8], kind: &[u8]| filter.surely_skips(dir, kind);
+        // A Codex command's updates each carry its whole output so far: without this, a few of
+        // them fill the page (`store/superseded.rs`).
+        let mut superseded = filter.omit_superseded.then(crate::store::Superseded::default);
         self.store.scan_back(id, after, before, &skip, &mut |rec| {
             if !filter.matches(&rec) {
                 return true;
             }
             let mut rec = rec;
+            if let Some(superseded) = superseded.as_mut()
+                && !superseded.keep(&mut rec)
+            {
+                return true;
+            }
             self.display_logged(session.as_deref(), &mut rec);
             let (rec, rec_bytes) = fit(rec, bounded);
             if full(rec_bytes, found.len()) {
@@ -287,6 +306,10 @@ impl Hub {
         Ok(page)
     }
 }
+
+#[cfg(test)]
+#[path = "paging_tests.rs"]
+mod paging_tests;
 
 #[cfg(test)]
 mod transcript_kind_tests {
