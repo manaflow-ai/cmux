@@ -108,6 +108,7 @@ async fn join_redeems_once_and_rerun_repairs_config_without_reading_stdin() {
     // Simulate config.save failing after the credential commit. The retry must
     // repair it, and return while stdin remains open with no bytes available.
     std::fs::remove_file(home.path().join("config.json")).unwrap();
+    std::fs::remove_file(_consent_home.root.join("enrolled.json")).unwrap();
     let mut second =
         cli(home.path()).args(["host", "join", "--json"]).stdin(Stdio::piped()).spawn().unwrap();
     let _still_open = second.stdin.take().unwrap();
@@ -118,6 +119,10 @@ async fn join_redeems_once_and_rerun_repairs_config_without_reading_stdin() {
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
     let body: Value = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(body["alreadyJoined"], true);
+    assert!(
+        _consent_home.root.join("enrolled.json").is_file(),
+        "idempotent join must repair its shared enrollment requirement"
+    );
     let config: Value =
         serde_json::from_slice(&std::fs::read(home.path().join("config.json")).unwrap()).unwrap();
     assert_eq!(config["meshRelay"]["credential"], "join");

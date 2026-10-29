@@ -155,8 +155,8 @@ fn authority() -> Result<super::machine_consent::Authority> {
     super::machine_consent::Authority::current(consent_home())
 }
 
-pub(crate) fn migrate_machine_consent() -> Result<()> {
-    authority()?.migrate()
+pub(crate) fn retain_own_machine_consent_requirement() -> Result<()> {
+    authority()?.retain_own_requirement()
 }
 
 fn load_consent() -> Consent {
@@ -200,6 +200,9 @@ pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
     if replace {
         return Ok(false);
     }
+    // No released build created pre-marker credentials. Even branch-only local
+    // state must persist the shared requirement before idempotent success.
+    authority().and_then(|authority| authority.enroll()).map_err(|_| store_error())?;
     // Repair a previous config-save failure before reporting idempotent success.
     configure_mesh_relay(&record.hub_origin).map_err(|_| store_error())?;
     warn_existing_helpers();

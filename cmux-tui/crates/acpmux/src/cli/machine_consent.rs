@@ -1,4 +1,9 @@
 //! One consent authority per OS account, independent of daemon tags and env.
+//!
+//! No released build could create pre-marker cloud enrollments. Every supported
+//! enrollment writes this authority before redeem. Arbitrary branch-only old
+//! ACPMUX_HOME state has no cross-tag upgrade path and must rejoin; inspecting
+//! the current daemon's state below is defense in depth, not global discovery.
 use super::cloud_join::{Consent, ConsentState};
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -70,7 +75,7 @@ impl Authority {
         Ok(())
     }
 
-    pub(super) fn migrate(&self) -> Result<()> {
+    pub(super) fn retain_own_requirement(&self) -> Result<()> {
         if exists(&self.legacy.join("machine-credential.json"))?
             || exists(&self.legacy.join("consent.json"))?
         {
@@ -81,7 +86,7 @@ impl Authority {
 
     fn required(&self) -> Result<bool> {
         self.validate_namespace()?;
-        self.migrate()?;
+        self.retain_own_requirement()?;
         super::cloud_join::load_at(&self.legacy)?;
         if exists(&self.root.join("enrolled.json"))? {
             self.validate_marker()?;
@@ -226,7 +231,7 @@ mod tests {
         assert_eq!(a.status()["consentRequired"], true);
     }
     #[test]
-    fn legacy_presence_migrates_requirement_never_grants() {
+    fn own_branch_state_carries_requirement_never_grants() {
         let (_dir, a, b) = fixture();
         std::fs::create_dir_all(&a.legacy).unwrap();
         std::fs::write(
