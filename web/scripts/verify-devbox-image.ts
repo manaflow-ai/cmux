@@ -69,6 +69,7 @@ import {
   DEVBOX_DESKTOP_USER,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
+import { throwawayVmOptions } from "./cloud-vm/ci-leftovers";
 
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
@@ -431,7 +432,9 @@ if (provider === "freestyle") {
     };
   };
   const t0 = Date.now();
-  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: verifyName, firewall });
+  // Throwaway machines: paused when idle, deleted at a deadline, and tagged
+  // with the CI run so a cancelled run's always() step deletes them.
+  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: verifyName, firewall, ...throwawayVmOptions() });
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     const exec = execFor(vm);
@@ -469,7 +472,7 @@ if (provider === "freestyle") {
     let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
-    const second = await fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall });
+    const second = await fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall, ...throwawayVmOptions() });
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
