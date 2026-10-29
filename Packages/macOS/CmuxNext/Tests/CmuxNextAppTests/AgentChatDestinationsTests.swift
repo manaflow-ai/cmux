@@ -135,7 +135,7 @@ struct AgentChatDestinationsTests {
 /// fixture data; no remote account or peer process is needed to check routing and refusals.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct AgentChatDestinationActionTests {
-    /// Released before the task group drains, including on timeout. A provider reached after
+    /// Released on timeout and cleanup. A provider reached after
     /// cleanup returns immediately, so sequential inventory reads cannot suspend cleanup again.
     @MainActor private final class InventoryGate {
         private var released = false
@@ -171,22 +171,26 @@ struct AgentChatDestinationActionTests {
             })
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
             let invocation = ActionInvocation(arguments: ["host": .string("local"), "cwd": .string(AgentChatActionFixture.localCwd)], origin: .cli)
-            let result = try await withThrowingTaskGroup(of: Result<[String: ActionResultValue], ActionWorkFailure>.self) { group in
-                group.addTask { @MainActor in
-                    await AgentHandlers.createOnHost("local", invocation: invocation,
-                        destinations: source, context: AppActionContext(services: services))
-                }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(2))
-                    throw CancellationError()
-                }
-                defer {
-                    group.cancelAll()
-                    peers.release()
-                    cloud.release()
-                }
-                return try await #require(group.next())
+            let work = Task { @MainActor in
+                await AgentHandlers.createOnHost("local", invocation: invocation,
+                    destinations: source, context: AppActionContext(services: services))
             }
+            let timeout = Task { @MainActor in
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                // Cancellation alone cannot resume an inventory continuation. Release both
+                // gates here, before awaiting work finishes, so a regression fails promptly.
+                work.cancel()
+                peers.release()
+                cloud.release()
+            }
+            defer {
+                timeout.cancel()
+                work.cancel()
+                peers.release()
+                cloud.release()
+            }
+            let result = await work.value
+            timeout.cancel()
             #expect(peers.calls == 0)
             #expect(cloud.calls == 0)
             let created = try await AgentChatActionFixture.created(in: services, after: before, fields: result.get())
