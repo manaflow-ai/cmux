@@ -54,6 +54,10 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
         return crate::bg_run::main();
     }
+    // Claude Code's PreToolUse hook for background shells (`bg_hook.rs`).
+    if args.first().is_some_and(|a| a == crate::bg_hook::HOOK_ARG) {
+        return crate::bg_hook::main(args.get(1).map(std::path::PathBuf::from));
+    }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
         return crate::linux_sandbox::keeper::canary_unix(args.get(1..).unwrap_or_default())
@@ -75,10 +79,34 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async_main(args, invocation))
+    runtime(&args)?.block_on(async_main(args, invocation))
+}
+
+/// The stdio MCP servers acpmux gives each agent session (`agent_tools.rs`).
+/// A harness starts a set of them for every thread it loads (a codex
+/// subagent gets its own set, kept until the app-server exits), so a tokio
+/// worker per core in each one adds up: about 100 tasks a set on a 32-core
+/// machine, which filled the sessions slice's task cap on a fleet host.
+const STDIO_MCP_SERVERS: [&str; 6] =
+    ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp"];
+
+/// Worker threads of a stdio MCP server: it answers one client's requests
+/// on one pipe. Still a multi-thread runtime, so `block_in_place` works.
+const MCP_WORKERS: usize = 2;
+
+/// The worker count `args` (without the program name) runs with: None is
+/// tokio's default, one per core.
+fn runtime_workers(args: &[OsString]) -> Option<usize> {
+    let command = args.iter().find(|a| *a != "--json" && *a != "--suppress-reads")?;
+    STDIO_MCP_SERVERS.iter().any(|name| command == name).then_some(MCP_WORKERS)
+}
+
+fn runtime(args: &[OsString]) -> std::io::Result<tokio::runtime::Runtime> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    if let Some(workers) = runtime_workers(args) {
+        builder.worker_threads(workers);
+    }
+    builder.enable_all().build()
 }
 
 async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
@@ -167,7 +195,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
-            crate::daemon::run(DaemonOptions {
+            let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
                 memory,
@@ -176,7 +204,24 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 dev_origins: allow_dev_origin,
                 dev,
             })
-            .await?;
+            .await;
+            if let Err(error) = result {
+                // A systemd start can race the daemon that is handing over
+                // this home. Keep its lock refusal a distinct, prevented
+                // restart status; detached clients still use the readiness
+                // line and retry through `connect`.
+                if error.to_string().starts_with("another acpmux daemon holds ") {
+                    let error: anyhow::Error = crate::cli::errors::AppError::new(
+                        crate::cli::errors::Code::Runtime,
+                        "daemon_lock_held",
+                        error.to_string(),
+                    )
+                    .with_exit(75)
+                    .into();
+                    crate::cli::errors::exit_with(&error, false);
+                }
+                return Err(error);
+            }
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
             // (a launcher `--version` check can take 20 s).
@@ -304,4 +349,41 @@ fn command_index(argv: &[OsString]) -> usize {
         .position(|a| a != "--json" && a != "--suppress-reads")
         .map(|i| i + 1)
         .unwrap_or(argv.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn os(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn a_stdio_mcp_server_runs_on_a_small_runtime() {
+        for name in
+            ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp"]
+        {
+            assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
+            assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");
+        }
+    }
+
+    #[test]
+    fn every_other_command_keeps_the_default_runtime() {
+        for args in [&["ls"][..], &["daemon", "run"], &["send", "forum-mcp"], &[], &["--json"]] {
+            assert_eq!(runtime_workers(&os(args)), None, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_small_runtime_has_its_workers_and_not_one_per_core() {
+        let small = runtime(&os(&["forum-mcp"])).unwrap();
+        assert_eq!(small.metrics().num_workers(), MCP_WORKERS);
+        // Every other command keeps tokio's default: one worker per core.
+        let default = runtime(&os(&["ls"])).unwrap();
+        if std::thread::available_parallelism().unwrap().get() > MCP_WORKERS {
+            assert!(default.metrics().num_workers() > MCP_WORKERS);
+        }
+    }
 }

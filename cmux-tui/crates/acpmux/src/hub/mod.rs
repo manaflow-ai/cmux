@@ -16,6 +16,7 @@ mod bg_tasks;
 mod bounded;
 mod btw;
 mod exit_reason;
+mod fallback_start;
 pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
@@ -123,6 +124,7 @@ mod tap;
 mod titles;
 mod tool_paths;
 mod tools;
+pub(crate) mod turn_cap;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -337,6 +339,9 @@ pub struct PromptOptions {
     /// Another agent's name when it sent the prompt with no provenance: the session a
     /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
     pub agent: Option<String>,
+    /// `_meta.acpmux.class` (`prompt_class.rs`): what another agent's message asks of this chat.
+    /// Kept only on another agent's message, where none means `result`.
+    pub class: Option<crate::prompt_class::PromptClass>,
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
@@ -353,6 +358,9 @@ pub struct PromptOptions {
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
     pub no_queue: bool,
+    /// A queued prompt sent now (`queue.rs` `steer_queued`): it steers in even past the running
+    /// turn's cap (`turn_cap.rs`).
+    pub send_now: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -377,6 +385,9 @@ pub(super) struct StreamState {
     pub(super) trailing_overflow: bool,
 }
 
+/// An inline `/btw` side session's transcript owner: its family and the parent chat's env.
+pub(super) type InlineBtwOwner = (String, std::collections::BTreeMap<String, String>);
+
 pub struct Hub {
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
@@ -387,6 +398,10 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
+    /// Inline `/btw` side sessions being created, by their request-unique name: the family and
+    /// parent env their transcript cleanup reads (`btw.rs` `InlineOwned`). A creation that fails
+    /// and is discarded inside `new_session` or `fork` removes that harness transcript too.
+    pub(super) inline_btw: StdMutex<HashMap<String, InlineBtwOwner>>,
     /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
@@ -651,6 +666,7 @@ impl Hub {
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
+            inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
@@ -1080,6 +1096,7 @@ impl Hub {
             stalled_gen: AtomicU64::new(0),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
+            turn_cap_timer: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
