@@ -61,14 +61,17 @@ import Testing
 
     @Test func folderListingRunsOffMainActor() async {
         let scope = ThemeScope(level: .room)
-        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { first }, listFolder: { _ in
-            #expect(!Thread.isMainThread, "Folder resolution and enumeration must not run on the UI thread")
-            return [.art(.munchScream)]
-        })
+        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { first }, listFolder: { Self.folderFixture($0) })
         defer { binding.stop() }
         binding.apply(["appearance": ["displayBackgrounds": .object([first: "folder:/wallpapers"])]])
         await binding.folderRefresh?.value
         #expect(scope.backdropSelection == .art(.munchScream))
+    }
+
+    // Foundation marks Thread.isMainThread noasync; this synchronous probe observes the lister's executing thread.
+    private nonisolated static func folderFixture(_ path: String) -> [BackdropSelection] {
+        #expect(!Thread.isMainThread, "Folder resolution and enumeration must not run on the UI thread")
+        return [.art(.munchScream)]
     }
 
     @Test func slowFolderReadDoesNotBlockRefreshAndStaleResultsCannotWin() async {
