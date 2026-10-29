@@ -18,7 +18,7 @@ use acpmux::mesh::{
     Mode, OutMessage, Receipt, RefuseControl, Sender, SessionRow, Target,
 };
 use acpmux::rpc::Message;
-use acpmux::server::mesh_relay::{MeshRelay, RelayOptions, relay_connection};
+use acpmux::server::mesh_relay::{MeshControlHook, MeshRelay, RelayOptions, relay_connection};
 use acpmux::server::{Origin, serve_connection_with};
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
@@ -494,6 +494,23 @@ async fn control_messages_go_to_the_hook_and_without_one_are_refused() {
     assert_eq!(fake.with(|s| s.acked("c-5")[0].state), AckState::Delivered);
     assert_eq!(*hook.0.lock().unwrap(), vec!["c-2".to_owned(), "c-5".to_owned()]);
     relay.stop().await;
+}
+
+#[tokio::test]
+async fn mesh_control_dispatches_through_peer_requests_and_refuses_unknown_sessions() {
+    let hub = hub();
+    let message = InMessage {
+        message_id: "control-resume-1".into(),
+        kind: Kind::Control,
+        op: Some("resume".into()),
+        mode: Mode::Now,
+        to: Target { session_id: Some("missing-session".into()), ..Target::default() },
+        body: r#"{"version":1}"#.into(),
+        ..message("control-resume-1", "", Kind::Control)
+    };
+    let ack = MeshControlHook.control(&hub, &message).await.expect("control is acknowledged");
+    assert_eq!(ack.state, AckState::Refused);
+    assert!(ack.detail.as_deref().is_some_and(|detail| detail.contains("no session")), "{ack:?}");
 }
 
 #[tokio::test]

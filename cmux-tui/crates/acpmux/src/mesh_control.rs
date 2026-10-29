@@ -177,15 +177,13 @@ impl ControlRelay for MeshControlRelay {
 impl From<Recipient> for crate::mesh::Target {
     fn from(recipient: Recipient) -> Self {
         match recipient {
-            Recipient::Session { session_id } => Self {
-                session_id: Some(session_id),
-                ..Self::default()
-            },
+            Recipient::Session { session_id } => {
+                Self { session_id: Some(session_id), ..Self::default() }
+            }
             Recipient::Name { name, host } => Self { name: Some(name), host, ..Self::default() },
-            Recipient::Daemon { daemon_id } => Self {
-                daemon_id: Some(daemon_id),
-                ..Self::default()
-            },
+            Recipient::Daemon { daemon_id } => {
+                Self { daemon_id: Some(daemon_id), ..Self::default() }
+            }
             Recipient::Host { host } => Self { host: Some(host), ..Self::default() },
         }
     }

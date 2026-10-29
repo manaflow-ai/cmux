@@ -433,11 +433,17 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         _ => unreachable!(),
     };
     let (tx, mut rx) = relay_connection(hub);
-    let initialized = rpc_call(&tx, &mut rx, 1, crate::rpc::method::INITIALIZE, serde_json::json!({
-        "protocolVersion": 1,
-        "clientCapabilities": {},
-        "clientInfo": {"name": "acpmux-mesh-control", "version": crate::hub::VERSION},
-    }))
+    let initialized = rpc_call(
+        &tx,
+        &mut rx,
+        1,
+        crate::rpc::method::INITIALIZE,
+        serde_json::json!({
+            "protocolVersion": 1,
+            "clientCapabilities": {},
+            "clientInfo": {"name": "acpmux-mesh-control", "version": crate::hub::VERSION},
+        }),
+    )
     .await;
     if let Err(e) = initialized {
         return Some(Ack::refused(format!("control initialize failed: {e}")));
