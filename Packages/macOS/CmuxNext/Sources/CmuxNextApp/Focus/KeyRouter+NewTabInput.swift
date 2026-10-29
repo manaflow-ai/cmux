@@ -43,6 +43,9 @@ final class NewTabInputCoordinator {
         /// A page that does not exist yet (Cmd-N's new workspace, `beginIncoming`): its tab key
         /// comes with its readiness; until then the hold owns its window's keys.
         let incoming: IncomingPage?
+        /// The person's own actions in the window when the page opened, and the pane focus named then
+        /// (``NewTabInputCoordinator/movedOn(_:in:controller:)``).
+        var openedAt: (acts: UInt64, focused: String?) = (0, nil)
 
         init(buffer: NewTabInputBuffer, opened: String?, pane: PaneController?, window: NSWindow, incoming: IncomingPage? = nil) {
             self.buffer = buffer
@@ -291,6 +294,10 @@ final class NewTabInputCoordinator {
     /// before its field was ready) opened this one: the keys typed after it are this page's. Otherwise its keys were
     /// typed for its own page, which the person left: they drop.
     private func install(_ entry: Entry, in window: NSWindow) {
+        if let inputs = router?.creationInputCoordinator {
+            inputs.noteOpening(in: window)
+            entry.openedAt = (inputs.personActs(in: window), router?.focus(for: window).0?.focus.currentState().pane)
+        }
         if let earlier = self.entry(for: window) {
             if earlier.buffer.replaying { earlier.buffer.handOver(to: entry.buffer) }
             end(earlier, .focusMovedAway, why: "replaced")
@@ -303,12 +310,13 @@ final class NewTabInputCoordinator {
         buffers = buffers.filter { $0.key != window.windowNumber && $0.value.window != nil }
     }
 
-    /// The person acted in `window` (a click, a focus move of theirs, one of their actions): an opening whose pane the
-    /// window's focus no longer names ends, and its keys drop. A key it runs again is not a new act.
+    /// The person acted in `window` (a click, a focus move of theirs, one of their actions): an opening the person moved
+    /// on from ends, and its keys drop (``movedOn(_:in:controller:)``; a focus move not reduced yet is read at the next
+    /// key or readiness). A key it runs again is not a new act.
     func personActed(in window: NSWindow?) {
-        guard let window, let router, let entry = entry(for: window), !entry.buffer.replaying, let pane = entry.pane,
-              let controller = router.focus(for: window).0, let focused = controller.focus.state.pane, focused != pane.paneKey else { return }
-        end(entry, .focusMovedAway, why: "the person moved to pane \(focused)")
+        guard let window, let router, let controller = router.focus(for: window).0, let shell = controller.window,
+              let entry = entry(for: shell), !entry.buffer.replaying, let pane = movedOn(entry, in: shell, controller: controller) else { return }
+        end(entry, .focusMovedAway, why: "the person moved to pane \(pane)")
     }
 
     /// The open put the page's tab on screen: leaving it now ends the hold at once.
@@ -341,9 +349,13 @@ final class NewTabInputCoordinator {
             end(entry, .focusMovedAway, why: "focus left content")
             return false
         }
-        // The opening's page is gone: its keys drop, and this key goes where the person is now.
+        // The opening's page is gone, or the person moved on: its keys drop, and this key goes where the person is now.
         if !entry.owns {
             end(entry, .focusMovedAway, why: "not owned at key (tab \(entry.pane?.currentTabKey ?? "-"))")
+            return false
+        }
+        if let pane = movedOn(entry, in: window, controller: controller) {
+            end(entry, .focusMovedAway, why: "the person moved to pane \(pane)")
             return false
         }
         // A close key (Cmd-W) acts now on what it closes; Escape is the person leaving the page's field: the keys typed
@@ -375,6 +387,9 @@ final class NewTabInputCoordinator {
 
     func flush(in window: NSWindow?) {
         guard let window, let entry = entry(for: window) else { return }
+        if let controller = router?.focus(for: window).0, let pane = movedOn(entry, in: window, controller: controller) {
+            return end(entry, .focusMovedAway, why: "the person moved to pane \(pane) before ready")
+        }
         if entry.buffer.drain() {
             note("drained to field", entry)
             // A held key that ran may have opened another page (it replaced this entry).
@@ -382,6 +397,17 @@ final class NewTabInputCoordinator {
         } else if !entry.owns {
             end(entry, .focusMovedAway, why: "not owned (tab \(entry.pane?.currentTabKey ?? "-"))")
         }
+    }
+
+    /// The pane the person moved the focus to since `entry`'s page opened, read from the focus model now (review finding 2:
+    /// level-triggered, so a move reduced after the person's intent was seen still counts). Nil while the model names the
+    /// page's pane or the pane focused at the opening (a page opened in another pane's + keeps it), or while the person
+    /// made no action of their own since then (a CLI, script or app move never ends the hold).
+    private func movedOn(_ entry: Entry, in window: NSWindow, controller: WindowController) -> String? {
+        guard let pane = entry.pane, let inputs = router?.creationInputCoordinator,
+              inputs.personActs(in: window) > entry.openedAt.acts,
+              let now = controller.focus.currentState().pane, now != pane.paneKey, now != entry.openedAt.focused else { return nil }
+        return now
     }
 
     /// Ends `entry`'s hold: the keys still waiting for its field drop (`reason`), never go to another view.

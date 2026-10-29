@@ -40,6 +40,11 @@ final class CreationInputCoordinator {
     private var holds: [Int: WindowHold] = [:]
     /// The person's new terminal's claim on a window's keyboard, by window number (``beginWorkspace(in:)``).
     private var claims: [Int: KeyboardClaim] = [:] { didSet { syncMode() } }
+    /// The person's own actions in each window so far, by window number (``personActed(in:event:)``), with the timestamp of
+    /// the input that opened its newest creation or New Tab page: that input's own end (a click's mouse-down after its
+    /// dispatch) is not a further action. A held target is left only by a later one (review finding 4: not the focus
+    /// model's generation, which a CLI or app move bumps too).
+    private var personActs: [Int: (count: UInt64, openingInput: TimeInterval?)] = [:]
     /// Set while a captured key runs again, so it is not captured a second time.
     private var replaying = false
     /// Held keys run again since launch (tests: a key must never be run into a view it was not typed for).
@@ -62,9 +67,6 @@ final class CreationInputCoordinator {
         /// The count of the person's own actions under which each waiting target's keys were typed: a later action of
         /// theirs leaves the target (review finding 4: not the focus model's generation, which a CLI or app move bumps).
         var typedAt: [WindowInputQueue.Target: UInt64] = [:]
-        /// The person's own actions in this window so far (``personActed(in:event:)``), and the timestamp of the input
-        /// that opened the newest creation: its own end (a click's mouse-down after its dispatch) is not a further action.
-        var person: (acts: UInt64, openingInput: TimeInterval?) = (0, nil)
         /// Where each landed creation's focus expectation lands (`tab:<id>` or `surface:<id>`), seen while it was pending:
         /// its keys follow it there.
         var landsOn: [WindowInputQueue.Target: String] = [:]
@@ -109,6 +111,7 @@ final class CreationInputCoordinator {
         guard let window else { return }
         claims[window.windowNumber] = nil
         holds[window.windowNumber] = nil
+        personActs[window.windowNumber] = nil
         router?.inputQueues.close(window.windowNumber)
         router?.newTabInputCoordinator.windowClosed(window)
         syncMode()
@@ -118,11 +121,14 @@ final class CreationInputCoordinator {
     /// input `event`: a claim there ends, and the keys go where they put them. The input that asked for the claim (the
     /// click or key of New Workspace) does not end it.
     func personActed(in window: NSWindow?, event: NSEvent?) {
-        router?.newTabInputCoordinator.personActed(in: window)
         guard let window else { return }
         let shell = router?.focus(for: window).0?.window ?? window
-        // A held key that runs again is not a new act, nor is the end of the input that opened the newest creation.
-        if !replaying, let hold = holds[shell.windowNumber], event == nil || event?.timestamp != hold.person.openingInput { hold.person.acts += 1 }
+        // A held key that runs again is not a new act, nor is the end of the input that opened the newest creation or page.
+        let acts = personActs[shell.windowNumber]
+        if !replaying, event == nil || event?.timestamp != acts?.openingInput {
+            personActs[shell.windowNumber] = ((acts?.count ?? 0) + 1, acts?.openingInput)
+        }
+        router?.newTabInputCoordinator.personActed(in: window)
         guard !claims.isEmpty else { return }
         if let event, let made = claims[shell.windowNumber]?.inputTimestamp, made == event.timestamp { return }
         claims[shell.windowNumber] = nil
@@ -191,13 +197,22 @@ final class CreationInputCoordinator {
     private func open(in window: NSWindow, generation: UInt64, _ make: (CreationInputBuffer) -> CreationInputBuffer.Ticket) -> CreationInputBuffer.Ticket {
         let hold = hold(in: window)
         let ticket = make(hold.creations)
-        hold.person.openingInput = router?.registry.dispatchingInputEvent()?.timestamp
+        noteOpening(in: window)
         if let target = hold.creations.creation(ticket)?.target {
-            hold.current = (target, hold.person.acts)
-            hold.typedAt[target] = hold.person.acts
+            hold.current = (target, personActs(in: window))
+            hold.typedAt[target] = personActs(in: window)
         }
         syncMode()
         return ticket
+    }
+
+    /// The person's own actions in `window` so far (a New Tab hold keeps the count it opened under).
+    func personActs(in window: NSWindow) -> UInt64 { personActs[window.windowNumber]?.count ?? 0 }
+
+    /// A creation or New Tab page opens in `window` from the input being dispatched now: that input's own end is not a
+    /// further action of the person.
+    func noteOpening(in window: NSWindow) {
+        personActs[window.windowNumber] = (personActs(in: window), router?.registry.dispatchingInputEvent()?.timestamp)
     }
 
     private func hold(in window: NSWindow) -> WindowHold {
@@ -230,7 +245,7 @@ final class CreationInputCoordinator {
         let named = state.resolved.tab.map(WindowInputQueue.Target.init)
         return "waiting \(hold.queue.targets.map { "\($0)=\(hold.queue.waiting(for: $0))" }), current \(hold.current.map { "\($0.target)@\($0.acts)" } ?? "-"), "
             + "creations \(hold.creations.all.map { "\($0.creation.target)@\($0.creation.generation) landed \($0.creation.landed)" }), "
-            + "focus \(state.resolved)@\(state.generation), person acts \(hold.person.acts), takes keys \(named.map { takesKeys($0, hold: hold, controller: controller, window: window) } ?? false), "
+            + "focus \(state.resolved)@\(state.generation), person acts \(personActs(in: window)), takes keys \(named.map { takesKeys($0, hold: hold, controller: controller, window: window) } ?? false), "
             + "counts \(hold.queue.counts)"
     }
 
@@ -272,8 +287,8 @@ final class CreationInputCoordinator {
         let hold = hold(in: window)
         let target = WindowInputQueue.Target(tab)
         hold.shown = target
-        hold.current = (target, hold.person.acts)
-        hold.typedAt[target] = max(hold.typedAt[target] ?? 0, hold.person.acts)
+        hold.current = (target, personActs(in: window))
+        hold.typedAt[target] = max(hold.typedAt[target] ?? 0, personActs(in: window))
         syncMode()
     }
 
@@ -527,7 +542,7 @@ final class CreationInputCoordinator {
             follow(target, to: made.target, acts: made.acts, in: hold)
         } else if state.generation > before.generation, state.resolved.tab != target.id {
             if let tab = state.resolved.tab {
-                follow(target, to: WindowInputQueue.Target(tab), acts: hold.person.acts, in: hold)
+                follow(target, to: WindowInputQueue.Target(tab), acts: personActs(in: window), in: hold)
             } else {
                 // The key moved the keyboard out of the content (a sidebar or bar field): the keys after it were typed
                 // for no target this queue knows.
@@ -613,7 +628,7 @@ final class CreationInputCoordinator {
         // 1. Creations the person moved on from (a newer intent replaced the focus each asked for), unless the model names
         // that very target (the person focused it), or the window now shows the new workspace the creation made (showing it
         // is that creation's own landing): their keys drop, they hold nothing more.
-        drop(hold.creations.remove { hold.person.acts > (hold.typedAt[$0.target] ?? 0) && $0.target != named && !Self.showsMadeWorkspace($0, state) },
+        drop(hold.creations.remove { personActs(in: window) > (hold.typedAt[$0.target] ?? 0) && $0.target != named && !Self.showsMadeWorkspace($0, state) },
              .focusMovedAway, in: hold)
         // 2. A landed creation's keys follow the tab of the surface it made, once the window lists it (never the tab the
         // model happens to name: review finding 5). A new workspace's follow its expectation, or the tab the model names
@@ -634,7 +649,7 @@ final class CreationInputCoordinator {
             }
             guard let tab, tab != creation.target else { continue }
             hold.landsOn[creation.target] = nil
-            follow(creation.target, to: tab, acts: hold.typedAt[creation.target] ?? hold.person.acts, in: hold)
+            follow(creation.target, to: tab, acts: hold.typedAt[creation.target] ?? personActs(in: window), in: hold)
             hold.creations.setTarget(tab, of: ticket)
         }
         // 3. Keys waiting for a tab no pending creation owns that is gone from the window (closed), or that the person's
@@ -647,7 +662,7 @@ final class CreationInputCoordinator {
         for target in hold.queue.targets where !target.isNewTabPage && !pending.contains(target) && target != named {
             if !state.topology.panes.contains(where: { $0.tab(target.id) != nil }) {
                 hold.queue.drop(target, .targetClosed)
-            } else if !owned.contains(target), (hold.typedAt[target] ?? 0) < hold.person.acts {
+            } else if !owned.contains(target), (hold.typedAt[target] ?? 0) < personActs(in: window) {
                 hold.queue.drop(target, .focusMovedAway)
             }
         }
