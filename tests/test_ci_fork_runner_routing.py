@@ -143,8 +143,9 @@ APP_KEY_RUNNER_EXCEPTIONS = {
         "pick-classic-sign-runner's output, which names only Blacksmith macOS labels "
         "(classic_nightly_build_runner.py), else the literal Blacksmith fallback",
     ("dogfood-artifact-publish.yml", "capture"):
-        "open: CMUX_BOT_APP_KEY on MACOS_RUNNER_DISPLAY, the GUI capture mini by design; "
-        "needs its owner's decision (a separate token job), not a label change",
+        "open: CMUX_BOT_APP_KEY runs on blacksmith-6vcpu-macos-15 unless CI_PAID_MACOS_OVERFLOW is 1, then "
+        "on MACOS_RUNNER_DISPLAY; the overflow switch sets both (to the owned GUI pool) in a Blacksmith "
+        "outage, so the key can reach a reused mini; fix: mint the token in a separate job",
 }
 
 
