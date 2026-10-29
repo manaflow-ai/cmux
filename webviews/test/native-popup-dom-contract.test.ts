@@ -127,7 +127,7 @@ describe("native popup DOM observations", () => {
     const f = fixture(
       '<aside id="summary" style="position:absolute;z-index:4">Summary</aside><aside id="info" style="position:fixed;z-index:5"><div id="nested" role="menu">More</div></aside><ul role="listbox"><li>Inline list</li></ul>',
     );
-    const semantics = new Map<Element, SurfaceSemantics>([
+    const semantics: Map<Element, SurfaceSemantics> = new Map([
       [f.element("summary"), { kind: "persistent" }],
       [f.element("info"), { kind: "persistent" }],
     ]);
@@ -158,7 +158,7 @@ describe("native popup DOM observations", () => {
       '<div id="content" style="position:fixed;z-index:1"><div id="nested" role="menu">More</div></div>',
     );
     const expected = identity();
-    const semantics = new Map<Element, SurfaceSemantics>([
+    const semantics: Map<Element, SurfaceSemantics> = new Map([
       [
         f.element("content"),
         {
