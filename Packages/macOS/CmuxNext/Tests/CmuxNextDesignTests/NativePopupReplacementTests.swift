@@ -78,4 +78,38 @@ import Testing
         #expect(replacement !== old && replacement.stringValue == "replacement")
         #expect(edits == 0)
     }
+
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func deferredCommitKeepsItsOriginatingRevision() throws {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        window.contentView = page
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        var events: [[String: Any]] = []
+        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
+        defer { host.hide() }
+        var model = NativePopupModel(schemaVersion: 1, id: "same", revision: 1,
+                                     anchor: NativePopupAnchor(left: 0, top: 0, right: 20, bottom: 20),
+                                     side: .bottom, align: .start, width: 320, rows: [],
+                                     search: NativePopupField(id: "query", value: "", placeholder: "Search", editSequence: 0))
+        #expect(host.show(model)["shown"] as? Bool == true)
+        let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        let root = try #require(panel.contentView)
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        let content = try #require(descendants(root).compactMap { $0 as? NativePopupContent }.first)
+        let field = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        editor.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0),
+                             replacementRange: NSRange(location: NSNotFound, length: 0))
+        model.revision = 2; model.title = "Updated"
+        host.update(model)
+        editor.unmarkText()
+        field.stringValue = "committed"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        #expect(content.model?.revision == 2)
+        #expect(events.last?["type"] as? String == "search" && events.last?["value"] as? String == "committed")
+        #expect(events.last?["revision"] as? Int == 1)
+    }
 }
