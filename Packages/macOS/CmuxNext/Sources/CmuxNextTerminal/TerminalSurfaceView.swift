@@ -48,9 +48,9 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// Which grid the surface renders and reports (``TerminalGridPolicy``):
     /// the PTY owner's announced grid once there is one; the view's grid is
     /// only reported.
-    private var geometry = TerminalGridPolicy(ownsGeometry: true)
+    private(set) var geometry = TerminalGridPolicy(ownsGeometry: true)
 
-    /// The grid this view's pixel size fits (its last ``updateSurfaceSize(forceReport:)``),
+    /// The grid this view's pixel size fits (its last ``updateSurfaceSize()``),
     /// whatever grid the PTY owner announced. Nil before the first layout.
     var fittedGrid: TerminalGridSize? { geometry.desired }
 
@@ -87,7 +87,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         set {
             guard newValue != geometry.ownsGeometry else { return }
             geometry.ownsGeometry = newValue
-            updateSurfaceSize(forceReport: true)
+            reportToNewOwner()
         }
     }
 
@@ -346,7 +346,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         registerForDraggedTypes([.fileURL, .URL, .string])
         split?.ended(.surfaceSetup)
         updateContentScale()
-        updateSurfaceSize(forceReport: true)
+        updateSurfaceSize()
         split?.ended(.surfaceFit)
         updateOcclusion()
         updateFocus()
@@ -375,8 +375,12 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         cursorLayer?.place(in: window)
         let before = windowNode.effective
         syncPlacement()
-        // A move between windows flips nothing: observe the new window (the old one's observers went above).
-        if windowNode.effective == before { syncWindowState() }
+        // A move between windows flips nothing: observe the new window (the old one's observers went above), and
+        // take its scale and the view's size in it.
+        if windowNode.effective == before {
+            syncWindowState()
+            if isShown { reconcileShown() }
+        }
     }
 
     /// The view's own overlays (copy mode's box and badge, predictive echo) stay over the cursor layer, as they
@@ -395,11 +399,13 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// tab's node, own-hidden while AppKit hides the view or an ancestor.
     let visibilityNode: VisibilityNode
     /// The terminal in its window: under ``visibilityNode``, own-hidden while the view is in no window or a
-    /// container above is parked (``syncPlacement()``). Its effective state is the terminal's, so the work a
-    /// terminal that is not shown owes (``DeferredWork``) waits on it.
+    /// container above is parked (``syncPlacement()``). Its effective state is the terminal's: its edge to
+    /// shown reconciles the surface's scale and size (``reconcileShown()``).
     let windowNode: VisibilityNode
     /// Runs ``syncWindowState()`` on each flip of ``windowNode``.
     private var shownWatch: VisibilitySubscription?
+    /// Whether ``syncWindowState()`` last saw the terminal shown: its edge to shown runs ``reconcileShown()`` once.
+    var reconciledShown = false
     /// Runs ``syncPlacement()`` when ``visibilityNode`` shows.
     private var placementWatch: VisibilitySubscription?
     /// In a window, its nodes not hidden and no container above parked (``windowNode``). A layout change of
@@ -407,15 +413,6 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// every warm terminal's surface and resized its PTY); showing it applies the last size once.
     var isShown: Bool { windowNode.effective > .hidden }
 
-    /// The ``windowNode`` keys of the work a terminal that is not shown owes: each runs once, when it shows.
-    enum DeferredWork: Hashable {
-        /// A forced grid report (`TerminalSession.init`, a new owner); it sizes the surface too.
-        case forcedReport
-        /// The surface's size (a resize, an announced grid, a held grid).
-        case size
-        /// The backing scale and the size it gives.
-        case scale
-    }
 
     func observeWindow(_ observe: Bool) {
         guard observe != windowWatch.isWatching else { return }
@@ -448,19 +445,18 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         }
     }
 
-    /// AppKit walks hidden and parked views too; a terminal that is not shown applies the scale once,
-    /// when shown. Each scale or display call is a message that wakes the surface's
-    /// renderer thread, which stays parked while the surface is paused and GPU-released.
+    /// AppKit walks hidden and parked views too; a terminal that is not shown takes its scale from its
+    /// window when it shows (``reconcileShown()``). Each scale or display call is a message that wakes the
+    /// surface's renderer thread, which stays parked while the surface is paused and GPU-released.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        windowNode.deferUntilShown(key: DeferredWork.scale) { [weak self] in
-            self?.updateContentScale()
-            self?.updateSurfaceSize()
-        }
+        guard isShown else { return }
+        updateContentScale()
+        updateSurfaceSize()
     }
 
-    /// Every frame of a drag resizes a shown surface at once (a hidden one sizes once, when shown,
-    /// ``updateSurfaceSize(forceReport:)``): the drawable takes
+    /// Every frame of a drag resizes a shown surface at once (a hidden one sizes from its bounds when it
+    /// shows, ``reconcileShown()``): the drawable takes
     /// the new size and draws one frame with the text reflowed to it (the
     /// reflow preview, ``updateReflowPreview()``), and the grid report goes to
     /// the owner through `ResizeCoordinator` (next frame, one in flight). The
@@ -519,8 +515,8 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         unsafe ghostty_surface_set_reflow_preview(surface, enabled)
     }
 
-    /// Sizes the surface to the view and reports the view's grid when it
-    /// changed.
+    /// Sizes the surface to the view and reports the view's grid when the
+    /// owner does not have it.
     ///
     /// The view's pixel size always goes to `ghostty_surface_set_size`, and
     /// `ghostty_surface_size` reports how many cells fit. Before any
@@ -529,12 +525,13 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// a larger view draws padding, a smaller one crops, and the report still
     /// says what would fit. The owner decides; the surface follows its
     /// announcement.
-    func updateSurfaceSize(forceReport: Bool = false) {
-        guard let surface else { return }
-        guard isShown else {
-            deferSize(forceReport: forceReport)
-            return
-        }
+    ///
+    /// A terminal that is not shown (made, hidden, parked) does nothing: its size is its bounds, read
+    /// again when it shows (``reconcileShown()``), never a request kept for later
+    /// (plans principled-audit R2: PL-script A3's hidden resizes cost nothing, and no missed show can
+    /// leave a stale grid).
+    func updateSurfaceSize() {
+        guard let surface, isShown else { return }
         let pixels = convertToBacking(bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
@@ -549,7 +546,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every
         // display frame: the surface draws each size (the reflow preview), and the grid goes to the
         // owner once the spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame.
-        let report = geometry.viewSized(desired, force: forceReport, holding: !forceReport && isInPaneMotion)
+        let report = geometry.viewSized(desired, holding: isInPaneMotion)
         // In the same main-thread turn as set_size: the frame of the new size
         // draws at the next display pass, already reflowed.
         // A held grid is reported when the spring lands: the preview draws it meanwhile.
@@ -560,25 +557,20 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height)
     }
 
-    /// Not shown (made, hidden or parked): no size and no report now; the view sizes and reports once, when
-    /// it shows. A forced report sizes the surface too, so it takes the place of a pending size.
-    private func deferSize(forceReport: Bool) {
-        guard forceReport else {
-            windowNode.deferUntilShown(key: DeferredWork.size) { [weak self] in self?.catchUpSize(forceReport: false) }
-            return
-        }
-        windowNode.cancelDeferred(key: DeferredWork.size)
-        windowNode.deferUntilShown(key: DeferredWork.forcedReport) { [weak self] in
-            self?.windowNode.cancelDeferred(key: DeferredWork.size)
-            self?.catchUpSize(forceReport: true)
-        }
+    /// The PTY owner has no grid from this view (a new session or owner, or it took over geometry): it
+    /// gets the view's grid now when shown, else when the view shows (``TerminalGridPolicy/ownerNeedsReport()``).
+    func reportToNewOwner() {
+        geometry.ownerNeedsReport()
+        updateSurfaceSize()
     }
 
-    /// The size a terminal owes when it shows. A view that joins a pane on a layout spring sends the grid the
-    /// spring rests at, once; its held report would be a size no frame rests at.
-    private func catchUpSize(forceReport: Bool) {
-        let joined = isInPaneMotion && joinPaneMotion()
-        updateSurfaceSize(forceReport: forceReport && !joined)
+    /// The one reconcile of a terminal that becomes shown (its ``windowNode`` turned shown): scale and size
+    /// from its window and bounds now, whatever changed while it was not shown. A view that joins a pane on
+    /// a layout spring sends the grid the spring rests at first (``joinPaneMotion()``).
+    func reconcileShown() {
+        updateContentScale()
+        if isInPaneMotion { _ = joinPaneMotion() }
+        updateSurfaceSize()
     }
 
     private func publish(size: ghostty_surface_size_s) {

@@ -241,7 +241,7 @@ public final class TerminalSession {
             }))
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
-        surfaceView.updateSurfaceSize(forceReport: true)
+        surfaceView.reportToNewOwner()
         traceSurfaceCreated(io: io) // DEBUG: `debug.new_terminal_trace` (Release: the cache's traceCreate)
     }
 

@@ -60,3 +60,24 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         return Int(metrics.cursor_row) * 2 >= Int(metrics.rows) ? .bottom : .top
     }
 }
+
+/// The resting-grid invariant (G2, `InputInvariantMonitor.terminalGrids`; principled-audit R3).
+extension TerminalSurfaceView {
+    /// Nil when this terminal keeps the invariant or is not at rest; else what differs. Shown and at rest (no
+    /// pane spring, no report held; a report on its way to the owner passes the monitor's settle and its
+    /// confirmation one settle later, so only a grid that stays wrong is reported): the grid Ghostty fits the view's bounds,
+    /// the grid it was sized to, the grid reported and the grid the owner announced are one grid.
+    package var restingGridMismatch: String? {
+        guard let surface, isShown, !isInPaneMotion, !geometry.held else { return nil }
+        let pixels = convertToBacking(bounds.size)
+        var columns: UInt16 = 0, rows: UInt16 = 0
+        // SAFETY: the view's live surface (`surface`); Ghostty writes one UInt16 into each local, alive for the call.
+        guard pixels.width >= 1, pixels.height >= 1,
+              unsafe ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows) else { return nil }
+        let fits = TerminalGridSize(columns: Int(columns), rows: Int(rows))
+        let sized = geometry.desired, owner = geometry.announced
+        guard sized != fits || (geometry.ownsGeometry && owner != nil && owner != fits) else { return nil }
+        func text(_ grid: TerminalGridSize?) -> String { grid.map { "\($0.columns)x\($0.rows)" } ?? "-" }
+        return "bounds \(Int(bounds.width))x\(Int(bounds.height)) fit \(text(fits)), surface sized to \(text(sized)), owner \(text(owner))"
+    }
+}

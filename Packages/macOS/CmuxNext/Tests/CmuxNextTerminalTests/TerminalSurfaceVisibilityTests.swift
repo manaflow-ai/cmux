@@ -67,9 +67,10 @@ struct TerminalSurfaceVisibilityTests {
         #expect(session.surfaceView.visibilityNode.parent == nil)
     }
 
-    /// What a hidden terminal skips waits on its node under a key, not in a flag: a forced report and a
-    /// resize while its tab is hidden send one grid on show, in either order, and leave nothing waiting.
-    @Test func aForcedReportAndAResizeWhileHiddenReportOnceOnShow() {
+    /// A terminal that is not shown keeps no queued size work (principled-audit R2): its size is its bounds,
+    /// read when it shows. A new owner and resizes while its tab is hidden, in either order, report nothing
+    /// while hidden and the grid of its bounds once on show; nothing waits on its nodes at any time.
+    @Test func aNewOwnerAndResizesWhileHiddenReportTheShownGridOnceOnShow() {
         _ = NSApplication.shared
         GhosttyRuntime.startedForTests()
         let reports = GridReportLog()
@@ -86,23 +87,29 @@ struct TerminalSurfaceVisibilityTests {
 
         tab.set(.hidden)
         var before = reports.grids.count
-        surface.updateSurfaceSize(forceReport: true)
+        surface.reportToNewOwner()
         surface.setFrameSize(NSSize(width: 500, height: 300))
+        surface.setFrameSize(NSSize(width: 520, height: 310))
         #expect(reports.grids.count == before, "a hidden terminal reported its grid")
-        #expect(surface.windowNode.deferredCount == 2)
+        #expect(surface.windowNode.deferredCount == 0, "a hidden terminal queued work")
         tab.set(.visible)
-        #expect(reports.grids.count == before + 1, "a forced report and a resize sent \(reports.grids.count - before) grids on show")
+        #expect(reports.grids.count == before + 1, "a new owner and two resizes sent \(reports.grids.count - before) grids on show")
         #expect(reports.grids.last == surface.fittedGrid)
         #expect(surface.windowNode.deferredCount == 0 && surface.visibilityNode.deferredCount == 0)
 
         tab.set(.hidden)
         before = reports.grids.count
         surface.setFrameSize(NSSize(width: 640, height: 400))
-        surface.updateSurfaceSize(forceReport: true)
-        #expect(surface.windowNode.deferredCount == 1, "a forced report did not take the place of the pending size")
+        surface.reportToNewOwner()
         tab.set(.visible)
         #expect(reports.grids.count == before + 1)
-        #expect(surface.windowNode.deferredCount == 0)
+        #expect(reports.grids.last == surface.fittedGrid)
+
+        // Shown again at the size it had when it hid: the owner has that grid, nothing is sent.
+        tab.set(.hidden)
+        before = reports.grids.count
+        tab.set(.visible)
+        #expect(reports.grids.count == before, "a show with no change sent a grid")
     }
 }
 
