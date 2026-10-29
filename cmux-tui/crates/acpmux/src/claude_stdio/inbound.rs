@@ -629,6 +629,8 @@ impl Translator {
             "result" => {
                 // A compaction's summary comes before its turn's result.
                 self.awaiting_summary.store(false, Ordering::SeqCst);
+                let cancelled_compaction =
+                    main_line && self.cancelled_compaction.swap(false, Ordering::SeqCst);
                 // `is_error` with a success subtype is how Claude reports a
                 // usage limit or an API refusal: a failed turn, not a reply.
                 let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
@@ -642,6 +644,7 @@ impl Translator {
                     && !self.turn_output.load(Ordering::SeqCst)
                     && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                     && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0)
+                    && !cancelled_compaction
                     && !self.cancelled.load(Ordering::SeqCst);
                 if startup_noise {
                     return out;
@@ -668,7 +671,9 @@ impl Translator {
                 let abandoned = std::mem::take(&mut *self.abandoned.lock().await);
                 let next_unread = self.prompt_echo.lock().await.is_some();
                 if !abandoned.is_empty()
-                    && (next_unread || !self.turn_output.load(Ordering::SeqCst))
+                    && (cancelled_compaction
+                        || next_unread
+                        || !self.turn_output.load(Ordering::SeqCst))
                 {
                     for k in abandoned {
                         self.pending.lock().await.remove(&k);

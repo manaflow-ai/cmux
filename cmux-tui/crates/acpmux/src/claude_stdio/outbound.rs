@@ -333,6 +333,9 @@ impl Translator {
             Message::Notification { method: m, .. } => {
                 if m == method::SESSION_CANCEL {
                     self.cancelled.store(true, Ordering::SeqCst);
+                    if self.is_compacting() {
+                        self.cancelled_compaction.store(true, Ordering::SeqCst);
+                    }
                     let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                     Outbound::Lines(vec![
                         json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}),

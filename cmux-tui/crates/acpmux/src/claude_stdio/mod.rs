@@ -471,6 +471,10 @@ pub struct Translator {
     /// interrupt control request, so the hub ends that turn without waiting
     /// for the normal cancel grace period.
     compacting: AtomicBool,
+    /// The cancelled compaction still owes its result. Its boundary/summary
+    /// can follow the next prompt's echo, so that output cannot identify the
+    /// result as belonging to the new prompt (`abandoned` holds the old IDs).
+    cancelled_compaction: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
@@ -582,6 +586,7 @@ impl Translator {
             context_used: AtomicU64::new(0),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
+            cancelled_compaction: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             streamed_subagents: Mutex::new(HashSet::new()),
