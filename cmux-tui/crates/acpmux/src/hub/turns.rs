@@ -272,7 +272,8 @@ impl Hub {
         let text = prompt_text(&blocks);
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
-        let capped = running.is_some() && self.turn_cap_holds(session, &opts);
+        let capped = running.is_some()
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
         let steer_now =
             steer && session.steering.load(Ordering::SeqCst) && running.is_some() && !capped;
         if steer && opts.steer_only && !steer_now {

@@ -68,16 +68,18 @@ pub(super) fn steer_unavailable(capped: bool) -> RpcError {
 }
 
 impl Hub {
-    /// Whether another agent's message (`agent`, from `digest::agent_sender`) that arrives now
-    /// waits for the next turn instead of steering in: the running turn is past its cap. Any
-    /// agent message past the cap asks for the notice, steer or not. The person's never waits.
+    /// Whether a prompt that arrives now and is another agent's message (`digest::agent_sender`
+    /// of its `provenance` and `agent`) waits for the next turn instead of steering in: the
+    /// running turn is past its cap. Any agent message past the cap asks for the notice, steer or
+    /// not. The person's never waits.
     #[inline(never)]
     pub(super) fn turn_cap_holds(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        opts: &PromptOptions,
+        provenance: Option<&Value>,
+        agent: Option<&str>,
     ) -> bool {
-        if super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_none() {
+        if super::digest::agent_sender(provenance, agent).is_none() {
             return false;
         }
         let Some((turn_id, cap)) = capped_turn(session, now_ms()) else { return false };
