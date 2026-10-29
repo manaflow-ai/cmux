@@ -516,7 +516,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             // A process-wide file lock protects the check, redeem and commit as one
             // transaction. A second installer never redeems behind the first one.
-            let _lock = crate::cli::cloud_join::join_lock()?;
+            let _lock = crate::cli::cloud_join::join_lock().map_err(|_| {
+                crate::cli::errors::AppError::new(
+                    crate::cli::errors::Code::Runtime,
+                    "join.store",
+                    "local machine store is busy or unavailable",
+                )
+                .with_exit(5)
+            })?;
             if ticket.is_none() && crate::cli::cloud_join::already_joined(replace, json_out)? {
                 return Ok(());
             }
@@ -528,7 +535,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 None => crate::cli::join_input::read_stdin_line()?,
             };
             if value.starts_with("cmj_") {
-                let token = crate::cli::cloud_join::parse_token_text(&value)?;
+                let token = crate::cli::cloud_join::parse_token_text(&value).map_err(|_| {
+                    crate::cli::errors::AppError::new(
+                        crate::cli::errors::Code::Usage,
+                        "join.malformed",
+                        "join token is malformed",
+                    )
+                    .with_exit(2)
+                })?;
                 crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, token).await
             } else if value.starts_with("cmxt1.") {
                 let ticket = crate::cli::pairing::join_ticket_text(&value)?;

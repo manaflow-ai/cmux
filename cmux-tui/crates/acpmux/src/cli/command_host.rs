@@ -76,7 +76,8 @@ pub enum PeerCmd {
         #[arg(long)]
         status: bool,
     },
-    /// Grant or revoke local screen/control consent. Mesh callers cannot write this file.
+    /// Request screen/control consent through the daemon. Changing it requires
+    /// the local app's person proof; a shell or agent cannot grant consent.
     Consent {
         #[command(subcommand)]
         cmd: ConsentCmd,
@@ -204,8 +205,18 @@ pub enum PeerCmd {
 
 #[derive(Subcommand)]
 pub enum ConsentCmd {
-    Grant { #[arg(long)] screen: bool, #[arg(long)] control: bool },
-    Revoke { #[arg(long)] screen: bool, #[arg(long)] control: bool },
+    Grant {
+        #[arg(long)]
+        screen: bool,
+        #[arg(long)]
+        control: bool,
+    },
+    Revoke {
+        #[arg(long)]
+        screen: bool,
+        #[arg(long)]
+        control: bool,
+    },
 }
 
 #[derive(Subcommand)]

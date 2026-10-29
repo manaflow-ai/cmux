@@ -11,7 +11,13 @@ pub const MAX_BYTES: u64 = 4096;
 pub fn read_stdin_line() -> Result<Zeroizing<String>> {
     let stdin = std::io::stdin();
     if stdin.is_terminal() {
-        return Err(anyhow!("pass the join value on stdin"));
+        return Err(crate::cli::errors::AppError::new(
+            crate::cli::errors::Code::Usage,
+            "join.malformed",
+            "pass the join value on stdin",
+        )
+        .with_exit(2)
+        .into());
     }
     read_line(stdin.lock()).map_err(|_| {
         crate::cli::errors::AppError::new(

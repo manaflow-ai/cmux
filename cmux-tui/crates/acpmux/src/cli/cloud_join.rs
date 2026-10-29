@@ -92,15 +92,7 @@ fn origin(value: Option<String>) -> Result<String> {
 }
 
 fn local_name(name: Option<String>) -> String {
-    name.filter(|v| !v.trim().is_empty()).unwrap_or_else(|| {
-        std::process::Command::new("hostname")
-            .output()
-            .ok()
-            .and_then(|v| String::from_utf8(v.stdout).ok())
-            .map(|v| v.trim().to_owned())
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| "cmux-machine".to_owned())
-    })
+    name.unwrap_or_else(crate::pairing::machine_name)
 }
 
 fn save(record: &MachineCredential) -> Result<()> {
@@ -228,6 +220,16 @@ pub async fn join_with_token(
         .with_exit(2)
     })?;
     let name = local_name(name);
+    if name.is_empty() || name.len() > 63 || name.chars().any(char::is_control) {
+        return Err(crate::cli::errors::AppError::new(
+            crate::cli::errors::Code::Usage,
+            "join.malformed",
+            "machine name must contain 1 to 63 non-control bytes",
+        )
+        .with_exit(2)
+        .into());
+    }
+    let hostname = crate::pairing::machine_name();
     let wg_public_key = crate::cli::mesh_node_key::load_or_create()
         .map_err(|_| {
             crate::cli::errors::AppError::new(
@@ -240,7 +242,7 @@ pub async fn join_with_token(
         .public_key_b64();
     let platform = if cfg!(target_os = "macos") { "macos" } else { "linux" };
     let response = http_client().map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?.post(format!("{hub}/v1/machines/join-tokens/redeem"))
-        .json(&json!({"token": token, "platform": platform, "hostname": name, "name": name, "wgPublicKey": wg_public_key}))
+        .json(&json!({"token": token, "platform": platform, "hostname": hostname, "name": name, "wgPublicKey": wg_public_key}))
         .send().await.map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?;
     let status = response.status();
     let body: Value = response.json().await.unwrap_or_else(|_| json!({}));
@@ -305,6 +307,21 @@ pub async fn join_with_token(
         )
         .with_exit(4)
     })?;
+    if machine_id.is_empty()
+        || team_id.is_empty()
+        || machine_id.contains("cmj_")
+        || machine_id.contains("cmm_")
+        || team_id.contains("cmj_")
+        || team_id.contains("cmm_")
+    {
+        return Err(crate::cli::errors::AppError::new(
+            crate::cli::errors::Code::Runtime,
+            "join.hub",
+            "hub returned an invalid response",
+        )
+        .with_exit(4)
+        .into());
+    }
     let returned_key = body.get("wgPublicKey").and_then(Value::as_str).unwrap_or(&wg_public_key);
     let key_ok = returned_key == wg_public_key
         && returned_key.len() == 44
