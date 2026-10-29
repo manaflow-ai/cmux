@@ -302,9 +302,21 @@ impl MeshHub for HttpHub {
     }
 
     fn team_inbox(&self, unread_only: bool) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        self.team_inbox_for(unread_only, None)
+    }
+
+    fn team_inbox_for<'a>(
+        &'a self,
+        unread_only: bool,
+        team_address: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<Vec<InMessage>, HubError>> {
         Box::pin(async move {
-            let path =
+            let mut path =
                 format!("/v1/mesh/inbox?team=true&unreadOnly={}&waitSeconds=0&max=50", unread_only);
+            if let Some(address) = team_address.filter(|a| !a.is_empty()) {
+                path.push_str("&teamAddress=");
+                path.push_str(address);
+            }
             let inbox = self.call(reqwest::Method::GET, &path, None, CALL_WAIT).await?;
             decode(inbox.get("messages").cloned().unwrap_or(json!([])))
         })

@@ -153,19 +153,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let (k, val) = assignment.split_once('=').ok_or_else(|| anyhow!("use key=value"))?;
             let v = match k {
                 "team-address" | "teamAddress" => {
-                    if val.trim().is_empty()
-                        || !val.split_once('/').is_some_and(|(scope, role)| {
-                            !scope.is_empty()
-                                && !role.is_empty()
-                                && scope
-                                    .chars()
-                                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                                && role
-                                    .chars()
-                                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-                        })
-                    {
-                        return Err(anyhow!("team-address must be scope/role"));
+                    let valid_part = |part: &str| {
+                        !part.is_empty()
+                            && part.len() <= 128
+                            && part
+                                .chars()
+                                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                    };
+                    let valid = val.split_once('/').map_or_else(
+                        || valid_part(val),
+                        |(scope, role)| valid_part(scope) && valid_part(role),
+                    );
+                    if !valid {
+                        return Err(anyhow!("team-address must be a role or scope/role"));
                     }
                     client
                         .request(

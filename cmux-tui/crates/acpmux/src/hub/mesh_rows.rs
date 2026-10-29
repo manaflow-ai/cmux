@@ -121,7 +121,8 @@ impl Hub {
                         .tags
                         .get("teamAddress")
                         .is_some_and(|tag| {
-                            tag.value.trim_start_matches('@') == key.trim_start_matches('@')
+                            tag.expires_at.map(|at| at > crate::store::now_ms()).unwrap_or(true)
+                                && tag.value.trim_start_matches('@') == key.trim_start_matches('@')
                         })
                 })
                 .cloned()

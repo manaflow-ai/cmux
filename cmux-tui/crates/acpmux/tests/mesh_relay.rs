@@ -68,6 +68,9 @@ fn message(id: &str, to: &str, kind: Kind) -> InMessage {
         },
         body: "hello from another machine".into(),
         attempt: 1,
+        start_work: None,
+        state: None,
+        subject: None,
     }
 }
 
@@ -235,6 +238,9 @@ impl MeshHub for FakeHub {
                     from: m.from.clone(),
                     body: m.body.clone(),
                     attempt: 1,
+                    start_work: Some(serde_json::json!(false)),
+                    state: Some("queued".into()),
+                    subject: None,
                 });
                 Ok(receipt)
             })

@@ -25,7 +25,7 @@ pub(super) async fn handle(
         hub.mesh.get().ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
     match method {
         crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_INBOX => inbox(mesh, params).await,
+        crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, mesh, params).await,
         crate::rpc::method::MUX_TEAM_READ => read(mesh, params).await,
         crate::rpc::method::MUX_TEAM_ACK => ack(mesh, params).await,
         _ => Err(RpcError::method_not_found(method)),
@@ -75,10 +75,24 @@ async fn send(
     Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
 }
 
-async fn inbox(mesh: &Arc<dyn MeshHub>, params: &Value) -> Result<Value, RpcError> {
+async fn inbox(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    mesh: &Arc<dyn MeshHub>,
+    params: &Value,
+) -> Result<Value, RpcError> {
     let unread_only = params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
+    let team_address = conn.caller().and_then(|id| hub.resolve(id).ok()).and_then(|session| {
+        session
+            .meta
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .tags
+            .get("teamAddress")
+            .map(|tag| tag.value.clone())
+    });
     let rows = mesh
-        .team_inbox(unread_only)
+        .team_inbox_for(unread_only, team_address.as_deref())
         .await
         .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?
         .into_iter()

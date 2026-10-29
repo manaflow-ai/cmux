@@ -445,8 +445,8 @@ pub async fn deliver(
     // Team messages are information by default. Record them in the target
     // session's event stream and acknowledge delivery without starting a
     // model turn; a later inbox read/ack records the durable user action.
-    if message.to.team_address.is_some() && !start_work_allowed(message) {
-        hub.append(
+    if message.start_work.is_some() && !start_work_allowed(message) {
+        let stored = hub.append_stored(
             &session,
             "in",
             "team_message",
@@ -459,6 +459,9 @@ pub async fn deliver(
                 "state": message.state,
             }),
         );
+        if !stored {
+            return None;
+        }
         return Some(Ack::delivered(
             prompt_id,
             Some("information queued for the next turn boundary".into()),
@@ -520,6 +523,7 @@ mod tests {
             op: None,
             start_work: Some(json!(false)),
             state: Some("queued".into()),
+            subject: None,
         }
     }
 

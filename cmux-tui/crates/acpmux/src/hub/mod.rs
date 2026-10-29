@@ -1072,6 +1072,16 @@ impl Hub {
         self.append_with_host_seq(session, dir, kind, msg, None)
     }
 
+    pub(crate) fn append_stored(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+    ) -> bool {
+        self.append_logged(session, dir, kind, msg, None).1
+    }
+
     /// Append one record; `host_seq` names the agent host entry it logs.
     pub(super) fn append_with_host_seq(
         &self,

@@ -12,6 +12,7 @@
 
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -277,6 +278,16 @@ pub trait MeshHub: Send + Sync {
     fn team_inbox(&self, unread_only: bool) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
         let _ = unread_only;
         Box::pin(async { Err(HubError::unavailable("team inbox is unavailable")) })
+    }
+    /// List team messages for one claimed address when the caller is an agent.
+    /// The default keeps older hub implementations compatible; HTTP hubs filter server-side.
+    fn team_inbox_for<'a>(
+        &'a self,
+        unread_only: bool,
+        team_address: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<Vec<InMessage>, HubError>> {
+        let _ = team_address;
+        self.team_inbox(unread_only)
     }
     /// Mark a team message read without acknowledging delivery.
     fn read<'a>(&'a self, _message_id: &'a str) -> BoxFuture<'a, Result<(), HubError>> {
