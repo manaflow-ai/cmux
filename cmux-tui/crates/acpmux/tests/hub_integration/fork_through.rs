@@ -53,6 +53,9 @@ mod turn_usage;
 #[path = "fork_running.rs"]
 mod fork_running;
 
+#[path = "fork_before.rs"]
+mod fork_before;
+
 const FORK_OP: &str = "acp.session.fork";
 
 #[tokio::test]
