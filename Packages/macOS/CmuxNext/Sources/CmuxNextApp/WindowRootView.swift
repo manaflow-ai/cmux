@@ -239,9 +239,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
-    /// Every top-row layout, after the traffic lights are placed: views that avoid them and
-    /// may have moved without a resize (the Home page's list header) re-read them.
-    var onTopRowLayout: (() -> Void)?
+    /// The content may have moved under or out from under the traffic lights without a resize
+    /// of its own (each top-row layout, the landing of a sidebar slide): views that avoid the
+    /// lights (the Home page's list header) re-read them.
+    var onWindowControlsMayHaveMoved: (() -> Void)?
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a
@@ -296,7 +297,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }
-        onTopRowLayout?()
+        onWindowControlsMayHaveMoved?()
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
         layoutRightPanel(rowHeight: rowHeight)
         layoutTitlebarAccessories(midY: midY)

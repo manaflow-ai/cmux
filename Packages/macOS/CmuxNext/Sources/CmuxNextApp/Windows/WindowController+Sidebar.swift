@@ -13,9 +13,9 @@ extension WindowController {
             for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
             self?.homePageWindowControlsChanged()
         }
-        // The Home page's header follows the lights after any top-row layout (a launch places
-        // the page and the lights after the list first laid out, with no resize of the list).
-        root.onTopRowLayout = { [weak self] in self?.homePageWindowControlsChanged() }
+        // The Home page's header follows the lights after any top-row layout and at the landing
+        // of a sidebar slide (the page rides the slide with no resize of its list).
+        root.onWindowControlsMayHaveMoved = { [weak self] in self?.homePageWindowControlsChanged() }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
             // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
