@@ -199,7 +199,8 @@ fn dispatch_name(params: &Value, brief: &str) -> String {
         .collect::<String>();
     out = out.trim_matches('-').chars().take(60).collect();
     if out.is_empty() {
-        out = format!("dispatch-{}", &uuid::Uuid::now_v7().to_string()[..8]);
+        let uuid = uuid::Uuid::now_v7().to_string();
+        out = format!("dispatch-{}", uuid.get(..8).unwrap_or(&uuid));
     }
     out
 }

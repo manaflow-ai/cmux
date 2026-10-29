@@ -69,6 +69,21 @@ pub enum PeerCmd {
         /// the other machine reaches this daemon at.
         #[arg(long)]
         advertise: Option<String>,
+        /// Platform origin for a cloud join; defaults to CMUX_PLATFORM_ORIGIN or development.
+        #[arg(long, visible_alias = "origin")]
+        hub: Option<String>,
+        /// Replace an existing cloud machine credential.
+        #[arg(long)]
+        replace: bool,
+        /// Show cloud machine join status without reading stdin.
+        #[arg(long)]
+        status: bool,
+    },
+    /// Request screen/control consent through the daemon. Changing it requires
+    /// the local app's person proof; a shell or agent cannot grant consent.
+    Consent {
+        #[command(subcommand)]
+        cmd: ConsentCmd,
     },
     /// Install this binary and a daemon on a machine over ssh, then add it as a peer.
     /// A Linux host also gets acpmux-update.timer, which keeps its daemon on
@@ -194,6 +209,22 @@ pub enum PeerCmd {
         /// Also try key-only ssh to each online machine.
         #[arg(long)]
         probe: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ConsentCmd {
+    Grant {
+        #[arg(long)]
+        screen: bool,
+        #[arg(long)]
+        control: bool,
+    },
+    Revoke {
+        #[arg(long)]
+        screen: bool,
+        #[arg(long)]
+        control: bool,
     },
 }
 
