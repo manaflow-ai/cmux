@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextFeatures
 @testable import CmuxNextTerminal
 import CmuxNextTerminalGeometry
 import CmuxNextWakeups
@@ -18,8 +19,11 @@ import Testing
 /// The product boundary: the real daemon, the action, the window.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(6)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct TerminalNewTabResizeTests {
-    @Test func aNewTerminalTabFollowsItsWindowsResize() async throws {
-        try await Self.withApp { services in
+    /// The switch set of the optimized dogfood build (`FeatureDogfoodSet.chromeParity`, by its tag) and none: the
+    /// journey failed on the build with the set, and the end state must be the same both ways (principled-audit R4).
+    @Test(arguments: [true, false])
+    func aNewTerminalTabFollowsItsWindowsResize(dogfoodSwitches: Bool) async throws {
+        try await Self.withApp(features: dogfoodSwitches ? FeatureDogfoodSet.chromeParity.names.sorted() : []) { services in
             let controller = try #require(services.windows.active)
             let window = try #require(controller.window)
             // Inside the screen's visible frame: a CI Mac's display can be short (a 320 pt window on aws-m4pro).
@@ -85,7 +89,7 @@ struct TerminalNewTabResizeTests {
     /// of a surface that is not shown waits on its window node).
     private static func describe(_ services: AppServices, _ controller: WindowController) -> String {
         let panes = controller.workspaceContent.map { Array($0.panes.values) } ?? []
-        let frame = controller.window.map { "window \(Int($0.frame.width))x\(Int($0.frame.height))\n" } ?? ""
+        let frame = controller.window.map { "window \(Int($0.frame.width))x\(Int($0.frame.height)) key=\($0.isKeyWindow)\n" } ?? ""
         return frame + panes.map { pane in
             let key = pane.currentTabKey ?? "nil"
             guard let surface = services.cache.existingTerminal(key)?.session.surfaceView else { return "\(pane.paneKey) tab \(key): no terminal" }
@@ -109,7 +113,10 @@ struct TerminalNewTabResizeTests {
 
     /// The app's services on a fresh same-tree daemon with its window laid out on screen (as
     /// `SplitPaneGridFitTests.withApp`).
-    private static func withApp(_ body: (AppServices) async throws -> Void) async throws {
+    private static func withApp(features: [String], _ body: (AppServices) async throws -> Void) async throws {
+        // The launch reads its switches from the process environment (`FeatureOverrides`), once, as the app does.
+        if features.isEmpty { unsetenv("CMUX_ENABLE_FEATURES") } else { setenv("CMUX_ENABLE_FEATURES", features.joined(separator: ","), 1) }
+        defer { unsetenv("CMUX_ENABLE_FEATURES") }
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-newtabfit-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
