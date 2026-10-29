@@ -565,7 +565,9 @@ describe("a shell running a command", () => {
   });
 
   test("bash -c, sh -lc and a shell running a script are busy terminals", async () => {
-    for (const cmdline of [["bash", "-c", "read -t 3600"], ["sh", "-lc", "sleep 600"], ["bash", "deploy.sh"], ["/bin/bash", "-e", "./run.sh", "x"]]) {
+    for (const cmdline of [["bash", "-c", "read -t 3600"], ["sh", "-lc", "sleep 600"], ["bash", "deploy.sh"], ["/bin/bash", "-e", "./run.sh", "x"],
+      // -c after -s still runs it; a bare - ends options like --; an empty rcfile operand is still an operand.
+      ["bash", "-s", "-c", "read -t 3600"], ["bash", "-", "deploy.sh"], ["bash", "--rcfile", "", "deploy.sh"]]) {
       const comm = path.basename(cmdline[0]);
       expect({ cmdline, busy: (await runProbeScript(shellOnly(comm, cmdline), "NONE")).busy_terminals }).toEqual({ cmdline, busy: 1 });
     }
@@ -576,7 +578,7 @@ describe("a shell running a command", () => {
       // Option operands are not scripts: an rcfile, a set -o option, a shopt name; -s reads commands from stdin.
       ["bash", ["bash", "--rcfile", "/home/cmux/.cmux/bashrc", "-i"]], ["bash", ["bash", "--init-file", "x.sh"]],
       ["bash", ["bash", "-o", "emacs"]], ["bash", ["bash", "+O", "extglob"]], ["zsh", ["zsh", "-o", "vi"]],
-      ["bash", ["bash", "-s", "arg"]]] as const) {
+      ["bash", ["bash", "-s", "arg"]], ["bash", ["bash", "-io", "emacs"]], ["bash", ["bash", "-"]]] as const) {
       expect({ cmdline, busy: (await runProbeScript(shellOnly(comm, cmdline), "NONE")).busy_terminals }).toEqual({ cmdline, busy: 0 });
     }
   });
