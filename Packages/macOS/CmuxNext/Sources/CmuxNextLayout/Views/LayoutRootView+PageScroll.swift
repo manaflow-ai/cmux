@@ -45,14 +45,17 @@ extension LayoutRootView {
     /// Holds `event` for its page when it must be. True: held (consumed for now); false: the page's
     /// earlier wheel answer gives it to the page; nil: route it as usual.
     func holdForPage(_ event: NSEvent, at locationInWindow: NSPoint, pageWindow: NSWindow?) -> Bool? {
+        let isWheel = event.phase.isEmpty && event.momentumPhase.isEmpty
         if var probe = pageProbe {
+            // Only the asked page's own scroll of the same kind waits for its answer: a scroll over
+            // another pane or window, or a trackpad gesture during a wheel ask, is routed now.
+            guard let pageWindow, pageWindow === probe.window, isWheel == probe.isWheel else { return nil }
             probe.held.append(PageProbe.Held(event: event, locationInWindow: locationInWindow))
             pageProbe = probe
             return true
         }
         guard let pageWindow, let arbiter = pageCommandScroll, model.scrollModifier == .command,
               model.pagesHandleCommandScroll, event.modifierFlags.contains(.command) else { return nil }
-        let isWheel = event.phase.isEmpty && event.momentumPhase.isEmpty
         if isWheel {
             if var answer = wheelPageAnswer, answer.window == ObjectIdentifier(pageWindow),
                event.timestamp <= answer.until {
@@ -77,7 +80,7 @@ extension LayoutRootView {
         }
         // A stuck page never keeps the columns waiting; the answer cancels it.
         pageProbeTimer.schedule(after: pageProbeDeadline) { @MainActor [weak self] in
-            self?.resolvePageProbe(generation, pageKeeps: false)
+            self?.resolvePageProbe(generation, pageKeeps: false, timedOut: true)
         }
         return true
     }
@@ -92,11 +95,13 @@ extension LayoutRootView {
     }
 
     /// Applies the page's answer to the held scroll of `generation`; a late or repeated answer does nothing.
-    func resolvePageProbe(_ generation: UInt64, pageKeeps: Bool) {
+    /// `timedOut`: the deadline decided, not the page; that is not kept as the wheel spin's answer, so
+    /// the next notch asks a slow page again.
+    func resolvePageProbe(_ generation: UInt64, pageKeeps: Bool, timedOut: Bool = false) {
         guard let probe = pageProbe, probe.generation == generation else { return }
         pageProbe = nil
         pageProbeTimer.cancel()
-        if probe.isWheel, let last = probe.held.last {
+        if probe.isWheel, !timedOut, let last = probe.held.last {
             wheelPageAnswer = WheelPageAnswer(window: ObjectIdentifier(probe.window), pageKeeps: pageKeeps,
                                               until: last.event.timestamp + Self.wheelSpinGap)
         }
