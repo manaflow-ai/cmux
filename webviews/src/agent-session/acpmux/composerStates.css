@@ -296,6 +296,9 @@
   }
 }
 .acpmux-send:focus-visible {
+  /* Its own wash marks keyboard focus: the pane's focus pill (shared/styles.css) stays off it, so
+     focus paints the hover pill alone, not a second wash over it. */
+  --acpmux-focus-pill: transparent;
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
 }
 /* The first Esc of the double press (escapeStop.ts): Stop keeps its glyph and footprint and takes the
@@ -387,7 +390,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   position: absolute;
   left: 16px;
   top: 15px;
-  font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: var(--weight-emphasis) var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--acpmux-shell-accent);
   pointer-events: none;
 }
@@ -396,7 +399,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   box-sizing: border-box;
   width: 100%;
   min-height: 45px;
-  max-height: calc(22px * 8 + 23px);
+  max-height: calc(var(--text-content--line-height) * 8 + 23px);
   margin: 0;
   padding: 15px 16px 8px 32px;
   border: 0;
@@ -405,7 +408,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   resize: none;
   overflow-y: auto;
   overscroll-behavior: contain;
-  font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-text);
   caret-color: var(--acpmux-shell-accent); /* caret-color: the shell mode's accent marks the mode */
 }
@@ -444,6 +447,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-composer-box:has(:focus-visible),
 .nt-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
+}
+/* The New Tab box is shared glass (#24593), whose own rim ignores --acpmux-card-ring. Its edge is
+   the card ring, as the chat card's is, so focus lifts it a step, Increase Contrast widens it and
+   appearance.borders none clears it. Over art or a see-through window the rule below adds the
+   glass's light rim. */
+.nt-box.ui-glass {
+  box-shadow: var(--acpmux-card-ring), var(--glass-elevation);
 }
 /* Under a top strip variant the strip draws its own rim in --acpmux-strip-edge (composerLocation.css);
    by default the card's rim goes round the strip and takes the focused tone itself (below). */
@@ -534,12 +544,11 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued-edit {
   grid-column: 1 / -1;
   min-width: 0;
-  max-height: 88px;
+  max-height: calc(var(--text-content--line-height) * 4);
   /* Its text stays where the row's text was. */
   margin: 2px 0 2px -6px;
   padding: 2px 6px;
   resize: none;
-  line-height: 18px;
   border: 0;
   border-radius: 6px;
   /* The composer's focused hairline, never a ring (Leo 2026-10-21: the white rounded ring). */
@@ -547,7 +556,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
   background: var(--acpmux-base);
   color: var(--agent-text);
-  font: inherit;
+  font-family: inherit;
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
 }
 .acpmux-queued-edit:focus {
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);

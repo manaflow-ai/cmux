@@ -157,6 +157,9 @@ impl Hub {
             note = Some(fresh_note(&parent_meta.harness));
             Made::Fresh
         } else {
+            // The idle pass never ends the parent's harness under its session/fork (`idle.rs`).
+            self.touch(session);
+            let _using = session.harness_use.read().await;
             let child = self.child_for(session).await?;
             // An agent that does not offer session/fork (Kimi, DeepSeek) answers it
             // with a bare internal error: refuse with the reason instead.
@@ -221,10 +224,19 @@ impl Hub {
             name,
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
+            spawn_argv: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             cwd,
+            // A fork is a new chat. Its parent transcript is authorized through parent_id; it
+            // must not inherit the parent's historical native session ids as its own.
+            previous_agent_session_ids: Vec::new(),
+            // The id was produced by this fork's actual harness, not by the parent's creation
+            // family (which can be stale after a profile switch).
+            agent_session_family: new_sid
+                .as_ref()
+                .map(|_| if is_claude { "claude".to_owned() } else { "non-claude".to_owned() }),
             agent_session_id: new_sid,
             status: SessionStatus::Idle,
             created_at: now,
@@ -232,6 +244,7 @@ impl Hub {
             last_seq: 0,
             parent_id: Some(session.id.clone()),
             fork_seq: Some(fork_seq),
+            fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             steering: parent_meta.steering,
@@ -254,6 +267,7 @@ impl Hub {
                 .or_else(|| res.get("configOptions").cloned().filter(|v| !v.is_null())),
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
+            policy_source: parent_meta.policy_source.clone(),
             title: None,
             title_source: None,
             title_prompt: None,
@@ -274,10 +288,13 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            hibernated_ms: 0,
             claude_profile: None,
             last_turn: None,
+            harness_failures: Default::default(),
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
+            vm_boundary: parent_meta.vm_boundary,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
             workspace_id,
@@ -405,6 +422,12 @@ impl Hub {
             }
             let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "forked", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": running_turn_seq});
             self.append(&new, "mux", "turn_result", result);
+        }
+        // The copied turn results are the parent's attempts, not the fork's: it starts unstuck,
+        // and a restore scans only past them.
+        {
+            let mut m = new.meta.lock().unwrap_or_else(|e| e.into_inner());
+            m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
         }
         let mut forked = json!({"parentId": session.id, "forkSeq": fork_seq});
         if running.is_some() {

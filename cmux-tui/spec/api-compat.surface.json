@@ -10016,6 +10016,14 @@
       "/shell_args/*": {
         "ty": "string"
       },
+      "/side": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "left",
+          "right"
+        ]
+      },
       "/tab_id": {
         "ty": "string",
         "nullable": true
@@ -16480,6 +16488,10 @@
       },
       "/data/build_id": {
         "ty": "string",
+        "nullable": true
+      },
+      "/data/build_time": {
+        "ty": "uint64",
         "nullable": true
       },
       "/data/capabilities": {

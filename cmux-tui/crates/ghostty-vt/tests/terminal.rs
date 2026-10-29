@@ -1397,6 +1397,7 @@ fn cmd_k_clears_multiline_prompt_that_starts_in_history() {
     let text = term.viewport_text().unwrap();
     assert!(!text.contains("L1"), "prompt's first line stayed on screen: {text:?}");
     assert!(!text.contains("one"), "history stayed: {text:?}");
-    assert!(text.starts_with("> "), "input line did not move to the top: {text:?}");
+    // viewport_text drops trailing spaces, so the input line reads as ">".
+    assert!(text.starts_with('>'), "input line did not move to the top: {text:?}");
     assert_eq!(term.history_rows(), 0, "scrollback was not cleared");
 }

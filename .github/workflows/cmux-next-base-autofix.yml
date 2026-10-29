@@ -7,7 +7,8 @@ name: cmux-next base autofix
 # generated-files job's tools), every React page's generated/strings.json
 # (webviews/scripts/pages/gen-strings.mjs), the SDK wire layers
 # (cmux-tui/bindings/codegen/generate.py), the docs shortcuts copy of the
-# action catalog export (web/scripts/export-docs-shortcuts.ts), the app-host
+# action catalog export (web/scripts/export-docs-shortcuts.ts) and the cmux-next
+# docs reference pages (web/scripts/export-next-docs.ts), the app-host
 # generated files (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts), the namespace
 # daemon capability export (scripts/cmux-next/check-daemon-capabilities-fresh.py), the
 # ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
@@ -82,6 +83,7 @@ on:
       - docs/mdm/**
       - scripts/ci/defaults_guard.py
       - web/scripts/export-docs-shortcuts.ts
+      - web/scripts/export-next-docs.ts
       # The app-host generated files (base-autofix.sh --app-host).
       - cmux-tui/spec/resource-operations-v2.json
       - first-party-apps/**
@@ -129,7 +131,7 @@ jobs:
     name: action export areas
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -172,7 +174,7 @@ jobs:
     name: Mac exports deferred
     needs: action-areas
     if: needs.action-areas.outputs.mac_busy == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -219,6 +221,17 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
+      # This job's tests can start acpmux daemons: they get a home of the job's
+      # own, never the runner's ~/.acpmux, the mini's own daemon
+      # (tests/test_ci_acpmux_job_home.py).
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+          # An inherited socket would still name another home's daemon; empty is unset.
+          echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
@@ -320,6 +333,19 @@ jobs:
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Also after a failure or a cancel: end the daemon of this job's home and
+      # its agents (shutdown never starts one), then delete the home.
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: steps.actions.outputs.exports == 'true' || steps.settings.outputs.exports == 'true'
         with:
@@ -343,7 +369,7 @@ jobs:
     name: webviews vp fmt
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -401,7 +427,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-target-graph-${{ github.ref_name }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 15
     permissions:
       actions: write # dispatch cmux-tui-artifacts.yml for the bot head (publish-bot-head-tree.sh)
@@ -502,7 +528,7 @@ jobs:
     concurrency:
       group: cmux-next-base-autofix-${{ github.ref_name }}${{ needs.action-exports.outputs.exports == 'true' && format('-exports-{0}', github.run_id) || '' }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 20
     permissions:
       actions: write # read the last successful run; dispatch cmux-tui-artifacts.yml for the bot head
@@ -548,7 +574,7 @@ jobs:
           bun-version: "1.4.4"
 
       - name: Set up pinned cmux-tui Rust
-        if: steps.areas.outputs.fmt == 'true'
+        if: steps.areas.outputs.fmt == 'true' || steps.areas.outputs.settings == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Download the webviews formatting patch
@@ -611,6 +637,22 @@ jobs:
             -m "scripts/cmux-next/base-autofix.sh: $RUN_URL"
           git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
           echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # The daemon embeds schemas/settings/settings-schema.json and panics at startup on a
+      # schema it cannot parse: 8091a040 pushed a "sound_rules" kind cmux-config did not know,
+      # and no cmux-tui tree could publish. A regenerated schema is pushed only after
+      # cmux-config parses it and its accepts/refuses samples pass.
+      - name: The daemon parses the regenerated settings schema
+        if: steps.commit.outputs.changed == 'true' && steps.areas.outputs.settings == 'true'
+        run: |
+          set -euo pipefail
+          if git diff --quiet HEAD~1 HEAD -- schemas/settings/settings-schema.json; then
+            echo "schemas/settings/settings-schema.json unchanged"; exit 0
+          fi
+          if ! (cd cmux-tui && cargo test --locked -p cmux-config 2>&1 | tail -60); then
+            echo "::error::the regenerated schemas/settings/settings-schema.json fails cmux-config's tests (the daemon would not start); not pushing. Teach cmux-tui/crates/cmux-config/src/schema the change first."
+            exit 1
+          fi
 
       # The push token: an App push starts the push workflows (Push identity, above).
       - name: Mint the push token
@@ -704,7 +746,7 @@ jobs:
     concurrency:
       group: cmux-next-ghosttykit-checksum
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
     timeout-minutes: 100
     permissions:
       actions: write # dispatch build-ghosttykit.yml and read its runs

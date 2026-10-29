@@ -8,6 +8,12 @@ extension CmuxConfigSnapshot {
     /// `labs.classicHome`: Home as the classic top page (the Chief conversation full window) instead of the home workspace with the Chief's page in a left dock (hq-6d cx-ebm.59.5). Off by default; kept for one release. HomeDock.classic reads it through DesignSettings.classicHome.
     public nonisolated static let classicHomePath = ["labs", "classicHome"]
     public nonisolated static let classicHomeDefault = false
+    /// `labs.voiceRoom`: Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
+    public nonisolated static let voiceRoomPath = ["labs", "voiceRoom"]
+    public nonisolated static let voiceRoomDefault = false
+    /// `labs.voiceRoomURL`: The Voice Room server (experiments/voice-room). Empty is the local server, http://127.0.0.1:4788/. A tailnet room is the https://<host>.ts.net:4789/ address its `--share` prints.
+    public nonisolated static let voiceRoomURLPath = ["labs", "voiceRoomURL"]
+    public nonisolated static let voiceRoomURLDefault = ""
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -35,6 +41,26 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.classicHomeDefault),
                 keywords: ["home", "chief", "classic", "dock", "page"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.voiceRoomPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.voiceRoom", "Voice Room"),
+                help: SettingsText.keyed("settings.labs.voiceRoom.help", "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.voiceRoomDefault),
+                keywords: ["labs", "voice", "room", "call", "meeting", "transcribe", "screen", "record", "chief"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.voiceRoomURLPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.voiceRoomURL", "Voice Room Address"),
+                help: SettingsText.keyed("settings.labs.voiceRoomURL.help", "The room's web address. Empty uses the room server on this Mac."),
+                kind: .text,
+                default: .string(CmuxConfigSnapshot.voiceRoomURLDefault),
+                keywords: ["labs", "voice", "room", "address", "url", "server", "tailnet"]
             ),
         ]
     }

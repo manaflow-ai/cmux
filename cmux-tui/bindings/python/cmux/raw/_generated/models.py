@@ -83,6 +83,10 @@ class ColumnMoveDirection(str, Enum):
     LEFT = 'left'
     RIGHT = 'right'
 
+class ColumnSide(str, Enum):
+    LEFT = 'left'
+    RIGHT = 'right'
+
 class ConversationThreadStatus(str, Enum):
     OPEN = 'open'
     RESOLVED = 'resolved'
@@ -982,6 +986,7 @@ class IdentifyResult:
     api_revision: Union[int, None, MissingType] = field(default=MISSING)
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     build_id: Union[str, None, MissingType] = field(default=MISSING)
+    build_time: Union[int, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
     cli_path: Union[str, None, MissingType] = field(default=MISSING)
     crate_version: Union[str, None, MissingType] = field(default=MISSING)
@@ -3949,6 +3954,7 @@ class NewPaneRightRequest:
     pane_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    side: Union[ColumnSide, None, MissingType] = field(default=MISSING)
     tab_id: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
@@ -5987,6 +5993,7 @@ __all__ = [
     'ClientTransport',
     'CloseReason',
     'ColumnMoveDirection',
+    'ColumnSide',
     'ConversationThreadStatus',
     'CursorStyle',
     'DetachReason',

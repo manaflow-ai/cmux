@@ -49,6 +49,11 @@ pub trait Workspaces: Send + Sync {
     fn close(&self, _key: &str) -> Result<(), String> {
         Err("closing is not supported here".into())
     }
+    /// Closes workspace `key` only when none of its terminals runs a command:
+    /// Ok(true) closed, Ok(false) kept (a busy terminal). A short task's close.
+    fn close_idle(&self, _key: &str) -> Result<bool, String> {
+        Ok(false)
+    }
     /// Where its workspaces live, for the Chief to tell the user (for
     /// example "the cmux app on this Mac").
     fn place(&self) -> String;
@@ -685,6 +690,32 @@ pub fn open_request(session: &str, name: &str, key: &str, cwd: &Path) -> Value {
 
 /// One request on the app's control socket; Ok carries its result.
 pub fn control_call(socket: &Path, request: &Value, timeout: Duration) -> Result<Value, String> {
+    let (value, answer) = control_reply(socket, request, timeout)?;
+    reply_result(&value, &answer)
+}
+
+/// The app's reply `value` (its line `answer`): Ok with its result, else its error message.
+pub fn reply_result(value: &Value, answer: &str) -> Result<Value, String> {
+    match value.get("ok").and_then(Value::as_bool) {
+        Some(true) => Ok(value.get("result").cloned().unwrap_or(Value::Null)),
+        _ => Err(value
+            .get("error")
+            .map(|e| {
+                e.get("message")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| e.to_string(), str::to_owned)
+            })
+            .unwrap_or_else(|| answer.to_owned())),
+    }
+}
+
+/// One request on the app's control socket and its reply line, parsed, whatever it says;
+/// Err only when the app did not answer (no socket, a closed one, a timeout, no JSON).
+pub fn control_reply(
+    socket: &Path,
+    request: &Value,
+    timeout: Duration,
+) -> Result<(Value, String), String> {
     let mut stream = UnixStream::connect(socket)
         .map_err(|e| format!("the app's control socket {}: {e}", socket.display()))?;
     stream
@@ -706,17 +737,7 @@ pub fn control_call(socket: &Path, request: &Value, timeout: Duration) -> Result
         });
     }
     let value: Value = serde_json::from_str(answer).map_err(|e| format!("bad answer: {e}"))?;
-    match value.get("ok").and_then(Value::as_bool) {
-        Some(true) => Ok(value.get("result").cloned().unwrap_or(Value::Null)),
-        _ => Err(value
-            .get("error")
-            .map(|e| {
-                e.get("message")
-                    .and_then(Value::as_str)
-                    .map_or_else(|| e.to_string(), str::to_owned)
-            })
-            .unwrap_or_else(|| answer.to_owned())),
-    }
+    Ok((value, answer.to_owned()))
 }
 
 impl Workspaces for AppWorkspaces {
@@ -805,25 +826,21 @@ fn group_workspace(
         CreateWorkspaceGroupRequest, ListWorkspaceGroupsRequest, MoveWorkspaceToGroupRequest,
         Optional,
     };
-    let existing = client
+    let listed = client
         .list_workspace_groups(ListWorkspaceGroupsRequest {})
         .ok()
-        .and_then(|listed| {
-            listed["groups"].as_array()?.iter().find_map(|g| {
-                let named = g["name"].as_str()?.trim().eq_ignore_ascii_case(name.trim());
-                named.then(|| g["id"].as_str().map(str::to_owned)).flatten()
-            })
-        });
-    let group = match existing {
-        Some(id) => id,
-        None => {
-            let id = group_id(name);
+        .map(|listed| groups_of(&listed["groups"]))
+        .unwrap_or_default();
+    let group = match pick_group(name, &listed) {
+        Ok(id) => id,
+        Err(name) => {
+            let id = group_id(&name);
             let _ = client.create_workspace_group(CreateWorkspaceGroupRequest {
                 collapsed: None,
                 color: Optional::Missing,
                 group: Optional::Value(id.clone()),
                 index: Optional::Missing,
-                name: name.to_owned(),
+                name,
             });
             id
         }
@@ -888,25 +905,60 @@ pub fn resource_call(
     Err("the session daemon closed the connection".to_owned())
 }
 
+/// The user's home directory from the environment (`HOME`), empty when unset.
+fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default()
+}
+
+/// The personal group index a group made for a new workspace takes, from the same
+/// `workspaces.newPlacement` the app reads (cmux-next.json, else cmux.json; see
+/// `agent_memory::settings`). `top`, the default, puts it first (index 0); `bottom` and
+/// `afterCurrent` keep the daemon's place, the end. None keeps the daemon default.
+pub fn new_group_index(home: &Path) -> Option<usize> {
+    let placement = crate::agent_memory::settings::document(home).and_then(|doc| {
+        doc.pointer("/workspaces/newPlacement")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    });
+    match placement.as_deref() {
+        Some("bottom" | "afterCurrent") => None,
+        // No file, no key, or a value the app does not know: the app's default, `top`.
+        _ => Some(0),
+    }
+}
+
 /// Puts workspace `key` of the user's session (the app's daemon at `daemon`) in that
 /// session's personal sidebar group named `name` (any case), made when missing: the
 /// `workspace_group.list`, `workspace_group.create` and `workspace.place` operations `cmux
 /// workspace group <g> add` sends, so it sits in a group exactly as a workspace the user
 /// grouped does (a423).
 pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
+    place_in_personal_group_from(daemon, key, name, &home_dir())
+}
+
+/// [`place_in_personal_group`] with `workspaces.newPlacement` read from home folder `home`: under
+/// `top` (the default) the workspace goes first in its group, else last.
+pub fn place_in_personal_group_from(
+    daemon: &Path,
+    key: &str,
+    name: &str,
+    home: &Path,
+) -> Result<(), String> {
     let here = || json!({"machine": "current", "session": "current"});
     let listed = resource_call(daemon, "workspace_group.list", here(), None)?;
-    let existing = listed.as_array().and_then(|groups| {
-        groups.iter().find_map(|g| {
-            let named = g["name"].as_str()?.trim().eq_ignore_ascii_case(name.trim());
-            named.then(|| g["id"].as_str().map(str::to_owned)).flatten()
-        })
-    });
-    let group = match existing {
-        Some(id) => id,
-        None => {
+    let group = match pick_group(name, &groups_of(&listed)) {
+        Ok(id) => id,
+        Err(name) => {
             let mut params = here();
             params["name"] = json!(name);
+            // A group made for a new workspace follows `workspaces.newPlacement` like every
+            // other new workspace (Cmd-N, the sidebar's +): first under `top` (the default),
+            // else last. The workspace is placed in it below, so a last group put it last.
+            if let Some(index) = new_group_index(home) {
+                params["index"] = json!(index);
+            }
             let made = resource_call(
                 daemon,
                 "workspace_group.create",
@@ -927,6 +979,11 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
     let mut params = here();
     params["workspace"] = json!(workspace);
     params["group"] = json!(group);
+    // Lawrence 2026-10-28: a new workspace made in a group goes to the top of that group under
+    // `top` (the default), as Cmd-N in a group does; without an index the daemon put it last.
+    if let Some(index) = new_group_index(home) {
+        params["index"] = json!(index);
+    }
     resource_call(
         daemon,
         "workspace.place",
@@ -1107,6 +1164,27 @@ impl Workspaces for DaemonWorkspaces {
             eprintln!("optchat: subagent workspace {key} stays after {e}: {close}");
         }
         result.map(|()| key)
+    }
+
+    fn close_idle(&self, key: &str) -> Result<bool, String> {
+        for daemon in self.holders() {
+            let Ok(tree) = LineClient::connect(daemon).and_then(|mut c| c.workspaces()) else {
+                continue;
+            };
+            let Some(ws) = tree["workspaces"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|w| w["key"].as_str() == Some(key))
+            else {
+                continue;
+            };
+            if busy_terminal(ws).is_some() {
+                return Ok(false);
+            }
+            return close_by_key(daemon, key).map(|()| true);
+        }
+        Err(format!("no session daemon lists workspace {key}"))
     }
 
     fn close(&self, key: &str) -> Result<(), String> {
@@ -1511,4 +1589,123 @@ fn pane_of(to: &mut LineClient, key: &str) -> Option<Value> {
         .find(|w| w["key"] == key)?
         .clone();
     ws["screens"][0]["panes"][0].get("id").cloned()
+}
+
+/// Where a workspace whose task asks for group `asked` goes, among the
+/// session's groups `existing` (names).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GroupChoice {
+    /// The existing group by this name.
+    Existing(String),
+    /// A new group by this name.
+    New(String),
+}
+
+/// `(id, name)` of each group in a group list answer.
+fn groups_of(list: &Value) -> Vec<(String, String)> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|g| Some((g["id"].as_str()?.to_owned(), g["name"].as_str()?.to_owned())))
+        .collect()
+}
+
+/// The group a workspace asked into `name` goes to among `groups` (`(id,
+/// name)`): Ok its id, or Err the name to make a new group with
+/// (``group_choice``).
+fn pick_group(name: &str, groups: &[(String, String)]) -> Result<String, String> {
+    let names: Vec<String> = groups.iter().map(|(_, n)| n.clone()).collect();
+    match group_choice(name, &names) {
+        GroupChoice::Existing(n) => Ok(groups
+            .iter()
+            .find(|(_, g)| *g == n)
+            .map(|(id, _)| id.clone())
+            .unwrap_or_default()),
+        GroupChoice::New(n) => Err(n),
+    }
+}
+
+/// Words too common to tie two group names on their own.
+const WEAK_GROUP_WORDS: &[&str] = &[
+    "app", "apps", "audit", "chief", "cmux", "next", "work", "misc", "stuff", "fix", "fixes", "ui",
+    "the", "and", "for",
+];
+
+/// Topic words that mean the same group (the second is the group's word).
+const GROUP_SYNONYMS: &[(&str, &str)] = &[
+    ("tab", "sidebar"),
+    ("tabs", "sidebar"),
+    ("home", "home"),
+    ("chat", "home"),
+    ("mobile", "ios"),
+    ("iphone", "ios"),
+    ("android", "ios"),
+    ("billing", "billing"),
+    ("accounts", "billing"),
+    ("fleet", "cloud"),
+];
+
+/// A group name's topic: the text before a sentence or a parenthesis, so a
+/// `Group:` line that ran on ("Agents & routing. Repos ~/fun/…") is its topic.
+fn group_topic(name: &str) -> String {
+    let cut = [". ", " (", ": ", "; ", " - "]
+        .iter()
+        .filter_map(|p| name.find(p))
+        .min()
+        .unwrap_or(name.len());
+    let topic = name[..cut].trim().trim_end_matches('.').trim();
+    if topic.is_empty() { name.trim() } else { topic }.to_owned()
+}
+
+/// A group name's content words, lowercased and stemmed (`performance` and
+/// `perf` share `perf`; a plural `s` is dropped), common words left out.
+fn group_words(name: &str) -> Vec<String> {
+    name.split(|c: char| !c.is_alphanumeric())
+        .map(str::to_lowercase)
+        .filter(|w| !w.is_empty() && !WEAK_GROUP_WORDS.contains(&w.as_str()))
+        .map(|w| {
+            let w = GROUP_SYNONYMS
+                .iter()
+                .find(|(from, _)| *from == w)
+                .map_or(w.clone(), |(_, to)| (*to).to_owned());
+            let w = w
+                .strip_suffix('s')
+                .filter(|r| r.len() >= 3)
+                .map_or(w.clone(), str::to_owned);
+            w.chars().take(4).collect()
+        })
+        .collect()
+}
+
+/// The group a task's `Group:` name lands in: the existing group whose name is
+/// the same (any case), else the existing group that shares the most content
+/// words with it (a stem of 4 letters, so "Perf" is "Performance"; at least
+/// one, common words alone never), else a new group named by its topic. Fewer
+/// groups for the person: a near-duplicate name joins the group already there.
+pub fn group_choice(asked: &str, existing: &[String]) -> GroupChoice {
+    let topic = group_topic(asked);
+    if let Some(same) = existing
+        .iter()
+        .find(|g| g.trim().eq_ignore_ascii_case(&topic))
+    {
+        return GroupChoice::Existing(same.clone());
+    }
+    let words = group_words(&topic);
+    // Most shared words first; at a tie, the group whose own first word is one
+    // of them (its topic: "Cloud" is "Cloud & fleet", not "Billing & cloud"),
+    // then the one with fewer words.
+    let best = existing
+        .iter()
+        .map(|g| {
+            let theirs = group_words(g);
+            let shared = words.iter().filter(|w| theirs.contains(w)).count();
+            let leads = theirs.first().is_some_and(|w| words.contains(w));
+            (shared, leads, std::cmp::Reverse(theirs.len()), g)
+        })
+        .filter(|(shared, _, _, _)| *shared > 0)
+        .max_by_key(|(shared, leads, fewer, _)| (*shared, *leads, *fewer));
+    match best {
+        Some((_, _, _, g)) => GroupChoice::Existing(g.clone()),
+        None => GroupChoice::New(topic),
+    }
 }

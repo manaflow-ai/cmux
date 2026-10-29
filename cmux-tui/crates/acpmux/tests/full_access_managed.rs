@@ -61,6 +61,23 @@ fn home(name: &str) -> PathBuf {
     )
     .unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Profiles pinning full access whose every start leaves its pid in `<name>-started`, and
+    // that hang while `hang` exists: an ACP one (the fake agent), and a Claude one, which only a
+    // live model list starts here (it lists nothing).
+    let marked = |name: &str, then: String| {
+        let path = dir.join("bin").join(name);
+        let (started, hang) = (dir.join(format!("{name}-started")), dir.join("hang"));
+        let script = format!(
+            "#!/bin/sh\necho $$ >> '{}'\n[ -e '{}' ] && exec sleep 60\n{then}\n",
+            started.display(),
+            hang.display()
+        );
+        std::fs::write(&path, script).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    };
+    let marked_acp = marked("pinned-marked", format!("exec python3 '{FAKE_AGENT}' \"$@\""));
+    let marked_claude = marked("claude-pinned", "exit 1".to_owned());
     let config = json!({
         "harnesses": {
             "codex": {"argv": [codex, "app-server"]},
@@ -76,12 +93,48 @@ fn home(name: &str) -> PathBuf {
             // reports one anyway), one through a config option other than its mode.
             "self-moder": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1"}},
             "self-optioner": {"argv": ["python3", FAKE_AGENT]},
+            "pinned-marked": {"argv": [marked_acp, "--yolo"]},
+            "claude-pinned": {"kind": "claude-stdio",
+                              "argv": [marked_claude, "--dangerously-skip-permissions"]},
+            // A profile that pins nothing whose harness's own settings start it in full access.
+            "self-full": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_FULL_ACCESS": "1",
+                          "FAKE_NEW_MODE": "full-access"}},
+            // A harness that declares no modes and reports bypassPermissions while its session
+            // starts (a `current_mode_update` before it answers `session/new`).
+            "self-reporter": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                              "FAKE_STARTUP_MODE": "bypassPermissions"}},
+            // One that reports an asking mode while its session starts, then answers
+            // `session/new` in full access.
+            "self-masked": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_FULL_ACCESS": "1",
+                            "FAKE_NEW_MODE": "full-access", "FAKE_STARTUP_MODE": "normal"}},
+            // `self-reporter` whose report comes after 300 other updates.
+            "self-busy": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                          "FAKE_STARTUP_NOISE": "300", "FAKE_STARTUP_MODE": "bypassPermissions"}},
+            // `self-reporter` whose `session/new` answer names an empty session id (review 74).
+            "self-blank-new": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                               "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_NEW_RESULT_SID": ""}},
+            // `self-reporter` whose report names an empty session id (review 70).
+            "self-blank": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                           "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_STARTUP_SID": ""}},
+            // `self-reporter` that then holds its `session/new` answer while `hold` exists.
+            "self-holder": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                            "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_NEW_HOLD": dir.join("hold")}},
+            // `self-holder` that first waits while `gate` exists, then reports and holds its
+            // answer while `gate-hold` exists.
+            "self-gated": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                           "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_NEW_GATE": dir.join("gate"),
+                           "FAKE_NEW_HOLD": dir.join("gate-hold")}},
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
             "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
                               "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
             // Claude Code pinned to bypassPermissions, whose start takes 1.5 s to answer.
             "claude-pinned-slow": {"argv": ["python3", FAKE_CLAUDE, "--permission-mode=bypassPermissions"],
                                    "kind": "claude-stdio", "env": {"FAKE_CLAUDE_INIT_DELAY_MS": "1500"}},
+            // A profile a config reload pins to full access after its chat started (review 36).
+            "swapper": {"argv": ["python3", FAKE_AGENT]},
+            // Pinned to full access, and ignores SIGTERM: ending it takes the whole grace.
+            "pinned-stubborn": {"argv": ["python3", FAKE_AGENT, "--yolo"],
+                                "env": {"FAKE_IGNORE_TERM": "1"}},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -229,10 +282,27 @@ impl Client {
         let params = json!({"cwd": dir.join("work"), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
         let r = self.call("session/new", params).await;
         let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
-        let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "argv"}]});
-        let r = self.call("session/prompt", prompt).await;
+        let r = self.prompt(&id, "argv").await;
         assert!(r.get("error").is_none(), "{harness}: {r}");
         id
+    }
+
+    async fn prompt(&mut self, id: &str, text: &str) -> Value {
+        let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+        self.call("session/prompt", prompt).await
+    }
+
+    /// `_acpmux/reload_config` over the app's socket connection.
+    async fn reload(&mut self) {
+        let socket = self.3.as_mut().expect("the app's socket connection");
+        let r = Box::pin(socket.call("_acpmux/reload_config", json!({}))).await;
+        assert!(r.get("error").is_none(), "{r}");
+    }
+
+    /// Whether `chat`'s log says its full-access agent ended.
+    async fn ended(&mut self, chat: &str) -> bool {
+        let r = self.call("_acpmux/events", json!({"sessionId": chat, "limit": 500})).await;
+        r.to_string().contains("full_access_ended")
     }
 
     async fn switch(&mut self, id: &str, mode: &str) -> Value {
@@ -364,6 +434,19 @@ const BOUND: &[Case] = &[
             assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
         })
     }),
+    ("round 9: a profile pinning full access is not probed under the off", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            let marker = dir.join("pinned-marked-started");
+            // A probe that started before the push has left its line by the time a refresh
+            // answers; only what starts after it counts.
+            app.call("_acpmux/models", json!({"refresh": true})).await;
+            let _ = std::fs::remove_file(&marker);
+            app.call("_acpmux/models", json!({"refresh": true})).await;
+            assert!(!marker.exists(), "a model probe started pinned-marked under the off");
+        })
+    }),
     ("round 9: a switch into full access that the push overtakes is refused", |name| {
         Box::pin(async move {
             let (dir, _daemon, mut app) = daemon(name, true).await;
@@ -396,9 +479,152 @@ const BOUND: &[Case] = &[
     }),
 ];
 
+/// The pid in `marker` once a start wrote it.
+async fn started_pid(marker: &Path) -> u32 {
+    for _ in 0..200 {
+        let text = std::fs::read_to_string(marker).unwrap_or_default();
+        if let Some(pid) = text.lines().last().and_then(|l| l.trim().parse().ok()) {
+            return pid;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{} never started", marker.display());
+}
+
+/// Whether `pid` ends within 5 s: gone, or a zombie (ended, not reaped yet).
+async fn ends(pid: u32) -> bool {
+    for _ in 0..100 {
+        let ps = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .unwrap();
+        let stat = String::from_utf8_lossy(&ps.stdout);
+        if stat.trim().is_empty() || stat.trim().starts_with('Z') {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
+/// Review 25 of #23322: model probes, which start agents outside any session.
+const PROBES: &[Case] = &[
+    ("review 25: a Claude profile pinning full access is not started to list its models", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            let marker = dir.join("claude-pinned-started");
+            // As round 9: only what starts after the push counts.
+            app.call("_acpmux/models", json!({"refresh": true})).await;
+            let _ = std::fs::remove_file(&marker);
+            app.call("_acpmux/models", json!({"refresh": true})).await;
+            assert!(!marker.exists(), "a live model list started claude-pinned under the off");
+        })
+    }),
+    ("review 25: a probe running when the off lands ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            std::fs::write(dir.join("hang"), "").unwrap();
+            let refresh = app.send("_acpmux/models", json!({"refresh": true})).await;
+            let acp = started_pid(&dir.join("pinned-marked-started")).await;
+            let claude = started_pid(&dir.join("claude-pinned-started")).await;
+            app.push(off()).await;
+            // The probes wait 50 s (ACP) and 15 s (a live list) for an answer that never comes.
+            let answered = tokio::time::timeout(Duration::from_secs(8), app.reply(refresh)).await;
+            assert!(answered.is_ok(), "the refresh waited on probes running under the off");
+            assert!(ends(acp).await, "the ACP probe of pinned-marked runs on under the off");
+            assert!(ends(claude).await, "the live list of claude-pinned runs on under the off");
+        })
+    }),
+    ("reviews 32, 41, 46: a probe in full access as its session starts keeps nothing", |name| {
+        Box::pin(async move {
+            let (_dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            let listed = app.call("_acpmux/models", json!({"refresh": true})).await;
+            let kept: Vec<Value> = STARTS_IN_FULL_ACCESS
+                .iter()
+                .filter_map(|name| {
+                    let all = listed["result"]["harnesses"].as_array()?;
+                    let entry = all.iter().find(|h| h["harness"] == *name)?;
+                    let refused =
+                        entry["probeError"].as_str().is_some_and(|e| e.contains("full access"));
+                    (!refused).then(|| entry.clone())
+                })
+                .collect();
+            assert!(kept.is_empty(), "probes in full access kept under the off: {kept:?}");
+        })
+    }),
+    (
+        "review 71: a probe that reported full access ends at the off, an unset after it too",
+        |name| {
+            Box::pin(async move {
+                let (dir, _daemon, mut app) = daemon(name, true).await;
+                let hold = dir.join("hold");
+                std::fs::write(&hold, "").unwrap();
+                let refresh = app.send("_acpmux/models", json!({"refresh": true})).await;
+                // Its harness reported bypassPermissions and holds its `session/new` answer.
+                let pid = started_pid(&dir.join("hold.reported")).await;
+                app.push(off()).await;
+                app.push(json!({})).await;
+                let answered =
+                    tokio::time::timeout(Duration::from_secs(8), app.reply(refresh)).await;
+                let _ = std::fs::remove_file(&hold);
+                let listed =
+                    answered.expect("the refresh waited on a probe in full access past the off");
+                assert!(ends(pid).await, "the probe in full access runs on past the off");
+                let all = listed["result"]["harnesses"].as_array().cloned().unwrap_or_default();
+                let entry = all.iter().find(|h| h["harness"] == "self-holder");
+                let refused = entry.is_some_and(|e| {
+                    e["probeError"].as_str().is_some_and(|m| m.contains("full access"))
+                });
+                assert!(
+                    refused,
+                    "the probe in full access kept its models past the off: {entry:?}"
+                );
+            })
+        },
+    ),
+    (
+        "review 73: a probe started under the off ends on a report that comes after an unset",
+        |name| {
+            Box::pin(async move {
+                let (dir, _daemon, mut app) = daemon(name, true).await;
+                let (gate, hold) = (dir.join("gate"), dir.join("gate-hold"));
+                std::fs::write(&gate, "").unwrap();
+                std::fs::write(&hold, "").unwrap();
+                app.push(off()).await;
+                let refresh = app.send("_acpmux/models", json!({"refresh": true})).await;
+                let pid = started_pid(&dir.join("gate.started")).await;
+                // The unset lands before the harness reports bypassPermissions and holds its answer.
+                app.push(json!({})).await;
+                std::fs::remove_file(&gate).unwrap();
+                let answered =
+                    tokio::time::timeout(Duration::from_secs(8), app.reply(refresh)).await;
+                let _ = std::fs::remove_file(&hold);
+                let listed = answered.expect("the refresh waited on a probe the off started under");
+                assert!(ends(pid).await, "the probe started under the off runs on in full access");
+                let all = listed["result"]["harnesses"].as_array().cloned().unwrap_or_default();
+                let entry = all.iter().find(|h| h["harness"] == "self-gated");
+                let refused = entry.is_some_and(|e| {
+                    e["probeError"].as_str().is_some_and(|m| m.contains("full access"))
+                });
+                assert!(refused, "the probe started under the off kept its models: {entry:?}");
+            })
+        },
+    ),
+];
+
+/// The profiles whose harness is in full access as its session starts (reviews 32, 41, 46, 70
+/// and 74: `self-blank` reports it under an empty session id, `self-blank-new` answers with one).
+const STARTS_IN_FULL_ACCESS: &[&str] =
+    &["self-full", "self-reporter", "self-masked", "self-busy", "self-blank", "self-blank-new"];
+
 /// Runs `cases` one at a time and names every one that fails.
 async fn run(cases: &[Case]) {
     use futures_util::FutureExt;
+    // Every case sets CMUX_NEXT_CONFIG_FILE for its daemon: one table runs at a time.
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one = ONE_AT_A_TIME.lock().await;
     let mut failed = Vec::new();
     for (name, case) in cases {
         if std::panic::AssertUnwindSafe(case(name)).catch_unwind().await.is_err() {
@@ -411,5 +637,182 @@ async fn run(cases: &[Case]) {
 
 #[tokio::test]
 async fn a_full_access_off_mdm_forces_is_an_upper_bound_and_unset_changes_nothing() {
-    run(BOUND).await;
+    // One test: every case sets CMUX_NEXT_CONFIG_FILE for its daemon.
+    run(&[BOUND, PROBES].concat()).await;
+}
+
+/// What already runs in full access ends (rounds 2 and 5).
+const RUNNING: &[Case] = &[
+    ("round 2: an agent running in full access takes no more work once MDM turns it off", |name| {
+        Box::pin(async move {
+            let (dir, daemon, mut app) = daemon(name, true).await;
+            running_agents_take_no_more_work_once_mdm_turns_it_off(&daemon, &mut app, &dir).await;
+        })
+    }),
+    ("round 5: a harness that reports a full-access mode without declaring modes ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            moves_itself_into_full_access_and_ends(
+                &mut app,
+                &dir,
+                "self-moder",
+                "set-mode: bypassPermissions",
+            )
+            .await;
+        })
+    }),
+    ("round 8: a harness whose mode option says full access while its mode asks ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            moves_itself_into_full_access_and_ends(
+                &mut app,
+                &dir,
+                "self-optioner",
+                "set-mode-option: full-access",
+            )
+            .await;
+        })
+    }),
+    ("round 5: a harness that sets another config option to full access ends", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            app.push(off()).await;
+            moves_itself_into_full_access_and_ends(
+                &mut app,
+                &dir,
+                "self-optioner",
+                "set-option: sandbox danger-full-access",
+            )
+            .await;
+        })
+    }),
+    ("review 36: an agent a config reload respawned with a pinned argv ends at the push", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            let chat = app.ran_on(&dir, "swapper").await;
+            // The agent exits between turns; the profile now pins full access.
+            app.prompt(&chat, "answer-then-exit").await;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+            let config = dir.join("config.json");
+            let mut cfg: Value = serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+            cfg["harnesses"]["swapper"]["argv"] = json!(["python3", FAKE_AGENT, "--yolo"]);
+            std::fs::write(&config, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+            app.reload().await;
+            // With MDM unset the respawn runs the pinned argv.
+            let r = app.prompt(&chat, "argv").await;
+            assert!(r.get("error").is_none(), "{r}");
+            app.push(off()).await;
+            assert!(app.ended(&chat).await, "the respawned pinned agent ran on after the push");
+            let r = app.prompt(&chat, "argv").await;
+            assert_eq!(r["error"]["data"]["reason"], "full_access_off", "it took more work: {r}");
+        })
+    }),
+    (
+        "review 36: an off push ends every full-access agent, also when an unset push follows",
+        |name| {
+            Box::pin(async move {
+                let (dir, daemon, mut app) = daemon(name, true).await;
+                let first = app.ran_on(&dir, "pinned-stubborn").await;
+                let second = app.ran_on(&dir, "pinned-stubborn").await;
+                let settings = |keys: Value| {
+                    let mut params = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": []});
+                    for (k, v) in keys.as_object().unwrap() {
+                        params[k] = v.clone();
+                    }
+                    params
+                };
+                // The off push ends one agent, which takes its whole grace (it ignores SIGTERM); an
+                // unset push lands meanwhile.
+                let mut offs = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+                let off_push = tokio::spawn(async move {
+                    Box::pin(offs.call("_acpmux/chat_settings", settings(off()))).await
+                });
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let mut unsets = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+                let r = unsets.call("_acpmux/chat_settings", settings(json!({}))).await;
+                assert_eq!(r["result"]["applied"], true, "{r}");
+                let r = off_push.await.unwrap();
+                assert_eq!(r["result"]["applied"], true, "{r}");
+                assert!(app.ended(&first).await, "the first agent ran on after the off push");
+                assert!(app.ended(&second).await, "the second agent ran on after the off push");
+            })
+        },
+    ),
+];
+
+#[tokio::test]
+async fn under_an_mdm_off_what_runs_in_full_access_ends() {
+    run(RUNNING).await;
+}
+
+/// Under MDM off, an agent on `harness` that moves itself into full access (`turn`) in a form
+/// acpmux sets no mode for ends; its chat's next turn runs on a new agent.
+async fn moves_itself_into_full_access_and_ends(
+    app: &mut Client,
+    dir: &Path,
+    harness: &str,
+    turn: &str,
+) {
+    let chat = app.ran_on(dir, harness).await;
+    // The turn may end with its agent, which ends as soon as it reports full access.
+    app.prompt(&chat, turn).await;
+    let mut ended = false;
+    for _ in 0..500 {
+        let r = app.call("_acpmux/events", json!({"sessionId": chat, "limit": 500})).await;
+        if r.to_string().contains("full_access_ended") {
+            ended = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(ended, "{harness}: the agent ran on after it moved into full access by itself");
+    let r = app.prompt(&chat, "argv").await;
+    assert!(r.get("error").is_none(), "{harness}: the next turn: {r}");
+}
+
+/// Review of #23322: an agent already running in full access when MDM forces it off takes no more
+/// work in it. A pinned profile's agent ends and its chat is refused; a chat in a full-access mode
+/// starts again in a mode that asks. Starts and ends with MDM unset.
+async fn running_agents_take_no_more_work_once_mdm_turns_it_off(
+    daemon: &Arc<Hub>,
+    app: &mut Client,
+    dir: &Path,
+) {
+    let pinned = app.ran_on(dir, "pinned-yolo").await;
+    let (moded, mode) = app.chat(dir).await;
+    assert_eq!(mode, "agent-full-access");
+    let r = app.prompt(&moded, "hi").await;
+    assert!(r.get("error").is_none(), "{r}");
+    // A turn of the pinned agent runs when MDM turns full access off: it ends with its agent.
+    let mut turns = Client::new(daemon, Origin::Local, ConnAuth::LocalSocket);
+    let prompt = json!({"sessionId": pinned, "prompt": [{"type": "text", "text": "until-cancel"}]});
+    let turn = turns.send("session/prompt", prompt).await;
+    let mut running = false;
+    for _ in 0..500 {
+        let r = app.call("_acpmux/events", json!({"sessionId": pinned, "limit": 500})).await;
+        if r.to_string().contains("\"running\"") {
+            running = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(running, "the pinned agent's turn never started");
+
+    app.push(json!({"allowFullAccess": false, "allowFullAccessManaged": true})).await;
+    let ended = tokio::time::timeout(Duration::from_secs(10), turns.reply(turn)).await;
+    assert!(ended.is_ok(), "the full-access turn ran on after MDM turned full access off");
+    let r = app.prompt(&pinned, "argv").await;
+    assert_eq!(
+        r["error"]["data"]["reason"], "full_access_off",
+        "the pinned agent took more work: {r}"
+    );
+    let r = app.prompt(&moded, "hi").await;
+    assert!(r.get("error").is_none(), "{r}");
+    let info = app.call("_acpmux/info", json!({"sessionId": moded})).await;
+    assert_ne!(
+        info["result"]["modes"]["currentModeId"], "agent-full-access",
+        "the chat ran on in full access: {info}"
+    );
 }

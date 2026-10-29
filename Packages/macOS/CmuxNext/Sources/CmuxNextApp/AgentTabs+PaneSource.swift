@@ -57,6 +57,11 @@ import Foundation
         let host = AcpmuxHost(resolve: resolve,
                               computerUse: { computerUse.childEnvironment },
                               daemonReady: { socket in await upstream.registerAcpmuxDaemon(acpmuxSocket: socket) })
+        // A replaced agent token reaches the running acpmux now, not when a pane reconnects.
+        computerUse.onEndpointChange = { _ in
+            // task-owner: one enrollment per endpoint change; each reads the current endpoint, so the last one wins.
+            Task { await host.computerUseChanged() }
+        }
         return (source, host)
     }
 }

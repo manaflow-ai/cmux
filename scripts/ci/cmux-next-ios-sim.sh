@@ -13,6 +13,15 @@
 #           simulator (Demo: optimized, with the DEBUG developer surface); then
 #           boot one iPhone, install, launch, screenshot.
 #   test    build, plus `xcodebuild test` of CmuxMobileKit on that iPhone.
+#           Optional arguments after it (each one `--arg`; the controller's
+#           argument pattern has no spaces, so lists are comma-separated):
+#             only=TARGET/SUITE[,TARGET/SUITE...]   run only those kit tests
+#               (-only-testing), e.g. only=CmuxMobileLiveTests/LinkRecoveryTests
+#               (a suite, or TARGET/SUITE/test for an XCTest method)
+#             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
+#               against a Debug app; with ui= and no only=, the kit run is skipped
+#           The artifact keeps each run's log, its console output (a test's
+#           print lines, e.g. benchmark numbers) and its per-test results.
 #   bench   build, plus the in-app flood benchmark (TerminalFloodBench,
 #           verify/terminal-flood.md) on PTY recordings made on the worker:
 #             cat     `cat` of a 6 MB source file
@@ -21,6 +30,24 @@
 #           Each recording is replayed at the rate the program wrote it (capped
 #           at 50 Mbit/s), with screenshots during and after the flood.
 #   all     build, test and bench.
+#   shots   build, plus one screenshot per scene, in dark and in light, from
+#           the app's own DEBUG launch arguments and demo drivers (mock data,
+#           setup marked complete). Each later argument is one scene,
+#           `name=WORD,WORD,...`: the words are launch arguments (commas stand
+#           for spaces, which fleet step arguments cannot hold), and leading
+#           KEY=VALUE words are the app's environment, e.g.
+#             --arg shots --arg devices=-cmux-mobile-settings-page,devices \
+#               --arg feed=CMUX_MOBILE_FEED_STRESS=60,-cmux-mobile-tab,feed
+#           Run it at the base and at the head for a PR's before and after.
+#   pair-e2e
+#           build, plus a tagged DEBUG cmux NEXT Mac app built here
+#           (reload.sh), and pairing by its QR code end to end
+#           (cmux_next_pair_e2e.py): the Mac's Mobile Pairing link, opened on
+#           the iPhone, pairs it with no Allow prompt and no test seed. Screens
+#           of the Mac page (never while it shows a code: its image carries
+#           the token), the phone's Settings > Devices (a base ref gives
+#           the "before") and its scanner with the camera off; the Mac's
+#           pairing log, hostd's log and paired-devices.json, keys redacted.
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
@@ -36,7 +63,38 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|test|bench|all) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench or all, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|test|bench|all|pair-e2e|shots) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all, pair-e2e or shots, got '$mode'" >&2; exit 2 ;; esac
+scenes=("${@:2}")
+if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
+  echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
+fi
+
+# test's optional selection (see MODE above), checked before anything is built.
+kit_only=()
+ui_suites=()
+if [[ "$mode" == test && $# -gt 1 ]]; then
+  for sel in "${@:2}"; do
+    case "$sel" in
+      only=?*)
+        IFS=',' read -r -a items <<< "${sel#only=}"
+        for item in "${items[@]}"; do
+          [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+){0,2}$ ]] ||
+            { echo "cmux-next-ios-sim.sh: only= wants TARGET/SUITE names, got '$item'" >&2; exit 2; }
+          kit_only+=("-only-testing:$item")
+        done ;;
+      ui=?*)
+        IFS=',' read -r -a items <<< "${sel#ui=}"
+        for item in "${items[@]}"; do
+          [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]] ||
+            { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
+          ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
+        done ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST and ui=LIST, got '$sel'" >&2; exit 2 ;;
+    esac
+  done
+fi
+run_kit=1
+if [[ ${#ui_suites[@]} -gt 0 && ${#kit_only[@]} -eq 0 ]]; then run_kit=0; fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -55,6 +113,13 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
 xcodegen_dir=""
 sims=""
 cleanup() {
+  # The test iPhones in the default device set, when a step is cut short.
+  local d
+  for d in "${test_udid:-}" "${ui_udid:-}"; do
+    [[ -n "$d" ]] || continue
+    xcrun simctl shutdown "$d" >/dev/null 2>&1 || true
+    xcrun simctl delete "$d" >/dev/null 2>&1 || true
+  done
   if [[ -n "$sims" ]]; then
     xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || true
     xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || true
@@ -62,8 +127,29 @@ cleanup() {
   fi
   # Attempted even when the simulator set's removal failed.
   if [[ -n "$xcodegen_dir" ]]; then rm -rf "$xcodegen_dir" || true; fi
+  # pair-e2e's Mac app build (its DerivedData, app included), reload.sh's
+  # /tmp/cmux-<tag> link to it, and the host's last-debug-log pointer as it was.
+  if [[ -n "${mac_dd:-}" ]]; then
+    # The tag is this run's own (its PID is in it), so its link and state are too. The rig removes
+    # them in its own finally; this runs the same list (forget_tag) for a rig cut short.
+    if [[ -n "${mac_tag:-}" ]]; then
+      if [[ -L "/tmp/cmux-$mac_tag" ]]; then rm -f "/tmp/cmux-$mac_tag" || true; fi
+      if [[ -n "${mac_app:-}" && -d "$mac_app" ]]; then
+        python3 -I scripts/ci/cmux_next_pair_e2e.py --forget-tag "$mac_app" >/dev/null 2>&1 || true
+      fi
+    fi
+    rm -rf "$work/pair-rig" || true
+    if [[ -n "${mac_tag:-}" ]] && grep -qF -- "$mac_tag" /tmp/cmux-last-debug-log-path 2>/dev/null; then
+      if [[ -n "${prev_last_log:-}" ]]; then printf '%s\n' "$prev_last_log" > /tmp/cmux-last-debug-log-path || true
+      else rm -f /tmp/cmux-last-debug-log-path || true; fi
+    fi
+    rm -rf "$mac_dd" || true
+  fi
 }
 trap cleanup EXIT
+# A cancelled step gets SIGTERM: exit, so the EXIT trap cleans up.
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 # xcodegen: a pinned release, checksum-verified, in a temp dir of this step's
 # own, never the host's (aws-m4pro-2 has none, and the fleet's AWS Macs are not
@@ -152,8 +238,39 @@ simctl io "$udid" screenshot "$out/screens/launch.png" >/dev/null
 simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 note "- launch: ok, screens/launch.png"
 
+# keep_test_logs LOG XCRESULT NAME: the run's log, console output (print
+# lines), per-test results, counts and failures into the artifact as NAME-*.
+keep_test_logs() {
+  local log=$1 bundle=$2 name=$3
+  cp "$log" "$out/$name-test.log" 2>/dev/null || true
+  xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2>/dev/null || true
+  xcrun xcresulttool get test-results tests --path "$bundle" --compact > "$out/$name-tests.json" 2>/dev/null || true
+  # XCTAttachments (UI tests' keepAlways screenshots) as files, with the
+  # manifest.json that maps each one to its test.
+  mkdir -p "$out/$name-attachments"
+  xcrun xcresulttool export attachments --path "$bundle" --output-path "$out/$name-attachments" >/dev/null 2>&1 || true
+  xcrun xcresulttool get test-results summary --path "$bundle" --compact 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("passed %s, failed %s, skipped %s" % (d.get("passedTests"), d.get("failedTests"), d.get("skippedTests")))
+' > "$out/$name-tests-counts.txt" 2>/dev/null || rm -f "$out/$name-tests-counts.txt"
+  python3 -c '
+import json, sys
+def walk(node, path):
+    if node.get("nodeType") == "Test Case" and node.get("result") == "Failed":
+        print("FAILED:", " / ".join(path))
+        for child in node.get("children", []):
+            if child.get("nodeType") == "Failure Message":
+                print("   ", child.get("name"))
+    for child in node.get("children", []):
+        walk(child, path + [child.get("name", "")])
+for root in json.load(open(sys.argv[1])).get("testNodes", []):
+    walk(root, [root.get("name", "")])
+' "$out/$name-tests.json" > "$out/$name-tests-failures.txt" 2>/dev/null || true
+}
+
 # --- Tests ------------------------------------------------------------------
-if [[ "$mode" == test || "$mode" == all ]]; then
+if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   t0=$SECONDS
   # xcodebuild sees only the default device set: the tests get their own new
   # iPhone there, deleted by its UDID afterwards (never another step's device).
@@ -161,11 +278,12 @@ if [[ "$mode" == test || "$mode" == all ]]; then
   set +e
   (cd cmux-next-ios/CmuxMobileKit && xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
-    -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet) >"$work/test.log" 2>&1
+    -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet ${kit_only[@]+"${kit_only[@]}"}) >"$work/test.log" 2>&1
   test_status=$?
   set -e
   xcrun simctl shutdown "$test_udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$test_udid" >/dev/null 2>&1 || true
+  test_udid=""
   counts="$(xcrun xcresulttool get test-results summary --path "$work/kit.xcresult" --compact 2>/dev/null | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -186,7 +304,30 @@ for root in json.load(sys.stdin).get("testNodes", []):
     walk(root, [root.get("name", "")])
 ' > "$out/test-failures.txt" 2>/dev/null || true
   cat "$out/test-failures.txt"
+  keep_test_logs "$work/test.log" "$work/kit.xcresult" kit
+  [[ ${#kit_only[@]} -eq 0 ]] || note "- kit filter: ${kit_only[*]}"
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
+fi
+
+# --- UI tests (test ui=...) -------------------------------------------------
+if [[ ${#ui_suites[@]} -gt 0 ]]; then
+  t0=$SECONDS
+  # A Debug build of the app and its UI test bundle, on a new iPhone in the
+  # default device set (xcodebuild sees no other), deleted by its UDID after.
+  ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  set +e
+  xcodebuild test -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
+    -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui" \
+    -resultBundlePath "$work/ui.xcresult" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
+    -quiet "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
+  ui_status=$?
+  set -e
+  xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
+  xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
+  ui_udid=""
+  keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
+  grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
+  note "- UI tests ${ui_suites[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), $((SECONDS - t0)) s"
 fi
 
 # --- Benchmarks -------------------------------------------------------------
@@ -259,7 +400,81 @@ PY
   tail -n +1 "$summary" | tail -8
 fi
 
-simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' > "$out/app-log.txt" 2>/dev/null || true
+# --- Screens ----------------------------------------------------------------
+if [[ "$mode" == shots ]]; then
+  t0=$SECONDS
+  # Setup marked complete, so a deep link lands on its screen instead of "Choose a space".
+  simctl spawn "$udid" defaults write "$bundle_id" cmuxMobile.setupComplete -bool YES
+  note ""
+  note "## Screens (mock data, DEBUG launch arguments)"
+  note ""
+  for scene in "${scenes[@]}"; do
+    name="${scene%%=*}"
+    [[ "$name" =~ ^[A-Za-z0-9._-]+$ && "$scene" == *=?* ]] || { note "- skipped scene '$scene': want name=WORD,WORD,..."; continue; }
+    IFS=',' read -r -a words <<< "${scene#*=}"
+    envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1)
+    args=()
+    for w in ${words[@]+"${words[@]}"}; do
+      if [[ ${#args[@]} -eq 0 && "$w" =~ ^[A-Z_][A-Z0-9_]*= ]]; then envs+=("SIMCTL_CHILD_$w"); else args+=("$w"); fi
+    done
+    for look in dark light; do
+      simctl ui "$udid" appearance "$look" >/dev/null 2>&1 || true
+      env "${envs[@]}" xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${args[@]+"${args[@]}"} >/dev/null
+      # A bounded wait for the scene to draw; demo drivers have no signal to wait on.
+      sleep "${CMUX_NEXT_IOS_SHOT_WAIT:-5}"
+      simctl io "$udid" screenshot "$out/screens/$name-$look.png" >/dev/null
+      simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+    done
+    note "- $name: screens/$name-dark.png, screens/$name-light.png"
+  done
+  simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
+  note "- screens: $((SECONDS - t0)) s"
+fi
+
+# --- Pairing by QR code ----------------------------------------------------
+if [[ "$mode" == pair-e2e ]]; then
+  t0=$SECONDS
+  # A tag of this run only: its own bundle id, socket, settings and state.
+  mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
+  prev_last_log="$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || true)"
+  mac_dd="$work/mac-dd"
+  # A fleet step checks out no submodules (only their empty gitlink directories): the Mac app
+  # needs Ghostty's headers, the ghostty-next tree and GhosttyKit.xcframework (a prebuilt
+  # download), as the measure steps do (scripts/measure/action-signposts.sh). Without them
+  # reload.sh stops at once: "ghostty/include/ghostty.h is missing" (step 4baf44ec, 2026-10-27).
+  for sub in ghostty ghostty-next; do
+    [[ -e "$sub/.git" ]] || git submodule update --init --depth 1 "$sub" >"$work/submodules.log" 2>&1 ||
+      { tail -20 "$work/submodules.log"; echo "error: could not check out the $sub submodule" >&2; exit 1; }
+  done
+  if [[ ! -f GhosttyKit.xcframework/Info.plist ]]; then
+    rm -rf GhosttyKit.xcframework
+    if [[ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
+      export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+    fi
+    ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
+      { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
+  fi
+  # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
+  # cmux-mobile-host on a cache miss and requires them in the bundle.
+  set +e
+  CMUX_FLEET_BUILD_TAG="$mac_tag" ./scripts/reload.sh --tag "$mac_tag" --derived-data "$mac_dd" \
+    --no-global-cli-links >"$work/mac-build.log" 2>&1
+  status=$?
+  set -e
+  cp "$work/mac-build.log" "$out/mac-build.log"
+  mac_app="$mac_dd/Build/Products/Debug/cmux DEV $mac_tag.app"
+  [[ $status -eq 0 && -d "$mac_app" ]] || { tail -60 "$work/mac-build.log"; echo "error: tagged cmux NEXT Mac app build failed" >&2; exit 1; }
+  note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
+  set +e
+  python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
+    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"
+  pair_status=$?
+  set -e
+fi
+
+# The app log goes through the pairing redactor: a pairing link or token it logged never reaches the artifact.
+simctl spawn "$udid" log show --last 10m --style compact --predicate 'process == "CmuxMobileApp"' 2>/dev/null |
+  python3 -I scripts/ci/cmux_next_pair_e2e.py --redact > "$out/app-log.txt" || true
 cp "$work/build.log" "$out/build.log" 2>/dev/null || true
 # The app (so the same build runs on another Mac's simulator) and the recordings.
 ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"
@@ -270,3 +485,5 @@ fi
 (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
 cat "$summary"
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
+if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
+if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
