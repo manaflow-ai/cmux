@@ -28,10 +28,13 @@ import Testing
     @Test func aLabelRedrawsOnASizeChangeOnly() {
         let label = ChromeLabel(labelWithString: "Label")
         label.setFrameSize(NSSize(width: 80, height: 16))
-        label.needsDisplay = false
+        // The requests, not `needsDisplay` read back: the test host does not keep that flag
+        // (DisplayRequestCounter).
+        let paints = DisplayRequestCounter()
+        paints.watch(label)
         label.setFrameSize(NSSize(width: 80, height: 16))
-        #expect(!label.needsDisplay, "a same-size set redraws the label")
+        #expect(paints.requests(label) == 0, "a same-size set redraws the label")
         label.setFrameSize(NSSize(width: 120, height: 16))
-        #expect(label.needsDisplay, "a size change leaves the old glyph image")
+        #expect(paints.requests(label) > 0, "a size change leaves the old glyph image")
     }
 }
