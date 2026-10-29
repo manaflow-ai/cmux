@@ -704,11 +704,11 @@ class AdoptTests(unittest.TestCase):
         empty = {"id": 2, "tag_name": "v1.2.3", "name": "v1.2.3", "draft": False, "prerelease": False}
         return FakeReleases([draft, empty, *extra], {1: self.NAMES, **(extra_assets or {})})
 
-    def adopt(self, client, release_id=1, dry_run=False, generate_notes=True):
+    def adopt(self, client, release_id=1, dry_run=False, generate_notes=True, prerelease="false"):
         args = finalize.argparse.Namespace(
             tag="v1.2.3", release_id=release_id, expect_asset=list(self.NAMES), expect_count=2,
             name=None, target_commitish=None, body_file=None, generate_notes=generate_notes,
-            prerelease="false", make_latest="true", dry_run=dry_run)
+            prerelease=prerelease, make_latest="true", dry_run=dry_run)
         finalize.adopt(client, args)
 
     def test_empty_release_is_replaced_by_the_staged_draft(self):
@@ -719,7 +719,8 @@ class AdoptTests(unittest.TestCase):
         self.assertEqual(published["tag_name"], "v1.2.3")
         self.assertFalse(published["draft"])
         self.assertEqual(published["make_latest"], "true")
-        writes = [(method, path) for method, path, _ in client.calls if method != "GET"]
+        writes = [(method, path) for method, path, body in client.calls
+                  if method == "DELETE" or (method == "PATCH" and "tag_name" in body)]
         # The empty release goes before the draft takes its tag.
         self.assertEqual(writes[:2], [("DELETE", "/2"), ("PATCH", "/1")])
 
@@ -789,6 +790,64 @@ class AdoptTests(unittest.TestCase):
         client.table[2]["body"] = "Full Changelog"
         self.adopt(client)
         self.assertEqual(client.table[1]["body"], "notes")
+
+    def test_generated_notes_are_stored_before_the_delete(self):
+        client = self.client()
+        self.adopt(client)
+        writes = [(method, path) for method, path, _ in client.calls if method != "GET"]
+        self.assertEqual(writes[:3], [("POST", "/generate-notes"), ("PATCH", "/1"), ("DELETE", "/2")])
+        self.assertEqual(writes.count(("POST", "/generate-notes")), 1)
+        self.assertEqual(client.table[1]["body"], "notes")
+
+    def test_a_notes_generation_failure_leaves_both_releases_unchanged(self):
+        client = self.client()
+        before = {key: dict(value) for key, value in client.table.items()}
+        original = client.request
+
+        def failing(method, url, **kwargs):
+            if method == "POST" and url.endswith("/generate-notes"):
+                raise finalize.RequestError("HTTP 503", status=503)
+            return original(method, url, **kwargs)
+
+        client.request = failing
+        with self.assertRaises(finalize.RequestError):
+            self.adopt(client)
+        self.assertEqual(client.table, before)
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_a_generated_notes_write_failure_preserves_the_duplicate(self):
+        client = self.client()
+        original = client.request
+
+        def failing(method, url, **kwargs):
+            if method == "PATCH" and json.loads(kwargs["body"]).get("body") == "notes":
+                raise finalize.RequestError("HTTP 503", status=503)
+            return original(method, url, **kwargs)
+
+        client.request = failing
+        with self.assertRaises(finalize.RequestError):
+            self.adopt(client)
+        self.assertEqual(sorted(client.table), [1, 2])
+        self.assertTrue(client.table[1]["draft"])
+
+    def test_a_prerelease_cannot_be_made_latest_before_any_write(self):
+        for staged_prerelease, requested in ((True, None), (False, "true")):
+            with self.subTest(staged_prerelease=staged_prerelease, requested=requested):
+                client = self.client()
+                client.table[1]["prerelease"] = staged_prerelease
+                before = {key: dict(value) for key, value in client.table.items()}
+                with self.assertRaisesRegex(RuntimeError, "prerelease.*latest"):
+                    self.adopt(client, prerelease=requested)
+                self.assertEqual(client.table, before)
+                self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_a_stable_override_can_make_a_prerelease_draft_latest(self):
+        client = self.client()
+        client.table[1]["prerelease"] = True
+        self.adopt(client, prerelease="false")
+        self.assertFalse(client.table[1]["prerelease"])
+        self.assertFalse(client.table[1]["draft"])
+        self.assertEqual(client.table[1]["make_latest"], "true")
 
     def test_a_missing_body_file_fails_before_any_write(self):
         client = self.client()
