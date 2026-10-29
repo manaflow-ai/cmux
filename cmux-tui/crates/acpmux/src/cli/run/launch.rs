@@ -362,9 +362,10 @@ mod tests {
             #[command(flatten)]
             args: NewArgs,
         }
-        let dir = std::env::temp_dir().join(format!("acpmux-launch-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let brief = dir.join("brief.md");
+        // A brief of its own per call: tests run in parallel, and a shared
+        // file one test rewrites (truncate, then write) reads empty in another.
+        let dir = tempfile::tempdir().unwrap();
+        let brief = dir.path().join("brief.md");
         std::fs::write(&brief, "do it\n").unwrap();
         let mut argv = vec!["new".to_owned()];
         argv.extend(words.iter().map(|w| w.replace("BRIEF", &brief.to_string_lossy())));
