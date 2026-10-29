@@ -125,11 +125,22 @@ extension ScreenshotMask {
         "cmux.files", "cmux.debug-settings",
     ]
 
+    /// The native page tabs (``InternalPageView`` whose content is not a ``PageWebView``) a
+    /// capture shows, by ``InternalPageID``: the same checked pages as ``shownAppPages``. Every
+    /// other native page (Phone and Mac Screen frames, Passwords, History, Stashed, Inbox, Mobile
+    /// Pairing's code, the Chief's pages, a new page) is masked whole until someone checks it.
+    static let shownNativePages: Set<String> = [
+        "keybindings", "changelog", "diff", "files", "files-pane", "find-pane", "markdown", "editor", "debug-settings",
+    ]
+
     /// Whether a capture covers `view` whole: a browser tab's page, an agent chat, a Home
-    /// conversation, list or draft, or an app page not in ``shownAppPages``. Any other web view is
+    /// conversation, list or draft, an app page not in ``shownAppPages`` or a native page tab
+    /// not in ``shownNativePages``. Any other web view is
     /// covered unless a shown app page holds it (``ScreenshotMask/read(_:rules:)``).
     static func covers(_ view: NSView) -> Bool {
         if let page = view as? PageWebView { return !shownAppPages.contains(page.descriptor.id) }
+        // A web page tab is judged by its PageWebView above; a native one by its page id here.
+        if let tab = view as? InternalPageView, !(tab.content is PageWebView) { return !shownNativePages.contains(tab.page.rawValue) }
         return BrowserChromeView.isPageContent(view) || view is AgentPaneView || view is HomeHostView || view is TopHomePageView
             || view is HomeNewMessageView || view is HomeDockSwitchView || view is HomeSidebarView || view is HomeNativeTranscriptView
     }

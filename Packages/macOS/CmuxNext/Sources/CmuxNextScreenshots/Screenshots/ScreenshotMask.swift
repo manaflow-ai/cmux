@@ -45,8 +45,13 @@ public struct ScreenshotMask {
     /// The areas to cover, in window coordinates.
     public var regions: [NSRect] = []
     /// False when an area or a view holding it was animating (its pixels are not where its frame
-    /// says) or the window changed size between readings.
+    /// says), an area moved or resized between readings, or the window changed size between
+    /// readings.
     public var isSettled = true
+    /// Each area's frame in window coordinates, by its view, so a ``Sampler`` can tell an area
+    /// that moved between readings (its pixels can sit between two readings' frames) from one
+    /// that appeared or went away (the mask keeps every reading's, so either is covered).
+    var frames: [ObjectIdentifier: NSRect] = [:]
 
     public init() {}
 
@@ -81,6 +86,7 @@ public struct ScreenshotMask {
         func add(_ view: NSView) {
             let rect = view.convert(view.bounds, to: nil)
             if rect.width > 0, rect.height > 0, !mask.regions.contains(rect) { mask.regions.append(rect) }
+            mask.frames[ObjectIdentifier(view)] = rect
             if isMoving(view) || view.superview.map({ sequence(first: $0, next: \.superview).contains(where: movesChildren) }) == true {
                 mask.isSettled = false
             }
@@ -128,6 +134,8 @@ public struct ScreenshotMask {
         private let size: NSSize
         public private(set) var mask = ScreenshotMask()
         private var observer: CFRunLoopObserver?
+        /// The last reading's area frames (``ScreenshotMask/frames``).
+        private var lastFrames: [ObjectIdentifier: NSRect] = [:]
 
         public init(window: NSWindow, rules: Rules) {
             self.window = window
@@ -146,6 +154,10 @@ public struct ScreenshotMask {
             let now = ScreenshotMask.read(window, rules: rules)
             for rect in now.regions where !mask.regions.contains(rect) { mask.regions.append(rect) }
             if !now.isSettled || window.frame.size != size { mask.isSettled = false }
+            // An area that moved or resized between two readings (a divider drag, a layout pass)
+            // may have shown its pixels between the two frames, which no reading covers: refuse.
+            for (view, rect) in now.frames where lastFrames[view].map({ $0 != rect }) == true { mask.isSettled = false }
+            lastFrames = now.frames
         }
 
         /// Takes a last reading and stops; later calls do nothing.

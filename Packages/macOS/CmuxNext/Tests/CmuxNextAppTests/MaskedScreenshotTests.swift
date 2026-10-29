@@ -315,6 +315,41 @@ import WebKit
         }
     }
 
+    /// A native page tab (no PageWebView inside) is masked whole unless its page was checked: a
+    /// Phone or Mac Screen frame, Passwords or a page nobody checked never reaches automation.
+    @Test func aNativePageTabIsMaskedUnlessListed() throws {
+        let phone = InternalPageView(key: "mask-phone", page: InternalPageID(rawValue: "phone"), content: NSView())
+        let unchecked = InternalPageView(key: "mask-new", page: InternalPageID(rawValue: "not-checked"), content: NSView())
+        let diff = InternalPageView(key: "mask-diff", page: InternalPageID(rawValue: "diff"), content: NSView())
+        #expect(ScreenshotMask.covers(phone))
+        #expect(ScreenshotMask.covers(unchecked), "a native page nobody checked is masked")
+        #expect(!ScreenshotMask.covers(diff), "a listed native page is shown")
+        // A web page tab is judged by its page view: a listed one is not masked for its host.
+        let listed = try #require(PageWebView(descriptor: .files, routes: []))
+        #expect(!ScreenshotMask.covers(InternalPageView(key: "mask-files", page: InternalPageID(rawValue: "unlisted-host"), content: listed)))
+
+        let fixture = fixture(onScreen: false)
+        defer { fixture.close() }
+        phone.frame = NSRect(x: 8, y: 8, width: 80, height: 80)
+        fixture.plain.addSubview(phone)
+        #expect(ScreenshotMask.read(fixture.window, rules: .app).regions.contains(phone.convert(phone.bounds, to: nil)))
+    }
+
+    /// An area that moves between two readings may have shown its pixels between the two frames,
+    /// so the capture refuses instead of masking only the frames it read.
+    @Test func anAreaThatMovesBetweenReadingsIsUnsettled() {
+        let fixture = fixture(onScreen: false)
+        defer { fixture.close() }
+        let sampler = ScreenshotMask.Sampler(window: fixture.window, rules: .app)
+        defer { sampler.stop() }
+        sampler.sample()
+        #expect(sampler.mask.isSettled, "nothing moved")
+        fixture.chrome.frame = fixture.chrome.frame.offsetBy(dx: -40, dy: 0)
+        sampler.sample()
+        sampler.stop()
+        #expect(!sampler.mask.isSettled)
+    }
+
     /// The screen lags the view tree: a page shown for one run loop turn while the capture
     /// runs, then hidden again before its end, is still masked (the mask is every reading's).
     @Test func aPageShownForOneTurnDuringTheCaptureIsStillMasked() {
