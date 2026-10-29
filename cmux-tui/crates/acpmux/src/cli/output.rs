@@ -326,19 +326,12 @@ pub(crate) async fn stream_prompt(
                 None => std::future::pending::<()>().await,
             }
         };
+        // Biased, notifications first: the daemon sends a turn's updates before
+        // its result, and the reader queues them before it hands the result on,
+        // so a result that is ready has every update of its turn already queued.
+        // Taking the result first could end the turn with its last words unread.
         tokio::select! {
-            r = &mut turn => break r?,
-            _ = tick => {
-                if let Some(d) = deadline
-                    && tokio::time::Instant::now() >= d {
-                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
-                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
-                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
-                    }
-                if !activity {
-                    return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
-                }
-            }
+            biased;
             n = notes.recv() => {
                 let Some(m) = n else { return Err(prompt.closed(&client, id, "streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
@@ -397,6 +390,18 @@ pub(crate) async fn stream_prompt(
                         eprintln!("\n\x1b[33mpermission needed:\x1b[0m {title}  (answer with: {hint})");
                     }
                     _ => {}
+                }
+            }
+            r = &mut turn => break r?,
+            _ = tick => {
+                if let Some(d) = deadline
+                    && tokio::time::Instant::now() >= d {
+                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
+                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
+                    }
+                if !activity {
+                    return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
                 }
             }
         }
@@ -589,6 +594,14 @@ pub(crate) async fn collect_reply(
     }
 }
 
+#[cfg(test)]
+tokio::task_local! {
+    /// Test seam: `collect_once` lets its turn settle before each wait, so
+    /// the result and every update the reader queued before it are ready at
+    /// once (the order a loaded host makes common).
+    static SETTLE_TURN_BEFORE_WAIT: ();
+}
+
 async fn collect_once(
     client: Arc<Client>,
     id: &str,
@@ -616,6 +629,12 @@ async fn collect_once(
         } else {
             None
         };
+        #[cfg(test)]
+        if SETTLE_TURN_BEFORE_WAIT.try_with(|_| ()).is_ok() {
+            while !turn.is_finished() {
+                tokio::task::yield_now().await;
+            }
+        }
         let next_tick = [deadline, stall_at].into_iter().flatten().min();
         let tick = async {
             match next_tick {
@@ -623,19 +642,12 @@ async fn collect_once(
                 None => std::future::pending::<()>().await,
             }
         };
+        // Biased, notifications first: the daemon sends a turn's updates before
+        // its result, and the reader queues them before it hands the result on,
+        // so a result that is ready has every update of its turn already queued.
+        // Taking the result first could end the turn with its last words unread.
         tokio::select! {
-            r = &mut turn => break r?,
-            _ = tick => {
-                if let Some(d) = deadline
-                    && tokio::time::Instant::now() >= d {
-                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
-                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
-                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
-                    }
-                if !activity {
-                    return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
-                }
-            }
+            biased;
             n = notes.recv() => {
                 let Some(m) = n else { return Err(prompt.closed(&client, id, "streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
@@ -680,6 +692,18 @@ async fn collect_once(
                         }
                     }
                     _ => {}
+                }
+            }
+            r = &mut turn => break r?,
+            _ = tick => {
+                if let Some(d) = deadline
+                    && tokio::time::Instant::now() >= d {
+                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
+                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
+                    }
+                if !activity {
+                    return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
                 }
             }
         }
@@ -1077,6 +1101,78 @@ mod prompt_tests {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         let _ = std::fs::remove_file(&gate);
+        drop(dir);
+    }
+
+    /// A daemon that writes a turn's last words and then the turn's result,
+    /// back to back, as `acpmux exec` reads them when the two arrive in one
+    /// read: each line is answered with an empty result, and `session/prompt`
+    /// with an agent_message_chunk `reply N` before its result.
+    async fn chunk_then_result_daemon(dir: &cmux_unix_socket::TestDir) -> Arc<Client> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let path = dir.path().join("f.sock");
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = tokio::io::BufReader::new(rd).lines();
+            let mut turns = 0u32;
+            while let Ok(Some(line)) = lines.next_line().await {
+                let v: Value = serde_json::from_str(&line).unwrap();
+                let Some(id) = v.get("id").cloned() else { continue };
+                let mut out = String::new();
+                let mut result = json!({});
+                if v["method"] == method::SESSION_PROMPT {
+                    let chunk = json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE,
+                        "params": {"sessionId": v["params"]["sessionId"], "update": {
+                            "sessionUpdate": "agent_message_chunk",
+                            "content": {"type": "text", "text": format!("reply {turns}")}}}});
+                    out.push_str(&format!("{chunk}\n"));
+                    result = json!({"stopReason": "end_turn"});
+                    turns += 1;
+                }
+                out.push_str(&format!(
+                    "{}\n",
+                    json!({"jsonrpc": "2.0", "id": id, "result": result})
+                ));
+                // One write: the client's reader hands on both lines in one go.
+                if wr.write_all(out.as_bytes()).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Client::connect(&path).await.unwrap()
+    }
+
+    /// `acpmux exec` printed an empty reply (byoh_cli, run3 2026-10-29):
+    /// the daemon sends a turn's words before its result, and the client's
+    /// reader hands them on in that order, but `collect_once` chose between
+    /// a ready result and a ready notification at random and could end the
+    /// turn with its words still queued. Every reply must carry its words.
+    ///
+    /// The seam lets each turn settle first, so the words and the result are
+    /// both ready at every wait: a wait that may take the result first loses
+    /// about half of the 200 replies.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn collect_reply_keeps_the_words_that_came_just_before_the_result() {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-w");
+        let client = chunk_then_result_daemon(&dir).await;
+        let opts = CollectOpts {
+            timeout: None,
+            on_permission: OnPermission::Wait,
+            stall_secs: 0,
+            retries: 0,
+        };
+        let mut lost = Vec::new();
+        for n in 0..200u32 {
+            let prompt = PromptId::new(None);
+            let collect = collect_reply(client.clone(), "s1", "hi", opts, &prompt);
+            let r = SETTLE_TURN_BEFORE_WAIT.scope((), collect).await.unwrap();
+            if r.reply != format!("reply {n}") {
+                lost.push((n, r.reply));
+            }
+        }
+        assert!(lost.is_empty(), "{} of 200 replies lost their words: {lost:?}", lost.len());
         drop(dir);
     }
 }

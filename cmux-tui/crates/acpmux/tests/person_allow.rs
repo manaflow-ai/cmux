@@ -82,11 +82,19 @@ impl Rpc {
     }
 
     async fn line(&mut self) -> Value {
-        let line = tokio::time::timeout(Duration::from_secs(30), self.lines.next_line())
-            .await
-            .expect("daemon answered in time")
-            .unwrap()
-            .expect("daemon closed the socket");
+        let Ok(line) = tokio::time::timeout(Duration::from_secs(30), self.lines.next_line()).await
+        else {
+            // Name the wait: the last request sent and every line read past
+            // meanwhile (a reply that came while waiting for a notification,
+            // such as a failed prompt's error, is among them).
+            let held: Vec<String> =
+                self.notes.iter().map(|n| n.to_string().chars().take(400).collect()).collect();
+            panic!(
+                "the daemon sent nothing for 30 s; last request id {}, lines read past: {held:#?}",
+                self.next
+            );
+        };
+        let line = line.unwrap().expect("daemon closed the socket");
         serde_json::from_str(&line).unwrap()
     }
 
@@ -139,6 +147,9 @@ struct Daemon {
     child: std::process::Child,
     socket: PathBuf,
     dir: PathBuf,
+    /// The daemon's log after its ready line (it logs to stdout), printed
+    /// when the test fails: a hang names where the daemon stopped.
+    log: Option<std::thread::JoinHandle<Vec<String>>>,
 }
 
 impl Daemon {
@@ -165,7 +176,7 @@ impl Daemon {
         .unwrap();
         let socket = dir.join("s.sock");
         let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
-        cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info,acpmux=debug"])
             .env("ACPMUX_HOME", &dir)
             .env("ACPMUX_SOCKET", &socket)
             .env("ACPMUX_LOGIN_ENV", "0")
@@ -200,12 +211,23 @@ impl Daemon {
             unsafe { libc::close(fds[0]) };
         }
         let stdout = child.stdout.take().unwrap();
-        let ready = BufReader::new(stdout)
-            .lines()
-            .map_while(Result::ok)
+        let mut lines = BufReader::new(stdout).lines().map_while(Result::ok);
+        let ready = lines
+            .by_ref()
             .any(|line| serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true));
         assert!(ready, "the daemon exited before its ready line");
-        Daemon { child, socket, dir }
+        // Read to the daemon's end (EOF), keeping the newest lines.
+        let log = std::thread::spawn(move || {
+            let mut tail = std::collections::VecDeque::new();
+            for line in lines {
+                if tail.len() == 400 {
+                    tail.pop_front();
+                }
+                tail.push_back(line);
+            }
+            tail.into_iter().collect()
+        });
+        Daemon { child, socket, dir, log: Some(log) }
     }
 }
 
@@ -214,6 +236,17 @@ impl Drop for Daemon {
         // SAFETY: the pid of the child this test spawned and still owns.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
         let _ = self.child.wait();
+        if let Some(log) = self.log.take()
+            && std::thread::panicking()
+            && let Ok(tail) = log.join()
+        {
+            eprintln!(
+                "daemon log ({}), last {} lines:\n{}",
+                self.dir.display(),
+                tail.len(),
+                tail.join("\n")
+            );
+        }
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
