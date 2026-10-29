@@ -625,7 +625,7 @@ async fn collect_once(
             None
         };
         #[cfg(test)]
-        if SETTLE_TURN_BEFORE_WAIT.try_with(|()| ()).is_ok() {
+        if SETTLE_TURN_BEFORE_WAIT.try_with(|_| ()).is_ok() {
             while !turn.is_finished() {
                 tokio::task::yield_now().await;
             }
