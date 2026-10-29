@@ -782,9 +782,7 @@ async fn dispatch_request(
             }
         }
         // The person only (`Hub::person_check`): never reached otherwise.
-        method::MUX_APPROVERS_SET if conn.is_person() => {
-            hub.person.approvers.set(&params);
-        }
+        method::MUX_APPROVERS_SET if conn.is_person() => hub.person.approvers.set(&params),
         method::MUX_APPROVERS if conn.is_person() => Ok(hub.person.approvers.list()),
         method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
             Err(crate::hub::person::person_required("changing or reading trusted approvers"))

@@ -20,7 +20,6 @@
 //! on one daemon each have an a12; only the asker's own is named.
 
 use super::*;
-use cmux_json::JsonSet as _;
 
 /// Who a session is on an approval card.
 const LABEL_TAG: &str = "mux.label";

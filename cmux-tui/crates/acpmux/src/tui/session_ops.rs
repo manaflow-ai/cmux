@@ -1,7 +1,6 @@
 //! Part of the TUI `App`; see `tui/mod.rs`.
 
 use super::*;
-use cmux_json::JsonSet as _;
 
 impl App {
     // ------------------------------------------------------------ overlays

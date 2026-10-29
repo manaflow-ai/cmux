@@ -5,7 +5,6 @@
 //! with what a key does.
 
 use super::*;
-use cmux_json::JsonSet as _;
 mod table;
 pub use table::{ACTIONS, EDITING_KEYS};
 

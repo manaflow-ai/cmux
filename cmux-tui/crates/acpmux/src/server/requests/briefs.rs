@@ -4,7 +4,6 @@
 
 use super::*;
 use crate::hub::tasks;
-use cmux_json::JsonSet as _;
 
 pub(super) async fn steer(
     hub: &Arc<Hub>,
