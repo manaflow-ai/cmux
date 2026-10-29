@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# The journey and perceived-speed runners take an exclusive capture lease (`capture-host acquire --slot
+# --exclusive`): with it the fleet controller places no step on the mini and no other capture shares it.
+# A journey A/B run beside other agents' steps saw a 1-minute load of 14-24 (2026-10-29); its timings
+# were void. Runs each runner against a stand-in capture-host that records how it was asked for a lease
+# and grants none, so the runner exits at once.
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+mkdir "$tmp/bin"
+cat >"$tmp/bin/capture-host" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >>"$CAPTURE_HOST_ARGS_LOG"
+echo "capture-host: no lease (test stand-in)" >&2
+exit 1
+SH
+chmod +x "$tmp/bin/capture-host"
+export CAPTURE_HOST_ARGS_LOG="$tmp/args.log" PATH="$tmp/bin:$PATH"
+
+check() { # check NAME: the runner asked for an exclusive slot lease
+  local acquire
+  acquire=$(grep '^acquire' "$CAPTURE_HOST_ARGS_LOG" || true)
+  [ -n "$acquire" ] || { echo "FAIL: $1 never asked capture-host for a lease" >&2; exit 1; }
+  if grep -v -- '--exclusive' <<<"$acquire" | grep -q .; then
+    echo "FAIL: $1 took a capture lease without --exclusive: $acquire" >&2
+    exit 1
+  fi
+  : >"$CAPTURE_HOST_ARGS_LOG"
+}
+
+timeout 60 bash "$ROOT/scripts/cmux-next/restore-journey-slot.sh" 0123456789abcdef01234567 "$tmp/rj" >/dev/null 2>&1 || true
+check restore-journey-slot.sh
+timeout 60 bash "$ROOT/scripts/cmux-next/perceived-speed-slot.sh" --job 0123456789abcdef01234567 --out "$tmp/ps" >/dev/null 2>&1 || true
+check perceived-speed-slot.sh
+printf 'capture-runners-exclusive tests: ok\n'
