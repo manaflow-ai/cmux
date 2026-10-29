@@ -318,13 +318,16 @@ pub async fn wait_for_daemon_exit(
         work.mark_unchanged();
         let arrived = std::mem::take(&mut reopened) || seen.arrivals != last_arrivals;
         last_arrivals = seen.arrivals;
-        // A connected client decides alone: the work and the owner are not read.
+        // Each fact is read only when the rule can depend on it: a connected
+        // client decides alone, and an owner that keeps the daemon (a running
+        // app, or no app with the CLI's daemon staying) decides before the
+        // work. The work reads walk every session and try its locks; the
+        // daemon reads them only where the answer can change the decision.
         let clients = seen.clients > 0;
-        let keeps = Keeps {
-            clients,
-            owner: if clients { OwnerState::Alive } else { liveness.owner() },
-            live_work: !clients && live_work(liveness),
-        };
+        let owner = if clients { OwnerState::Alive } else { liveness.owner() };
+        let owner_keeps = !Keeps { clients: false, owner, live_work: false }.exits(unowned_keeps);
+        let keeps =
+            Keeps { clients, owner, live_work: !clients && !owner_keeps && live_work(liveness) };
         let now = clock.now();
         since = match since {
             _ if !keeps.exits(unowned_keeps) => None,
