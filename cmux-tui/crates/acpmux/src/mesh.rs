@@ -391,6 +391,13 @@ pub fn is_message_id(id: &str) -> bool {
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
 }
 
+/// The heartbeat claims only an agent suffix; the platform supplies its member namespace.
+pub(crate) fn valid_team_suffix(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,11 +466,4 @@ mod tests {
         b.next_wait();
         assert!(b.next_wait() <= Duration::MAX);
     }
-}
-
-/// The heartbeat claims only an agent suffix; the platform supplies its member namespace.
-pub(crate) fn valid_team_suffix(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 128
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
 }
