@@ -6,9 +6,11 @@
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxCompaction, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CompactionNote, compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
+import { translate } from "../src/agent-session/acpmux/i18n";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const START = Date.UTC(2026, 9, 18, 9, 0, 0);
@@ -28,6 +30,7 @@ const record = (steps: Step[], from = 1) =>
 /// An older read answers with at most `older` events, newest first, and says whether more are left.
 function fakeDaemon(history: ReturnType<typeof record>, page = history.length, older = Infinity) {
   let socket: any;
+  const sent: string[] = [];
   const session = {
     sessionId: CHAT,
     cwd: "/home/dev/x",
@@ -65,6 +68,7 @@ function fakeDaemon(history: ReturnType<typeof record>, page = history.length, o
     socket = {
       readyState: 1,
       send(raw: string) {
+        sent.push(raw);
         const message = JSON.parse(raw);
         if (message.id !== undefined)
           queueMicrotask(() =>
@@ -90,7 +94,7 @@ function fakeDaemon(history: ReturnType<typeof record>, page = history.length, o
       });
     }
   };
-  return { open, push };
+  return { open, push, sent };
 }
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
@@ -255,6 +259,44 @@ test("a compaction that ends after a forced Stop ended its turn stays one row", 
   // Reload: the same history gives the same one row.
   const reloaded = await connect(fakeDaemon(record([...steps, late])));
   expect(compactions(reloaded.rows())).toEqual([[3, "completed"]]);
+});
+
+test("a compacting forced Stop is one notice and exposes Continue after the matching result", async () => {
+  const forced = {
+    status: "cancelled",
+    stopReason: "cancelled",
+    cancelForced: true,
+    turnId: "turn-1",
+    turnSeq: 2,
+    promptId: "prompt-1",
+  };
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "continue the migration", promptId: "prompt-1", turnId: "turn-1" }],
+      ["mux", "turn_started", { turnId: "turn-1", turnSeq: 2, promptId: "prompt-1" }],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  await client.cancel();
+  await client.cancel();
+  expect(daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel")).toHaveLength(1);
+  daemon.push(
+    record(
+      [
+        ["mux", "turn_result", forced],
+        // A replay from the peer journal has a new seq but the same daemon turn identity.
+        ["mux", "turn_result", forced],
+      ],
+      4,
+    ),
+  );
+  const notices = () => rows().filter((row) => row.kind === "notice" && row.text === translate("stop.forced"));
+  expect(notices()).toHaveLength(1);
+  const summaries = turnView(rows(), new Set(), { now: START + 30_000 }).filter((row) => row.kind === "turnSummary");
+  expect(summaries).toHaveLength(1);
+  expect(summaries[0]?.resumable).toBe(true);
+  client.close();
 });
 
 // Recorded from a claude-sr2 chat (2026-10-20): Claude Code repeats `status: compacting` every 30s
