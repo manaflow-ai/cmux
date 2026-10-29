@@ -165,7 +165,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "b5c1a15feb5ba11b3fb54a29baca2d2a863733e7550ecc9b2429984025baf060"
+EXPECTED_GUARD_SCRIPT_DIGEST = "2334f2193cb03ea591f38f193607a36c7d0e12bfbdc9a23753953eb28fb904a5"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -214,11 +214,24 @@ GUARD_SCRIPT_PATH = "scripts/ci/validate-cla-policy.rb".freeze
 GUARD_PATHS = [GUARD_WORKFLOW_PATH, GUARD_SCRIPT_PATH].freeze
 TEST_MERGE_ATTEMPTS = 6
 TEST_MERGE_RETRY_SECONDS = 5
-# Designated maintainers who may approve a trusted control-plane update. The
-# PR author is deliberately excluded, even when they are an administrator, so
-# the validator cannot turn self-approval into a policy-change bypass. IDs are
-# used instead of names, and the review must target the exact PR head.
-TRUSTED_REVIEWER_IDS = %w[38676809 67667005].freeze
+# Who may approve a trusted control-plane update. The PR author is
+# deliberately excluded, even when they are an administrator, so the validator
+# cannot turn self-approval into a policy-change bypass. IDs are used instead
+# of names, and the review must target the exact PR head and stay undismissed.
+#
+# People (GitHub user type "User"): Austin (38676809), Aziz (67667005) and Leo
+# (13091533). Leo's account opens the agent pull requests, so his approval
+# counts only on a pull request he did not open (the author check below).
+#
+# The cmux-bot GitHub App (user type "Bot", cmux-bot[bot] 348531757) approves a
+# head only after an independent review of that exact head passed (the review
+# reconciler turns a SHIP receipt at the head into this approval). Leo,
+# 2026-10-29, on a CLA-guard pull request only two teammates could unblock:
+# "STOP BLOCKING ON THIS BULLSHIT. IT SHOULDN'T HAPPEN."
+# An account ID is accepted only with the type it is listed under, so a user
+# can never stand in for the App or the App for a person.
+TRUSTED_REVIEWER_IDS = %w[38676809 67667005 13091533].freeze
+TRUSTED_BOT_REVIEWER_IDS = %w[348531757].freeze
 TRUSTED_REVIEW_STATES = %w[APPROVED COMMENTED CHANGES_REQUESTED DISMISSED PENDING].freeze
 TRUSTED_REVIEW_DECISION_STATES = %w[APPROVED CHANGES_REQUESTED DISMISSED].freeze
 MAX_REVIEW_PAGES = 3
@@ -596,6 +609,15 @@ rescue ArgumentError
   fail!("trusted review timestamp is malformed")
 end
 
+# The GitHub account type a trusted reviewer ID must carry, or nil when the ID
+# is not a trusted reviewer.
+def trusted_reviewer_type(reviewer_id)
+  return "User" if TRUSTED_REVIEWER_IDS.include?(reviewer_id)
+  return "Bot" if TRUSTED_BOT_REVIEWER_IDS.include?(reviewer_id)
+
+  nil
+end
+
 def collect_latest_trusted_review!(latest, seen_review_ids, review)
   fail!("pull-request review entry is malformed") unless review.is_a?(Hash)
   review_id = review["id"]
@@ -614,7 +636,8 @@ def collect_latest_trusted_review!(latest, seen_review_ids, review)
   user_id = user["id"]
   return unless user_id.is_a?(Integer) && user_id.positive?
   reviewer_id = user_id.to_s
-  return unless TRUSTED_REVIEWER_IDS.include?(reviewer_id)
+  trusted_type = trusted_reviewer_type(reviewer_id)
+  return if trusted_type.nil?
 
   state = review["state"]
   fail!("pull-request review state is malformed") unless TRUSTED_REVIEW_STATES.include?(state)
@@ -622,7 +645,7 @@ def collect_latest_trusted_review!(latest, seen_review_ids, review)
   # In particular, a later comment must not erase a valid approval.
   return unless TRUSTED_REVIEW_DECISION_STATES.include?(state)
   fail!("pull-request review commit is malformed") unless review["commit_id"].is_a?(String) && review["commit_id"].match?(SHA)
-  fail!("pull-request review user is not a human") unless user["type"] == "User"
+  fail!("pull-request review user is not the trusted account type") unless user["type"] == trusted_type
 
   order = review_sort_key(review)
   previous = latest[reviewer_id]
@@ -2836,7 +2859,49 @@ def run_trusted_review_regression_matrix!
     duplicate_failed = true
   end
   fail!("duplicate review regression failed") unless duplicate_failed
-  puts "PASS: trusted review state regression matrix (11 cases)"
+
+  # The cmux-bot App's approval of the exact head, after an independent
+  # review, clears the gate for a pull request Leo's account opened; an
+  # approval of an older head, a dismissed one, and the author's own do not.
+  bot = 348531757
+  leo = 13091533
+  older = "b" * 40
+  bot_review = lambda do |id, state, at, commit = head, dismissed = nil|
+    review.call(id, state, at, commit, bot, dismissed).merge("user" => { "id" => bot, "type" => "Bot" })
+  end
+  approves = lambda do |reviews, author|
+    found = {}
+    reviews.each { |item| collect_latest_trusted_review!(found, {}, item) }
+    found.values.any? { |_order, item| trusted_review_approves_head?(item, head, author) }
+  end
+  fail!("cmux-bot head approval regression failed") unless
+    approves.call([bot_review.call(20, "APPROVED", "2026-01-07T00:00:00Z")], leo)
+  fail!("cmux-bot older-head approval regression failed") if
+    approves.call([bot_review.call(21, "APPROVED", "2026-01-07T00:00:00Z", older)], leo)
+  fail!("cmux-bot dismissed approval regression failed") if
+    approves.call([bot_review.call(22, "APPROVED", "2026-01-07T00:00:00Z", head, "2026-01-07T00:01:00Z")], leo)
+  fail!("cmux-bot later dismissal regression failed") if
+    approves.call([bot_review.call(23, "APPROVED", "2026-01-07T00:00:00Z"),
+                   bot_review.call(24, "DISMISSED", "2026-01-07T00:01:00Z")], leo)
+  fail!("author self-approval regression failed") if
+    approves.call([review.call(25, "APPROVED", "2026-01-07T00:00:00Z", head, leo)], leo)
+  fail!("Leo independent approval regression failed") unless
+    approves.call([review.call(26, "APPROVED", "2026-01-07T00:00:00Z", head, leo)], 12345)
+  # An ID is trusted only as the type it is listed under: a "User" claiming
+  # the App's ID, or a "Bot" claiming a person's, is refused, not counted.
+  [
+    review.call(27, "APPROVED", "2026-01-07T00:00:00Z", head, bot),
+    bot_review.call(28, "APPROVED", "2026-01-07T00:00:00Z").merge("user" => { "id" => leo, "type" => "Bot" })
+  ].each do |impostor|
+    refused = false
+    begin
+      collect_latest_trusted_review!({}, {}, impostor)
+    rescue PolicyError
+      refused = true
+    end
+    fail!("trusted reviewer type regression failed") unless refused
+  end
+  puts "PASS: trusted review state regression matrix (19 cases)"
 end
 
 def validate_workflow(raw)

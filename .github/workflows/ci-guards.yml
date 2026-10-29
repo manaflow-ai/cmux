@@ -878,6 +878,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cla_guard_git_reads.py
 
+      - name: Validate who may approve a CLA guard change
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cla_guard_trusted_reviewers.py
+
       - name: Validate required checks are bounded
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
