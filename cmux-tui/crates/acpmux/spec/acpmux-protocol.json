@@ -379,6 +379,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github_action",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github_app_lease",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": true,
       "result": true
@@ -460,6 +472,30 @@
     {
       "kind": "request",
       "name": "_acpmux/process/kill",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/output",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/stop",
       "params": true,
       "result": true
     },
@@ -3609,6 +3645,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "enforcement": {
           "$ref": "#/types/Enforcement"
         },
@@ -4089,6 +4132,13 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"
