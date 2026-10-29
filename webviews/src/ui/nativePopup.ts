@@ -33,7 +33,7 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
   const revision = useRef(0);
   const openingRevision = useRef(0);
   const shown = useRef(false);
-  const editSequences = useRef(new Map<string, number>());
+  const editSequences = useRef(new Map<string, { received: number; value: string | undefined; applied: number }>());
   const eventFence = useRef(new NativePopupEventFence());
   const [acknowledgment, acknowledge] = useReducer((value: number) => value + 1, 0);
   const serialized = JSON.stringify(options.model);
@@ -51,9 +51,9 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
         if (!eventFence.current.accepts(event)) return;
         if (event.editSequence !== undefined) {
           if (!event.id || !Number.isSafeInteger(event.editSequence) || event.editSequence < 0) return;
-          const prior = editSequences.current.get(event.id ?? "") ?? -1;
-          if (event.editSequence <= prior) return;
-          editSequences.current.set(event.id ?? "", event.editSequence);
+          const prior = editSequences.current.get(event.id);
+          if (event.editSequence <= (prior?.received ?? -1)) return;
+          editSequences.current.set(event.id, { received: event.editSequence, value: event.value, applied: prior?.applied ?? 0 });
           acknowledge();
         }
         latest.current.onEvent(event);
@@ -97,7 +97,10 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
   return { available: transport !== undefined };
 }
 
-function withEditSequences(model: NativePopupDescription, sequences: Map<string, number>): NativePopupDescription {
+function withEditSequences(
+  model: NativePopupDescription,
+  sequences: Map<string, { received: number; value: string | undefined; applied: number }>,
+): NativePopupDescription {
   const liveFields = new Set(model.search ? [model.search.id] : []);
   const collect = (items: NativePopupRow[]) => {
     for (const row of items) {
@@ -107,15 +110,23 @@ function withEditSequences(model: NativePopupDescription, sequences: Map<string,
   };
   collect([...(model.rail ?? []), ...model.rows, ...(model.footer ?? [])]);
   for (const id of sequences.keys()) if (!liveFields.has(id)) sequences.delete(id);
+  const applied = (id: string, value: string | undefined, explicit: number | undefined): number => {
+    const edit = sequences.get(id);
+    if (!edit) return explicit ?? 0;
+    // Receipt is not application: async consumers may still be rendering the old value.
+    if (value === edit.value) edit.applied = Math.max(edit.applied, edit.received);
+    if (explicit !== undefined) edit.applied = Math.max(edit.applied, explicit);
+    return edit.applied;
+  };
   const rows = (items: NativePopupRow[]): NativePopupRow[] =>
     items.map((row) => ({
       ...row,
-      ...(row.kind === "textField" ? { editSequence: sequences.get(row.id) ?? 0 } : {}),
+      ...(row.kind === "textField" ? { editSequence: applied(row.id, row.value, row.editSequence) } : {}),
       ...(row.children ? { children: rows(row.children) } : {}),
     }));
   return {
     ...model,
-    ...(model.search ? { search: { ...model.search, editSequence: sequences.get(model.search.id) ?? 0 } } : {}),
+    ...(model.search ? { search: { ...model.search, editSequence: applied(model.search.id, model.search.value, model.search.editSequence) } } : {}),
     rows: rows(model.rows),
     ...(model.rail ? { rail: rows(model.rail) } : {}),
     ...(model.footer ? { footer: rows(model.footer) } : {}),

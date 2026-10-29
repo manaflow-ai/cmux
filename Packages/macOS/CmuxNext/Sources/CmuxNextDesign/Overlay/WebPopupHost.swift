@@ -88,6 +88,7 @@ public final class WebPopupHost {
     private var panel: WebPopupPanel? { popup?.panel as? WebPopupPanel }
     private var model: Model?
     private var declarationHost: DeclarativePopupHost?
+    private var presentationGeneration = 0
 
     public init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void) {
         self.webView = webView
@@ -103,11 +104,17 @@ public final class WebPopupHost {
     /// Shows the page's menu on the screen; the reply names the side it took and its frame.
     @discardableResult
     public func show(_ model: Model) -> [String: Any] {
+        presentationGeneration += 1
+        let generation = presentationGeneration
         if let declaration = model.declaration {
             guard let webView else { return ["shown": false] }
-            if self.model != nil { send(["type": "dismiss"]) }
+            let replacing = self.model != nil
             self.model = nil
             popup?.hide()
+            if replacing {
+                send(["type": "dismiss"])
+                guard presentationGeneration == generation else { return ["shown": false] }
+            }
             let host = declarationHost ?? DeclarativePopupHost(webView: webView, zoom: zoom, send: send)
             declarationHost = host
             return host.show(declaration)
@@ -168,6 +175,7 @@ public final class WebPopupHost {
     }
 
     public func hide() {
+        presentationGeneration += 1
         declarationHost?.hide()
         model = nil
         panel?.isClosing = true

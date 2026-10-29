@@ -23,6 +23,7 @@ final class DeclarativePopupHost {
     private var retired: [String: Int] = [:]
     private var editSequence = 0
     private var presentationGeneration = 0
+    private var openingGeneration = 0
 
     init(webView: NSView, zoom: @escaping () -> CGFloat, send: @escaping ([String: Any]) -> Void,
          isAppActive: @escaping () -> Bool = { NSApp?.isActive ?? false }) {
@@ -95,6 +96,7 @@ final class DeclarativePopupHost {
             guard presentationGeneration == generation else { return ["shown": false] }
         }
         if opening {
+            openingGeneration += 1
             if parent == nil { editSequence = 0 }
             content.beginPresentation()
             child?.hide()
@@ -220,12 +222,13 @@ final class DeclarativePopupHost {
             guard let row, row.disabled != true else { return }
         case .dismiss: return
         }
+        let opening = root.openingGeneration
         let editSequence: Int? = type == .search || (type == .change && row?.kind == .textField) ? content.lastEditSequence : nil
         deliver(NativePopupEvent(type: type, popupId: model.id, revision: content.emittingRevision ?? content.model?.revision ?? model.revision, id: id, value: value,
                                  reason: type == .submit || type == .highlight ? reason : nil,
                                  editSequence: editSequence))
         if type == .pick, (action?.keepOpen ?? row?.keepOpen) != true,
-           root.model?.id == current.id, root.model?.revision == current.revision {
+           root.model?.id == current.id, root.openingGeneration == opening {
             root.dismiss(reason: "pick")
         }
     }
