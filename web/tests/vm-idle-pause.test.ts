@@ -33,7 +33,7 @@ import { enforceVmIdlePause } from "../services/vms/idlePauseJob";
 import { parseCreateIdlePause, parseIdlePauseBody } from "../services/vms/idlePauseRoute";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, vmRepositoryLiveShape, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { execVm, pauseVm, setVmIdlePause } from "../services/vms/workflows";
+import { execVm, getVm, pauseVm, setVmIdlePause } from "../services/vms/workflows";
 import { runChild } from "./helpers/run-child";
 
 // Idle auto-pause (pilot blocker 1a). The decision is pure and pinned here: a
@@ -561,6 +561,15 @@ function cronFakes(
     // Like the live query: running machines only.
     // Like the live query: running machines, and any live row still holding an idle pause claim.
     idlePauseCandidates: () => Effect.sync(() => rows.filter((r) => r.status === "running" || (r.status !== "destroyed" && r.providerMetadata?.cmuxIdlePauseClaim !== undefined))),
+    recordIdleDecision: (input: { id: string; providerVmId: string; decision: { at: number; outcome: string; reason: string; run: { checked: number; elapsedMs: number } } }) => Effect.sync(() => {
+      update(input.id, (row) => {
+        if (row.providerVmId !== input.providerVmId) return row;
+        const previous = row.providerMetadata?.cmuxIdleLastDecision as { at: number } | undefined;
+        if (previous && previous.at > input.decision.at) return row;
+        return { ...row, providerMetadata: { ...row.providerMetadata, cmuxIdleLastDecision: input.decision,
+          cmuxIdleProbedAt: Math.max(Number(row.providerMetadata?.cmuxIdleProbedAt) || 0, input.decision.at) } };
+      });
+    }),
     recordIdleObservation: (input: { id: string; providerVmId: string; observation: VmIdleObservation | null; probedAt: number; epoch?: number }) => Effect.sync(() => {
       recorded.observations.push({ id: input.id, observation: input.observation });
       recorded.probedAt.push({ id: input.id, probedAt: input.probedAt });
@@ -1034,7 +1043,7 @@ describe("pause, resume and the idle stretch", () => {
     const runAt = (now: number) => Effect.runPromise(enforceVmIdlePause({ now: () => now }).pipe(Effect.provide(layer)));
     expect(await runAt(T0)).toMatchObject({ paused: 1 });
     expect(rows[0].status).toBe("paused");
-    expect(omit(omit(rows[0].providerMetadata, "cmuxIdleEpoch"), "cmuxPauseIntentEpoch")).toEqual({ networkIpv4: "10.192.0.5", cmuxPauseReason: "idle" });
+    expect(omit(omit(omit(omit(rows[0].providerMetadata, "cmuxIdleEpoch"), "cmuxPauseIntentEpoch"), "cmuxIdleLastDecision"), "cmuxIdleProbedAt")).toEqual({ networkIpv4: "10.192.0.5", cmuxPauseReason: "idle" });
     // Opened a minute later; the next runs see an idle machine.
     resume("row-1", T0 + MIN);
     expect(await runAt(T0 + 5 * MIN)).toMatchObject({ paused: 0, idle: 1 });
@@ -1075,7 +1084,7 @@ describe("pause, resume and the idle stretch", () => {
       const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
       const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }), { reread });
       const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
-      expect(summary).toMatchObject({ checked: 1, paused: 0, active: 1, errors: 0 });
+      expect(summary).toMatchObject({ checked: 1, paused: 0, claim_refused: 1, errors: 0 });
       expect(recorded.paused).toEqual([]);
       expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
     }
@@ -1729,6 +1738,30 @@ describe("idle pause SQL", () => {
   const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
   const repo = vmRepositoryLiveShape;
 
+  dbTest("diagnostics preserve the lifecycle timestamp, idle fence and newer decisions", async () => {
+    const before = await read();
+    const decision = { at: T0, outcome: "idle" as const, reason: "idle", run: { checked: 2, elapsedMs: 100 } };
+    await run(repo.recordIdleDecision!({ id: rowId, providerVmId, decision }));
+    let row = await read();
+    expect(row.updatedAt).toEqual(before.updatedAt);
+    expect(row.metadata.cmuxIdleEpoch).toEqual(before.metadata.cmuxIdleEpoch);
+    expect(row.metadata.cmuxIdleLastDecision).toEqual(decision);
+    expect(row.metadata.cmuxIdleProbedAt).toBe(T0);
+    await run(repo.recordIdleDecision!({ id: rowId, providerVmId, decision: { ...decision, at: T0 - 1, outcome: "error" } }));
+    expect((await read()).metadata.cmuxIdleLastDecision).toEqual(decision);
+    await run(repo.recordIdleDecision!({ id: rowId, providerVmId: "replaced", decision: { ...decision, at: T0 + 1 } }));
+    expect((await read()).metadata.cmuxIdleLastDecision).toEqual(decision);
+    // A successful pause still records diagnostics; they never resurrect its observation.
+    await sql`update cloud_vms set status = 'paused' where id = ${rowId}`;
+    await run(repo.recordIdleDecision!({ id: rowId, providerVmId, decision: { ...decision, at: T0 + 1, outcome: "paused" } }));
+    row = await read();
+    expect(row.status).toBe("paused");
+    expect(row.metadata.cmuxIdleObservation).toBeUndefined();
+    expect(row.metadata.cmuxIdleLastDecision).toMatchObject({ outcome: "paused" });
+    // Restore this shared fixture so subsequent repository tests start with their original row.
+    await sql`update cloud_vms set status = 'running', provider_metadata = ${sql.json(before.metadata)} where id = ${rowId}`;
+  });
+
   dbTest("a create stores its idle pause with the row, and a same-key retry keeps the first one", async () => {
     const create = (idlePauseMinutes: 0 | 120 | undefined) => run(repo.beginCreate({
       userId: owner, billingTeamId: owner, billingPlanId: "pro", provider: "freestyle", image: "sh-test",
@@ -2148,5 +2181,60 @@ describe("legacy daemon fallback", () => {
     expect(summary).toMatchObject({ checked: 1, paused: 1, unknown: 0 });
     expect(recorded.paused).toEqual([VM]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused", pauseReason: "idle" }]);
+  });
+});
+
+
+describe("idle pause diagnostics", () => {
+  test("each decision is readable through status without changing the activity fence", async () => {
+    const rows = [machineRow()];
+    const before = rows[0].updatedAt;
+    const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(rows[0].updatedAt).toEqual(before);
+    expect(epochOf(rows[0])).toBe(1); // Only the observation advances it.
+    const entry = await Effect.runPromise(getVm({ userId: "user-1", billingTeamId: "team-1", teamIds: ["team-1"], providerVmId: VM }).pipe(Effect.provide(layer)));
+    expect(entry).toMatchObject({ idlePause: {
+      minutes: 30, lastCheckedAt: T0, idleSince: T0, lastApiActivityAt: null, privateAddressKnown: true,
+      lastDecision: { at: T0, outcome: "idle", reason: "idle", run: { checked: 1, elapsedMs: expect.any(Number) } },
+    } });
+  });
+
+  test.each([
+    ["off", { cmuxIdlePauseMinutes: 0 }, probeLine(), "off"],
+    ["unknown", { networkIpv4: "" }, probeLine(), "unknown:address"],
+    ["unknown", {}, "garbled", "unknown:probe"],
+    ["active", {}, probeLine({ busy_terminals: 1 }), "active:busy_terminals"],
+  ] as const)("stores %s with its reason", async (outcome, metadata, stdout, reason) => {
+    const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", ...metadata } })];
+    const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout }));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ at: T0, outcome, reason, run: { checked: 1 } });
+  });
+
+  test("a rejected claim has its own outcome and fence reason instead of reporting guest activity", async () => {
+    const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: {
+      providerVmId: VM, idleSince: T0 - 40 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0,
+    } } })];
+    const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }), {
+      duringProbe: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 })),
+    });
+    expect(await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer))))
+      .toMatchObject({ paused: 0, claim_refused: 1, active: 0 });
+    expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "claim_refused", reason: "api_activity_changed" });
+    expect(rows[0].providerMetadata?.cmuxIdleProbedAt).toBe(T0);
+  });
+
+  test("a paused row still records the check and all checked rows carry final run counts", async () => {
+    const rows = [machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: {
+      providerVmId: VM, idleSince: T0 - 40 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0,
+    } } }), machineRow({ id: "row-2", providerVmId: "fs-2" })];
+    const { layer } = cronFakes(rows, () => ({ exitCode: 0, stdout: probeLine() }));
+    await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(rows[0].providerMetadata?.cmuxIdleLastDecision).toMatchObject({ outcome: "paused", reason: "idle_timeout" });
+    for (const row of rows) {
+      expect(row.providerMetadata?.cmuxIdleProbedAt).toBe(T0);
+      expect(row.providerMetadata?.cmuxIdleLastDecision).toMatchObject({ run: { checked: 2, elapsedMs: expect.any(Number) } });
+    }
   });
 });
