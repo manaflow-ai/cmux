@@ -33,8 +33,8 @@ enum S7MotionProbe {
                 view.animator().alphaValue = 1
             }, completion: { landed = true })
             Motion.reduceMotionOverride = nil
-            let end = Date().addingTimeInterval(2)
-            while Date() < end { RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
+            // Two seconds of main-actor turns: the display link fires the animation in them.
+            _ = await GUIAnimationTestSupport.settle(within: 2) { false }
             print("S7MOTION \(name) survived landed=\(landed) frame=\(view.frame)")
         }
         if stats { try await MotionGateMainWorkTests.withStats(body) } else { try await body(nil) }
