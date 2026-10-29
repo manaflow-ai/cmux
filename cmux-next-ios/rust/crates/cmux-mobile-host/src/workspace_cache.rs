@@ -139,7 +139,8 @@ impl Snapshots {
         let name = event.get("event").and_then(Value::as_str).ok_or(())?;
         match name {
             "overflow" => return Err(()), // The daemon ended this subscription.
-            "tree-changed" | "layout-changed" | "empty" => self.invalidate(TREE),
+            "tree-changed" | "empty" => self.invalidate(TREE),
+            "layout-changed" => self.invalidate(LAYOUT),
             "personal-changed" | "sidebar-layout-changed" => {
                 self.invalidate(PERSONAL);
                 self.invalidate(LAYOUT);
