@@ -111,7 +111,7 @@ public struct OracleCapture: Sendable {
     /// The snapshot when no facet runs off the main actor.
     public var completed: OracleValue? { background.isEmpty ? .object(values) : nil }
 
-    /// `{<facet>: <value>}` for every requested facet (schemas/oracle/README.md, "Source methods").
+    /// `{<facet>: <value>}` for every requested facet.
     /// The background facets read concurrently, each in its own child task.
     public func finish() async throws(OracleSnapshotError) -> OracleValue {
         let background = background
