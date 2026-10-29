@@ -286,7 +286,11 @@ impl Mux {
             next_notification_id: AtomicU64::new(next_notification_id),
             next_active_at: AtomicU64::new(1),
             next_in_process_resize_owner: AtomicU64::new(1),
-            surface_options: Mutex::new(surface_options),
+            surface_options: crate::lock_rank::RankedMutex::new(
+                crate::lock_rank::LockRank::Leaf,
+                "mux.surface_options",
+                surface_options,
+            ),
             provider_managed: AtomicBool::new(provider_workspace.managed),
             provider_workspace: Mutex::new(provider_workspace),
             workspace_lifecycles: Mutex::new(HashMap::new()),
@@ -301,10 +305,6 @@ impl Mux {
             chiefs: Default::default(),
             cloud: Default::default(),
             history_search: OnceLock::new(),
-            #[cfg(any(debug_assertions, feature = "oracle"))]
-            oracle_switches: OnceLock::new(),
-            #[cfg(any(debug_assertions, feature = "oracle"))]
-            oracle_holder_exits: AtomicU64::new(0),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]

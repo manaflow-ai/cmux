@@ -60,6 +60,7 @@ fn delta(kind: TreeDeltaKind, surface: Option<SurfaceId>) -> MuxEvent {
         index: None,
         entity: serde_json::Value::Null,
         workspace_revision: None,
+        registry_event: None,
         transaction: None,
     })
 }

@@ -31,6 +31,7 @@ public nonisolated struct BrowserResizeTunables {
         help: "Overrides the feature cefLayerHosting: a Chromium pane page draws inside the cmux window's own layer tree where the app makes every Track A call for the fork (resize fence, embedder visibility); DevTools and popups keep their own window. Applies at the next launch.",
         default: false, code: "BrowserResizeTunables.layerHosting")
 
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The local override of the bench-only feature `cefLayerHostingEveryPage`
     /// (`features.d/cefLayerHostingEveryPage.json` `replaces` it), read the same
     /// way as `layerHosting`: the layer hosting benches' on arm
@@ -41,6 +42,7 @@ public nonisolated struct BrowserResizeTunables {
         "browserResize.layerHostingEveryPage", section, "Host every Chromium page window (bench arm)",
         help: "Overrides the bench-only feature cefLayerHostingEveryPage: every Chromium page window, DevTools and popups too, draws inside the cmux window's own layer tree from fork API 26, without the Track A calls. Debug and bench builds only. Applies at the next launch.",
         default: false, code: "BrowserResizeTunables.layerHostingEveryPage")
+    #endif
 
     /// While a page is layer hosted (feature `cefLayerHosting`), how long a resize of
     /// its pane may hold the window's frame for Chromium's frame at the new
@@ -73,7 +75,13 @@ public nonisolated struct BrowserResizeTunables {
         default: .once, code: "BrowserResizeTunables.springPageResize")
 
     public static var all: [TunableDescriptor] {
+        #if DEBUG || CMUX_BENCH_HOOKS
         [pageBackdrop.descriptor, layerHosting.descriptor, layerHostingEveryPage.descriptor, syncDeadline.descriptor,
          liveResizeDeadline.descriptor, springPageResize.descriptor]
+        #else
+        // The bench-only arm's toggle is compiled out with its feature (a shipped app names no bench-only feature).
+        [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor,
+         springPageResize.descriptor]
+        #endif
     }
 }

@@ -23,9 +23,7 @@ BENCH_HOOKS=0
 BLOCKING_CHECKS=0
 # --config asan|tsan|ubsan: the Release configuration with that sanitizer (empty for every other config).
 SANITIZER=""
-# --config profile: bench plus LLVM PGO instrumentation (PGO_PROFILE=1), for scripts/cmux-next/pgo/build-profile.sh.
-PGO_PROFILE=0
-# The --config name (debug, release, bench, bench-checks, profile, asan, tsan, ubsan), stamped into a tagged app as CMUXBuildConfiguration.
+# The --config name (debug, release, bench, bench-checks, asan, tsan, ubsan), stamped into a tagged app as CMUXBuildConfiguration.
 BUILD_CONFIG_NAME="debug"
 # 1 when the last configuration flag was --release (the fleet's `cmux-ci build cmux --release`), not --config release:
 # a dogfood tag then builds bench (Resources/build/cmux-next.dogfood.conf).
@@ -746,18 +744,14 @@ Options:
                          debug.* socket commands are compiled out, except for a
                          tag that Resources/build/cmux-next.dogfood.conf names
                          (release_bench_tags): that tag builds --config bench.
-  --config <debug|release|bench|bench-checks|profile|asan|tsan|ubsan>
+  --config <debug|release|bench|bench-checks|asan|tsan|ubsan>
                          debug (default) and release as above. bench: the Release
                          configuration (-O, whole module, the shipped flags) plus
                          -DCMUX_BENCH_HOOKS (no DEBUG), so the debug.* socket commands
                          the benches and the STRESS builder drive exist in an
                          optimized app. bench-checks: bench plus the main-thread
                          blocking detector, for the blocking-sites story only
-                         (scripts/perf-lab/stories.d/README.md). profile: bench plus
-                         -DCMUX_PGO_PROFILE and Swift -profile-generate, linked with
-                         -fprofile-instr-generate; a launch writes an LLVM .profraw
-                         (LLVM_PROFILE_FILE names it) for the PGO profile
-                         (scripts/cmux-next/pgo/build-profile.sh). Never for a shipped
+                         (scripts/perf-lab/stories.d/README.md). Never for a shipped
                          product: scripts/cmux-next/check-no-bench-hooks.sh refuses
                          either in the release and nightly pipelines. A tagged app
                          records its config in Info.plist (CMUXBuildConfiguration).
@@ -1188,7 +1182,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --release)
-      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 BUILD_CONFIG_NAME="release" SANITIZER="" RELEASE_FLAG=1
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 BUILD_CONFIG_NAME="release" SANITIZER="" RELEASE_FLAG=1
       shift
       ;;
     --config|--config=*)
@@ -1196,13 +1190,12 @@ while [[ $# -gt 0 ]]; do
       # Only asan|tsan|ubsan set a sanitizer; a later --config of any other name clears it.
       SANITIZER=""
       case "$config_name" in
-        debug) BUILD_CONFIGURATION="Debug" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 ;;
-        release) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 ;;
-        bench) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 PGO_PROFILE=0 ;;
-        bench-checks) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=1 PGO_PROFILE=0 ;;
-        profile) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 PGO_PROFILE=1 ;;
-        asan | tsan | ubsan) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 PGO_PROFILE=0 SANITIZER="$config_name" ;;
-        *) echo "error: --config takes debug, release, bench, bench-checks, profile, asan, tsan or ubsan (got '${config_name}')" >&2; exit 1 ;;
+        debug) BUILD_CONFIGURATION="Debug" BENCH_HOOKS=0 BLOCKING_CHECKS=0 ;;
+        release) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 ;;
+        bench) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 ;;
+        bench-checks) BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=1 ;;
+        asan | tsan | ubsan) BUILD_CONFIGURATION="Release" BENCH_HOOKS=0 BLOCKING_CHECKS=0 SANITIZER="$config_name" ;;
+        *) echo "error: --config takes debug, release, bench, bench-checks, asan, tsan or ubsan (got '${config_name}')" >&2; exit 1 ;;
       esac
       BUILD_CONFIG_NAME="$config_name" RELEASE_FLAG=0
       ;;
@@ -1288,7 +1281,7 @@ if [[ "$RELEASE_FLAG" -eq 1 && -f "$dogfood_conf" ]]; then
   for release_bench_glob in ${release_bench_globs[@]+"${release_bench_globs[@]}"}; do
     # shellcheck disable=SC2053 # the conf's value is a glob
     if [[ "$TAG" == $release_bench_glob ]]; then
-      BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 PGO_PROFILE=0 BUILD_CONFIG_NAME="bench"
+      BUILD_CONFIGURATION="Release" BENCH_HOOKS=1 BLOCKING_CHECKS=0 BUILD_CONFIG_NAME="bench"
       echo "==> --release of dogfood tag '$TAG' (release_bench_tags '$release_bench_glob' in Resources/build/cmux-next.dogfood.conf): the bench configuration"
       break
     fi
@@ -1801,17 +1794,6 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
     # stories measure `bench` without it.
     SWIFT_OTHER_FLAGS+=" -DCMUX_BLOCKING_CHECKS"
     echo "==> bench-checks configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG)"
-  elif [[ "$PGO_PROFILE" -eq 1 ]]; then
-    # profile: the PGO instrumentation build (Chrome's chrome_pgo_phase=1, docs/pgo.md). Swift
-    # -profile-generate is frontend (clang -fprofile-instr-generate) instrumentation; the objects then
-    # reference the LLVM profile runtime, which clang links only with -fprofile-instr-generate on the link
-    # line (as Xcode's own code coverage builds do). CMUX_PGO_PROFILE compiles in the profile flush hooks
-    # (CmuxNextLaunch/ProfileFlush.swift). CEFShim (C++, scripts/cmux-next/build-cef-shim.sh) and the Rust
-    # FFI (cargo) are built outside these settings and stay uninstrumented.
-    SWIFT_OTHER_FLAGS+=" -DCMUX_PGO_PROFILE -profile-generate"
-    # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-    XCODEBUILD_ARGS+=('OTHER_LDFLAGS=$(inherited) -fprofile-instr-generate')
-    echo "==> profile configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_PGO_PROFILE -profile-generate, linked with -fprofile-instr-generate (no DEBUG)"
   else
     echo "==> bench configuration: Release optimization with -DCMUX_BENCH_HOOKS (no DEBUG)"
   fi
@@ -1854,11 +1836,6 @@ if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
   XCODEBUILD_ARGS+=(-showBuildTimingSummary)
 else
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
-fi
-# Per-task-kind seconds (Ld, SwiftCompile, ...) at the end of the log, with no build
-# setting changed, so nothing rebuilds for it (pgo/lto-ab.sh reads the Ld row).
-if [[ "${CMUX_RELOAD_BUILD_TIMING_SUMMARY:-0}" == "1" && "$SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE" -ne 1 ]]; then
-  XCODEBUILD_ARGS+=(-showBuildTimingSummary)
 fi
 if reload_skips_app_module_emission "$(selected_xcode_version)"; then
   # A dev build runs the app; nothing imports its Swift module (only cmuxTests,

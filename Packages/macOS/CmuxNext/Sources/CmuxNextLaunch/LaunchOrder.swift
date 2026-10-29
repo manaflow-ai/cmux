@@ -46,11 +46,6 @@ public struct LaunchOrder {
     public let mainWork: MainWorkScheduler
     /// The one owner of launch order: posts, refs and the completion.
     public let startup: StartupScheduler
-    #if CMUX_PGO_PROFILE
-    /// The profile build's flushes: launch.profraw at startup complete; `debug.pgo_flush`
-    /// writes rest.profraw before quit.
-    public let profileFlush: ProfileFlush
-    #endif
 
     /// An order on schedulers made elsewhere (tests: hand-run frames and main hop); `startup` must
     /// post its lane work to `fence`'s lanes. At `mainWork`'s reveal it lowers the fence, so the held
@@ -75,10 +70,6 @@ public struct LaunchOrder {
             mark("startup_complete.\(completion.reason)")
             mark("startup_complete")
         }
-        #if CMUX_PGO_PROFILE
-        profileFlush = ProfileFlush(launchedOn: fence.background)
-        profileFlush.writeLaunchProfile(when: startup)
-        #endif
     }
 
     /// The app's order: the display clock, the startup phase, the main-thread scheduler and the startup

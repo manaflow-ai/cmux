@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+use crate::server::connection_scheduler::connection_qos::ConnectionClass;
 use crate::server::*;
 
 /// A mux served on its own socket through the daemon's accept path, so each
@@ -197,6 +198,14 @@ fn an_attachs_writers_wait_for_the_commit_without_a_violation() {
     let served = Served::new("attach");
     let surface = served.mux.new_workspace(None, Some((20, 8))).unwrap();
     let (mut socket, mut replies) = served.connect();
+    socket.write_all(&ping(0)).unwrap();
+    let reply = next_reply(&mut replies).unwrap().expect("the connection answers");
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    // The person's connection: its views drain on the pool's input workers
+    // (`ConnectionClass::view_priority`); an automation one's on utility.
+    let clients = served.mux.control_clients.client_ids();
+    let [connection] = clients[..] else { panic!("one connection: {clients:?}") };
+    served.mux.control_clients.connection_class(connection).set(ConnectionClass::Person);
     for (id, mode) in [(1, None), (2, Some("render"))] {
         let mut request = json!({"id": id, "cmd": "attach-surface", "surface": surface.id});
         if let Some(mode) = mode {

@@ -419,3 +419,59 @@ fn hosted_shell_terminal(daemon: &Daemon, key: &str, shell: &str) -> u64 {
 fn hosted_shell_terminal(_daemon: &Daemon, _key: &str, _shell: &str) -> u64 {
     unreachable!("login(1) starts only on macOS")
 }
+
+/// `extra.shell_idle` on the app's real launch path (review 2 of
+/// cp/daemon-foreground-state): the shell starts through login(1) on macOS,
+/// so the daemon's foreground check takes its `login_session_shell` branch.
+/// At its prompt with no input the shell reads idle (a failure here makes the
+/// app ask on every close: the feature silently useless); a typed command
+/// takes it away.
+#[cfg(target_os = "macos")]
+#[test]
+fn shell_idle_the_apps_login_shell_at_its_prompt_reads_idle() {
+    let home = account_home();
+    let shell = login_shell();
+    let daemon = Daemon::start_as(shell, Some(&home), None);
+    request(
+        &daemon.socket,
+        json!({"cmd": "new-workspace", "name": "idle", "cols": 80, "rows": 24}),
+    );
+    let tree = request(&daemon.socket, json!({"cmd": "list-workspaces"}));
+    let key = tree["workspaces"]
+        .as_array()
+        .and_then(|workspaces| workspaces.iter().find(|workspace| workspace["name"] == "idle"))
+        .and_then(|workspace| workspace["key"].as_str())
+        .unwrap_or_else(|| panic!("no workspace idle: {tree}"))
+        .to_owned();
+    let surface = hosted_shell_terminal(&daemon, &key, shell);
+    let extra = || {
+        let reply = try_request(
+            &daemon.socket,
+            &json!({"protocol": "cmux.protocol/2", "type": "request", "id": "idle-list",
+                "operation": "terminal.list", "params": {"machine": "current", "session": "current"}}),
+        )
+        .unwrap_or_default();
+        reply["result"]
+            .as_array()
+            .and_then(|terminals| terminals.first())
+            .map(|t| t["extra"].clone())
+            .unwrap_or_default()
+    };
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
+    loop {
+        let extra = extra();
+        if extra["shell_idle"]["since_ms"].is_string() {
+            assert_eq!(extra["foreground_check"]["own"], true, "{extra}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the login shell at its prompt never read idle: {extra}"
+        );
+        // test harness: poll the daemon's terminal record
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    request(&daemon.socket, json!({"cmd": "send", "surface": surface, "text": "sleep 600\r"}));
+    let extra = extra();
+    assert!(extra.get("shell_idle").is_none(), "a typed command still reads idle: {extra}");
+}

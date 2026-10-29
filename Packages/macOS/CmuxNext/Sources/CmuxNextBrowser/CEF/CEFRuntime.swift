@@ -170,6 +170,9 @@ final class CEFRuntime {
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
     var builtInAdBlockerSetting: @MainActor () -> Bool = { true }
+    /// `browser.builtInAdBlocker` set to true by the person (not its default), asked at start: on a fork without the
+    /// first-tab load it keeps the start-time load (``CEFBuiltInExtensionLoader/start(_:forkSupports:personChose:)``).
+    var builtInAdBlockerChosen: @MainActor () -> Bool = { false }
     /// The managed preference domain Chromium reads Chrome enterprise policies
     /// from, asked at start (the App supplies it); nil reads none.
     var chromePolicyIDSetting: @MainActor () -> String? = { nil }
@@ -250,6 +253,10 @@ final class CEFRuntime {
     private(set) var energySaver: CEFEnergySaver?
     /// cmux's vote in Chromium's memory pressure aggregator (``followMemoryPressureVotes(_:)``).
     private(set) lazy var memoryPressureVote = CEFMemoryPressureVote.sending(to: self)
+    /// The App's page host scripts for every renderer (`adopt`), installed at start on fork API 29.
+    private(set) var pageHostScripts: [CEFDocumentScripts.Script] = []
+    /// Every renderer got ``pageHostScripts`` at start (fork API 29); else cmux pages keep DevTools.
+    private(set) var pageHostInRenderer = false
 
     private init() {
         makePumpTimer = CEFInProcessPump.wakeUpQueueTimer
@@ -262,7 +269,7 @@ final class CEFRuntime {
         self.makePumpTimer = makePumpTimer ?? CEFInProcessPump.wakeUpQueueTimer
     }
 
-    /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
+    /// Takes the engine's stores, sign-in tabs, wait deadlines and page host scripts (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
     /// puts a runtime that has not started in host mode (host widgets in cmux with `hostWidgets`, hosted pages' input
     /// through the host's input ring with `hostInput`, drops with `hostDrags`, page resizes fenced with `hostResizeFence`,
@@ -275,7 +282,8 @@ final class CEFRuntime {
                hostDrags: Bool = false, hostResizeFence: Bool = false, hostPopupMenus: Bool = false,
                hostSuggestions: Bool = false, hostChoosers: Bool = false,
                hostFileDialogs: (any ChromiumFileDialogAnswering)? = nil, hostLocks: Bool = false,
-               hostAppEvents: AppEvents? = nil, helperParent: ChromiumHelperParent? = nil) {
+               hostAppEvents: AppEvents? = nil, helperParent: ChromiumHelperParent? = nil,
+               pageHostScripts: [CEFDocumentScripts.Script] = []) {
         if let hostSupervisor, hostStart == nil, state == .idle {
             adoptHost(hostSupervisor, showsWidgets: hostWidgets, routesInput: hostInput, takesDrags: hostDrags,
                       fencesResizes: hostResizeFence, drawsPopupMenus: hostPopupMenus, drawsSuggestions: hostSuggestions,
@@ -283,7 +291,7 @@ final class CEFRuntime {
                       appEvents: hostAppEvents)
         }
         if let helperParent, helperParent !== self.helperParent { self.helperParent = helperParent }
-        self.signInCallbacks = signInCallbacks
+        (self.signInCallbacks, self.pageHostScripts) = (signInCallbacks, pageHostScripts)
         if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }
         self.stores = stores
@@ -546,15 +554,18 @@ final class CEFRuntime {
         }
 
         let builtInPlan = inputs.builtInPlan
+        let builtIn = builtInLoader.begin(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1,
+                                          personChose: inputs.adBlockerChosen)
+            .switchInputs(folders: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTabFeature(), embedderColorChooser: drawsChoosersInCmux,
             chromiumSpareOff: !spareWindow.chromiumStarting(placeholderSupported: shim.placeholderSupported() == 1),
             bundleIdentifier: Bundle.main.bundleIdentifier,
-            environment: environment, builtInExtensions: builtInPlan.folders,
-            builtInExtensionsAtFirstTab: builtInLoader.start(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1),
-            keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty),
+            environment: environment, builtInExtensions: builtIn.folders,
+            builtInExtensionsAtFirstTab: builtIn.atFirstTab,
+            keepsUnpackedEnabled: builtIn.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty),
             sharedRendererMemoryCaps: sharedRendererMemoryCaps
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
@@ -577,11 +588,11 @@ final class CEFRuntime {
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // cmux-page:// first-party pages from their bundled roots, with their renderer groups (CEFPageSchemes).
         CEFPageSchemes.add(CEFPageSchemes.firstParty, through: self) { [logger] refusal in logger.error("cmux-page refused by the shim: \(String(describing: refusal), privacy: .public)") }
-        // Every document's start scripts and report channels, once for every browser, in the
-        // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
+        // Every document's start scripts, report channels and the App's page host scripts, once for
+        // every browser, in the renderer (fork API 29): no tab opens a DevTools session for them
+        // (`CEFDocumentScripts`), and cmux pages skip theirs when the page host went in whole.
         if CEFForkFeatures(shim).rendererPaths {
-            let refused = CEFDocumentScripts(post: .pageChannel).installInRenderer(shim)
-            if !refused.isEmpty { logger.error("document scripts refused by the shim: \(refused.joined(separator: ", "), privacy: .public)") }
+            pageHostInRenderer = CEFDocumentScripts(post: .pageChannel, hostPage: pageHostScripts).install(shim, logger: logger)
         }
         // Google Chrome's native messaging hosts after cmux's own.
         for folder in inputs.nativeMessagingFolders {

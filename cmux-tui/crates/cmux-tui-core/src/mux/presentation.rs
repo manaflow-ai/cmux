@@ -217,6 +217,7 @@ pub(crate) fn tab_delta(
         index,
         entity,
         workspace_revision: None,
+        registry_event: None,
         transaction: None,
     })
 }
@@ -675,6 +676,7 @@ impl Mux {
                     index: Some(new_idx),
                     entity,
                     workspace_revision: Some(commit.revision),
+                    registry_event: None,
                     transaction: None,
                 },
                 workspace_mutation_result(&commit)?,
@@ -802,6 +804,7 @@ impl Mux {
                     index: Some(index),
                     entity,
                     workspace_revision: Some(commit.revision),
+                    registry_event: None,
                     transaction: None,
                 },
                 workspace_mutation_result(&commit)?,

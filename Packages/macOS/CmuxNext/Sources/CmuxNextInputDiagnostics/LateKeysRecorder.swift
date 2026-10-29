@@ -6,8 +6,12 @@ public import CmuxNextWakeups
 /// path's hold (`arrived_main -> dispatch_start`), with the path that held it, how many times `sendEvent` had it, the
 /// responder chain and how new its terminal was (first-seconds-evidence.md step 1). Rows since the last `reset`, or
 /// every row the ledger keeps with `since_launch`. Class names and numbers only: no user text.
+///
+/// `holds` is each hold path's stage since launch (``HeldKeyReplay``): every key it sent again,
+/// late or not, with how long it held them.
 public nonisolated struct LateKeysRecorder: DebugInputRecorder {
     private let ledger: KeyArrivalLedger
+    private let heldKeys: HeldKeyReplay
     private let mainWork: MainWorkScheduler
     private let mark: Mark
 
@@ -20,9 +24,11 @@ public nonisolated struct LateKeysRecorder: DebugInputRecorder {
 
     /// - Parameters:
     ///   - ledger: The app's ledger (`InputLatencyDispatch.arrivals`), read on the main actor.
+    ///   - heldKeys: The app's replay seam (`InputLatencyDispatch.heldKeys`), read on the main actor.
     ///   - mainWork: The app's main-thread scheduler, which runs each request's copy.
-    public init(ledger: KeyArrivalLedger, mainWork: MainWorkScheduler) {
+    public init(ledger: KeyArrivalLedger, heldKeys: HeldKeyReplay, mainWork: MainWorkScheduler) {
         self.ledger = ledger
+        self.heldKeys = heldKeys
         self.mainWork = mainWork
         mark = Mark()
     }
@@ -30,10 +36,11 @@ public nonisolated struct LateKeysRecorder: DebugInputRecorder {
     public var kind: DebugInputRecorderKind { .lateKeys }
 
     public func rows(sinceLaunch: Bool) async -> DebugInputLateKeys {
-        await mainWork.apply(.automation, owner: "debug.input.late_keys") { [ledger, mark] in
+        await mainWork.apply(.automation, owner: "debug.input.late_keys") { [ledger, heldKeys, mark] in
             let fresh = ledger.lateTotal &- mark.totalAtReset
             let wanted = sinceLaunch ? Int.max : Int(clamping: fresh)
-            return DebugInputLateKeys(total: ledger.lateTotal, keys: ledger.lateKeys(wanted).map(DebugInputLateKeys.Key.init))
+            return DebugInputLateKeys(total: ledger.lateTotal, keys: ledger.lateKeys(wanted).map(DebugInputLateKeys.Key.init),
+                                      holds: heldKeys.stages.map { DebugInputLateKeys.Hold(path: $0.path, stage: $0.stage) })
         }
     }
 
@@ -95,8 +102,52 @@ public nonisolated struct DebugInputLateKeys: Encodable, Sendable, Equatable {
         }
     }
 
+    /// One hold path's stage since launch (``HeldKeyReplay/Stage``).
+    public nonisolated struct Hold: Encodable, Sendable, Equatable {
+        public var heldBy: String
+        /// Keys the path held and sent again.
+        public var count: UInt64
+        /// Of those, keys held longer than the 50 ms limit.
+        public var overLimit: UInt64
+        public var maxMilliseconds: Double
+        public var meanMilliseconds: Double
+        /// Upper bound of each bucket in milliseconds (`null`: no bound) and its keys.
+        public var buckets: [Bucket]
+
+        public nonisolated struct Bucket: Encodable, Sendable, Equatable {
+            public var upToMilliseconds: UInt64?
+            public var keys: UInt64
+
+            private enum CodingKeys: String, CodingKey {
+                case upToMilliseconds = "up_to_ms"
+                case keys
+            }
+        }
+
+        init(path: KeyArrivalLedger.HoldPath, stage: HeldKeyReplay.Stage) {
+            heldBy = String(describing: path)
+            count = stage.count
+            overLimit = stage.overLimit
+            maxMilliseconds = Double(stage.maxNanos) / 1e6
+            meanMilliseconds = stage.count > 0 ? Double(stage.totalNanos) / Double(stage.count) / 1e6 : 0
+            let bounds = HeldKeyReplay.bucketBoundsMilliseconds
+            buckets = stage.buckets.enumerated().map { Bucket(upToMilliseconds: $0.offset < bounds.count ? bounds[$0.offset] : nil, keys: $0.element) }
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case heldBy = "held_by"
+            case count
+            case overLimit = "over_limit"
+            case maxMilliseconds = "max_ms"
+            case meanMilliseconds = "mean_ms"
+            case buckets
+        }
+    }
+
     /// Late keys logged since launch.
     public var total: UInt64
     /// Oldest first.
     public var keys: [Key]
+    /// Each path that held a key since launch, with its holds.
+    public var holds: [Hold]
 }

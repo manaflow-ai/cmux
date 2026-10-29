@@ -100,6 +100,6 @@ run_reload --tag "$DOGFOOD_TAG" --build-only --derived-data "$TMP_DIR/dd" --conf
 echo "PASS: --release of a dogfood tag is bench; --config release stays Release"
 
 run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config bench-check
-[[ "$STATUS" -ne 0 && "$OUTPUT" == *"debug, release, bench, bench-checks, profile, asan, tsan or ubsan"* ]] \
+[[ "$STATUS" -ne 0 && "$OUTPUT" == *"debug, release, bench, bench-checks, asan, tsan or ubsan"* ]] \
   || fail "an unknown config was not refused with the config list: $OUTPUT"
 echo "PASS: an unknown config is refused"

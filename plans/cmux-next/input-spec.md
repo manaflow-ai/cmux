@@ -93,6 +93,8 @@ Allowed transitions, by event (the reducer, `FocusReducer.swift`):
 | W7 | The window that owns the keyboard (itself, its page window, panel or sheet) is `WindowManager.active`, and its context is the published one. |
 | W8 | Every shown pane shows its selected tab, and that tab is in the pane. |
 | W9 | The focused pane presents the targeted tab within a settle (monitor only: a window unsettled at a check and at its confirmation is stuck). |
+| W10 | Keys have a target ([focus-invariant.md](focus-invariant.md)): while cmux is active with a shown window, a window is key; the key cmux window's model targets something that takes keys (not nothing while it has panes, not a tab-less pane beside one with tabs). |
+| W11 | A focus expectation (a target that lands later) lands or is dropped within the creation hold plus a settle (2.2 s), counted from the end of the create's key hold ([focus-invariant.md](focus-invariant.md)). |
 
 A window whose focused pane does not present the targeted tab yet is unsettled: W1-W4 wait, and
 the monitor reports W9 when it stays so.
@@ -190,12 +192,12 @@ part of the walker below from `git show 36f2381bf1a^:Packages/macOS/CmuxNext/Tes
 as an executable, not a test target and not in CI. On the Linux VM it can run only the attach part:
 `TerminalAttachMachine`, `AttachOracle`, the input invariants and replay, after tasks 102 and 103
 move them into `CmuxNextInputModel`. The same seed gives the same walk, and a failure writes its
-minimized journal. `oracle-replay` (task 104) replays saved attach journals, the Linux form of
-section 5. The focus, omnibar, `KeyRouter` and palette parts of `InputWorld` need the real
+minimized journal. `oracle-replay` (task 104, `Packages/macOS/CmuxNext/Sources/OracleReplay/`) replays
+saved journals with `InputReplay`, the offline form of section 5: oracle corpus runs save each case's
+journal, and `tests/oracle/corpus/journals/` keeps the ones a push replays (its README). The focus, omnibar, `KeyRouter` and palette parts of `InputWorld` need the real
 `FocusCoordinator` and its reducers, which stay in `CmuxNextApp/Focus`, outside the Linux tier. They
 have no runner until those move out of the app, and no p15 task does that yet.
-[oracle-DESIGN.md](oracle-DESIGN.md#8-linux-tier) describes both executables. The text below
-describes the deleted walker.
+The text below describes the deleted walker.
 
 `InputWorld` composes the real `FocusCoordinator` per window (its queue and echo suppression),
 the real omnibar reducer per browser tab, a real `TerminalAttachMachine` per terminal view with

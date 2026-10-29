@@ -1,0 +1,70 @@
+{
+  "id": "restart-restore",
+  "priority": "P0",
+  "title": "Cmd-Q and reopen with 60 workspaces: the shown terminals show their last screen in the first frame, never an empty pane, and are live within 1 s",
+  "why": "Lawrence 2026-10-27 19:25 (handoff/restore-perf.md, restore-shot-2026-10-27-1925.png): cmux NIGHTLY relaunched with about 60 workspaces showed its three visible terminals as empty panes with a cursor box and 'Restoring...' for seconds: nothing usable on screen. Chrome's session restore shows the visible tab's last content at once and loads hidden tabs lazily. Guards the frame hold that gave up after 3 s (cp/restore-frame-hold) and every later restore regression.",
+  "source": "restore-perf.md binding targets: last content in the first frame, no blank pane, no Restoring pill over a blank pane, visible terminals live within 300 ms warm / 1 s cold, hidden workspaces attach on first show",
+  "budget_seconds": 150,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-restore-${nonce}", "as": "left"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "for i in 1 2 3 4 5 6 7 8; do echo left-${nonce}-$i; done", "enter": true, "mark": "left"},
+    {"do": "expect", "title": "the left shell printed its lines", "since": "left", "timeout": 10,
+     "all": [{"daemon_line": "left-${nonce}-8"}]},
+
+    {"do": "key", "key": "d", "modifiers": ["cmd"]},
+    {"do": "focused_terminal", "as": "right"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "for i in 1 2 3 4 5 6 7 8; do echo right-${nonce}-$i; done", "enter": true, "mark": "right"},
+    {"do": "expect", "title": "the right shell printed its lines", "since": "right", "timeout": 10,
+     "all": [{"daemon_line": "right-${nonce}-8"}]},
+
+    {"do": "key", "key": "d", "modifiers": ["cmd", "shift"]},
+    {"do": "focused_terminal", "as": "down"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "for i in 1 2 3 4 5 6 7 8; do echo down-${nonce}-$i; done", "enter": true, "mark": "down"},
+    {"do": "expect", "title": "the third shell printed its lines", "since": "down", "timeout": 10,
+     "all": [{"daemon_line": "down-${nonce}-8"}]},
+
+    {"do": "seed_workspaces", "count": 59, "prefix": "jr-bg-${nonce}"},
+    {"do": "expect", "title": "before the quit: 3 terminals shown, 59 more workspaces", "timeout": 20,
+     "all": [
+       {"app_layout": {"workspace": "jr-restore-${nonce}", "panes": 3, "tabs": 3, "selected": true}},
+       {"app_rpc": {"method": "snapshot.get", "path": "topology.workspaces", "len_gte": 60}},
+       {"app_text_line": "down-${nonce}-8"},
+       {"frame_text": "right-${nonce}-8"}
+     ]},
+
+    {"do": "restore_relaunch", "how": "quit", "mark": "reopened"},
+
+    {"do": "expect", "title": "the shown terminals showed their last screen from the first frame, never an empty pane, and went live within 1 s", "timeout": 5,
+     "all": [
+       {"restore_no_blank": {"pill_over_blank": 0}},
+       {"restore_live": {"within_ms": 1000}},
+       {"restore_hidden_lazy": {"max": 8}},
+       {"app_rpc": {"method": "debug.surfaces", "path": "blank_panes", "equals": 0}}
+     ]},
+    {"do": "require_drawable"},
+    {"do": "use", "name": "down"},
+    {"do": "expect", "title": "the restored text is in the daemon, the view and the frame", "since": "reopened", "timeout": 30,
+     "all": [
+       {"daemon_line": "down-${nonce}-8"},
+       {"app_text_line": "down-${nonce}-8"},
+       {"app_pane": {"link": "connected"}},
+       {"frame_text": "left-${nonce}-8"},
+       {"frame_text": "right-${nonce}-8"},
+       {"frame_text": "down-${nonce}-8"}
+     ]},
+    {"do": "type", "text": "echo back-${nonce}-$((6*7))", "enter": true, "mark": "back"},
+    {"do": "expect", "title": "the restored shell takes input", "since": "back", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "back-${nonce}-42"},
+       {"app_text_line": "back-${nonce}-42"},
+       {"frame_text": "back-${nonce}-42"}
+     ]}
+  ],
+  "finally": [
+    {"do": "restore_diagnose"},
+    {"do": "close_seeded", "prefix": "jr-bg-${nonce}"}
+  ]
+}

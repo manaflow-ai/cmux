@@ -9,10 +9,10 @@ public enum SessionStateChange: Sendable, Hashable {
     case workspaceRemoved(ResourceID)
     case screen(ResourceID, SessionStateMirror.ScreenState?)
     case tab(ResourceID, SessionStateMirror.TabRecord?)
-    /// A terminal's OSC 9;4 progress, OSC 7501 program status records, running shell command, prompt
-    /// and last output.
+    /// A terminal's OSC 9;4 progress, OSC 7501 program status records, running shell command, prompt,
+    /// last output and idle shell.
     case terminal(ResourceID, TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [], busySinceMs: UInt64? = nil,
-                  promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil)
+                  promptSinceMs: UInt64? = nil, lastOutputMs: UInt64? = nil, shellIdleSinceMs: UInt64? = nil)
     case closed(ClosedItem)
     case closedRemoved(String)
     case status(WorkspaceStatus)
@@ -191,6 +191,11 @@ enum SessionWire {
         /// output streams.
         var lastOutputMs: UInt64? { ms(extra?["last_output"], "at_ms") }
 
+        /// Since when the terminal's own shell sits idle at its prompt (`extra.shell_idle.since_ms`, the prompt's
+        /// time): its process holds the PTY's foreground and still runs the program the daemon spawned, with no
+        /// input since the prompt. Nil whenever anything else may run, and from a daemon that predates it.
+        var shellIdleSinceMs: UInt64? { ms(extra?["shell_idle"], "since_ms") }
+
         /// The decimal ms string at `key` of `record`.
         private func ms(_ record: JSONValue?, _ key: String) -> UInt64? {
             guard case .object(let object)? = record else { return nil }
@@ -200,7 +205,7 @@ enum SessionWire {
         /// The terminal's change as the mirror applies it.
         func terminalChange(_ id: ResourceID) -> SessionStateChange {
             .terminal(id, progress, programStatus: programStatus, busySinceMs: busySinceMs, promptSinceMs: promptSinceMs,
-                      lastOutputMs: lastOutputMs)
+                      lastOutputMs: lastOutputMs, shellIdleSinceMs: shellIdleSinceMs)
         }
     }
 

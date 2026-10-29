@@ -289,7 +289,7 @@ final class TabContentCache {
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil, create = createTabs.waitingInterval(.terminal, tab: tab.id, surface: tab.surface.rawValue) // create: a new tab's, whose stages its view marks (NewTerminalTrace)
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, createIntent: create?.intentID ?? 0, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
-                                  hangWatch: daemon.hangWatch, screenChanged: pageRequests.services?.terminalScreenChanged,
+                                  hangWatch: daemon.hangWatch,
                                   keyStamps: daemon.isLocal ? terminalKeyStamps : nil, streamFocus: streamFocus,
                                   connection: { try await daemon.machineConnection() })
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
@@ -325,12 +325,19 @@ final class TabContentCache {
     func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
         let profile = profile ?? browserProfile?(key) ?? .default
-        if let page = MachineBrowserPages(cache: self).page(key: key, url: url, profile: profile) { return install(page, for: key) }
+        if let page = sessionLocalAppPage(key: key, url: url, profile: profile) { return install(page, for: key) }
         let tab = webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: profile, initialURL: pageRequests.proxiedTabs.isProxied(key) ? nil : url)
         return install(tab, for: key)
     }
 
     func existingBrowser(_ key: String) -> BrowserEntry? { browsers[key] }
+
+    /// The cmux page of a session-local tab (no daemon record, so no `TabModel` for ``makeAppPage(_:for:)``): only a
+    /// machine's page can live in one (Open on <machine>). Its first open (`browser(for:url:profile:)`) and its wake
+    /// after a release (`BrowserHibernation.restoreAppPage`) build it here.
+    func sessionLocalAppPage(key: String, url: URL?, profile: BrowserProfileID? = nil) -> (any BrowserTab)? {
+        MachineBrowserPages(cache: self).page(key: key, url: url, profile: profile ?? browserProfile?(key) ?? .default)
+    }
 
     /// The page for a daemon browser tab on the engine its record names,
     /// written back to the record (url, title, favicon) while it lives.
@@ -542,10 +549,9 @@ final class TabContentCache {
 
     /// Stand-in tab `key`'s visibility node becomes `real`'s, unless `real` has one: the content moving with it keeps it.
     func moveNode(_ key: String, to real: String) {
-        if let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[real]?.node == nil {
-            tabNodes[real] = WeakTabNode(node: node)
-            daemon.trackVisibility(ofTab: real, node: node)  // the daemon holds a hidden tab's field events, by its real id
-        }
+        guard let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[real]?.node == nil else { return }
+        tabNodes[real] = WeakTabNode(node: node)
+        daemon.trackVisibility(ofTab: real, node: node) // the daemon reports the node's visibility for `real` now
     }
 
     /// Swaps `tab`'s page for `page` (an adopted popup that arrived after the tab's placeholder page was created).

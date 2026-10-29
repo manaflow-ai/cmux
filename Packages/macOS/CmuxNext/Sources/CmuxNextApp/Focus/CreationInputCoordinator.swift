@@ -153,6 +153,17 @@ final class CreationInputCoordinator {
         return claims[window.windowNumber] != nil
     }
 
+    /// Why `window`'s held keys would or would not go to a pending creation's early view now (tests' failure reports).
+    func earlyDeliveryState(in window: NSWindow) -> String {
+        guard let buffer = buffers[window.windowNumber] else { return "no hold" }
+        guard let controller = router?.focus(for: window).0 else { return "no controller" }
+        let early = takesKeysEarly(buffer, controller: controller, window: window)
+        let pane: String? = if case .terminal(let pane, _) = controller.focus.state.resolved { pane } else { nil }
+        let shows = pane.flatMap { controller.content?.paneController(key: $0)?.currentTabKey } ?? "-"
+        return "resolved \(buffer.isResolved), held \(buffer.count), newestEarlyTab \(buffer.newestEarlyTab ?? "-"), "
+            + "focus \(controller.focus.state.resolved), pane shows \(shows), takesKeysEarly \(early)"
+    }
+
     /// How many keys `window`'s hold keeps now (tests).
     func heldCount(in window: NSWindow?) -> Int {
         guard let window else { return 0 }
@@ -278,7 +289,7 @@ final class CreationInputCoordinator {
         }
         // A pending creation's early view has the keyboard: held keys first, then this one.
         if let controller, takesKeysEarly(buffer, controller: controller, window: shell) {
-            guard deliverEarly(buffer) else {
+            guard deliverEarly(buffer, in: shell, router: router) else {
                 // A key run again started another creation: this one waits for it, in order, if the hold keeps it.
                 guard buffer.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
                 buffer.capture(event)
@@ -322,19 +333,27 @@ final class CreationInputCoordinator {
 
     /// Runs the held keys into the early view that has the keyboard, in order, at once. False when a key run again
     /// started another creation: the rest wait for it, in order.
-    private func deliverEarly(_ buffer: CreationInputBuffer) -> Bool {
+    private func deliverEarly(_ buffer: CreationInputBuffer, in window: NSWindow, router: KeyRouter) -> Bool {
         let held = buffer.take(), opened = buffer.openedCount
         for (index, key) in held.enumerated() {
-            replaying = true
-            replayedCount += 1
-            NSApp.sendEvent(key)
-            replaying = false
+            runAgain(key, in: window, router: router)
             if buffer.openedCount != opened {
                 buffer.prepend(held.dropFirst(index + 1))
                 return false
             }
         }
         return true
+    }
+
+    /// Runs held key `event` of `window` again through the seam (``HeldKeyReplay``, held_by `creation`), so the hold is
+    /// a measured stage in `debug.input late_keys`. It goes through `NSApplication.sendEvent`, as typed (the key router,
+    /// key equivalents and the menu included), which opens its one latency slot. `replaying` keeps it from being captured
+    /// again by this hold.
+    private func runAgain(_ event: NSEvent, in window: NSWindow, router: KeyRouter) {
+        replaying = true
+        replayedCount += 1
+        router.heldKeys.replay(event, heldBy: .creation, keyWindow: window, throughApplication: true) { $0.application(event) }
+        replaying = false
     }
 
     /// Keys the daemon gave back from terminal `terminalID`, a creation that did not take them: they
@@ -385,8 +404,9 @@ final class CreationInputCoordinator {
     private func flush(in window: NSWindow, force: Bool = false) {
         guard let buffer = buffers[window.windowNumber] else { return }
         if !force, !buffer.isResolved {
-            if !buffer.isEmpty, let controller = router?.focus(for: window).0, takesKeysEarly(buffer, controller: controller, window: window) {
-                _ = deliverEarly(buffer)
+            if !buffer.isEmpty, let router, let controller = router.focus(for: window).0,
+               takesKeysEarly(buffer, controller: controller, window: window) {
+                _ = deliverEarly(buffer, in: window, router: router)
             }
             return
         }
@@ -412,10 +432,7 @@ final class CreationInputCoordinator {
         // stays until their next intent, so a primary input (Home's message box) still does not take it.
         if unshown, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
         for (index, event) in pending.enumerated() {
-            replaying = true
-            replayedCount += 1
-            NSApp.sendEvent(event)
-            replaying = false
+            runAgain(event, in: window, router: router)
             // A replayed key started another creation: the rest wait for that one, in order.
             if let next = buffers[window.windowNumber] {
                 next.prepend(pending.dropFirst(index + 1))

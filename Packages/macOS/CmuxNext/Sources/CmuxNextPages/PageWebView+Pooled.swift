@@ -61,10 +61,5 @@ extension PageWebView {
             controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart,
                                                    forMainFrameOnly: true, in: .page))
         }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // The refactor oracle's page state: pages serve it only in DEV and bench builds.
-        controller.addUserScript(WKUserScript(source: oracleStateScript, injectionTime: .atDocumentStart,
-                                               forMainFrameOnly: true, in: .page))
-        #endif
     }
 }

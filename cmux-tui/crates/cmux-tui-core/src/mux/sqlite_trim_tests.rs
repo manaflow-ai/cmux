@@ -23,7 +23,8 @@ impl Fixture {
         let root = std::env::temp_dir()
             .join(format!("cmux-sqlite-trim-{name}-{}", crate::workspace_registry::new_uuid_v4()));
         let memory = Arc::new(DaemonMemory::without_system_source());
-        let setup = MemorySetup { memory: memory.clone(), scrollback_pressure: false, kitty_share: false };
+        let setup =
+            MemorySetup { memory: memory.clone(), scrollback_pressure: false, kitty_share: false };
         let mux = crate::Mux::open_persistent_with_memory_for_test(
             name,
             crate::SurfaceOptions::default(),

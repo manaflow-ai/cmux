@@ -110,9 +110,8 @@ public final class InputLatencyTracker {
     public private(set) var closedCount: UInt64 = 0
     /// The slot of the key press being dispatched now, from its ``begin(kind:target:entrypoint:eventTimestamp:window:arrivedMain:frameInterval:)``
     /// to its ``endDispatch(_:)``: a terminal arms its echo stages on it and sends it to the daemon as the key's flow
-    /// (``CmuxNextInputCore/InputLatencyToken/keyFlow``; p04-input-094). A key dispatched inside another
-    /// key's dispatch (a held key run again) is the dispatching key until its own dispatch ends; then the outer one is
-    /// again.
+    /// (``CmuxNextInputCore/InputLatencyToken/keyFlow``). A key dispatched inside another key's dispatch (a held key
+    /// run again) is the dispatching key until its own dispatch ends; then the outer one is again.
     public var dispatchingKey: InputLatencyToken? { dispatchingKeys.top }
     /// The key slots in dispatch, innermost on top: a fixed inline stack, so the per-key path never allocates.
     private var dispatchingKeys = DispatchingKeys()

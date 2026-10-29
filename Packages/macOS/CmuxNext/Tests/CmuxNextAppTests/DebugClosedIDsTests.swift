@@ -37,31 +37,5 @@ struct DebugClosedIDsTests {
             #expect(listed.count == store.closedItems.count, "the read hides closed groups: \(listed.count) of \(store.closedItems.count)")
         }
     }
-
-    /// `debug.closed_forget` (HistoryControl.forget), the oracle reset's cleanup: its answer no
-    /// longer lists the forgotten close, so the next case's Cmd-Shift-T cannot reopen it.
-    @Test func aForgottenCloseIsGoneWhenTheForgetAnswers() async throws {
-        try await PinnedPageTests.withApp { services, connection in
-            let store = services.daemon.store
-            let window = try #require(services.windows.active)
-            let first = try #require(window.workspaceContent?.panes.values.first?.pane)
-            _ = try await connection.split(first.handle, direction: .right)
-            let screen = { store.workspaces.flatMap(\.screens).first { $0.panes.contains { $0 === first } } }
-            try await PinnedPageTests.until({ screen()?.panes.filter { !$0.tabs.isEmpty }.count == 2 }, within: .seconds(30),
-                                            report: { "\(screen()?.panes.count ?? 0) panes" })
-            let other = try #require(screen()?.panes.first { $0 !== first })
-            let seen = Set(store.closedItems.map(\.id))
-            try await connection.closePane(other.handle)
-            _ = try await HistoryControl.closedIDs(services.daemon)
-            let fresh = store.closedItems.filter { !seen.contains($0.id) }.map(\.id)
-            #expect(fresh.count == 1, "the close stored \(fresh.count) closed groups")
-
-            let reply = try await HistoryControl.forget(fresh, services: services, daemon: services.daemon)
-
-            let listed = reply["closed_ids"]?.arrayValue?.compactMap(\.stringValue) ?? []
-            #expect(fresh.allSatisfy { !listed.contains(DaemonClosedHistory.historyID($0)) }, "still listed: \(listed)")
-            #expect(seen.allSatisfy { listed.contains(DaemonClosedHistory.historyID($0)) }, "an older close went too: \(listed)")
-        }
-    }
 }
 #endif

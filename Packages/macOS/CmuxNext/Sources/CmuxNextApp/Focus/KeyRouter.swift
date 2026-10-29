@@ -397,6 +397,10 @@ final class KeyRouter: BrowserKeyRouting {
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
     /// Keys typed while a window shows its launch picture wait for the window or its terminal.
     lazy var launchPictureKeys = LaunchPictureKeys.routed(by: self)
+    /// The one seam that sends a held key again and records its hold (``HeldKeyReplay``): the app's, or this router's
+    /// own before it has the app's services (a router a test made).
+    var heldKeys: HeldKeyReplay { services?.inputLatency.heldKeys ?? ownHeldKeys }
+    private lazy var ownHeldKeys = HeldKeyReplay(ledger: nil)
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
     var focusModeEscape = BrowserFocusModeEscapeExit() { didSet { modes.set(.focusModeEscape, focusModeEscape.armedTab != nil) } }
 

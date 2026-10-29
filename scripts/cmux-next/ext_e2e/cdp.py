@@ -8,7 +8,6 @@ that the cmux socket does not expose.
 import base64
 import json
 import os
-import select
 import socket
 import struct
 import time
@@ -125,21 +124,6 @@ class Session:
                 if "error" in message:
                     raise RuntimeError(f"{method}: {message['error'].get('message')}")
                 return message.get("result", {})
-
-    def send(self, method, params=None):
-        """Sends a command without reading its answer; returns its id (receive() hands back the answer)."""
-        request_id = self.next_id
-        self.next_id += 1
-        self._send(json.dumps({"id": request_id, "method": method, "params": params or {}}))
-        return request_id
-
-    def receive(self, timeout):
-        """The next message (an event or an answer), or None when none began within `timeout` seconds. Only the
-        wait for its first byte times out: a frame that has begun is read whole, so the stream stays in step."""
-        if not self.buffer and not select.select([self.sock], [], [], max(timeout, 0))[0]:
-            return None
-        self.sock.settimeout(15)
-        return self._recv()
 
     def evaluate(self, expression, timeout=30):
         result = self.call("Runtime.evaluate", {"expression": expression, "awaitPromise": True,

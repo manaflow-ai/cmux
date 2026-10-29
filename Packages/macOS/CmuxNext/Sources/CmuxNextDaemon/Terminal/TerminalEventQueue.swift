@@ -62,7 +62,7 @@ final class TerminalEventQueue: Sendable {
     private let parkAbove: Int
     /// Sends a throttled request again (``Backpressure/dropAndResync(_:)`` only).
     private let retryTimer: DemandTimer?
-    private let state = Mutex(State(), rank: .daemonTerminalEventQueue)
+    private let state = Mutex(State())
     // concurrency-allow: the designed backpressure that makes the daemon drop a slow view: only the attach
     // connection's dedicated reader thread (LineTransport) waits on it, never the main thread or a pool thread.
     private let readerWake = DispatchSemaphore(value: 0)

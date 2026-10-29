@@ -5,19 +5,12 @@
 public protocol OracleFacetProvider: Sendable {
     var facet: OracleFacet { get }
     var capture: OracleFacetCapture { get }
-    /// The capture with the run's path prefixes (``OraclePaths``), for a facet that hashes a path-rewritten
-    /// field; every other facet's is ``capture``.
-    func capturing(paths: OraclePaths) -> OracleFacetCapture
-    /// The facet's change signal for `debug.oracle.wait_for`. A main-actor facet needs none (the wait reads it
-    /// under Observation tracking); a background or split facet without one cannot be waited on (`unavailable`):
-    /// what its off-main part reads is not observed.
+    /// The facet's change signal, nil when the owners give none.
     var changes: OracleFacetChanges? { get }
 }
 
 extension OracleFacetProvider {
     public var changes: OracleFacetChanges? { nil }
-
-    public func capturing(paths: OraclePaths) -> OracleFacetCapture { capture }
 }
 
 /// Subscribes to a facet's changes: the stream yields once for each change of the state the facet reads, from

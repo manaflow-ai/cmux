@@ -1,3 +1,4 @@
+import Foundation
 import CmuxNextFeatures
 import Testing
 
@@ -51,9 +52,39 @@ struct FeatureDogfoodSetTests {
         #expect(!names.contains { $0.hasPrefix("perfLab") })
     }
 
+    /// A dogfood build is a Release build: a bench-only feature's name in the set is a string a shipped app carries, and
+    /// `scripts/cmux-next/check-no-bench-hooks.sh` refuses such an app (opt build c73db588: cefHelperHost and
+    /// chromiumHostIdleExit). The rule reads every feature marked `"benchOnly": true` in schemas/features/features.d.
+    @Test func theChromeParitySetNamesNoFeatureMarkedBenchOnly() throws {
+        let directory = Self.repositoryRoot.appending(path: "schemas/features/features.d")
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "json" }
+        try #require(!files.isEmpty, "no feature files in \(directory.path)")
+        let benchOnly = Set(try files.compactMap { url -> String? in
+            let object = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+            return object?["benchOnly"] as? Bool == true ? object?["name"] as? String : nil
+        })
+        #expect(!benchOnly.isEmpty, "no feature is marked benchOnly: the files were not read")
+        let named = FeatureDogfoodSet.chromeParity.names.filter(benchOnly.contains).sorted()
+        #expect(named.isEmpty, "the chrome-parity set names bench-only features a shipped app must not carry: \(named)")
+    }
+
+    /// The checkout this file is in.
+    private static var repositoryRoot: URL {
+        URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
     @Test func everyNameInTheChromeParitySetIsDeclared() {
         let registry = FeatureRegistry()
         let unknown = FeatureDogfoodSet.chromeParity.names.filter { registry.feature(named: $0) == nil }.sorted()
         #expect(unknown.isEmpty, "not declared in this build's registry: \(unknown)")
+    }
+
+    /// The chrome-parity dogfood builds keep the built-in ad blocker: with chromiumAdBlockerAtFirstTab on, a fork without
+    /// the first-tab load (fork API 41; no pinned fork has it, 2026-10-28) runs no ad blocker, a regression Lawrence
+    /// would see. The feature joins the set when a fork with API 41 is pinned.
+    @Test func theChromeParitySetKeepsTheAdBlockerUntilAForkHasTheFirstTabLoad() {
+        #expect(!FeatureDogfoodSet.chromeParity.names.contains("chromiumAdBlockerAtFirstTab"))
     }
 }

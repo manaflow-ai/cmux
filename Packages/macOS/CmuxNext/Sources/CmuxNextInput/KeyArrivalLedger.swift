@@ -24,7 +24,7 @@ public protocol InputCreationStamped: AnyObject {
 @MainActor
 public final class KeyArrivalLedger {
     /// The cmux path that held a key before dispatching it.
-    public nonisolated enum HoldPath: UInt8, Sendable, CustomStringConvertible {
+    public nonisolated enum HoldPath: UInt8, Sendable, CaseIterable, CustomStringConvertible {
         case none
         /// `CreationInputCoordinator`: keys typed after a split or a new terminal tab, until the new terminal has
         /// the keyboard.
@@ -89,6 +89,10 @@ public final class KeyArrivalLedger {
         var held: UInt64 = 0
         var deliveries: UInt8 = 0
         var heldBy: HoldPath = .none
+        /// The path and hold ``HeldKeyReplay`` recorded at the key's last replay; nil before its first.
+        var recorded: (path: HoldPath, hold: UInt64)?
+        /// The app's own synthetic input at its first arrival (`debug.key`), not a person's.
+        var synthetic = false
     }
 
     /// Key-downs remembered at once: more than any hold keeps (a hold of 2 s at 20 keys/s is 40).
@@ -131,22 +135,46 @@ public final class KeyArrivalLedger {
 
     /// `event` reached the main thread's dispatch at `nanos`: returns its first arrival (`nanos` the first time).
     // perf-hot: 0.5us key-dispatch
-    public func arrived(_ event: NSEvent, at nanos: UInt64) -> UInt64 {
+    public func arrived(_ event: NSEvent, at nanos: UInt64, synthetic: Bool = false) -> UInt64 {
         if let index = index(of: event) {
             if entries[index].deliveries < .max { entries[index].deliveries += 1 }
             return entries[index].arrived
         }
-        insert(event, at: nanos, deliveries: 1)
+        if let index = insert(event, at: nanos, deliveries: 1) { entries[index].synthetic = synthetic }
         return nanos
+    }
+
+    /// Whether `event` was the app's own synthetic input when it first arrived (false when the ledger does not know it).
+    public func isSynthetic(_ event: NSEvent) -> Bool {
+        index(of: event).map { entries[$0].synthetic } ?? false
     }
 
     /// A cmux path took `event` at `nanos` to dispatch it later. A key that never passed `sendEvent` (a synthetic key
     /// routed straight to the key router) arrives here: its hold counts from now.
     public func held(_ event: NSEvent, by path: HoldPath, at nanos: UInt64) {
-        guard let index = index(of: event) ?? insert(event, at: nanos, deliveries: 0) else { return }
+        let known = index(of: event)
+        guard let index = known ?? insert(event, at: nanos, deliveries: 0) else { return }
+        // A key that never passed `sendEvent` is the app's own (`debug.key` routes straight to the key router).
+        if known == nil { entries[index].synthetic = true }
         guard entries[index].heldBy == .none else { return }
         entries[index].heldBy = path
         entries[index].held = nanos
+    }
+
+    /// When `event`'s hold began: when a path held it, else its first arrival; nil when the ledger does not know it.
+    public func holdStart(of event: NSEvent) -> UInt64? {
+        guard let index = index(of: event) else { return nil }
+        let entry = entries[index]
+        return entry.held > 0 ? entry.held : entry.arrived
+    }
+
+    /// Stores `path`'s `hold` as `event`'s record (``HeldKeyReplay``) and returns the record of its previous replay: nil
+    /// at its first (or when the ledger no longer knows it). A key its own replay held again is replayed twice.
+    public func recordReplay(_ event: NSEvent, path: HoldPath, hold: UInt64) -> (path: HoldPath, hold: UInt64)? {
+        guard let index = index(of: event) else { return nil }
+        let previous = entries[index].recorded
+        entries[index].recorded = (path, hold)
+        return previous
     }
 
     /// The path that held `event` and how many times `sendEvent` had it.

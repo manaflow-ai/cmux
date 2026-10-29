@@ -4,7 +4,6 @@ import { useEffect, type ReactNode } from "react";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
-import { useOraclePanel } from "./oraclePanel";
 
 export interface DialogProps {
   open: boolean;
@@ -31,7 +30,6 @@ export function Dialog({
   children,
 }: DialogProps) {
   const container = usePortalContainer();
-  useOraclePanel("dialog", open);
   useEffect(() => {
     if (!open) return;
     const guardChordEscape = (event: KeyboardEvent) => {

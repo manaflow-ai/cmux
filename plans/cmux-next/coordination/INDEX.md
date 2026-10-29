@@ -14,7 +14,6 @@ Read the lane file before changing a shared surface. Newest entries remain first
 - [backend](backend.md)
 - [browser](browser.md)
 - [build-ci](build-ci.md)
-- [cefs-leases](cefs-leases.md)
 - [cloud](cloud.md)
 - [customization](customization.md)
 - [daemon-protocol](daemon-protocol.md)

@@ -41,12 +41,12 @@ import Testing
     /// Only the feature on a fork with the call, with a folder to load, moves the load to first tabs.
     @Test func theLoaderStartsAtFirstTabsOnlyWithTheFeatureTheForkAndAFolder() {
         let loader = CEFBuiltInExtensionLoader()
-        #expect(!loader.start([Self.folder], forkSupports: true), "feature off")
+        #expect(loader.start([Self.folder], forkSupports: true, personChose: false) != .atFirstTab, "feature off")
         loader.featureOn = true
-        #expect(!loader.start([Self.folder], forkSupports: false), "an old fork")
-        #expect(!loader.start([], forkSupports: true), "nothing to load")
+        #expect(loader.start([Self.folder], forkSupports: false, personChose: false) != .atFirstTab, "an old fork")
+        #expect(loader.start([], forkSupports: true, personChose: false) != .atFirstTab, "nothing to load")
         #expect(loader.loads.folders.isEmpty)
-        #expect(loader.start([Self.folder], forkSupports: true))
+        #expect(loader.start([Self.folder], forkSupports: true, personChose: false) == .atFirstTab)
         #expect(loader.loads.folders == [Self.folder])
     }
 
@@ -173,7 +173,7 @@ import Testing
         host.add(tab)
         host.ensureCreated(tab)
         let old = try #require(LoadsSpy.replies.first)
-        #expect(runtime.builtInLoader.start([Self.folder], forkSupports: true))
+        #expect(runtime.builtInLoader.start([Self.folder], forkSupports: true, personChose: false) == .atFirstTab)
         turns.endTurns()
         #expect(LoadsSpy.calls.count == 2 && !LoadsSpy.calls.contains("create"))
 
@@ -235,7 +235,7 @@ import Testing
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-builtin-loads-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime.spy(shim: try LoadsSpy.library(), storage: CEFProfileStorage(root: root))
         runtime.builtInLoader.featureOn = true
-        _ = runtime.builtInLoader.start(folders, forkSupports: true)
+        _ = runtime.builtInLoader.start(folders, forkSupports: true, personChose: false)
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)
     }
