@@ -689,6 +689,7 @@ async fn team_delivery_refuses_when_disabled_and_only_allowed_starts_an_idle_tur
         url: "https://hub.invalid".into(),
         token_command: vec!["unused".into()],
         team_messaging: true,
+        credential: None,
     });
     // Missing startWork is information even if mode asks to steer.
     assert_eq!(
