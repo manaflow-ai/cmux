@@ -31,6 +31,9 @@ nonisolated enum AcpmuxPaneMethods {
         // Mac's app and unix socket only. Only `sessionId` (``knownParams``): never `host`, which
         // would name any peer's session by its own id.
         "_acpmux/peer_snapshot",
+        // Retry a configured peer after the offline copy's Reconnect action (direct.ts). This
+        // names a peer machine, never a session, and waits for the daemon's doctor result.
+        "_acpmux/peer_reconnect",
         // A failed subagent's, sub-session's or turn's Retry (subagents/retryState.ts runRetry,
         // direct.ts retry; acpmux server/agent_messages.rs): acpmux runs the failed turn again, or
         // resumes the failed subagent, now. No gesture (``gestureRules``): it sends nothing new, only

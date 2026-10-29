@@ -19,6 +19,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use rquickjs::{CatchResultExt, Context, Function, Object, Runtime};
 use serde_json::{Map, Value, json};
 
@@ -243,7 +244,7 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
     // A task no one tool answers (`cmux docs search` returns the same).
     let guides = super::super::docs::guides(query);
     if !guides.is_empty() {
-        answer["guides"] = json!(guides);
+        answer.set("guides", json!(guides));
     }
     answer
 }
@@ -316,10 +317,10 @@ pub(super) fn exec(
                     if records.len() < MAX_CALL_RECORDS {
                         let mut record = json!({"name": name, "ok": ok});
                         if let Some(state) = state {
-                            record["state"] = json!(state);
+                            record.set("state", json!(state));
                         }
                         if let Some(key) = answered["error"]["idempotency_key"].as_str() {
-                            record["idempotency_key"] = json!(key);
+                            record.set("idempotency_key", json!(key));
                         }
                         records.push(record);
                     }
@@ -348,18 +349,18 @@ pub(super) fn exec(
     };
     let mut value = json!({"calls": calls, "call_log": records, "logs": outcome.logs});
     if outcome.dropped_logs > 0 {
-        value["dropped_logs"] = json!(outcome.dropped_logs);
+        value.set("dropped_logs", json!(outcome.dropped_logs));
     }
     Ok(match outcome.result {
         Ok(result) => {
-            value["result"] = result;
+            value.set("result", result);
             super::success(fit(value), applied)
         }
         Err(error) => {
-            value["error"] = error;
+            value.set("error", error);
             // `partial`: some call may have applied; `call_log` says which,
             // with each failed call's state and idempotency key.
-            value["state"] = json!(if applied { "partial" } else { "not_run" });
+            value.set("state", json!(if applied { "partial" } else { "not_run" }));
             super::tool_error(fit(value))
         }
     })
@@ -385,18 +386,18 @@ fn fit(mut value: Value) -> Value {
         }
     }
     while size(&value) > budget
-        && let Some(logs) = value["logs"].as_array_mut()
+        && let Some(logs) = value.get_mut("logs").and_then(Value::as_array_mut)
         && !logs.is_empty()
     {
         let keep = logs.len() / 2;
         logs.truncate(keep);
-        value["logs_truncated"] = json!(true);
+        value.set("logs_truncated", json!(true));
     }
     if size(&value) > budget
-        && let Some(records) = value["call_log"].as_array_mut()
+        && let Some(records) = value.get_mut("call_log").and_then(Value::as_array_mut)
     {
         records.clear();
-        value["call_log_truncated"] = json!(true);
+        value.set("call_log_truncated", json!(true));
     }
     value
 }
@@ -680,7 +681,7 @@ pub(super) fn script_answer(
         }
         let mut result = result;
         let failed = result["isError"] == true;
-        result["structuredContent"] = from_content(&result["content"], images, failed);
+        result.set("structuredContent", from_content(&result["content"], images, failed));
         result
     });
     match result {

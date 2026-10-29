@@ -326,6 +326,15 @@ def handle_prompt(rid, params):
         time.sleep(0.5)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "connection refused: error sending request for url (https://relay.invalid/responses)"}})
         return
+    # A harness-level RPC failure whose wording resembles a dead daemon must
+    # remain an agent error; the CLI must not replay the prompt.
+    if text == "agent-daemon-closed-error":
+        marker = os.environ.get("FAKE_AGENT_DAEMON_CLOSED_MARKER")
+        if marker:
+            with open(marker, "a") as f:
+                f.write("attempt\n")
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "daemon connection closed while the model was running"}})
+        return
     # "net-fail-on-cancel" runs until session/cancel, then fails with that transport error, as
     # an agent stopped mid-stream may.
     if text == "net-fail-on-cancel":
@@ -1160,6 +1169,8 @@ def handle_prompt(rid, params):
     if os.environ.get("FAKE_SHORT_ECHO") == "1" and text.strip():
         text = text.strip().splitlines()[-1]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
+    if text == "reply-then-thought":
+        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "done"}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
