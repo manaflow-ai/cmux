@@ -140,11 +140,12 @@ where
             other => {
                 let error =
                     json!({"code": -32601, "message": format!("method not found: {other}")});
-                let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "error": error})).await;
+                let _ =
+                    tx.send(json!({"jsonrpc": "2.0", "id": id, "error": error}).to_string()).await;
                 continue;
             }
         };
-        let _ = tx.send(response(&id, reply)).await;
+        let _ = tx.send(response(&id, reply).to_string()).await;
     }
     // The agent closed the pipe: no one reads an answer still on its way, and
     // ending here drops the calls' daemon connections with it.
