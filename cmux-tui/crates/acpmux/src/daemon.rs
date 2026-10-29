@@ -327,6 +327,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
+    // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
+    let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -554,6 +556,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // Its last heartbeat empties this daemon's rows in the hub's address book.
+    if let Some(relay) = mesh_relay {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
+    }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
     // until a start), so a start racing this shutdown is refused either way.
