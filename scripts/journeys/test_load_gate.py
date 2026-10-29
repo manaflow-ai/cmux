@@ -41,7 +41,9 @@ class Fleet:
     """capture-host, the minis over ssh and the clock. `loads` is the 1-minute load each read of a host gives
     (the last one repeats); `journey_load` the load the driver records in each result.json."""
 
-    def __init__(self, loads, journey_load=None, status="pass"):
+    def __init__(self, loads, journey_load=None, status="pass", acquire_s=0, download_s=0):
+        # acquire_s, download_s: how long an acquire (its drain) and the artifact download take.
+        self.acquire_s, self.download_s = acquire_s, download_s
         self.loads = {host: list(values) for host, values in loads.items()}
         self.journey_load, self.status = journey_load, status
         self.clock, self.events, self.leases, self.acquires = 0.0, [], 0, []
@@ -58,6 +60,7 @@ class Fleet:
         verb = argv[1]
         if verb == "acquire":
             self.acquires.append((list(argv), env))
+            self.clock += self.acquire_s
             self.leases += 1
             prefer = argv[argv.index("--prefer") + 1] if "--prefer" in argv else None
             self.events.append(("acquire", prefer))
@@ -80,6 +83,7 @@ class Fleet:
             self.events.append(("load", load))
             return done(f"{{ {load:.2f} 3.00 2.00 }}\n".encode())
         if "cmux-ci artifact" in script:
+            self.clock += self.download_s
             return done(b"/slots/x/build/cmux.app\n")
         if "/kit/driver.py" in script:
             self.events.append(("drive", None))
@@ -171,6 +175,15 @@ class LoadGate(unittest.TestCase):
         self.assertGreaterEqual(waited, 590, fleet.events)
         self.assertTrue(result["load_invalid"], result)
         self.assertEqual(result["lease_load"]["start"], 11.0, result)
+
+    def test_give_back_cycles_charge_their_wall_time(self):
+        # The released host reads quiet, but each new lease (a 300 s drain, a 400 s download) reads loaded with
+        # no room to wait: the cycle's wall time, not its 30 s poll, comes out of the run's 10 minutes.
+        fleet = Fleet({"cmux19": [9.0, 2.0] * 20}, acquire_s=300, download_s=400)
+        result = self.lease(fleet)["ctrl-d"]
+        self.assertEqual([e[0] for e in fleet.events].count("acquire"), 2, fleet.events)
+        self.assertTrue(result["load_invalid"], result)
+        self.assertLessEqual(fleet.clock, RUN.LOAD_WAIT_SECONDS + 2 * (300 + 400), fleet.clock)
 
     def test_the_ten_minutes_are_for_the_whole_run_not_each_lease(self):
         budget = RUN.new_load_budget()

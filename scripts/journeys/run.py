@@ -306,6 +306,18 @@ def load_wait(gate, budget, seconds):
     return True
 
 
+def charge_give_back(gate, budget):
+    """A give-back cycle costs the run's load budget its wall time (the poll, the re-acquire's drain, the
+    download again), not only its sleeps: charged at the new lease's first load read."""
+    began = gate.pop("gave_back_at", None)
+    if began is None:
+        return
+    extra = time.monotonic() - began - gate.pop("gave_back_slept", 0.0)
+    if extra > 0:
+        budget["left_s"] -= extra
+        gate["waited_s"] = round(gate["waited_s"] + extra, 1)
+
+
 def run_lease(specs, build, out, frame_interval, exclusive=True, load_budget=None):
     """Plays `specs` in one lease of a quiet host; {id: result} (driver results, or not run with the reason).
     After setup, a host whose 1-minute load is LOAD_LIMIT or more is read again every LOAD_HOLD_POLL_SECONDS
@@ -321,11 +333,13 @@ def run_lease(specs, build, out, frame_interval, exclusive=True, load_budget=Non
             return play_lease(specs, build, out, frame_interval, gate, budget, prefer)
         except LoadedHost as loaded:
             prefer = loaded.host
+            gate["gave_back_at"], slept_before = time.monotonic(), gate["waited_s"]
             while load_wait(gate, budget, LOAD_POLL_SECONDS):
                 load = host_load(prefer)
                 gate["reads"].append({"host": prefer, "load": load, "held": False})
                 if load is not None and load < LOAD_LIMIT:
                     break
+            gate["gave_back_slept"] = gate["waited_s"] - slept_before
 
 
 def play_lease(specs, build, out, frame_interval, gate, budget, prefer):
@@ -369,6 +383,7 @@ def play_lease(specs, build, out, frame_interval, gate, budget, prefer):
             raise RuntimeError(f"build {build['id']} has no app bundle")
         # The load gate, after the download (a drained host's load falls meanwhile), before the app starts.
         need = sum(int(s.get("budget_seconds", 60)) for s in specs) + LAUNCH_RESERVE_SECONDS + 45
+        charge_give_back(gate, budget)
         load = host_load(host)
         gate["reads"].append({"host": host, "load": load, "held": True})
         while load is None or load >= LOAD_LIMIT:
