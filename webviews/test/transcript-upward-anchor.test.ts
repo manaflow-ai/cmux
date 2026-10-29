@@ -97,5 +97,4 @@ await requireBrowserLane("transcript-upward-anchor.test.ts", async () => {
       await page.close();
     }
   });
-
 });

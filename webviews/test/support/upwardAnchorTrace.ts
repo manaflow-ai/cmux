@@ -18,19 +18,67 @@ export async function traceUpwardAnchors({
   steps,
   restFrames = 24,
   foldStream = false,
-}: { steps: number[]; restFrames?: number; foldStream?: boolean }) {
+}: {
+  steps: number[];
+  restFrames?: number;
+  foldStream?: boolean;
+}) {
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   if (!scroller) throw new Error("transcript scroller missing");
   const read = () => {
     const view = scroller.getBoundingClientRect();
     const mounted = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].map((row) => {
       const box = row.getBoundingClientRect();
-      return { id: row.dataset.rowId!, y: box.top - view.top, bottom: box.bottom - view.top, height: box.height };
+      return {
+        index: Number(row.getAttribute("aria-posinset")) - 1,
+        id: row.dataset.rowId!,
+        y: box.top - view.top,
+        bottom: box.bottom - view.top,
+        height: box.height,
+      };
     });
     const visible = mounted.filter((row) => row.height > 0 && row.bottom > 0 && row.y < view.height);
     return { mounted: new Map(mounted.map((row) => [row.id, row])), visible };
   };
+  const snapshotGeometry = (phase: string) => {
+    const row = scroller.querySelector<HTMLElement>(`[data-row-id="${previous.visible[0]?.id}"]`);
+    const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
+    const view = scroller.getBoundingClientRect();
+    return {
+      phase,
+      physical: scroller.scrollTop,
+      rowId: row?.dataset.rowId,
+      rowY: row ? row.getBoundingClientRect().top - view.top : undefined,
+      rowTop: row?.style.top,
+      threadY: thread ? thread.getBoundingClientRect().top - view.top : undefined,
+      threadTop: thread?.style.top,
+      origin: scroller.style.getPropertyValue("--acpmux-scroll-origin"),
+    };
+  };
   let previous = read();
+  const synchronousBaseline = {
+    geometry: snapshotGeometry("synchronous-baseline"),
+    visible: previous.visible,
+  };
+  // The first comparison starts from a painted frame, like every later comparison. Keep the
+  // synchronous sample as evidence: seeding/aria-setsize alone does not establish a paint.
+  const firstPaintBaseline = await new Promise<{
+    paint: number;
+    geometry: unknown;
+    visible: typeof previous.visible;
+  }>((resolve) => {
+    window.cmuxAfterPaint((paint) => {
+      previous = read();
+      resolve({
+        paint,
+        geometry: snapshotGeometry("first-paint-baseline"),
+        visible: previous.visible,
+      });
+      return false;
+    });
+  });
+  const baselineAnchor = synchronousBaseline.visible.find((row) => previous.mounted.has(row.id));
+  const baselineDrift = baselineAnchor ? previous.mounted.get(baselineAnchor.id)!.y - baselineAnchor.y : null;
   const samples: UpwardAnchorFrame[] = [];
   let cancelledWheels = 0;
   const commands = [...steps, ...Array.from({ length: restFrames }, () => 0)];
@@ -91,7 +139,12 @@ export async function traceUpwardAnchors({
           // A precise pixel wheel goes through the real reader-intent/cancellation handlers. A
           // synthetic event has no native default, so apply exactly that default here, recording
           // the clamped distance separately from any later layout/anchor scroll write.
-          const wheel = new WheelEvent("wheel", { deltaY: asked, deltaMode: 0, bubbles: true, cancelable: true });
+          const wheel = new WheelEvent("wheel", {
+            deltaY: asked,
+            deltaMode: 0,
+            bubbles: true,
+            cancelable: true,
+          });
           if (scroller.dispatchEvent(wheel)) {
             const before = scroller.scrollTop;
             const probe = scroller.querySelector<HTMLElement>(".acpmux-row");
@@ -107,6 +160,10 @@ export async function traceUpwardAnchors({
   });
   const compared = samples.filter((sample) => sample.drift !== null);
   return {
+    synchronousBaseline,
+    firstPaintBaseline,
+    baselineAnchorId: baselineAnchor?.id ?? null,
+    baselineDrift,
     frames: samples.length,
     compared: compared.length,
     missingAnchors: samples.length - compared.length,
@@ -115,7 +172,10 @@ export async function traceUpwardAnchors({
     maxRowBoxGap: Math.max(0, ...samples.map((sample) => sample.rowBoxGap)),
     cancelledWheels,
     wheelPixels: samples.reduce((sum, sample) => sum + sample.wheelPixels, 0),
-    maxImmediateReadbackError: Math.max(0, ...samples.map((sample) => Math.abs(sample.wheelGeometryPixels - sample.wheelPixels))),
+    maxImmediateReadbackError: Math.max(
+      0,
+      ...samples.map((sample) => Math.abs(sample.wheelGeometryPixels - sample.wheelPixels)),
+    ),
     maxDrift: Math.max(0, ...compared.map((sample) => Math.abs(sample.drift!))),
     totalDrift: compared.reduce((sum, sample) => sum + Math.abs(sample.drift!), 0),
     samples,

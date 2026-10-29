@@ -83,7 +83,10 @@ Object.assign(window, {
       thread: "synthetic-gap-thread",
       sender: "cli",
       name: "synthetic-render-probe",
-      body: Array.from({ length: 32 }, (_, index) => `Synthetic received line ${index}: row boxes remain adjacent.`).join("\n\n"),
+      body: Array.from(
+        { length: 32 },
+        (_, index) => `Synthetic received line ${index}: row boxes remain adjacent.`,
+      ).join("\n\n"),
     });
     show(current);
   },
@@ -95,7 +98,9 @@ Object.assign(window, {
       ...current[at]!,
       version: foldStreamVersion + 1,
       streaming: true,
-      text: `Streaming synthetic reply ${foldStreamVersion}. ` + "The received card can collapse while this reply changes. ".repeat(4),
+      text:
+        `Streaming synthetic reply ${foldStreamVersion}. ` +
+        "The received card can collapse while this reply changes. ".repeat(4),
     };
     show(current);
   },

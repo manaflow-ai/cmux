@@ -32,10 +32,7 @@ export function clearScrollOrigin(node: ScrollCoordinateNode): void {
  * Applying this CSS origin on the thread (together with its existing lift) preserves row pixels;
  * a clamp or stale write rebases instead of translating the thread by a large distance.
  */
-export function writeAnchorScrollTop(
-  node: ScrollCoordinateNode,
-  desiredLogicalTop: number,
-): number {
+export function writeAnchorScrollTop(node: ScrollCoordinateNode, desiredLogicalTop: number): number {
   node.scrollTop = desiredLogicalTop;
   const residual = node.scrollTop - desiredLogicalTop;
   if (!Number.isFinite(residual) || Math.abs(residual) > 1) {
