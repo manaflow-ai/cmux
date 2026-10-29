@@ -16,8 +16,9 @@ public nonisolated struct JoinLine: Equatable, Sendable {
         self.name = name
     }
 
-    /// The `--json` object of `cmux machine add`; nil when a field is missing. `expiresAt` is RFC 3339
-    /// or epoch milliseconds (the platform has not fixed which).
+    /// The `--json` object of `cmux machine add`; nil when a field is missing or unreadable.
+    /// `expiresAt` is the platform's RFC 3339 UTC time (`Date.toISOString()`, as
+    /// `2026-10-29T03:30:00.123Z`); a number is not a time here.
     public static func decode(_ data: Data) -> JoinLine? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let line = object["line"] as? String, !line.isEmpty,
@@ -27,7 +28,6 @@ public nonisolated struct JoinLine: Equatable, Sendable {
     }
 
     static func date(_ value: Any?) -> Date? {
-        if let ms = value as? Double { return Date(timeIntervalSince1970: ms / 1000) }
         guard let text = value as? String else { return nil }
         let full = ISO8601DateFormatter()
         full.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
