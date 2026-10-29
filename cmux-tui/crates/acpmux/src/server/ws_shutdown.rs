@@ -64,7 +64,7 @@ impl WsShutdown {
         self.requested.send_replace(true);
     }
 
-    pub(super) fn close_clients(&self) {
+    pub(crate) fn close_clients(&self) {
         self.closing.send_replace(true);
     }
 
