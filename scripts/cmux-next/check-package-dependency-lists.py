@@ -361,19 +361,38 @@ def add_dependency(text: str, target: str, module: str) -> str:
         lines.insert(close, f"{indent}{entry},")
         return check("\n".join(lines), fix=True)[1]
     inside = text[bracket + 1:end]
-    last = len(inside.rstrip())  # the end of the last entry (or of a trailing comma)
-    if not inside.strip():
-        return text[:bracket + 1] + entry + text[end:]
+    last = code_end(inside)  # the end of the last entry (or of a trailing comma), before any trailing comment
+    if last == 0:  # no entry yet; a comment-only list keeps its comment after the new entry
+        return text[:bracket + 1] + entry + (text[bracket + 1:] if inside.strip() else text[end:])
     if "\n" not in inside[last:]:  # the `]` follows the last entry on its line: `"A", "B"]` or `...)]`
         separator = " " if inside[:last].endswith(",") else ", "
         return text[:bracket + 1 + last] + separator + entry + text[bracket + 1 + last:]
-    # The `]` on a line of its own: a new line before it, indented like the last entry.
+    # The `]` on a line of its own: a new line before it, indented like the last entry, after that entry's line (its
+    # comment stays with it).
     previous_start = inside.rfind("\n", 0, last) + 1
     previous = inside[previous_start:last]
     indent = previous[:len(previous) - len(previous.lstrip())]
     comma = "" if inside[:last].endswith(",") else ","
-    at = bracket + 1 + last
-    return text[:at] + comma + f"\n{indent}{entry}," + text[at:]
+    at, line_end = bracket + 1 + last, bracket + 1 + inside.index("\n", last)
+    return text[:at] + comma + text[at:line_end] + f"\n{indent}{entry}," + text[line_end:]
+
+
+def code_end(inside: str) -> int:
+    """The index just past the last character of INSIDE that is code, not whitespace or a `//` comment."""
+    end = i = 0
+    while i < len(inside):
+        if inside[i] == '"':
+            i += 1
+            while i < len(inside) and inside[i] != '"':
+                i += 2 if inside[i] == "\\" else 1
+            end = i = i + 1
+        elif inside.startswith("//", i):
+            newline = inside.find("\n", i)
+            i = len(inside) if newline < 0 else newline
+        else:
+            end = i + 1 if not inside[i].isspace() else end
+            i += 1
+    return min(end, len(inside))
 
 
 def main() -> int:

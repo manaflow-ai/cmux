@@ -127,6 +127,9 @@ DATA_SUFFIXES = (".tsv", ".json")
 MANIFEST = PKG + "/Package.swift"
 MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
 DEPS_CHECK = "Package dependency lists sorted"
+# Its finding that a baseline import is gone, and the hint line it prints under any finding.
+STALE_BASELINE = ": IMPORT_BASELINE lists "
+DEPS_HINT = "One dependency per line"
 
 # (CI step name, command, path prefixes that make it run). {root} is the tree, {pkg} its CmuxNext
 # package, {s} its scripts/cmux-next. Mirrors the job's steps; tests/test_cmux_next_prepush_gate.py
@@ -840,11 +843,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
             if any(p.startswith(prefixes) for p in changed) and (only is None or "scanners" in only):
                 jobs[name] = ("cmd", cmd)
         if DEPS_CHECK in jobs and MANIFEST in changed:
-            # Each side's own Swift files, so a finding both sides have still cancels out.
-            sources = sorted({p for rev in (base, head) for prefix in MANIFEST_SOURCES
+            # Each side's own Swift files, so a finding both sides have still cancels out. Its own list: `sources` is
+            # ast-grep's, the changed production files only.
+            package = sorted({p for rev in (base, head) for prefix in MANIFEST_SOURCES
                               for p in ls_tree(repo, rev, prefix) if p.endswith(".swift")} | {MANIFEST})
             # Not indexed: the check reads files, never ls-files, and indexing 9,000 files twice was most of the cost.
-            trees_for[DEPS_CHECK] = build_trees(repo, base, head, sources, Path(tmp) / "deps", trusted_scripts,
+            trees_for[DEPS_CHECK] = build_trees(repo, base, head, package, Path(tmp) / "deps", trusted_scripts,
                                                 index=False)
         if not lock.is_file():
             sources, swift = [], []  # a checkout older than the pinned tools: scanners only
@@ -883,6 +887,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                         + "\n".join(head_out.splitlines()[-5:]))
                 if os.environ.get("CMUX_PREPUSH_GATE_DEBUG"):
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
+                if name == DEPS_CHECK and name not in trees_for:
+                    # Trees of the changed files only: a module no file there imports may still be imported by an
+                    # untouched one, so "IMPORT_BASELINE lists ...: drop its line" needs the whole package to be true.
+                    kept = [r for r in records(head_out) if STALE_BASELINE not in r]
+                    head_out = "\n".join(kept)
+                    head_code = 0 if all(r.startswith(DEPS_HINT) for r in kept) else head_code
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
                 fresh = new_records(base_out, head_out, name_base, name_head)
