@@ -141,22 +141,32 @@ class Terminal:
 
     @staticmethod
     def daemons(root):
-        """(pid, command) of the tag's headless cmux-tui daemons."""
-        out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+        """(pid, command, start) of the tag's headless cmux-tui daemons; `start` (ps lstart) tells a reused pid apart."""
+        out = subprocess.run(["ps", "-axo", "pid=,lstart=,command="], capture_output=True, text=True).stdout
         found = []
         for line in out.splitlines():
-            pid, _, command = line.strip().partition(" ")
+            parts = line.strip().split(None, 6)
+            if len(parts) < 7 or not parts[0].isdigit():
+                continue
+            command = parts[6]
             if command.startswith(root) and "/cmux-tui " in command and "--headless" in command:
-                found.append((int(pid), command))
+                found.append((int(parts[0]), command, " ".join(parts[1:6])))
         return found
+
+    def session_daemon(self, root, exclude=()):
+        """((pid, start), socket) of the daemon that serves this session (`--socket <path>` on its command line), not
+        one whose (pid, start) is in `exclude`; or None. The socket path is the same for every daemon of the session,
+        so only the identity tells a replacement daemon from the original one."""
+        for pid, command, start in self.daemons(root):
+            words = command.split()
+            if (pid, start) not in exclude and "--socket" in words and self.session_name in words:
+                return (pid, start), words[words.index("--socket") + 1]
+        return None
 
     def daemon_socket(self, root, exclude=()):
         """The tag daemon's socket, from its command line (`--socket <path>`)."""
-        for pid, command in self.daemons(root):
-            words = command.split()
-            if pid not in exclude and "--socket" in words and self.session_name in words:
-                return words[words.index("--socket") + 1]
-        return None
+        found = self.session_daemon(root, exclude)
+        return found[1] if found else None
 
     def run(self, *args):
         done = subprocess.run([self.cli, "--socket", self.socket, "--json", *args], capture_output=True, text=True, timeout=30)
@@ -177,7 +187,9 @@ class Terminal:
         if not wait_path(self.file, lambda p: os.path.exists(p) and os.path.getsize(p) > 0, 30):
             raise SystemExit("the counter did not start")
         self.pid = self.process_pid()
-        self.daemon_pids = [pid for pid, _ in self.daemons(root)]
+        daemons = self.daemons(root)
+        self.daemon_pids = [pid for pid, _, _ in daemons]
+        self.daemon_ids = {(pid, start) for pid, _, start in daemons}
         self.log("terminal", self.term, "counter pid", self.pid, "daemons", self.daemon_pids)
 
     def list_quietly(self):
@@ -199,11 +211,13 @@ class Terminal:
     def check(self, root, click_unix, relaunched_unix, handoff=True):
         """After the relaunch: the same terminal, the same process, counting through the swap."""
         # The handed-off daemon exits; the new one adopts the terminal hosts after it starts. A handoff passes only
-        # through a replacement daemon: never fall back to the original socket (a daemon that never handed off would
-        # still list the terminal).
+        # through a replacement daemon, told by its identity (pid and start time): it binds the same socket path, and
+        # a daemon that never handed off would still list the terminal there.
         socket_before = self.socket
+        replacement = None
         if handoff:
-            self.socket = wait_path("/", lambda _: self.daemon_socket(root, exclude=self.daemon_pids), 60)
+            replacement = wait_path("/", lambda _: self.session_daemon(root, exclude=self.daemon_ids), 60)
+            self.socket = replacement[1] if replacement else None
         listed = None
         if self.socket:
             listed = wait_path("/", lambda _: (lambda out: out if self.term in out else None)(self.list_quietly()), 30)
@@ -215,9 +229,9 @@ class Terminal:
         gaps = [b - a for a, b in zip(window, window[1:])]
         return {
             "terminal": self.term, "same_terminal_listed": same_terminal,
-            "daemons_before": self.daemon_pids, "daemons_after": [pid for pid, _ in self.daemons(root)],
+            "daemons_before": self.daemon_pids, "daemons_after": [pid for pid, _, _ in self.daemons(root)],
             "socket_before": socket_before, "socket_after": self.socket,
-            "replacement_daemon": bool(handoff and self.socket and self.socket != socket_before),
+            "replacement_daemon": bool(replacement), "replacement_daemon_pid": replacement[0][0] if replacement else None,
             "list_after": listed[:2000],
             "pid_before": self.pid, "pid_after": pid_after, "pid_alive": bool(self.pid and alive(self.pid)),
             "samples_during_swap": len(window), "max_gap_s": round(max(gaps), 3) if gaps else None,
