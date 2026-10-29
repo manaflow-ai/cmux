@@ -95,15 +95,15 @@ struct AttachmentSourceTests {
     }
 
     private static func file(_ attributes: [String: Data], quarantine: [String: Any]? = nil) -> AttachmentSource? {
-        AttachmentSourceFiles.source(attribute: { attributes[$0] }, quarantine: quarantine, apps: apps)
+        AttachmentSource.source(attribute: { attributes[$0] }, quarantine: quarantine, apps: apps)
     }
 
     @Test func aFilesMetadataNamesItsSource() {
-        #expect(Self.file([AttachmentSourceFiles.ownMark: Data(Self.own.utf8)]) == .cmux)
+        #expect(Self.file([AttachmentSource.ownMark: Data(Self.own.utf8)]) == .cmux)
         #expect(Self.file(["com.apple.metadata:kMDItemIsScreenCapture": Self.plist(true)])?.name == "Screenshot")
         #expect(Self.file(["com.apple.metadata:kMDItemScreenCaptureType": Self.plist("display")])?.name == "Screenshot")
         let downloaded = Self.file(
-            [AttachmentSourceFiles.whereFroms: Self.plist(["https://objects.example-cdn.com/x.png?sig=1", "https://github.com/a/b"])],
+            [AttachmentSource.whereFroms: Self.plist(["https://objects.example-cdn.com/x.png?sig=1", "https://github.com/a/b"])],
             quarantine: [kLSQuarantineAgentBundleIdentifierKey as String: "com.google.Chrome"])
         #expect(downloaded == AttachmentSource(name: "Google Chrome", bundleId: "com.google.Chrome", site: "github.com"))
         let airDropped = Self.file([:], quarantine: [kLSQuarantineAgentBundleIdentifierKey as String: "com.apple.sharingd"])
@@ -113,7 +113,7 @@ struct AttachmentSourceTests {
     @Test func aFileWhoseMetadataSaysNothingHasNoSource() {
         #expect(Self.file([:]) == nil)
         // Another app's mark is not cmux's.
-        #expect(Self.file([AttachmentSourceFiles.ownMark: Data("com.other.app".utf8)]) == nil)
+        #expect(Self.file([AttachmentSource.ownMark: Data("com.other.app".utf8)]) == nil)
         // A command-line tool that downloaded it is no app.
         #expect(Self.file([:], quarantine: [kLSQuarantineAgentBundleIdentifierKey as String: "com.example.curl"]) == nil)
         #expect(Self.file([:], quarantine: [kLSQuarantineAgentNameKey as String: "Google Chrome"]) == nil)
@@ -123,9 +123,9 @@ struct AttachmentSourceTests {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("source-\(UUID().uuidString).png")
         try Data([0x89, 0x50]).write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
-        AttachmentSourceFiles.markOwn(file, bundleId: Self.own)
-        #expect(AttachmentSourceFiles.attribute(AttachmentSourceFiles.ownMark, of: file) == Data(Self.own.utf8))
-        #expect(AttachmentSourceFiles.source(of: file, apps: Self.apps) == .cmux)
+        AttachmentSource.markOwn(file, bundleId: Self.own)
+        #expect(AttachmentSource.attribute(AttachmentSource.ownMark, of: file) == Data(Self.own.utf8))
+        #expect(AttachmentSource.source(of: file, apps: Self.apps) == .cmux)
     }
 
     // MARK: The page's ask

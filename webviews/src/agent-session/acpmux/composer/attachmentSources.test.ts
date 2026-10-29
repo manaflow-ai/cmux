@@ -1,11 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  attachmentBlocks,
-  attachmentSource,
-  sourceOfFile,
-  withSource,
-  type ComposerAttachment,
-} from "../attachments";
+import { attachmentBlocks, attachmentSource, sourceOfFile, withSource, type ComposerAttachment } from "../attachments";
 import { normalizePromptContentPart } from "../inlinePrompt";
 import { attachSources } from "./attachmentSources";
 
@@ -65,7 +59,14 @@ test("a chip's source goes with its prompt block, and comes back from acpmux's p
   expect(attachmentBlocks(image)).toEqual([
     { type: "image", mimeType: "image/png", data: "AQ==", name: "a.png", _meta: { cmux: { source: chrome } } },
   ]);
-  const plain: ComposerAttachment = { id: "2", kind: "image", name: "b.png", mimeType: "image/png", size: 1, data: "AQ==" };
+  const plain: ComposerAttachment = {
+    id: "2",
+    kind: "image",
+    name: "b.png",
+    mimeType: "image/png",
+    size: 1,
+    data: "AQ==",
+  };
   expect(attachmentBlocks(plain)[0]).not.toHaveProperty("_meta");
   expect(normalizePromptContentPart({ kind: "image", id: "x", mimeType: "image/png", source: chrome })).toMatchObject({
     source: chrome,

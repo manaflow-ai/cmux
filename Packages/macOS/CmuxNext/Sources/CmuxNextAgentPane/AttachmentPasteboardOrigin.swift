@@ -49,12 +49,12 @@ public import AppKit
         mark()
         observers.append(workspace.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] _ in MainActor.assumeIsolated { self?.mark() } })
+        ) { [weak self] _ in Task { @MainActor in self?.mark() } })
         running = workspace.observe(\.runningApplications, options: [.old, .new]) { [weak self] _, change in
             let ids = (change.newValue ?? []) + (change.oldValue ?? [])
             guard ids.contains(where: { $0.bundleIdentifier == Self.screenCaptureBundleId }) else { return }
-            // NSWorkspace changes the list on the main thread; the count is read as it is told.
-            if Thread.isMainThread { MainActor.assumeIsolated { self?.mark() } } else { Task { @MainActor in self?.mark() } }
+            // The count is read on the main actor's next turn, long before a capture can write it.
+            Task { @MainActor in self?.mark() }
         }
     }
 

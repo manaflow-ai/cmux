@@ -40,6 +40,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/UnixSocketPeer.swift	1	keep	peer
 Packages/macOS/CmuxNext/Sources/CmuxNextControl/ControlPeerAncestry.swift	2	remove	cx-t2sqm.11 (walks the control peer's ancestors; decision D5)
 Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/SystemProcessLineage.swift	2	remove	cx-t2sqm.11 (Kill Process walks a named pid's ancestors and reads its executable to decide it is cmux's; decision D5: end only pids the Task Manager sample listed)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPanePersonInput.swift	1	keep	peer authentication of one posted event source pid
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AttachmentPasteboardOrigin.swift	2	keep	no enumeration: watches the running list for one app, macOS's screencaptureui, launching or quitting, so a screenshot put on the pasteboard is attributed to Screenshot and not to the app in front
 Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/PeerInspector.swift	1	remove	cx-t2sqm.11 (walks the peer's ancestors; decision D5)
 cmux-tui/crates/cmux-server/src/health/mod.rs	1	keep	reads the system route table under /proc/net, not processes
 cmux-tui/crates/cmux-tui-platform/src/platform/codex_daemon.rs	4	keep	this process's own parents, at most 2, no enumeration: a Codex hook refuses the route its shared app-server daemon inherited (#20757)

@@ -191,8 +191,8 @@ enum ScreenshotHandlers {
                 result["path"] = .string(try await saveTemporary(png))
             case .file(let url):
                 try await write(png, to: url)
-                // A chip made of it later wears cmux's icon (AttachmentSourceFiles).
-                AttachmentSourceFiles.markOwn(url)
+                // A chip made of it later wears cmux's icon (AttachmentSourceFiles.swift).
+                AttachmentSource.markOwn(url)
                 result["path"] = .string(url.path)
             }
         } catch {
@@ -229,7 +229,7 @@ enum ScreenshotHandlers {
         let stamp = Int(Date().timeIntervalSince1970 * 1000)
         let file = directory.appendingPathComponent("screenshot-\(stamp)-\(UUID().uuidString.prefix(8)).png")
         try png.write(to: file, options: .atomic)
-        AttachmentSourceFiles.markOwn(file)
+        AttachmentSource.markOwn(file)
         AppBrowserPage.prune(directory, keeping: AppBrowserPage.keptScreenshots,
                              newerThan: Date().addingTimeInterval(-AppBrowserPage.screenshotLifetime))
         return file.path

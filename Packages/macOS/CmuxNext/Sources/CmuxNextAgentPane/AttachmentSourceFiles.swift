@@ -14,7 +14,7 @@ public import Foundation
 ///
 /// `kMDItemCreator` is not read: it names whatever wrote the document (a PDF library, "Quartz
 /// PDFContext"), not an app, and a source is never a guess.
-public nonisolated enum AttachmentSourceFiles {
+nonisolated extension AttachmentSource {
     /// The extended attribute cmux sets on the files it writes; its value is cmux's bundle identifier.
     public static let ownMark = "com.cmuxterm.attachment-source"
     static let screenCaptureMarks = [

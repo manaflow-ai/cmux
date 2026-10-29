@@ -30,6 +30,11 @@ public nonisolated struct AttachmentSource: Codable, Sendable, Equatable {
         (self.name, self.bundleId, self.site) = (trimmed, bundleId, site)
     }
 
+    /// A source this file made from values already checked.
+    private init(checked name: String, bundleId: String?) {
+        (self.name, self.bundleId, self.site) = (name, bundleId, nil)
+    }
+
     /// The page's `{name, bundleId?, site?}`.
     public var json: [String: String] {
         var value = ["name": name]
@@ -52,11 +57,10 @@ public nonisolated struct AttachmentSource: Codable, Sendable, Equatable {
 
     /// This app: its own captures (Attach Screenshot…, Screenshot Tab) and its own copies.
     public static var cmux: AttachmentSource {
-        AttachmentSource(name: "cmux", bundleId: Bundle.main.bundleIdentifier.flatMap { isBundleId($0) ? $0 : nil })
-            ?? AttachmentSource(name: "cmux")!
+        AttachmentSource(checked: "cmux", bundleId: Bundle.main.bundleIdentifier.flatMap { isBundleId($0) ? $0 : nil })
     }
 
     /// macOS's Screenshot app: a screen capture's file, or a capture it put on the pasteboard.
-    public static let screenshot = AttachmentSource(name: "Screenshot", bundleId: screenshotBundleId)!
+    public static let screenshot = AttachmentSource(checked: "Screenshot", bundleId: screenshotBundleId)
     nonisolated static let screenshotBundleId = "com.apple.screenshot.launcher"
 }

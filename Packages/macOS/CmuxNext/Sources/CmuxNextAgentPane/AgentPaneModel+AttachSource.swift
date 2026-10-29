@@ -3,7 +3,7 @@ import AppKit
 extension AgentPaneModel {
     /// Where the files of the person's drop or paste came from (`chat.attach.source {kind, names}`,
     /// ``AttachmentSource``): `{sources: [source | null]}` in the order of `names`. A file the
-    /// pasteboard names by URL answers its own metadata's source (``AttachmentSourceFiles``), read
+    /// pasteboard names by URL answers its own metadata's source (AttachmentSourceFiles.swift), read
     /// off the main actor; any other (a pasted picture, an image dragged from a page) answers the
     /// gesture's: for a paste, the app that put the contents on the pasteboard
     /// (``AttachmentPasteboardOrigin``), for a drop the app in front, which is the one the drag
@@ -21,7 +21,7 @@ extension AgentPaneModel {
             (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url
         }
         let sources = await Task.detached(priority: .userInitiated) {
-            Self.sources(for: names, urls: urls, gesture: gesture) { AttachmentSourceFiles.source(of: $0, apps: apps) }
+            Self.sources(for: names, urls: urls, gesture: gesture) { AttachmentSource.source(of: $0, apps: apps) }
         }.value
         return AgentPaneReply.success(["sources": sources.map { $0?.json ?? NSNull() as Any }])
     }

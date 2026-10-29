@@ -523,9 +523,21 @@ export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] 
   const blocks: PromptBlock[] = [];
   const meta = sourceMeta(attachment);
   if (attachment.kind === "image" && attachment.data)
-    blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name, ...meta });
+    blocks.push({
+      type: "image",
+      mimeType: attachment.mimeType,
+      data: attachment.data,
+      name: attachment.name,
+      ...meta,
+    });
   else if (attachment.kind === "document" && attachment.data)
-    blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name, ...meta });
+    blocks.push({
+      type: "document",
+      mimeType: "application/pdf",
+      data: attachment.data,
+      name: attachment.name,
+      ...meta,
+    });
   else if (attachment.kind === "audio" && attachment.data)
     blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   else if (attachment.kind === "link" && attachment.path)
