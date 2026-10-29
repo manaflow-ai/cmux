@@ -1281,7 +1281,8 @@ export class AcpmuxDirectClient {
   /// read before it ended (``staleRun``).
   private endedTurns = new Set<string>();
   /// A forced Stop retires its compaction. The next explicit prompt fences the old compaction's
-  /// delayed boundary; a new running update after that prompt starts a fresh row.
+  /// delayed boundary; a new running update after that prompt starts a fresh row but cannot
+  /// attribute a later unscoped boundary. Only the turn's terminal result can settle that row.
   private retiredCompactionTurnId?: string;
   private compactionFenceSeq?: number;
   /// Each steer's row by its promptId. A steer that reaches the agent as its turn ends runs as the
@@ -4447,8 +4448,10 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "compaction") {
       const compaction = compactionOf(update);
       if (!compaction) return;
-      // The cancelled compaction's boundary may arrive after the next prompt. It has no turn id,
-      // so fence non-running updates until a fresh running update proves a new compaction.
+      // The cancelled compaction's boundary may arrive even after the next prompt starts another
+      // compaction. Running updates carry no identity either, so they cannot lift this fence.
+      // Keep unscoped boundaries from claiming completion; the turn's terminal result settles
+      // any running row with the existing inferred outcome.
       if (this.compactionFenceSeq !== undefined && compaction.state !== "running") return;
       // A note between messages: the text and tool fold before it close.
       this.endAssistantSegment();
@@ -4475,7 +4478,6 @@ export class AcpmuxDirectClient {
       const id = running?.id ?? `compaction-${event.seq}`;
       if (compaction.state === "running") this.compactionHeardAt.set(id, event.at);
       else this.compactionHeardAt.delete(id);
-      if (compaction.state === "running") this.compactionFenceSeq = undefined;
       this.rows.set(id, {
         id,
         version: (running?.version ?? 0) + 1,
@@ -5537,10 +5539,7 @@ export class AcpmuxDirectClient {
     if (!this.actingSessionId || !this.socket) return;
     // Stop is idempotent until its terminal turn_result. A second click while the daemon is
     // settling must not enqueue another cancel or another forced-end notice.
-    if (
-      this.stopAfterSeq !== undefined &&
-      (this.runningTurnId === undefined || this.runningTurnId === this.stopTurnId)
-    )
+    if (this.stopAfterSeq !== undefined && (this.runningTurnId === undefined || this.runningTurnId === this.stopTurnId))
       return;
     // Stop ends the turn: a prompt sent now before it no longer continues the turn.
     this.interrupting = undefined;
