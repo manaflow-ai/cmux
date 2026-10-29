@@ -31,11 +31,14 @@ public struct ConnectMacSteps: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            step(1, signInText)
-            step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
-            status
-                .padding(.top, 6)
-            if onlineMac == nil, noMacsForAccount { otherAccount }
+            if onlineMac == nil, noMacsForAccount {
+                otherAccount
+            } else {
+                step(1, signInText)
+                step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
+                status
+                    .padding(.top, 6)
+            }
         }
         .frame(maxWidth: 340, alignment: .leading)
     }
@@ -47,9 +50,9 @@ public struct ConnectMacSteps: View {
         VStack(alignment: .leading, spacing: 8) {
             Group {
                 if let email, !email.isEmpty {
-                    Text("No Macs are signed in as \(Text(email).fontWeight(.semibold)). If your Mac uses a different account, sign in with the same one on both.")
+                    Text("Sign in to cmux on your Mac as \(Text(email).fontWeight(.semibold)).")
                 } else {
-                    Text("No Macs are signed in to this account. If your Mac uses a different account, sign in with the same one on both.")
+                    Text("Sign in to cmux on your Mac with this account.")
                 }
             }
             .font(theme.type.rowSubtitle)
@@ -67,9 +70,9 @@ public struct ConnectMacSteps: View {
 
     private var signInText: Text {
         if let email, !email.isEmpty {
-            return Text("Open cmux on your Mac and sign in as \(Text(email).fontWeight(.semibold)).")
+            return Text("Sign in to cmux on your Mac as \(Text(email).fontWeight(.semibold)).")
         }
-        return Text("Open cmux on your Mac and sign in with this account.")
+        return Text("Sign in to cmux on your Mac with this account.")
     }
 
     private func step(_ number: Int, _ text: Text) -> some View {
