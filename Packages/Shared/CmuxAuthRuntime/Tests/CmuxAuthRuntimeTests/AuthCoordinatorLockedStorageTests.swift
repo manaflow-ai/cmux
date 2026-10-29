@@ -216,7 +216,7 @@ actor TokenStorageAvailabilityProbe {
         await client.waitForPausedRefreshRead()
         // The unrelated caller consumes the unavailable result, then storage unlocks.
         await availability.setAvailable(false)
-        _ = await coordinator.accessToken()
+        _ = try? await coordinator.accessToken()
         await availability.setAvailable(true)
         await client.resumeRefreshRead()
         await coordinator.awaitBootstrapped()
