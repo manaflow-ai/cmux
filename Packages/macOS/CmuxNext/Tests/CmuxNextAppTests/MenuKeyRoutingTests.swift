@@ -47,6 +47,10 @@ import CmuxNextFocusUI
     }
 
     private static func harness(userConfig: String) throws -> Harness {
+        var completed = false
+        defer {
+            if !completed { AppHarnessWindows.closeThoseThisTestOpened() }
+        }
         _ = NSApplication.shared
         _ = GhosttyRuntime.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -88,6 +92,7 @@ import CmuxNextFocusUI
         terminalWindow.contentView = session.view
         session.view.layoutSubtreeIfNeeded()
         try #require(terminalWindow.makeFirstResponder(session.surfaceView), "the terminal never took the keyboard")
+        completed = true
         return Harness(services: services, shell: shell, session: session, io: io, terminalWindow: terminalWindow)
     }
 

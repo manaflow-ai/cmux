@@ -28,12 +28,17 @@ import Testing
     }
 
     private static func harness() throws -> Harness {
+        var completed = false
+        defer {
+            if !completed { AppHarnessWindows.closeThoseThisTestOpened() }
+        }
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.windows.ordersWindowsIn = false
         let a = try #require(services.windows.openWindow(workspaces: ["mw-a1"]))
         let b = try #require(services.windows.openWindow(workspaces: ["mw-b1", "mw-b2"]))
         #expect(a !== b)
+        completed = true
         return Harness(services: services, a: a, b: b)
     }
 
