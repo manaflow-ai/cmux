@@ -9,7 +9,7 @@ const page = fs.readFileSync(new URL('../web/index.html', import.meta.url), 'utf
 const attachmentCode = page.slice(page.indexOf('  async function previewImage('), page.indexOf('  function startDraft('));
 const sendCode = page.slice(page.indexOf('  async function send('), page.indexOf('  let toastEl'));
 const stateCode = page.slice(page.indexOf('  // ---------- state'), page.indexOf('  function renderAttachments('));
-function harness({ fail = '', decodeFails = false } = {}) {
+function harness({ fail = '', decodeFails = false, onChunk = null, promptReply = null } = {}) {
   const input = { value: 'keep this draft', focus() {} };
   const calls = [], decoded = [], canvases = [], reads = [], uploads = new Map();
   let accept;
@@ -43,10 +43,11 @@ function harness({ fail = '', decodeFails = false } = {}) {
         const uploadId = randomUUID(); uploads.set(uploadId, []);
         return { uploadId, ownerToken: randomUUID() };
       }
-      if (method === '_acpmux/file_put_chunk') uploads.get(params.uploadId).push(Buffer.from(params.data, 'base64'));
+      if (method === '_acpmux/file_put_chunk') { uploads.get(params.uploadId).push(Buffer.from(params.data, 'base64')); onChunk?.(input); }
       if (method === 'session/prompt') {
-        assert.equal(input.value, 'keep this draft', 'draft cleared before server acceptance');
+        if (!onChunk) assert.equal(input.value, 'keep this draft', 'draft cleared before server acceptance');
         accept?.(params);
+        if (promptReply) return promptReply;
       }
       return {};
     },
@@ -66,6 +67,8 @@ test('12 MiB original crosses peer boundary in bounded chunks and clears only af
   const h = harness();
   const original = Buffer.alloc(12 * 1024 * 1024 + 37);
   for (let i = 0; i < original.length; i++) original[i] = i % 251;
+  Buffer.from('89504e470d0a1a0a', 'hex').copy(original);
+  original.writeUInt32BE(20000, 16); original.writeUInt32BE(10000, 20);
   h.context.file = file(original);
   await h.run('readImage(file).then(image => promptImages.push(image))');
   await h.run('send(false)');
@@ -78,6 +81,7 @@ test('12 MiB original crosses peer boundary in bounded chunks and clears only af
   assert.ok(h.reads.every(size => size <= 512 * 1024), 'whole original read');
   assert.ok(h.decoded[0]?.resizeWidth <= 1024 && h.decoded[0]?.resizeHeight <= 1024, 'decode unbounded');
   assert.ok(h.canvases.every(c => c.width <= 1024 && c.height <= 1024));
+  assert.equal(h.decoded[0].resizeWidth, 1024); assert.equal(h.decoded[0].resizeHeight, 512);
   assert.equal(h.input.value, '');
 });
 
@@ -101,4 +105,64 @@ test('failed decode returns bounded placeholder and retains original', async () 
   assert.equal(image.file, h.context.file);
   assert.equal(image.url, 'data:image/png;base64,preview');
   assert.ok(h.reads.every(n => n <= 512 * 1024));
+});
+
+
+test('acceptance frees the composer before turn completion; later failure keeps accepted originals', async () => {
+  let rejectTurn, accepted;
+  const turn = new Promise((_, reject) => { rejectTurn = reject; });
+  const receipt = new Promise(resolve => { accepted = resolve; });
+  const h = harness({ promptReply: turn });
+  h.context.file = file(Buffer.from('image'));
+  await h.run('readImage(file).then(image => promptImages.push(image))');
+  h.onPrompt(params => {
+    h.context.acceptedId = params._meta.acpmux.promptId;
+    h.run('promptAccepts.get(acceptedId)()');
+    accepted();
+  });
+  const sending = h.run('send(false)');
+  await receipt;
+  assert.equal(h.input.value, '');
+  assert.equal(h.run('sendingPrompt'), false);
+  rejectTurn(Error('agent failed after acceptance'));
+  await sending;
+  assert.equal(h.calls.filter(c => c.method === '_acpmux/file_put_cancel').length, 0);
+});
+
+test('edits and a second send during upload do not replace or duplicate the submitted draft', async () => {
+  const h = harness({ onChunk: input => { input.value = 'new text'; } });
+  h.context.file = file(Buffer.alloc(2 * 1024 * 1024));
+  await h.run('readImage(file).then(image => promptImages.push(image))');
+  await Promise.all([h.run('send(false)'), h.run('send(false)')]);
+  assert.equal(h.calls.filter(c => c.method === 'session/prompt').length, 1);
+  assert.equal(h.input.value, 'new text');
+});
+
+
+test('very tall images bound both decoder dimensions', async () => {
+  const h = harness();
+  const bytes = Buffer.alloc(128);
+  Buffer.from('89504e470d0a1a0a', 'hex').copy(bytes);
+  bytes.writeUInt32BE(10, 16); bytes.writeUInt32BE(100000, 20);
+  h.context.file = file(bytes);
+  await h.run('readImage(file)');
+  assert.equal(h.decoded[0].resizeWidth, 1);
+  assert.equal(h.decoded[0].resizeHeight, 1024);
+});
+
+test('a later upload failure cleans every earlier completed upload and retains all originals', async () => {
+  const h = harness();
+  h.context.files = [file(Buffer.from('first')), file(Buffer.from('second'))];
+  await h.run('Promise.all(files.map(readImage)).then(images => promptImages.push(...images))');
+  const call = h.context.call;
+  let chunk = 0;
+  h.context.call = async (method, params) => {
+    if (method === '_acpmux/file_put_chunk' && ++chunk === 2) throw Error('second file failed');
+    return call(method, params);
+  };
+  await h.run('send(false)');
+  assert.equal(h.input.value, 'keep this draft');
+  assert.equal(h.run('promptImages.length'), 2);
+  assert.equal(h.calls.filter(c => c.method === '_acpmux/file_put_cancel').length, 2);
+  assert.equal(h.calls.filter(c => c.method === 'session/prompt').length, 0);
 });

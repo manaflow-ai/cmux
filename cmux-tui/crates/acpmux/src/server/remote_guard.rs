@@ -53,15 +53,11 @@
 //!   `_acpmux/peer_lease` (they change which machines this daemon reaches
 //!   with the user's ssh keys and tokens); `peer_reconnect` only retries a
 //!   configured peer.
-//! - Web only: no `_acpmux/file_put` (`filePut.remote`). It writes a file
-//!   of the caller's bytes on this machine (under acpmux's own `uploads`
-//!   folder, never a path of the caller's), for a file the person dropped
-//!   into a chat in the app: the unix socket, the app (LocalApp) and a peer
-//!   forwarding for either take it; a peer forwarding for its own Web client
-//!   does not. The app sends it over the unix socket after the person's
-//!   gesture, but a LocalApp page could send it itself with no gesture: that
-//!   is accepted, since the page can already prompt the agent, and it writes
-//!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
+//! - Web only: the legacy `_acpmux/file_put` stays denied. Resumable prompt
+//!   uploads begin with a fresh daemon-issued capability; subsequent operations
+//!   and prompt references must prove ownership of an upload begun under Web
+//!   control. Neither a local upload id nor its token grants Web access. The
+//!   original bytes stay in that chat's owner-only uploads folder.
 //! - Web only: no `_acpmux/workflows` (`workflows.remote`): it names the
 //!   daemon's chats and their workflows' args.
 //! - Web only: no `_acpmux/media_open` or `_acpmux/media_range`
@@ -432,7 +428,9 @@ async fn check_inner(
         )
         .with_data(serde_json::json!({"reason": "tools.remote"})));
     }
-    // A dropped file is saved from the app or the unix socket only (`hub/file_uploads.rs`).
+    // Web may stage a prompt attachment. This is only the wire shape: the owning
+    // daemon verifies its private Web marker and capability in file_uploads::web.
+    // The legacy one-shot put remains app/unix-only.
     if matches!(
         m,
         method::MUX_FILE_PUT
@@ -442,6 +440,7 @@ async fn check_inner(
             | method::MUX_FILE_PUT_CANCEL
             | method::MUX_FILE_PUT_STATUS
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
+        && !crate::hub::file_uploads::web::request_shape(m, params)
     {
         return Err(RpcError::invalid_params(
             "filePut.remote: a file is saved for a chat only from the app or over the local unix socket",
