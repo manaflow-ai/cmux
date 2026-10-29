@@ -7,7 +7,7 @@ import Testing
 /// system says, never a guess.
 @MainActor
 struct AttachmentSourceTests {
-    private static let own = "com.cmuxterm.app.test"
+    nonisolated private static let own = "com.cmuxterm.app.test"
     /// Installed apps by bundle id, and this app's id.
     private static let apps = AttachmentSourceApps(
         app: { ["com.google.Chrome": "Google Chrome", "com.apple.finder": "Finder",
