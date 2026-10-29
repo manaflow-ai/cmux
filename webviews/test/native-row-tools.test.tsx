@@ -203,52 +203,91 @@ afterEach(async () => {
   saved.clear();
 });
 
-test("native header hides migrated buttons only, deduplicates values, and invokes latest handlers", async () => {
+test("host events switch the header to native tools and invoke the same web handlers", async () => {
   const container = mount();
   const sent: { method: string; tools: NativeRowTool[] }[] = [];
   const called: string[] = [];
   const callNative = async (method: string, params: Record<string, unknown>) => {
     sent.push({ method, tools: params.tools as NativeRowTool[] });
   };
-  const render = async (enabled: boolean, generation: string) => {
+  function Header({ generation }: { generation: string }) {
+    const row = useTabRow();
+    previousTabRow ??= row;
     const panel = () => void called.push(`summary:${generation}`);
+    return (
+      <ChatHeaderTools
+        onTerminal={() => void called.push(`terminal:${generation}`)}
+        onBrowser={() => void called.push(`browser:${generation}`)}
+        summary={(native) => (
+          <SummaryButton
+            native={native}
+            card={{
+              shown: false,
+              column: false,
+              reserve: false,
+              collapsed: false,
+              toggle: panel,
+              show: panel,
+              close: panel,
+              fold: () => {},
+            }}
+          />
+        )}
+        inbox={
+          <NeedsYouButton
+            items={[]}
+            actions={{
+              answer: async () => {},
+              ask: async () => {},
+              goTo: () => {},
+            }}
+          />
+        }
+        menu={() => [
+          {
+            key: "rename",
+            label: "Rename",
+            icon: "action.edit",
+            onSelect: () => {},
+          },
+        ]}
+        nativeRowTools={{
+          enabled: row.height > 0 && row.nativeRowTools === true,
+          callNative,
+          panel: {
+            id: "summary",
+            label: "Chat summary",
+            toggled: false,
+            run: panel,
+          },
+        }}
+      />
+    );
+  }
+  const render = async (enabled: boolean, generation: string) => {
+    await act(async () => root!.render(<Header generation={generation} />));
     await act(async () =>
-      root!.render(
-        <ChatHeaderTools
-          onTerminal={() => void called.push(`terminal:${generation}`)}
-          onBrowser={() => void called.push(`browser:${generation}`)}
-          summary={(native) => (
-            <SummaryButton
-              native={native}
-              card={{
-                shown: false,
-                column: false,
-                reserve: false,
-                collapsed: false,
-                toggle: panel,
-                show: panel,
-                close: panel,
-                fold: () => {},
-              }}
-            />
-          )}
-          inbox={
-            <NeedsYouButton items={[]} actions={{ answer: async () => {}, ask: async () => {}, goTo: () => {} }} />
-          }
-          menu={() => [{ key: "rename", label: "Rename", icon: "action.edit", onSelect: () => {} }]}
-          nativeRowTools={{
-            enabled,
-            callNative,
-            panel: { id: "summary", label: "Chat summary", toggled: false, run: panel },
-          }}
-        />,
-      ),
+      applyHostEvent({
+        kind: "tabRow",
+        value: { height: 28, nativeRowTools: enabled },
+      }),
     );
   };
   await render(false, "off");
   expect(sent).toHaveLength(0);
   expect(container.querySelectorAll("[data-quick-action]")).toHaveLength(2);
   expect(container.querySelector(".acpmux-summary-button")).not.toBeNull();
+  act(() => {
+    container.querySelector<HTMLButtonElement>('[data-quick-action="terminal"]')!.click();
+    container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!.click();
+  });
+  expect(called).toEqual(["terminal:off", "summary:off"]);
+  act(() => {
+    applyHostEvent({ kind: "tabRowToolInvoked", value: { id: "terminal" } });
+    applyHostEvent({ kind: "tabRowToolInvoked", value: { id: "summary" } });
+  });
+  expect(called).toHaveLength(2);
+  called.length = 0;
   await render(true, "first");
   expect(sent).toHaveLength(1);
   expect(sent[0]!.method).toBe("pane.tabRowTools.set");
@@ -269,6 +308,8 @@ test("native header hides migrated buttons only, deduplicates values, and invoke
   called.pop();
   // The App uses enabled=false both for the off tunable and a covered/hidden header.
   await render(false, "hidden");
+  expect(container.querySelectorAll("[data-quick-action]")).toHaveLength(2);
+  expect(container.querySelector(".acpmux-summary-button")).not.toBeNull();
   expect(sent.at(-1)!.tools).toEqual([]);
   const count = sent.length;
   act(() => applyHostEvent({ kind: "tabRowToolInvoked", value: { id: "terminal" } }));
