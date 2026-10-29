@@ -280,17 +280,18 @@ async fn wait_while_the_log_is_forgotten(deleted: bool) -> bool {
     }))
     .await;
     assert!(!writes.logs.is_empty());
-    if deleted {
-        session.purged.store(true, Ordering::SeqCst);
-        hub.sessions.lock().unwrap().remove("s1");
-    }
     let waiting = tokio::spawn({
         let hub = hub.clone();
         async move { hub.wait_written(writes).await }
     });
-    // The wait subscribes to the log's progress before the store forgets it.
+    // The wait subscribes to the log's progress; the session is deleted while it waits (a
+    // session deleted before the wait is not waited on at all: the test after this one).
     while held.lock().unwrap().as_ref().is_some_and(|tx| tx.receiver_count() == 0) {
         tokio::task::yield_now().await;
+    }
+    if deleted {
+        session.purged.store(true, Ordering::SeqCst);
+        hub.sessions.lock().unwrap().remove("s1");
     }
     held.lock().unwrap().take();
     waiting.await.unwrap()
