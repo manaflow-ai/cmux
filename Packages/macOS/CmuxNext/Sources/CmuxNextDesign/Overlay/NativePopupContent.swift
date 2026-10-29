@@ -94,11 +94,13 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             search = field
             addSubview(field)
         }
-        rowViews = ((model.rail ?? []) + model.rows + (model.footer ?? [])).map { row in (row, makeRow(row)) }
+        let rows = (model.rail ?? []) + model.rows + (model.footer ?? [])
+        let hasIcons = rows.contains { $0.icon != nil }
+        rowViews = rows.map { row in (row, makeRow(row, hasIconColumn: hasIcons)) }
         rowViews.forEach { addSubview($0.1) }
     }
 
-    private func makeRow(_ row: NativePopupRow) -> NSView {
+    private func makeRow(_ row: NativePopupRow, hasIconColumn: Bool) -> NSView {
         if row.kind == .separator { return NSBox.separator() }
         if row.kind == .textField {
             let field = NSTextField(string: row.value ?? "")
@@ -176,12 +178,27 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         var layout = PopupRowView.Layout()
         layout.hoverFills = false
         layout.minHeight = row.description?.isEmpty == false ? 44 : PopupStyle.standard.rowHeight
-        let leading: NSView?
-        if let icon = row.icon {
-            leading = NSImageView(image: NSImage.icon(IconName(icon), size: 16))
-        } else { leading = PopupRowView.checkMark(row.checked == true && row.kind != .toggle) }
+        let mark = PopupRowView.checkMark(row.checked == true && row.kind != .toggle)
+        let leading: NSView
+        if hasIconColumn {
+            let icon = NSImageView()
+            if let name = row.icon { icon.image = NSImage.icon(IconName(name), size: 16) }
+            let columns = NSStackView(views: [mark, icon])
+            columns.orientation = .horizontal
+            columns.spacing = 6
+            columns.detachesHiddenViews = false
+            mark.widthAnchor.constraint(equalToConstant: layout.leadingColumn).isActive = true
+            icon.widthAnchor.constraint(equalToConstant: 16).isActive = true
+            layout.leadingColumn += columns.spacing + 16
+            leading = columns
+        } else { leading = mark }
         let view = PopupRowView(leading: leading, title: row.label, subtitle: row.description,
                                 trailing: accessory, layout: layout, interactive: !row.isNoninteractive)
+        if row.kind == .slider, let accessory {
+            // Preferred slider width yields to the actual padded row, including narrow rails.
+            accessory.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor,
+                                                constant: layout.leading).isActive = true
+        }
         view.isEnabled = row.disabled != true
         view.toolTip = row.disabledReason
         // Menu selection owns Return/Space. Embedded controls remain focusable, but a row

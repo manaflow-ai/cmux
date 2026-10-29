@@ -44,6 +44,26 @@ import Testing
         #expect(frame.width > 0)
     }
 
+    @Test func iconRowsKeepTheirCheckmarkAndSharedColumns() throws {
+        let content = NativePopupContent(frame: NSRect(x: 0, y: 0, width: 320, height: 100))
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "selected", kind: .action, label: "Selected", icon: "check", checked: true),
+                      NativePopupRow(id: "other", kind: .action, label: "Other", icon: "check", checked: false)]
+        content.update(model)
+        content.layoutSubtreeIfNeeded()
+        let selected = try #require(content.rowView(id: "selected") as? PopupRowView)
+        let other = try #require(content.rowView(id: "other") as? PopupRowView)
+        let columns = try #require(selected.leadingView as? NSStackView)
+        let otherColumns = try #require(other.leadingView as? NSStackView)
+        #expect((columns.arrangedSubviews.first as? NSTextField)?.stringValue == "✓")
+        #expect(columns.arrangedSubviews.first?.isHidden == false)
+        #expect(otherColumns.arrangedSubviews.first?.isHidden == true)
+        #expect(columns.arrangedSubviews.last is NSImageView)
+        #expect(selected.rowLayout.leadingColumn == other.rowLayout.leadingColumn)
+        #expect(content.convert(selected.titleLabel.bounds, from: selected.titleLabel).minX ==
+                content.convert(other.titleLabel.bounds, from: other.titleLabel).minX)
+    }
+
     @Test(arguments: ["rows", "rail", "footer"])
     func committedCompositionSurvivesADeferredDescriptorUpdate(location: String) throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),

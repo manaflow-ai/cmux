@@ -117,7 +117,9 @@ import Testing
                                      anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
                                      side: .bottom, align: .start, width: 240,
                                      rows: [NativePopupRow(id: "more", kind: .submenu, label: "More",
-                                                           children: [NativePopupRow(id: "pick", kind: .action, label: "Pick")])])
+                                                           children: [NativePopupRow(id: "pick", kind: .action, label: "Pick"),
+                                                                      NativePopupRow(id: "second", kind: .action, label: "Second", keepOpen: true)])],
+                                     highlighted: "more")
         #expect(host.show(model)["shown"] as? Bool == true)
         let parentPanel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
         #expect(await GUIAnimationTestSupport.settle { parentPanel.isKeyWindow })
@@ -134,6 +136,11 @@ import Testing
         let childCard = PopupStyle.standard.cardFrame(inWindow: childPanel.frame)
         #expect(childCard.minX >= parentCard.maxX, "root alignment pulled the submenu over its parent")
         let childContent = try #require(childPanel.firstResponder as? NativePopupContent)
+        let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                               windowNumber: childPanel.windowNumber, context: nil, characters: "",
+                                               charactersIgnoringModifiers: "", isARepeat: false, keyCode: 125))
+        childContent.keyDown(with: down)
+        events.removeAll()
         model.revision += 1
         model.width += 40
         model.rows.append(NativePopupRow(id: "extra", kind: .action, label: "Extra"))
@@ -148,6 +155,12 @@ import Testing
         #expect(PopupStyle.standard.cardFrame(inWindow: childPanel.frame).minX >= resizedParentCard.maxX,
                 "resizing the leading-aligned parent left the child at its old anchor")
         #expect(events.isEmpty)
+        let enter = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                windowNumber: childPanel.windowNumber, context: nil, characters: "",
+                                                charactersIgnoringModifiers: "", isARepeat: false, keyCode: 36))
+        childContent.keyDown(with: enter)
+        #expect(events.count == 1 && events.first?["id"] as? String == "second", "root highlight replaced the child's selection")
+        events.removeAll()
         childContent.dismiss()
         #expect(await GUIAnimationTestSupport.settle { parentPanel.isKeyWindow }, "hiding the submenu did not restore its parent")
         #expect(parentPanel.firstResponder === parentContent)
@@ -171,7 +184,7 @@ import Testing
     }
 
     @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
-    func numberedActionsRespectKeepOpenAndDisabledAncestors() throws {
+    func numberedActionsRespectKeepOpenAndDisabledRows() throws {
         let (window, page) = try Self.page()
         defer { window.orderOut(nil) }
         var events: [[String: Any]] = []
