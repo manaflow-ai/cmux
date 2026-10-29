@@ -91,6 +91,9 @@ pub(crate) struct Snapshot {
     keys: Vec<Value>,
     /// Other results made from it, once each (masked for a peer, ACP's `session/list`).
     made: StdMutex<HashMap<&'static str, Arc<String>>>,
+    /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
+    /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
+    full: StdMutex<Option<Arc<String>>>,
 }
 
 type Built = (String, Vec<Range<usize>>, Vec<Value>);
@@ -98,7 +101,7 @@ type Built = (String, Vec<Range<usize>>, Vec<Value>);
 impl Snapshot {
     fn new(key: Key, serial: u64, window: Duration, (text, spans, keys): Built) -> Self {
         let (whole, made, started) = (Arc::new(text), Default::default(), Instant::now());
-        Self { key, serial, started, window, whole, spans, keys, made }
+        Self { key, serial, started, window, whole, spans, keys, made, full: Default::default() }
     }
 
     /// Keep only serialized bytes and paging keys as summaries are produced. A full
@@ -108,6 +111,17 @@ impl Snapshot {
         let mut rows = Rows::default();
         hub.visit_session_summaries(false, |row| rows.push(&row));
         rows.finish()
+    }
+
+    /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
+    pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
+        let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
+        full.get_or_insert_with(|| {
+            let mut rows = Rows::default();
+            hub.visit_session_summaries(true, |row| rows.push(&row));
+            Arc::new(rows.finish().0)
+        })
+        .clone()
     }
 
     #[cfg(test)]

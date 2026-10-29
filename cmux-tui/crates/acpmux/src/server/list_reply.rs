@@ -108,6 +108,11 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     conn.watch_all.store(on, Ordering::SeqCst);
+    // A peer daemon is a trusted internal consumer: it retains full rows so its
+    // wait/info paths remain complete. Local/web census rows stay compact.
+    if conn.origin == super::Origin::Peer && whole(params) {
+        return reply(hub, conn, None, |list| Ok(list.full_whole(hub).clone())).await;
+    }
     sessions(hub, conn, params).await
 }
 
@@ -116,7 +121,9 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn) -> Result<Value, RpcError> 
     let raw = conn.raw_text;
     reply(hub, conn, None, |list| {
         Ok(list.made(if raw { "acp" } else { "acp masked" }, |list| {
-            let sessions: Vec<Value> = list.values().iter().map(acp_row).collect();
+            let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
+            let sessions: Vec<Value> =
+                full["sessions"].as_array().into_iter().flatten().map(acp_row).collect();
             let result = json!({"sessions": sessions});
             if raw { result.to_string() } else { masked(result) }
         }))
