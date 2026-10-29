@@ -14,6 +14,9 @@ import { formatDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
 import { waveIndices } from "../../../ui/wave";
 import { Icon } from "../icons/Icon";
+import { rowIconSize } from "../icons/iconSize";
+const ROW_ICON = rowIconSize(12);
+
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { nestAgents } from "../subagents/AgentsPill";

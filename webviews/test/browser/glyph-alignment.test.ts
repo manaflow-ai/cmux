@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 import { chromium } from "playwright";
 import { createServer } from "vite";
 import path from "node:path";
-import { galleryFrame, galleryEntryPath, warmGalleryFrame } from "../support/galleryFrame";
+import { galleryFrame, warmGalleryFrame } from "../support/galleryFrame";
 import { requireBrowserLane } from "../support/requireBrowserLane";
 
 type Check = {
@@ -74,8 +74,6 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
       selectors: [[".cv-waiting__toggle", ".cv-waiting__icon svg", ".cv-waiting__count"]] as const,
     },
   ];
-  const ROW_ICON = 14;
-
   test("glyphs use shared row geometry in light and dark", async () => {
     const root = path.resolve(import.meta.dir, "../..");
     const vite = await createServer({
@@ -106,7 +104,7 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
               `http://127.0.0.1:${port}${galleryFrame(entry.id, { colorScheme, reducedMotion: "true" })}`,
             );
             await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-            const checks = await page.evaluate(
+            const checks = (await page.evaluate(
               (selectors) =>
                 selectors.flatMap(([rowSelector, glyphSelector, textSelector]) =>
                   [...document.querySelectorAll<HTMLElement>(rowSelector)].flatMap((row) => {
@@ -129,8 +127,8 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
                     ];
                   }),
                 ),
-              entry.selectors,
-            );
+              entry.selectors as readonly (readonly [string, string, string | null])[],
+            )) as Check[];
             const captureDir = process.env.GLYPH_CAPTURE_DIR;
             if (captureDir) {
               const { mkdir } = await import("node:fs/promises");
@@ -144,9 +142,9 @@ await requireBrowserLane("glyph-alignment.test.ts", async () => {
               observed.push(check);
               if (check.centerDelta > 0.5)
                 failures.push(`${colorScheme} ${entry.id} ${check.row} center delta ${check.centerDelta.toFixed(2)}px`);
-              if (check.size !== ROW_ICON && !check.glyph.includes("spinner"))
+              if (check.size !== 14 && !check.glyph.includes("spinner"))
                 failures.push(
-                  `${colorScheme} ${entry.id} ${check.row} ${check.glyph} is ${check.size}px, expected ${ROW_ICON}px`,
+                  `${colorScheme} ${entry.id} ${check.row} ${check.glyph} is ${check.size}px, expected 14px`,
                 );
             }
           } finally {
