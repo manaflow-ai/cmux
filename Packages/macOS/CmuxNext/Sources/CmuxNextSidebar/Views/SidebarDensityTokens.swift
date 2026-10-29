@@ -7,27 +7,8 @@ import CoreGraphics
 /// pinned and other top or bottom bands (`SidebarRegionMetrics.standard`) and
 /// the row padding (`SidebarStyle.horizontalInset`).
 ///
-/// Compact (the default) and expanded keep the app tokens exactly. Comfortable
-/// keeps one line per row and adds height and room, sized like the medium
-/// sidebar size of the system's own sidebars (28 pt rows against the small
-/// size's 24 pt), at the app's compact density:
-///
-/// | token                  | compact | comfortable | step              |
-/// |------------------------|---------|-------------|-------------------|
-/// | row, tab row, group    | 24      | 28          | + `space2`        |
-/// | machine/section header | 22      | 26          | + `space2`        |
-/// | row with a detail line | 37      | 41          | row + detail line |
-/// | horizontal inset       | 6       | 8           | `space3`→`space4` |
-/// | section gap            | 8       | 12          | `space4`→`space5` |
-/// | list top padding       | 4       | 6           | `space2`→`space3` |
-///
-/// Row title and detail text size and weight do not change (Interface Size
-/// owns the text size); a group header's name keeps its existing rule and
-/// follows its bar (`SidebarStyle.groupHeaderFont`: 11 pt on the 24 pt row,
-/// 12 pt on the 28 pt row). Row spacing stays `space1` so selection fills
-/// keep their rhythm, and it is the only gap between rows: a group's or the
-/// Pinned block's last row adds no padding (Leo 2026-10-21). Values are read at layout time, never cached, so a
-/// change applies live.
+/// Row heights keep the existing metric tunables (24/32 by interface density). The highlight
+/// leaves two points above and below; column alignment does not choose the row density.
 enum SidebarDensityTokens {
     static var density: SidebarDensity { DesignSettings.shared.sidebarSections.density }
     static var isComfortable: Bool { density == .comfortable }
@@ -35,17 +16,21 @@ enum SidebarDensityTokens {
     private static var extra: CGFloat { isComfortable ? Metrics.space2 : 0 }
 
     /// A one-line workspace row, tab row, group header or band row.
-    static var rowHeight: CGFloat { Metrics.sidebarRowHeight + extra }
+    static var rowHeight: CGFloat { Metrics.sidebarRowHeight }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
     /// text keeps the same room above and below with one line or more (Leo 2026-10-20). With
     /// `SidebarTunables.evenRowText` off, the app's fixed step instead.
     static var rowHeightWithSubtitle: CGFloat {
         SidebarTunables.evenRowText.value ? rowHeight + SidebarStyle.detailLineHeight : Metrics.sidebarRowHeightWithSubtitle + extra
     }
+    /// Preserve the group label typography while its row moves to the grid.
+    static var groupLabelReferenceHeight: CGFloat { Metrics.sidebarRowHeight + extra }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
     /// Rows inset from the sidebar edge, and their content from the row edge.
-    static var horizontalInset: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }
+    static var horizontalInset: CGFloat { LayoutGrid.sidebarHighlightInset }
+    static var iconBox: CGFloat { isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
+    static var depthIndent: CGFloat { LayoutGrid.sidebarDepthIndent }
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
     /// so their fills line up at each density.
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }

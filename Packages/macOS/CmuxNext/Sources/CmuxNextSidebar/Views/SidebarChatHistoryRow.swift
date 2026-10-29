@@ -72,9 +72,9 @@ final class SidebarChatHistoryHeader: NSView {
         // On the sidebar's trailing column, as every row's mark and header chevron (Leo 2026-10-28: "the alignment").
         chevron.frame = SidebarStyle.trailingColumnFrame(rowWidth: bounds.width, centerY: bounds.midY, side: side)
         let h = ceil(name.intrinsicContentSize.height)
-        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
+        let x = SidebarStyle.columns(rowWidth: bounds.width).lead - SidebarStyle.labelCellPadding
         let trailing = foldable ? SidebarStyle.trailingColumnStart(rowWidth: bounds.width) - Metrics.space2 : bounds.width - Metrics.space2
-        name.frame = NSRect(x: x, y: (bounds.height - h) / 2, width: max(0, trailing - x), height: h)
+        name.frame = NSRect(x: x, y: SidebarStyle.textY(name, centerY: bounds.midY), width: max(0, trailing - x), height: h)
     }
 }
 
@@ -184,8 +184,8 @@ final class SidebarChatHistoryRow: NSView {
         let metaText = NSRect(x: bounds.width - Metrics.space2 - metaWidth, y: (bounds.height - size.height) / 2, width: metaWidth, height: size.height)
         meta.frame = meta.frame(forAlignmentRect: metaText)
         let h = ceil(title.intrinsicContentSize.height)
-        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
+        let x = SidebarStyle.columns(rowWidth: bounds.width).text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
         let trailing = meta.isHidden ? bounds.width - Metrics.space2 : metaText.minX - Metrics.space2
-        title.frame = NSRect(x: x, y: (bounds.height - h) / 2, width: max(0, trailing - x), height: h)
+        title.frame = NSRect(x: x, y: SidebarStyle.textY(title, centerY: bounds.midY), width: max(0, trailing - x), height: h)
     }
 }

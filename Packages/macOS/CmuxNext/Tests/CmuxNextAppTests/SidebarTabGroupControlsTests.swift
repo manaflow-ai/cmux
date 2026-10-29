@@ -6,8 +6,9 @@ import Testing
 
 /// Leo 2026-10-27, on a workspace's listed tabs (Lawrence's f32ee25f): "it should also just slightly demarcate,
 /// you know, which pane you're focused on"; "if you just directly clicked on it, that it, like, showed and hid
-/// the thing, because that's what you can do on Chrome"; "when Chrome's chevron is closed, it goes upwards";
-/// and the ✕ "this one, not so much ... Here, I'll just highlight what Chrome has" (`SidebarRowCloseSpot`).
+/// the thing, because that's what you can do on Chrome"; and the ✕ "this one, not so much ... Here, I'll just
+/// highlight what Chrome has" (`SidebarRowCloseSpot`). 2026-10-29: the folded chevron points right as every other
+/// sidebar fold, and the ✕ never takes the chevron's place on hover (a click aimed at the chevron closed the row).
 @MainActor @Suite(.serialized)
 struct SidebarTabGroupControlsTests {
     typealias Gaps = SidebarIncrementalMatchesRebuildGapsTests
@@ -76,8 +77,9 @@ struct SidebarTabGroupControlsTests {
         #expect(try !Self.tabRow(sidebar.list, Self.shown, Self.second).isFocusedTab)
     }
 
-    /// Folded, the chevron points up (Chrome's tab group); open, down.
-    @Test func theFoldedChevronPointsUp() throws {
+    /// Folded, the chevron points right, as every other fold in the sidebar (group headers, Done, the session
+    /// tree); open, down.
+    @Test func theFoldedChevronPointsRight() throws {
         let (model, sidebar, window) = Self.sidebar()
         defer { window.close() }
         let row = try #require(sidebar.list.rowViews[.workspace(Self.shown)] as? WorkspaceRowView)
@@ -85,7 +87,32 @@ struct SidebarTabGroupControlsTests {
         sidebar.list.foldTabs(Self.shown)
         #expect(model.collapsedWorkspaces.contains(Self.shown))
         let folded = try #require(sidebar.list.rowViews[.workspace(Self.shown)] as? WorkspaceRowView)
-        #expect(folded.disclosureButton.icon == .disclosureFolded)
+        #expect(folded.disclosureButton.icon == .disclosureCollapsed)
+    }
+
+    /// Under every ✕ spot, a hovered row with no status mark keeps its chevron where it was at rest and shows the
+    /// ✕ left of it: a click aimed at the chevron never lands on the close.
+    @Test func theChevronStaysPutOnHover() throws {
+        for spot in SidebarRowCloseSpot.allCases {
+            try Self.withCloseSpot(spot) {
+                let (_, sidebar, window) = Self.sidebar()
+                defer { window.close() }
+                window.orderFrontRegardless()
+                sidebar.renderNow()
+                let list = sidebar.list
+                let row = try #require(list.rowViews[.workspace(Self.shown)] as? WorkspaceRowView)
+                row.layoutSubtreeIfNeeded()
+                try #require(SidebarTrailingColumnTests.marks(in: row, named: Self.shown.rawValue, list: list).isEmpty,
+                             "the shown row draws a status mark")
+                try #require(!row.disclosureButton.isHidden, "the shown row hides its chevron at rest")
+                let rest = row.disclosureButton.frame
+                row.isHovered = true
+                row.layoutSubtreeIfNeeded()
+                #expect(row.disclosureButton.frame == rest, "\(spot.rawValue): the chevron moved from \(rest) to \(row.disclosureButton.frame)")
+                #expect(!row.closeButton.isHidden)
+                #expect(row.closeButton.frame.maxX <= row.disclosureButton.frame.minX + 0.5, "\(spot.rawValue): the ✕ is not left of the chevron")
+            }
+        }
     }
 
     /// A click on the shown workspace's row folds its tabs and the next opens them; a click on another row only
@@ -115,7 +142,7 @@ struct SidebarTabGroupControlsTests {
         list.inlineRename.end(commit: false)
     }
 
-    /// The default ✕ spot: on hover, ⋮ ⌄ ✕ with the ✕ on the trailing column, where the status mark gives way;
+    /// The default ✕ spot: the title's caret precedes ⋮ ✕ with the ✕ on the trailing column, where the status mark gives way;
     /// off hover the mark is back.
     @Test func theCloseEndsTheHoveredRow() throws {
         try Self.withCloseSpot(.end) {
@@ -132,7 +159,7 @@ struct SidebarTabGroupControlsTests {
             row.layoutSubtreeIfNeeded()
             let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
             #expect(abs(row.closeButton.frame.midX - column) < 0.5, "the ✕ at \(row.closeButton.frame.midX), the column at \(column)")
-            #expect(row.moreButton.frame.maxX <= row.disclosureButton.frame.minX + 0.5, "⋮ is not left of the chevron")
+            #expect(row.disclosureButton.frame.maxX <= row.moreButton.frame.minX + 0.5, "the chevron must follow the title before the menu")
             #expect(row.disclosureButton.frame.maxX <= row.closeButton.frame.minX + 0.5, "the chevron is not left of the ✕")
             let under = SidebarTrailingColumnTests.marks(in: row, named: name, list: list)
             #expect(under.isEmpty, "a status mark shows under the ✕: \(under.map(\.what))")
@@ -142,7 +169,7 @@ struct SidebarTabGroupControlsTests {
         }
     }
 
-    /// The old spot stays a choice: ⋮ ✕ ⌄, the status mark back on the column once the hover ends (Leo 2026-10-28:
+    /// The middle close spot stays a choice after the title's caret; the status mark returns once hover ends (Leo 2026-10-28:
     /// "just don't show the spinner" while hovering, under every spot).
     @Test func theMiddleSpotHidesTheMarkOnHover() throws {
         try Self.withCloseSpot(.middle) {
@@ -153,7 +180,7 @@ struct SidebarTabGroupControlsTests {
             sidebar.renderNow()
             row.isHovered = true
             row.layoutSubtreeIfNeeded()
-            #expect(row.closeButton.frame.maxX <= row.disclosureButton.frame.minX + 0.5)
+            #expect(row.disclosureButton.frame.maxX <= row.closeButton.frame.minX + 0.5)
             let under = SidebarTrailingColumnTests.marks(in: row, named: Self.other.rawValue, list: sidebar.list)
             #expect(under.isEmpty, "a status mark shows beside the hover controls: \(under.map(\.what))")
             row.isHovered = false
@@ -174,10 +201,14 @@ struct SidebarTabGroupControlsTests {
             row.layoutSubtreeIfNeeded()
             let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
             #expect(abs(row.closeButton.frame.midX - column) < 0.5)
+            let closeX = row.closeButton.frame.minX
+            let caretX = row.disclosureButton.frame.minX
             try Self.withCloseSpot(.middle) {
                 SidebarTunablesWatch.shared.changed()
                 row.layoutSubtreeIfNeeded()
-                #expect(row.closeButton.frame.maxX <= row.disclosureButton.frame.minX + 0.5, "the close stayed at the end")
+                #expect(row.closeButton.frame.minX < closeX, "the close stayed at the end")
+                #expect(row.disclosureButton.frame.maxX <= row.closeButton.frame.minX + 0.5)
+                #expect(abs(row.disclosureButton.frame.minX - caretX) < 0.5, "the close spot moved the title's caret")
             }
             SidebarTunablesWatch.shared.changed()
         }

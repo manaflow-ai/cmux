@@ -11,11 +11,7 @@ extension WorkspaceRowView {
                         showClose: Bool, showMore: Bool) -> Bool {
         let givesWay = columnMark != nil && (showClose || showMore)
         let spot = SidebarTunables.rowCloseSpot.value
-        if spot == .even, columnMark != nil {
-            // The column's gap is `space2`, the controls' `space1`: the cluster moves right by the difference.
-            let dx = Metrics.space2 - Metrics.space1
-            for view in [disclosureButton, closeButton, moreButton, pinButton] { view.frame = view.frame.offsetBy(dx: dx, dy: 0) }
-        }
+        // Every close look now shares the grid pitch; its glyph/hit-box styling stays distinct.
         guard spot.atEnd else { return givesWay }
         let column = SidebarStyle.rowCloseFrame(rowWidth: rowWidth, centerY: cy)
         if columnMark != nil, showClose {
@@ -25,10 +21,9 @@ extension WorkspaceRowView {
         } else if columnMark != nil, showMore {
             // A row that cannot close: ⌄ ⋮, the menu on the column (the pin, when shown, left of it).
             moreButton.frame = column
-        } else if showClose, !disclosureButton.isHidden, disclosure != nil, disclosure != .empty {
-            // No mark: the chevron ends the row; the close and the chevron trade places.
-            (closeButton.frame, disclosureButton.frame) = (disclosureButton.frame, closeButton.frame)
         }
+        // No mark: the chevron keeps the row's end and the close stays left of it. The chevron never moves on
+        // hover, so a click aimed at it at rest never lands on the close.
         return givesWay
     }
 }

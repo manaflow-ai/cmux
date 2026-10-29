@@ -137,12 +137,13 @@ final class SidebarTabRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         // A grouped tab row keeps an ungrouped one's left edge (SidebarListView.frame(for:)).
+        let columns = SidebarStyle.columns(rowWidth: b.width)
         let iconSide = SidebarStyle.tabIconSize
-        let iconX = SidebarStyle.titleLeading + Metrics.space3
+        let iconX = columns.lead + (columns.iconBox - iconSide) / 2
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
         // Without a favicon the title takes the icon's place (Lawrence 2026-10-23: "as left as possible").
-        let textX = icon.isHidden ? iconX - SidebarStyle.labelCellPadding : icon.frame.maxX + Metrics.space2
-        var trailing = b.width - SidebarStyle.horizontalInset
+        let textX = columns.text(hasLeadingMark: !icon.isHidden) - SidebarStyle.labelCellPadding
+        var trailing = b.width
         // The tab's status, else its dot, centers on the trailing column, as a workspace row's does (Leo 2026-10-28:
         // "do we seriously not have these fucking things aligned? ... because it's the inner tab thing"); a dot
         // beside a status goes left of the column. On hover the ✕ takes the column (`SidebarRowCloseButton`, the
@@ -154,21 +155,21 @@ final class SidebarTabRowView: SidebarRowView {
         activity.alphaValue = showClose ? 0 : 1 // its own isHidden says whether it has a glyph
         if activity.showsGlyph {
             activity.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: SidebarStyle.indicatorSize)
-            trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width))
+            trailing = min(trailing, columns.textEnd(trailingMarks: 1))
         } else {
             activity.frame = .zero
         }
-        if showClose { trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width)) }
+        if showClose { trailing = min(trailing, columns.textEnd(trailingMarks: 1)) }
         // A dot on the column gives way to the ✕; one left of a status stays.
         unreadDot.alphaValue = showClose && !activity.showsGlyph ? 0 : 1
         if unreadDot.state.isUnread {
             let side = SidebarStyle.dotSize
             unreadDot.frame = activity.showsGlyph
-                ? NSRect(x: trailing - side - Metrics.space2, y: cy - side / 2, width: side, height: side)
+                ? columns.trailingFrame(index: 1, centerY: cy, side: side)
                 : SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: side)
-            trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width), unreadDot.frame.minX) - Metrics.space2
+            trailing = min(trailing, columns.textEnd(trailingMarks: 1), unreadDot.frame.minX) - Metrics.space2
         }
-        let height = title.intrinsicContentSize.height, y = (b.height - height) / 2
+        let height = title.intrinsicContentSize.height, y = SidebarStyle.textY(title, centerY: b.midY)
         guard !detail.isHidden else {
             title.frame = NSRect(x: textX, y: y, width: max(0, trailing - textX), height: height)
             return

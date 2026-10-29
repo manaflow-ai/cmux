@@ -6,6 +6,7 @@ import QuartzCore
 /// handling, hover, and drag, so rows return nil from hit testing except for
 /// their own buttons.
 class SidebarRowView: NSView {
+    private let fillLayer = CALayer()
     var key: SidebarRowKey
     var isHovered = false { didSet { if isHovered != oldValue { hoverChanged() } } }
     /// The row is the sidebar's selected item and paints the selection fill.
@@ -37,6 +38,9 @@ class SidebarRowView: NSView {
         wantsLayer = true
         layer?.cornerCurve = .continuous
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        fillLayer.cornerCurve = .continuous
+        fillLayer.cornerRadius = SidebarStyle.rowCornerRadius
+        layer?.insertSublayer(fillLayer, at: 0)
     }
 
     @available(*, unavailable)
@@ -133,9 +137,17 @@ class SidebarRowView: NSView {
     /// it. Call from `updateLayer()` inside the theme scope.
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
-        guard let layer else { return }
-        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
+        ChromeHover.paint(fillLayer, color, animated: fadesNextFill, clearing: .hoverOut)
         fadesNextFill = false
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        fillLayer.frame = layoutBounds.insetBy(dx: 0, dy: LayoutGrid.pillInset)
+        fillLayer.cornerRadius = SidebarStyle.rowCornerRadius
+        CATransaction.commit()
     }
 
     /// The row paints a fill now (`paintFill`); debug.sidebar_rows `fill`.
@@ -228,8 +240,8 @@ final class EmptySectionRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         let h = ceil(label.intrinsicContentSize.height)
-        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
-        label.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
+        let x = SidebarStyle.columns(rowWidth: b.width).text - SidebarStyle.labelCellPadding
+        label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: max(0, b.width - x - Metrics.space2), height: h)
         needsDisplay = true
     }
 

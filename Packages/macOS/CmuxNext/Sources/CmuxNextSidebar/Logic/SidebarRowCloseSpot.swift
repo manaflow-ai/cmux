@@ -8,7 +8,8 @@ public import CmuxNextDesign
 /// hides while the close or the menu shows (Leo 2026-10-28: "just don't show the spinner").
 public nonisolated enum SidebarRowCloseSpot: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// ⋮ ⌄ ✕: the close takes the row's end on hover, where the status mark was; the mark gives way while the
-    /// row is hovered. Nothing sits between the menu and the chevron.
+    /// row is hovered. Nothing sits between the menu and the chevron. A row with no mark keeps its chevron at the
+    /// end and shows ⋮ ✕ ⌄: the chevron never moves on hover, so the close never lands where it was.
     case end
     /// ⋮ ✕ ⌄ ●, the gap to the status column made as even as the gaps between the controls.
     case even
