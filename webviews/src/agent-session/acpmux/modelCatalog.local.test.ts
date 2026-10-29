@@ -1,6 +1,24 @@
 import { expect, test } from "bun:test";
 import { mergeModelCatalog } from "./modelCatalog";
 
+test("model routers are not harness choices, while cmux-prefixed launchers remain available", async () => {
+  const { buildPickerCatalog, BUNDLED_MODEL_CATALOG } = await import("./modelCatalogData");
+  const catalog = mergeModelCatalog(
+    {
+      harnesses: [
+        { id: "cmux", name: "Cmux", kind: "cmux-router" },
+        { id: "local-router", name: "Local router", kind: "local-coderouter" },
+        { id: "cmux-codex", name: "cmux Codex", family: "codex", kind: "acp" },
+      ],
+    },
+    {},
+  );
+  expect(catalog.filter((entry) => entry.pickable !== false).map((entry) => entry.id)).toEqual(["cmux-codex"]);
+  const picker = buildPickerCatalog({ catalog: BUNDLED_MODEL_CATALOG, acpmux: catalog });
+  expect(picker.harnesses.filter((entry) => entry.pickable).map((entry) => entry.id)).not.toContain("cmux");
+  expect(picker.harnesses.find((entry) => entry.id === "codex")?.acpmuxHarness).toBe("cmux-codex");
+});
+
 test("the picker uses only this machine's harness list and ignores peer model probes", () => {
   const catalog = mergeModelCatalog(
     { harnesses: [{ id: "claude", name: "Claude Code" }] },
@@ -30,7 +48,11 @@ test("the local harness's reported picker order survives catalog and peer orderi
     { harnesses: [{ id: "claude", name: "Claude Code" }] },
     {
       harnesses: [
-        { harness: "claude", models: [{ id: "fable" }, { id: "opus" }, { id: "old" }], topModels: ["opus", "fable"] },
+        {
+          harness: "claude",
+          models: [{ id: "fable" }, { id: "opus" }, { id: "old" }],
+          topModels: ["opus", "fable"],
+        },
         { harness: "claude", peer: "remote", models: [{ id: "remote" }], topModels: ["remote"] },
       ],
     },

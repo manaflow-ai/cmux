@@ -364,6 +364,25 @@ test("Account lists the routes that serve this chat and switches to one", async 
   expect(sent).toEqual([{ method: "route", value: "work" }]);
 });
 
+test("Provider offers Cmux for this harness and switches the route without switching harness", async () => {
+  const { sent } = await mount({
+    routes: [
+      { id: "cmux", name: "Cmux", kind: "cmux-router", serves: true },
+      { id: "other", name: "Other family", kind: "cmux-router", serves: false },
+    ],
+    family: "claude",
+  });
+  await open();
+  const provider = await openSub("Provider");
+  expect(itemsOf(provider)).toEqual(["CLI login", "Cmux"]);
+  const choice = [...provider.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+    (item) => item.textContent?.trim() === "Cmux",
+  )!;
+  await act(async () => choice.click());
+  await settle();
+  expect(sent).toEqual([{ method: "route", value: "cmux" }]);
+});
+
 test("Account lists this harness's direct accounts without transport variants", async () => {
   const { sent } = await mount({
     routes: [
