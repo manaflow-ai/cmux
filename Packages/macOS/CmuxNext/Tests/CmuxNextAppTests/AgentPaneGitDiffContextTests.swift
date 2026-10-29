@@ -11,6 +11,22 @@ import Testing
 /// refuses a path that leaves the repository or a count past the host's limit rather than drop it
 /// (dropping either would be another read).
 struct AgentPaneGitDiffContextTests {
+    @Test func patchPageOffsetsRemainExactAndRequireTheirFirstRevision() throws {
+        let revision = String(repeating: "a", count: 64)
+        let params: [String: Any] = ["cwd": "/repo", "scope": "uncommitted", "include_patch": true,
+                                   "paths": ["large.txt"], "patch_offset": "9007199254740993", "patch_revision": revision]
+        let request = try #require(AgentPaneGitRequest(method: "git.diff", params: params))
+        #expect(request.sessionHostParams["patch_offset"] == .string("9007199254740993"))
+        #expect(request.sessionHostParams["patch_revision"] == .string(revision))
+        var invalid = params
+        invalid.removeValue(forKey: "patch_revision")
+        #expect(AgentPaneGitRequest(method: "git.diff", params: invalid) == nil)
+        invalid["patch_offset"] = "01"
+        #expect(AgentPaneGitRequest(method: "git.diff", params: invalid) == nil)
+        invalid["patch_offset"] = 0
+        #expect(AgentPaneGitRequest(method: "git.diff", params: invalid) == nil)
+    }
+
     @Test func aDiffForOneFileWithMoreContextReachesTheSessionHost() throws {
         let request = try #require(AgentPaneGitRequest(method: "git.diff", params: [
             "cwd": "/repo", "scope": "uncommitted", "include_patch": true,

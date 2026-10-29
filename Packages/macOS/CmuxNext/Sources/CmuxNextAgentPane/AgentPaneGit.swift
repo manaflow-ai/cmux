@@ -15,10 +15,16 @@ public nonisolated enum AgentPaneGitScope: String, CaseIterable, Equatable, Send
 public nonisolated struct AgentPaneGitDiffOptions: Equatable, Sendable {
     public var paths: [String]
     public var contextLines: Int?
+    /// Raw byte window for a selected file's patch. Later windows require the first revision.
+    public var patchOffset: UInt64?
+    public var patchRevision: String?
 
-    public init(paths: [String] = [], contextLines: Int? = nil) {
+    public init(paths: [String] = [], contextLines: Int? = nil,
+                patchOffset: UInt64? = nil, patchRevision: String? = nil) {
         self.paths = paths
         self.contextLines = contextLines
+        self.patchOffset = patchOffset
+        self.patchRevision = patchRevision
     }
 
     /// The session host's limits.
@@ -46,6 +52,21 @@ public nonisolated struct AgentPaneGitDiffOptions: Equatable, Sendable {
             options.contextLines = exact
         default: return nil
         }
+        switch params?["patch_offset"] {
+        case nil: break
+        case let text as String:
+            guard let offset = UInt64(text), String(offset) == text, options.paths.count == 1 else { return nil }
+            options.patchOffset = offset
+        default: return nil
+        }
+        switch params?["patch_revision"] {
+        case nil: break
+        case let revision as String where revision.utf8.count == 64
+            && revision.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }):
+            options.patchRevision = revision
+        default: return nil
+        }
+        if let offset = options.patchOffset, offset > 0, options.patchRevision == nil { return nil }
         self = options
     }
 
