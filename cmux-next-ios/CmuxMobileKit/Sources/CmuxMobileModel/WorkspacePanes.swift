@@ -182,7 +182,7 @@ public struct WorkspaceLayout: Hashable, Sendable {
             var frames: [Int: CGRect] = [:]
             var y = rect.minY
             for row in rows {
-                let height = rect.height * max(row.height, 0) / 1000
+                let height = rect.height * CGFloat(max(row.height, 0)) / 1000
                 frames.merge(row.root.frames(in: CGRect(x: rect.minX, y: y, width: rect.width, height: height))) { lhs, _ in lhs }
                 y += height
             }
@@ -227,9 +227,9 @@ public struct WorkspaceLayout: Hashable, Sendable {
         var autoLayoutFrames: [Int: CGRect] {
             guard !columns.isEmpty else { return root?.frames(in: CGRect(origin: .zero, size: Self.window)) ?? [:] }
             var frames: [Int: CGRect] = [:]
-            var x = 0.0
+            var x: CGFloat = 0
             for column in columns {
-                let width = Self.window.width * max(column.width, 0)
+                let width = Self.window.width * CGFloat(max(column.width, 0))
                 defer { x += width }
                 guard !column.isDocked else { continue }
                 frames.merge(column.frames(in: CGRect(x: x, y: 0, width: width, height: Self.window.height))) { lhs, _ in lhs }
