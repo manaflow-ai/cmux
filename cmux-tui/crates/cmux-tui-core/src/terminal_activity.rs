@@ -565,9 +565,11 @@ impl ShellActivity {
         self.line_modes_armed = snapshot.busy_since_ms.is_some() && snapshot.line_modes_armed;
         self.prompt_since_ms = snapshot.prompt_since_ms;
         self.input_after_prompt = true;
-        // The host's shell printed its prompts already; what was typed ahead
-        // there is unknown, and `input_after_prompt` holds until the next `A`.
-        self.prompted = true;
+        // A host whose shell drew a prompt or ran a command: its first prompt
+        // is behind it, and what was typed ahead there is unknown
+        // (`input_after_prompt` holds until the next `A`). A fresh host's first
+        // snapshot has neither: its shell's first `A` answers the spawn.
+        self.prompted = snapshot.prompt_since_ms.is_some() || snapshot.busy_since_ms.is_some();
         self.owed_prompts = 0;
         self.typed_while_running = 0;
         self.unsubmitted = false;
