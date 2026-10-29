@@ -9,7 +9,6 @@
 
 use anyhow::{Result, anyhow, ensure};
 use base64::Engine;
-use fs4::FileExt;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::fs::File;
