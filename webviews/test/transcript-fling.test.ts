@@ -52,6 +52,7 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     await window.cmuxPaintFrame();
     let blank = 0;
     let frames = 0;
+    const blanks: string[] = [];
     for (const step of steps) {
       // The frame's callback moves the view; the view is read as that frame painted it.
       await window.cmuxPaintFrame(() => {
@@ -69,11 +70,22 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
         else runs.push({ top: row.rect.top, bottom: row.rect.bottom });
       });
       const bottom = Math.min(view.bottom, view.top + scroller.scrollHeight - scroller.scrollTop);
+      // The thread's own top padding is above its first row: a view at the top shows it, empty by
+      // design (every up fling and drag ended on a "blank" frame at scrollTop 0 for its 16 px).
+      const thread = scroller.querySelector<HTMLElement>(".acpmux-thread")!;
+      const top = view.top + Math.max(0, parseFloat(getComputedStyle(thread).paddingTop) - scroller.scrollTop);
       frames += 1;
-      if (!runs.some((run) => run.top <= view.top + 0.5 && run.bottom >= bottom - 0.5)) blank += 1;
+      if (!runs.some((run) => run.top <= top + 0.5 && run.bottom >= bottom - 0.5)) {
+        blank += 1;
+        // What a blank frame drew, for the log: its frame, the step, the offset, and the mounted
+        // runs against the view (px from its top), to tell a lead too short from a late render.
+        blanks.push(
+          `#${frames}/${step}vp@${Math.round(scroller.scrollTop)}: ${runs.map((run) => `${Math.round(run.top - view.top)}..${Math.round(run.bottom - view.top)}`).join(" ")}`,
+        );
+      }
       if (scroller.scrollTop === (down ? end() : 0)) break;
     }
-    return { frames, blank };
+    return { frames, blank, blanks };
   };
 
   test("fast flings and uneven drags keep the view covered", async () => {
@@ -87,6 +99,7 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
       page.evaluate(`(${steppedFling.toString()})(${JSON.stringify({ steps, down })})`) as Promise<{
         frames: number;
         blank: number;
+        blanks: string[];
       }>;
     const repeat = (pattern: number[]) => Array.from({ length: 400 }, (_, frame) => pattern[frame % pattern.length]);
     // About the bench's capped fling (4-5 viewports a frame), with the few percent of frame-time

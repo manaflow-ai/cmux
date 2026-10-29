@@ -218,7 +218,7 @@ impl App {
                 note: String::new(),
             });
             for s in &self.sessions {
-                let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+                let id = session_route_id(s).unwrap_or_default();
                 let title = render::session_title(s);
                 let cwd = s.get("cwd").and_then(Value::as_str).unwrap_or("");
                 let project = match s.get("peer").and_then(Value::as_str) {

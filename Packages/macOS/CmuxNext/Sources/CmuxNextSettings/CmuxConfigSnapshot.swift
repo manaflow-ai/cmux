@@ -49,6 +49,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserImportEnabled: Bool = BrowserImportSetting.fallback
     /// `home.chiefBubbleStyle`: the Chief chat's bubbles, `imessage` (Messages' blue and grey) when unset or `theme`.
     public var homeChiefBubbleStyle = HomeChiefBubbleStyleSetting.defaultStyle
+    /// `home.bubbleColors.*`: the bubble colours every Home chat starts with, `#RRGGBB` by role (`sent`,
+    /// `sentText`, `received`, `receivedText`); an unset role keeps the bubble style's.
+    public var homeBubbleColors: [String: String] = [:]
     /// `chief.reactionsCanWake`, `chief.reactionClassifier.*`: whether a tapback can wake the Chief, and the classifier (Claude Haiku) that decides.
     public var chiefReactions = ChiefReactionSettings.fallback
     /// `browser.builtInAdBlocker`; on when unset.
@@ -64,6 +67,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeServer: HomeServerSetting.Value = .hosted
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
+    /// `labs.voiceRoom` (off when unset) and `labs.voiceRoomURL` (trimmed; empty is the local room server).
+    public var voiceRoom = CmuxConfigSnapshot.voiceRoomDefault, voiceRoomURL = CmuxConfigSnapshot.voiceRoomURLDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -121,6 +126,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var layoutScrollAreas: Bool = ColumnLayoutSettings.scrollAreasFallback
     /// `layout.scrollModifier`: which scroll moves the layout (``LayoutScrollModifier``).
     public var layoutScrollModifier: LayoutScrollModifier = ColumnLayoutSettings.scrollModifierFallback
+    /// `layout.pagesHandleCommandScroll`: a web page that cancels Command + wheel keeps a Command scroll over it.
+    public var pagesHandleCommandScroll: Bool = ColumnLayoutSettings.pagesHandleCommandScrollFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
@@ -134,7 +141,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
     public var closeFocus: CloseFocusPolicy = CloseFocusSetting.fallback
-    /// `layout.defaultColumnWidth`; 0.5 when unset or invalid.
+    /// `layout.defaultColumnWidth`; two thirds when unset or invalid.
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()
@@ -233,6 +240,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var chromeTheme: String?
     /// `appearance.themeEdits`: per-token color edits to themes; none when unset.
     public var themeEdits = ThemeEdits.none
+    /// `appearance.highlightColor`: the app's one highlight color (`#rrggbb`) over the terminal
+    /// theme's `selection-background`; nil (the theme's) when unset or invalid.
+    public var highlightColor: String?
     /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
     public var accent: ThemeAccent = AccentSetting().fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
@@ -314,6 +324,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
+        snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
+        snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
@@ -442,6 +454,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        let (highlight, highlightDiagnostic) = HighlightColorSetting().parse(root)
+        snapshot.highlightColor = highlight
+        if let highlightDiagnostic { snapshot.diagnostics.append(highlightDiagnostic) }
         let (accent, accentDiagnostic) = AccentSetting().parse(root)
         snapshot.accent = accent
         if let accentDiagnostic { snapshot.diagnostics.append(accentDiagnostic) }

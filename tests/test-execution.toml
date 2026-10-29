@@ -270,6 +270,10 @@ path = "tests/test_ci_no_shallow_dev_fetch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_rust_targets_installed_first.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
@@ -391,6 +395,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_select_package_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_display_suites.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1349,6 +1357,10 @@ lane = "linux-guard"
 serial = true
 
 [[test]]
+path = "tests/test_cmux_next_dev_cas_seed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_dev_release_host_root.py"
 lane = "linux-guard"
 
@@ -1585,6 +1597,11 @@ path = "tests/test_cmux_tui_owner_wait_defers.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_election_budget.py"
+lane = "manual"
+reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. The repo adds no new CI tests (CLAUDE.md, 2026-10-23), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
+
+[[test]]
 path = "tests/test_cmux_tui_tree_handoff.py"
 lane = "linux-guard"
 
@@ -1722,6 +1739,10 @@ path = "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_signing_owned_mac.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_dev_daily_dispatch.py"
 lane = "linux-guard"
 
@@ -1787,6 +1808,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_release_signer_nightly.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_signer_parity_compare.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2152,4 +2177,38 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_fresh_home_launch_smoke.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_fetch_all.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_fallback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_file_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_linux_packages.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_critical_path.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shortcut_alternates_documented.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Reads the schema, the two docs pages, en.json and the three skill references; run python3 tests/test_shortcut_alternates_documented.py yourself after changing the accepted shortcuts.bindings forms or the prose that lists them (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_cloud_capture_provision.py"
+lane = "manual"
+reason = "Run by hand before changing the Cloud capture provision scripts; no new CI tests (CLAUDE.md, Verification)."
+
+[[test]]
+path = "tests/test_cmux_next_kill_switches.py"
 lane = "linux-guard"
