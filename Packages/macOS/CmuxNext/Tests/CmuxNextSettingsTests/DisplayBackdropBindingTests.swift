@@ -117,7 +117,9 @@ import Testing
 
     @Test func pendingFolderReadDoesNotRetainBinding() async {
         let loader = SuspendedBackdropFolderListing()
-        var binding: DisplayBackdropBinding? = DisplayBackdropBinding(window: NSWindow(), scope: ThemeScope(level: .room),
+        let app = ThemeScope(level: .room)
+        let scope = ThemeScope(level: .room, parent: app)
+        var binding: DisplayBackdropBinding? = DisplayBackdropBinding(window: NSWindow(), scope: scope,
                                                                       displayID: { first }, listFolder: { await loader.list($0) })
         weak var released = binding
         binding?.apply(["appearance": ["displayBackgrounds": .object([first: "folder:/slow"])]])
@@ -125,6 +127,7 @@ import Testing
         let pending = binding?.folderRefresh
         binding = nil
         #expect(released == nil)
+        #expect(scope.parent === app, "deinit must remove observers and detach the display scope")
         await loader.finish("/slow", pictures: [.art(.munchScream)])
         await pending?.value
     }

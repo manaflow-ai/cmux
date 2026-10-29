@@ -43,8 +43,7 @@ public final class DisplayBackdropBinding {
     }
 
     deinit {
-        folderRefresh?.cancel()
-        for folder in folders.values { folder.task.cancel() }
+        teardown()
     }
 
     /// Resolves and lists a folder on the global executor, including all symlink and metadata reads.
@@ -65,6 +64,11 @@ public final class DisplayBackdropBinding {
     }
 
     public func stop() {
+        teardown()
+    }
+
+    private func teardown() {
+        guard !stopped else { return }
         stopped = true
         generation += 1
         timer.cancel()
