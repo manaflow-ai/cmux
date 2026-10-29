@@ -33,6 +33,11 @@ fn terminal_extra(socket: &Path) -> Value {
 /// its rc file), at its first prompt and idle there. `None` when bash is not
 /// installed.
 fn start_bash(name: &str) -> Option<(Daemon, u64)> {
+    start_bash_with(name, "")
+}
+
+/// [`start_bash`] with `rc_prefix` first in its rc file.
+fn start_bash_with(name: &str, rc_prefix: &str) -> Option<(Daemon, u64)> {
     let bash = ["/bin/bash", "/usr/bin/bash", "/opt/homebrew/bin/bash"]
         .into_iter()
         .find(|path| Path::new(path).is_file())?;
@@ -40,8 +45,10 @@ fn start_bash(name: &str) -> Option<(Daemon, u64)> {
     let rc = daemon.dir.join("bashrc");
     fs::write(
         &rc,
-        "PS1='\\[\\033]133;A\\007\\]idle> \\[\\033]133;B\\007\\]'\n\
-         unset PROMPT_COMMAND\nHISTFILE=/dev/null\n",
+        format!(
+            "{rc_prefix}PS1='\\[\\033]133;A\\007\\]idle> \\[\\033]133;B\\007\\]'\n\
+             unset PROMPT_COMMAND\nHISTFILE=/dev/null\n"
+        ),
     )
     .unwrap();
     let created = request(
@@ -175,4 +182,46 @@ fn shell_idle_holder_a_line_typed_ahead_is_never_idle() {
         assert!(extra.get("shell_idle").is_none(), "a line typed ahead read idle: {extra}");
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// The invariant behind paying owed prompts (review 5 of
+/// cp/daemon-foreground-state, item 1), driven without timing: a line the
+/// line editor read but the shell has not run yet never reads as consumed.
+/// bash's DEBUG trap runs after readline returned the line and before the
+/// command runs; here it blocks on a FIFO no one writes, so the shell sleeps
+/// in that window with no child, no input and no output in flight: the one
+/// state the four reads could mistake for a prompt, but for its terminal
+/// mode, which bash set back to canonical before the trap. The line was typed
+/// ahead (one write with the line before it), so the prompt after `true`
+/// owes it. For as long as the shell sleeps there, the terminal is never
+/// idle and the check never says every byte was read.
+#[test]
+fn shell_idle_holder_a_line_read_but_not_run_is_never_idle() {
+    let fifo =
+        std::env::temp_dir().join(format!("shell-idle-debug-{}-{}", std::process::id(), line!()));
+    let _ = fs::remove_file(&fifo);
+    let made = std::process::Command::new("mkfifo").arg(&fifo).status().unwrap();
+    assert!(made.success(), "mkfifo failed");
+    let rc = format!(
+        "exec 9<>{}\ntrap '[[ $BASH_COMMAND == \"sleep 600\" ]] && read -t 4 -u 9 _' DEBUG\n",
+        fifo.display()
+    );
+    let Some((daemon, surface)) = start_bash_with("idle-read-not-run", &rc) else {
+        let _ = fs::remove_file(&fifo);
+        return;
+    };
+    type_text(&daemon.socket, surface, "true\rsleep 600\r");
+    wait_for_prompts(&daemon.socket, surface, 2);
+    let until = Instant::now() + Duration::from_millis(3_000);
+    while Instant::now() < until {
+        let extra = terminal_extra(&daemon.socket);
+        assert!(extra.get("shell_idle").is_none(), "a line read but not run read idle: {extra}");
+        assert_ne!(
+            extra["foreground_check"]["input_read"],
+            json!(true),
+            "the check said every byte was read while a line waits to run: {extra}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = fs::remove_file(&fifo);
 }

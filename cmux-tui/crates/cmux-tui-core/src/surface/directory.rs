@@ -80,16 +80,32 @@ impl Surface {
     /// byte written was read by the line editor (`Some(true)`, which pays the
     /// prompts typed lines are owed) only when both PTY reads found the shell
     /// reading raw with no input and no output in flight, and both shell reads
-    /// found it asleep with no child. A line the editor read but the shell has
-    /// not run yet fails it, from the kernel's state alone: after its last
-    /// byte the shell echoes, turns canonical mode back on and forks, and in
-    /// that span it sleeps only while its own echo waits to be read (a full
-    /// output queue, or macOS's drain before the mode change), which an
-    /// output read on either side of that sleep sees, or in a wait for its
-    /// child, which the second shell read sees. `Some(false)`: input waits for
-    /// the shell, which is never idle. `None`: anything else (awake, cooked,
-    /// output in flight, no master to ask), which pays nothing and refuses
+    /// found it asleep with no child. `Some(false)`: input waits for the shell,
+    /// which is never idle. `None`: anything else, which pays and refuses
     /// nothing.
+    ///
+    /// Invariant: a line the line editor read but the shell has not run never
+    /// passes the four reads. Between reading the line's last byte and running
+    /// it, a shell is in one of these states, and each fails a read:
+    /// - running (the editor's code, the shell's parser, a builtin, its hooks):
+    ///   not asleep, at either shell read;
+    /// - asleep writing the line's echo or its own output (a full output queue,
+    ///   or macOS's drain before a mode change): output in flight at a PTY read
+    ///   on the same side of that sleep;
+    /// - back in canonical mode (bash's readline and zsh's zle restore it before
+    ///   the DEBUG trap, preexec and the command; fish restores its shell modes
+    ///   before it runs a command): not raw at a PTY read;
+    /// - asleep in a wait for a child it started (an external command, a
+    ///   subshell, a pipeline): a child at the second shell read;
+    /// - stopped (SIGSTOP, a debugger): not asleep.
+    ///
+    /// A shell that came back to its editor reading raw, asleep and with no
+    /// child at all four reads ran the line and drew a new prompt, whose mark
+    /// drops this check's answer. Known gap: a shell whose saved terminal
+    /// mode is itself raw (`stty -icanon` in its rc) and that runs a builtin
+    /// that sleeps with no child (zsh's `zselect`, a loadable `sleep`) between
+    /// two typed-ahead lines passes; bash's DEBUG trap and zsh's preexec, which
+    /// can block there, were measured cooked.
     fn check_shell_foreground(&self, pty: &PtySurface) {
         let due = pty.terminal_metadata.lock().recover_poison().activity.foreground_check_epoch();
         let Some(epoch) = due else { return };
