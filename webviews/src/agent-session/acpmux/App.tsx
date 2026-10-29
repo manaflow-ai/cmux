@@ -224,8 +224,10 @@ import { configureSubagentTrayPlacement, useSubagentTrayPlacement } from "./suba
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
 import { chatHasSummaryContent } from "./summary/summaryContent";
-import { createWorkflowAdapter } from "./summary/foldWorkflows";
-import type { WorkflowSummary } from "./summary/workflow";
+import { createWorkflowAdapter, workflowDetailRequest, type WorkflowDetailRequest } from "./summary/foldWorkflows";
+import { workflowPaneId, workflowPaneRequest } from "./summary/workflowTranscript";
+import { useWorkflowTranscript } from "./summary/useWorkflowTranscript";
+import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
   openSubagentPane,
@@ -5166,12 +5168,56 @@ function AcpmuxPane() {
   const trayPlacement = useSubagentTrayPlacement();
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
+  const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  const freshAgents = useMemo(
+    () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
+    [snapshot.rows, snapshot.subagentViews],
+  );
+  const workflowAdapter = useMemo(createWorkflowAdapter, []);
+  const workflows = useMemo(
+    () => (workflowLabsEnabled && shownSessionId ? workflowAdapter(freshAgents, shownSessionId) : []),
+    [workflowLabsEnabled, workflowAdapter, freshAgents, shownSessionId],
+  );
+  const workflowRequest = useMemo(() => workflowPaneRequest(subagentView), [subagentView]);
+  const selectedWorkflowAgent = useMemo(
+    () =>
+      [...workflows]
+        .reverse()
+        .find((workflow) => workflow.runId === workflowRequest?.runId)
+        ?.agents.find((agent) => agent.agentId === workflowRequest?.agentId),
+    [workflows, workflowRequest],
+  );
+  const readWorkflowAgent = useCallback(
+    (request: WorkflowDetailRequest & { before?: number; after?: number }) =>
+      // l10n-allow: internal transport error; the transcript surface renders its own localized state.
+      directClient.current?.readWorkflowAgent(request) ?? Promise.reject(new Error("Not connected")),
+    [],
+  );
+  const workflowTranscript = useWorkflowTranscript(
+    subagentView,
+    shownSessionId,
+    workflowLabsEnabled,
+    selectedWorkflowAgent,
+    chatName,
+    readWorkflowAgent,
+    snapshot.connection,
+  );
   const childRows = useMemo(() => {
+    if (workflowTranscript.rows) return workflowTranscript.rows;
     if (!subagentView) return undefined;
     if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName);
     const view = childView(subagentView, snapshot.rows, snapshot.subagentViews, NO_EXPANDED, chatName);
     return view && (withSubagentLines(view, childDoneLines.current, workflowLabsEnabled) as AcpmuxRow[]);
-  }, [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName, subagentTray, workflowLabsEnabled]);
+  }, [
+    subagentView,
+    snapshot.rows,
+    snapshot.subagentViews,
+    expanded,
+    chatName,
+    subagentTray,
+    workflowLabsEnabled,
+    workflowTranscript.rows,
+  ]);
   // The session's edit rows for the edited-files card, the same array while they are the same rows.
   const lastEditRows = useRef<SessionEdits | undefined>(undefined);
   const editRows = useMemo(() => {
@@ -5385,7 +5431,6 @@ function AcpmuxPane() {
   );
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
-  const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   // Leo, 2026-10-21: "no layout shift then a fast fade in, instant if cached". A switch in place
   // (chat.select: the page's list, a branch, a fork) to a chat read cold fades its transcript in;
   // one drawn from a kept tail (direct.ts drawKeptTail) shows on the frame it lands. The first chat
@@ -5437,15 +5482,6 @@ function AcpmuxPane() {
   const chatSubsessions = useMemo(
     () => ({ rows: subsessionRows(snapshot.sessions, shownSessionId), onOpen: openOfferChat }),
     [snapshot.sessions, shownSessionId],
-  );
-  const freshAgents = useMemo(
-    () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
-    [snapshot.rows, snapshot.subagentViews],
-  );
-  const workflowAdapter = useMemo(createWorkflowAdapter, []);
-  const workflows = useMemo(
-    () => (workflowLabsEnabled && shownSessionId ? workflowAdapter(freshAgents, shownSessionId) : []),
-    [workflowLabsEnabled, workflowAdapter, freshAgents, shownSessionId],
   );
   const [workflowSideTabId, setWorkflowSideTabId] = useState<string>();
   const workflowSideTabOpener = useRef<HTMLElement | undefined>(undefined);
@@ -5525,7 +5561,9 @@ function AcpmuxPane() {
   // A subagent's pane shows the subagent read only, never the chat's composer, queue or pull
   // request: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
   // harness), that chat's composer is back: a prompt there goes to the chat it shows.
-  const readOnlySubagent = ownSubagentPane && (subagentView !== undefined || requestedSubagent !== undefined);
+  const readOnlySubagent =
+    workflowRequest !== undefined ||
+    (ownSubagentPane && (subagentView !== undefined || requestedSubagent !== undefined));
   // Find in Chat over the transcript (ChatFindScope, below the pane); the page actions read it
   // through `findRef`.
   const findRef = useRef<ChatFind | undefined>(undefined);
@@ -6283,6 +6321,14 @@ function AcpmuxPane() {
       if (!opened && focus) setSubagentView(id);
     });
   }, []);
+  const showWorkflowAgent = useCallback(
+    (agent: WorkflowAgent) => {
+      const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));
+      const request = workflow && workflowDetailRequest(workflow, agent);
+      if (request) showSubagent(workflowPaneId(request));
+    },
+    [workflows, showSubagent],
+  );
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   useOpenNewSubagents(
     quick || subagentPane.current ? undefined : shownSessionId,
@@ -6428,8 +6474,9 @@ function AcpmuxPane() {
   );
   // Labs: the chat's workflows head the Inspector's Background tasks (inspector/WorkflowTasks.tsx).
   const inspectorWorkflows = useMemo(
-    () => (workflows.length > 0 ? { list: workflows, onStop: stopSubagent } : undefined),
-    [workflows, stopSubagent],
+    () =>
+      workflows.length > 0 ? { list: workflows, onStop: stopSubagent, onOpenAgent: showWorkflowAgent } : undefined,
+    [workflows, stopSubagent, showWorkflowAgent],
   );
   const inspector = useChatInspector({
     snapshot,
@@ -6622,6 +6669,8 @@ function AcpmuxPane() {
   const workflowActionsFor = useCallback(
     (workflow: WorkflowSummary) => ({
       onOpenTranscript: openWorkflowTranscript,
+      onOpenAgent: showWorkflowAgent,
+      onPullAgent: readWorkflowAgent,
       // Keep Claude's stop_task route and the workflow node identity intact.
       onStop: stopSubagent
         ? () => {
@@ -6638,7 +6687,7 @@ function AcpmuxPane() {
         return composerHandle.current !== null;
       },
     }),
-    [openWorkflowTranscript, stopSubagent, t],
+    [openWorkflowTranscript, stopSubagent, t, showWorkflowAgent, readWorkflowAgent],
   );
   const workingCounts = useMemo<WorkingCounts>(() => {
     return {
@@ -9304,10 +9353,22 @@ function AcpmuxPane() {
                                                       ? `${shownSessionId}:subagent:${subagentView}`
                                                       : shownSessionId
                                                   }
-                                                  canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                                  historyFrom={childRows ? undefined : snapshot.historyFrom}
+                                                  canLoadOlder={
+                                                    workflowTranscript.rows
+                                                      ? workflowTranscript.canLoadOlder
+                                                      : !childRows && snapshot.canLoadOlder
+                                                  }
+                                                  historyFrom={
+                                                    workflowTranscript.rows
+                                                      ? workflowTranscript.historyFrom
+                                                      : childRows
+                                                        ? undefined
+                                                        : snapshot.historyFrom
+                                                  }
                                                   onLoadOlder={() =>
-                                                    directClient.current?.loadOlder() ?? Promise.resolve()
+                                                    workflowTranscript.rows
+                                                      ? workflowTranscript.loadOlder()
+                                                      : (directClient.current?.loadOlder() ?? Promise.resolve())
                                                   }
                                                   openAt={
                                                     !childRows &&
@@ -9450,6 +9511,7 @@ function AcpmuxPane() {
           onTrustRepo={trustAsk.trustRepo}
           onDistrust={trustAsk.distrust}
           onUndo={trustAsk.undo}
+          answers={answersTrust}
         />
       )}
       {!trustPending && hasPermissionGroups && snapshot.permissionGroups && (
@@ -10823,7 +10885,12 @@ function AcpmuxPane() {
           !artifact &&
           !imageView && (
             <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-              <WorkflowSideTab workflow={workflowSideTab} onClose={closeWorkflowSideTab} onStop={stopSubagent} />
+              <WorkflowSideTab
+                workflow={workflowSideTab}
+                onClose={closeWorkflowSideTab}
+                onStop={stopSubagent}
+                onOpenWorkflowAgent={showWorkflowAgent}
+              />
             </SubagentClockContext.Provider>
           )}
       </section>
