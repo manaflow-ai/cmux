@@ -76,24 +76,8 @@ public struct WorkspaceScreen: View {
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
             .background(InteractivePopEnabler())
-            // Screens, Panes and a tab group's actions: pages pushed over the workspace (swipe back returns).
-            .navigationDestination(item: Binding(get: { source.route }, set: { source.route = $0 })) { route in
-                switch route {
-                case .screens: ScreensPage(source: source)
-                case .panes: PanesScreen(source: source)
-                case .tabGroup(let group): TabGroupPage(source: source, groupID: group)
-                }
-            }
-            // Fork Conversation…: where the copy of the chat opens (the Mac's fork destinations).
-            .confirmationDialog("Fork Conversation", isPresented: Binding(
-                get: { source.forkingTab != nil },
-                set: { shown in if !shown { source.forkingTab = nil } }
-            ), titleVisibility: .visible, presenting: source.forkingTab) { tab in
-                ForEach(ChatForkDestination.allCases) { destination in
-                    Button(destination.title) { Task { await source.fork(tab.id, to: destination) } }
-                }
-                Button("Cancel", role: .cancel) {}
-            }
+            // Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
+            .modifier(WorkspacePages(source: source))
             .onAppear {
                 source.exit = { dismiss() }
                 source.opened()
