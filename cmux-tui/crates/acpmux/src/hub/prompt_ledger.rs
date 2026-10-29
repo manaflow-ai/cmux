@@ -90,7 +90,8 @@ impl Hub {
                 // New Stop records name the accepted prompt even if the daemon died
                 // before writing any user_message. Older records still join by turn ID.
                 if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
-                    && turn_id.is_none()
+                    && !started
+                    && ended.is_none()
                 {
                     turn_id = Some(id.to_owned());
                 }
@@ -204,6 +205,7 @@ mod tests {
             ("stopped_before_start", Some("cancelled")),
             ("stopped_before_message", Some("cancelled")),
             ("stopped_without_message", Some("cancelled")),
+            ("orphan_stopped_without_message", Some("cancelled")),
             ("unrelated_stop_before_message", None),
             ("stopped_then_result", Some("failed")),
             ("completed", Some("completed")),
@@ -228,7 +230,15 @@ mod tests {
             // cancellation for the prompt we are looking up.
             hub.append(&session, "mux", "turn_stop_requested", json!({"turnId": "unrelated"}));
             let queued = ["queued", "joined", "withdrawn"].contains(&point);
-            if point == "stopped_without_message" {
+            if point == "orphan_stopped_without_message" {
+                hub.append(
+                    &session,
+                    "in",
+                    "user_message",
+                    json!({"turnId": "orphan", "promptId": "p"}),
+                );
+            }
+            if ["stopped_without_message", "orphan_stopped_without_message"].contains(&point) {
                 hub.append(
                     &session,
                     "mux",
@@ -354,7 +364,7 @@ mod tests {
                 expected_status.is_some(),
                 "resend after {point}"
             );
-            if point.starts_with("orphan_") {
+            if ["orphan_resend", "orphan_steer"].contains(&point) {
                 assert_eq!(logged.unwrap()["_meta"]["acpmux"]["turnId"], "actual");
             }
         }
