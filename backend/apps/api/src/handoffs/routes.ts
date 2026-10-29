@@ -8,24 +8,38 @@ import type { HandoffListCursor } from "./index-do.ts"
  * Cloud work mode's hand-off routes (handoff-do.ts). Errors are `{error: {code, message}}`.
  *
  * Owner (a signed-in session or a person's install; callerOf):
- *   POST /v1/handoffs + Idempotency-Key  {sessionId, machine, size?: {vcpus?, memoryGb?, pick?, reason?}}
- *                                        -> 201 {handoff, machineToken}; the same request again answers the same hand-off
- *   GET  /v1/handoffs?limit=&cursor=     -> {handoffs: [{id, sessionId, status, summary, createdAt, updatedAt}], nextCursor}
+ *   POST /v1/handoffs                    {sessionId, machine, size?: {vcpus?, memoryGb?, pick?, reason?}}
+ *                                        -> 201 {handoff, machineToken}; one hand-off per session: the same request again answers it,
+ *                                        409 handoff.conflict for a different machine or size
+ *   GET  /v1/handoffs?limit=&cursor=     -> {handoffs: [{id, sessionId, turn, state, status, summary, createdAt, updatedAt}], nextCursor}
  *   GET  /v1/handoffs/:id                -> {handoff}
- *   GET  /v1/handoffs/:id/wait?after=<version>&timeoutMs=  -> {handoff} once its version passes `after`, or at the deadline (at most 25 s)
- *   POST /v1/handoffs/:id/cancel         -> {handoff}
+ *   GET  /v1/handoffs/:id/wait?after=<version>&timeoutMs=  -> {handoff} once its version passes `after`, once closed, or at the deadline (at most 25 s)
+ *   POST /v1/handoffs/:id/turns {after}  -> {handoff} with turn `after + 1` starting (a follow-up; a repeat answers the same turn);
+ *                                        409 handoff.turn_conflict (`after` is not the current turn), handoff.turn_running, handoff.closed
+ *   POST /v1/handoffs/:id/cancel         -> {handoff}: Stop, the current turn becomes cancelled
+ *   POST /v1/handoffs/:id/close          -> {handoff}: the hand-off ends (the only terminal change)
  * Machine (`x-cmux-handoff-token: <machineToken>`, or the bearer of a VM install bound to the hand-off's machine):
- *   POST /v1/handoffs/:id/report {status: running|needs-you|done|failed, summary?} -> {handoff};
- *                                        409 handoff.finished (with the hand-off) once it is done, failed or cancelled
+ *   POST /v1/handoffs/:id/report {turn, status: running|needs-you|done|failed, summary?} -> {handoff};
+ *                                        409 (with the hand-off) handoff.stale (an older turn), handoff.turn_out_of_order (a turn not begun),
+ *                                        handoff.turn_finished (the turn already ended; an exact repeat answers 200), handoff.closed
  *
  * The routes answer 404 where HANDOFF_DO is unbound (production, until hand-off ships there).
  */
-export const HANDOFFS_PATH = /^\/v1\/handoffs(?:\/(ho_[0-9a-f]{20})(?:\/(wait|cancel|report))?)?$/
+export const HANDOFFS_PATH = /^\/v1\/handoffs(?:\/(ho_[0-9a-f]{20})(?:\/(wait|turns|cancel|close|report))?)?$/
 
 const NO_STORE = { "cache-control": "no-store" }
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: NO_STORE })
 const fail = (status: number, code: string, message: string, extra: Record<string, unknown> = {}) => json({ error: { code, message }, ...extra }, status)
-const STATUS: Record<string, number> = { "handoff.not_found": 404, "handoff.conflict": 409, "handoff.finished": 409 }
+const STATUS: Record<string, number> = {
+  "handoff.not_found": 404,
+  "handoff.conflict": 409,
+  "handoff.closed": 409,
+  "handoff.stale": 409,
+  "handoff.turn_finished": 409,
+  "handoff.turn_out_of_order": 409,
+  "handoff.turn_conflict": 409,
+  "handoff.turn_running": 409
+}
 const answer = <T>(r: HandoffResult<T>, map: (v: T) => unknown, status = 200) =>
   r.ok ? json(map(r.value), status) : fail(STATUS[r.code] ?? 400, r.code, r.message, r.handoff ? { handoff: r.handoff } : {})
 
@@ -38,6 +52,7 @@ const body = async (request: Request): Promise<Record<string, unknown> | null> =
 const SESSION = /^[A-Za-z0-9_.:-]{1,128}$/
 const MACHINE = /^[A-Za-z0-9_-]{1,64}$/
 const text = (v: unknown, max: number): string | null | undefined => (v === undefined || v === null ? null : typeof v === "string" && v.length <= max ? v.trim() || null : undefined)
+const turnNumber = (v: unknown): number | null => (typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null)
 const amount = (v: unknown): number | null | undefined => (v === undefined || v === null ? null : typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 4096 ? v : undefined)
 
 const parseSize = (v: unknown): HandoffSize | null => {
@@ -55,11 +70,9 @@ const create = async (request: Request, env: Env, owner: string): Promise<Respon
   if (typeof b.machine !== "string" || !MACHINE.test(b.machine)) return fail(400, "validation.invalid", "machine: the cloud machine id (letters, digits, _ -, at most 64)")
   const size = parseSize(b.size)
   if (!size) return fail(400, "validation.invalid", "size: {vcpus?, memoryGb?} positive numbers, {pick?, reason?} short text")
-  const key = (request.headers.get("idempotency-key") ?? "").trim()
-  if (!key || key.length > 128) return fail(400, "validation.invalid", "an Idempotency-Key header is required (at most 128 characters)")
   if (env.CLOUD_MUTATION_LIMIT && !(await env.CLOUD_MUTATION_LIMIT.limit({ key: `handoff:${owner}` })).success) return fail(429, "rate_limited", "too many hand-offs just now; retry in a minute")
-  // The id is the owner's key's: a retry after a lost response reaches the same hand-off.
-  const id = `ho_${(await hex(`${owner}\u0000${key}`)).slice(0, 20)}`
+  // The id is the session's: one hand-off per session, and a retry after a lost response reaches it.
+  const id = `ho_${(await hex(`${owner}\u0000${b.sessionId}`)).slice(0, 20)}`
   const digest = await hex(JSON.stringify([b.sessionId, b.machine, size]))
   return answer(await stub(env, id).init({ id, owner, requestDigest: digest, sessionId: b.sessionId, machine: b.machine, size }), (v) => v, 201)
 }
@@ -94,6 +107,13 @@ const owner = async (request: Request, env: Env, id: string | undefined, sub: st
     return json({ handoffs: page.handoffs, nextCursor: page.next ? encodeCursor(page.next) : null })
   }
   if (sub === "cancel") return write ? answer(await stub(env, id).cancel(caller.user), (handoff) => ({ handoff })) : fail(405, "method_not_allowed", "POST")
+  if (sub === "close") return write ? answer(await stub(env, id).close(caller.user), (handoff) => ({ handoff })) : fail(405, "method_not_allowed", "POST")
+  if (sub === "turns") {
+    if (!write) return fail(405, "method_not_allowed", "POST")
+    const after = turnNumber((await body(request))?.after)
+    if (after === null) return fail(400, "validation.invalid", "after: the turn number the caller last saw")
+    return answer(await stub(env, id).beginTurn(caller.user, after), (handoff) => ({ handoff }))
+  }
   if (request.method !== "GET") return fail(405, "method_not_allowed", "GET")
   if (sub === "wait") return answer(await stub(env, id).wait(caller.user, bounded(url.searchParams.get("after"), 0, Number.MAX_SAFE_INTEGER), bounded(url.searchParams.get("timeoutMs"), MAX_WAIT_MS, MAX_WAIT_MS)), (handoff) => ({ handoff }))
   return answer(await stub(env, id).get(caller.user), (handoff) => ({ handoff }))
@@ -118,9 +138,11 @@ const report = async (request: Request, env: Env, id: string): Promise<Response>
   if (cred instanceof Response) return cred
   const b = await body(request)
   if (!b || typeof b.status !== "string" || !MACHINE_STATUSES.has(b.status)) return fail(400, "validation.invalid", "status: running, needs-you, done or failed")
+  const turn = turnNumber(b.turn)
+  if (turn === null || turn < 1) return fail(400, "validation.invalid", "turn: the turn this report is about (GET the hand-off for the current one)")
   const summary = text(b.summary, SUMMARY_MAX_CHARS)
   if (summary === undefined) return fail(400, "validation.invalid", `summary: text of at most ${SUMMARY_MAX_CHARS} characters`)
-  return answer(await stub(env, id).report(cred, b.status, summary), (handoff) => ({ handoff }))
+  return answer(await stub(env, id).report(cred, turn, b.status, summary), (handoff) => ({ handoff }))
 }
 
 export const handleHandoffs = async (request: Request, env: Env, m: RegExpMatchArray): Promise<Response> => {

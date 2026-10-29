@@ -23,7 +23,10 @@ import {
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
+  type DevicesJoinState,
   type DevicesRelay,
+  type CloudEnvironmentsRun,
+  type CloudEnvironmentsState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -70,6 +73,28 @@ export type MockOptions = {
   workspaceBackgrounds?: WorkspaceBackground[];
   /** Colors the Ghostty config sets itself (the host lists' `theme_overrides`). */
   themeOverrides?: ThemeOverride[];
+  /** This Mac joined to a team (the host lists' `devices_join`); absent: not joined. */
+  devicesJoin?: DevicesJoinState;
+};
+
+/** This Mac joined to a team with the one-line join, both consent switches off. */
+export const mockDevicesJoin: DevicesJoinState = {
+  title: "This Mac on Your Team",
+  joined: "Joined to Example Team as studio",
+  help: "Your team's machines reach this Mac through the mesh. They cannot see or control it until you allow it here.",
+  error: null,
+  busy: false,
+  known: true,
+  revoke_all: null,
+  switches: [
+    { surface: "screen", title: "Screen sharing", help: "Your team's machines can see this screen", on: false },
+    {
+      surface: "control",
+      title: "Control",
+      help: "Your team's machines can move the pointer and type here",
+      on: false,
+    },
+  ],
 };
 
 export const mockDomains: Domains = {
@@ -175,6 +200,7 @@ export class MockSettingsProvider {
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
+    if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -218,6 +244,18 @@ export class MockSettingsProvider {
         const devices = this.host.devices;
         if (devices)
           this.setHost({ ...this.host, devices: { ...devices, rows: devices.rows.filter((r) => r.id !== params.id) } });
+        return {};
+      },
+      "cmux.settings.devices.join_consent": (params) => {
+        const join = this.host.devices_join;
+        if (join)
+          this.setHost({
+            ...this.host,
+            devices_join: {
+              ...join,
+              switches: join.switches.map((s) => (s.surface === params.surface ? { ...s, on: params.on === true } : s)),
+            },
+          });
         return {};
       },
       "cmux.settings.devices.full_access": (params) => {
@@ -430,6 +468,8 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
+      "cmux.settings.environments.state": () => this.environments,
+      "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
@@ -497,6 +537,7 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
+      "cmux.settings.devices.join_consent",
       "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
@@ -516,6 +557,8 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.run",
       "cmux.settings.devices.state",
       "cmux.settings.devices.run",
+      "cmux.settings.environments.state",
+      "cmux.settings.environments.run",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
       "cmux.settings.theme.set",
@@ -584,6 +627,73 @@ export class MockSettingsProvider {
   setDevices(devices: DevicesState): void {
     this.devices = devices;
     for (const ctx of this.devicesChanged) ctx.emit(devices);
+  }
+
+  /** Settings > Accounts > Cloud Environments as the app's model serves it. */
+  environments: CloudEnvironmentsState = {
+    available: true,
+    loading: false,
+    error: null,
+    environments: [
+      {
+        id: "env_00000000000000000001",
+        name: "web",
+        repo: "manaflow-ai/cmux@feat-cmux-next",
+        setup_script: "cd web && bun install",
+        status: "ready",
+        error: null,
+        log_tail: null,
+      },
+      {
+        id: "env_00000000000000000002",
+        name: "api",
+        repo: "octo/api",
+        setup_script: "make deps",
+        status: "failed",
+        error: "setup exited 3",
+        log_tail: "lockfile mismatch",
+      },
+    ],
+  };
+  /** Every Cloud Environments gesture the page sent, in order (tests). */
+  environmentRuns: CloudEnvironmentsRun[] = [];
+
+  private runEnvironments(run: CloudEnvironmentsRun): { error?: string | null } {
+    this.environmentRuns.push(run);
+    const rows = this.environments.environments;
+    switch (run.action) {
+      case "refresh":
+        return {};
+      case "save":
+        if (!run.name.trim()) return { error: "Name must be 1-80 characters." };
+        this.environments = {
+          ...this.environments,
+          environments: [
+            ...rows,
+            {
+              id: `env_${String(rows.length + 1).padStart(20, "0")}`,
+              name: run.name,
+              repo: run.repo || null,
+              setup_script: run.setup_script ?? "",
+              status: "unbuilt",
+              error: null,
+              log_tail: null,
+            },
+          ],
+        };
+        return {};
+      case "build":
+        this.environments = {
+          ...this.environments,
+          environments: rows.map((row) =>
+            row.id === run.id ? { ...row, status: "building", error: null, log_tail: null } : row,
+          ),
+        };
+        return {};
+      case "delete":
+        this.environments = { ...this.environments, environments: rows.filter((row) => row.id !== run.id) };
+        return {};
+    }
   }
 
   /** What the app's devices model does to the state (enough for the page and the gallery). A

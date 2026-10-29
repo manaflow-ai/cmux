@@ -91,21 +91,33 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
     });
 
   /// Whether the prompt's scrollbar lane shows a thumb as the page draws it: some rows of the lane
-  /// differ from the field's padding beside it (a thumb), and some do not (no track).
+  /// differ from the field's padding beside it (a thumb), and some do not (no track). Since #24498
+  /// the prompt runs to the box's right edge, so only the lane's rows below the box's rounded top
+  /// corner (its rim) and above the mic and Send (where the track stops) can show a thumb.
   async function thumb(page: Page) {
     const box = await page.evaluate((selector) => {
       const field = document.querySelector<HTMLElement>(selector)!;
       const rect = field.getBoundingClientRect();
       const style = getComputedStyle(field);
       const borders = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+      const actions = document.querySelector(".acpmux-composer-actions")?.getBoundingClientRect();
+      const bottom = actions && actions.height > 0 ? Math.min(rect.bottom, actions.top) : rect.bottom;
+      // The nearest rounded box around the prompt: its corner's rows are the rim, not the lane.
+      let corner = 0;
+      for (let node = field.parentElement; node && !corner; node = node.parentElement) {
+        const box = node.getBoundingClientRect();
+        if (Math.abs(box.right - rect.right) > 2) continue;
+        corner = Math.max(0, box.top + parseFloat(getComputedStyle(node).borderTopRightRadius) - rect.top);
+      }
+      const top = rect.top + Math.ceil(corner);
       return {
         right: rect.right - parseFloat(style.borderRightWidth),
-        top: rect.top,
-        height: rect.height,
+        top,
+        height: Math.max(0, bottom - top),
         bar: Math.round(field.offsetWidth - field.clientWidth - borders),
       };
     }, FIELD);
-    if (box.bar <= 0) return { bar: box.bar, thumb: false, track: false };
+    if (box.bar <= 0 || box.height < 1) return { bar: box.bar, thumb: false, track: false };
     const shot = await page.screenshot({
       clip: { x: box.right - box.bar - 4, y: box.top, width: box.bar + 4, height: Math.floor(box.height) },
     });

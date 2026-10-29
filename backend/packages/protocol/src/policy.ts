@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { IntegrationProvider, RepoPattern } from "./integrations.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Team policy (spec/enterprise.md section 4): one typed record per team,
@@ -15,10 +16,10 @@ const policyValue = <S extends Schema.Top>(value: S) => Schema.Struct({ value, m
 const Int = Schema.Number.check(Schema.isInt())
 const intBetween = (min: number, max: number) => Int.check(Schema.isGreaterThanOrEqualTo(min), Schema.isLessThanOrEqualTo(max))
 const AppId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))
-const Version = Schema.String.check(Schema.isPattern(/^[0-9]+(\.[0-9]+){0,3}$/))
+const Version = Schema.String.check(isPattern(/^[0-9]+(\.[0-9]+){0,3}$/))
 
 /** A cmux.json key path, as the settings catalog names it (`ui.animationSpeed`). */
-const SettingPath = Schema.String.check(Schema.isPattern(/^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9-]+)+$/), Schema.isMaxLength(200))
+const SettingPath = Schema.String.check(isPattern(/^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9-]+)+$/), Schema.isMaxLength(200))
 const DeviceSetting = Schema.Struct({ value: Schema.Unknown, mode: PolicyMode })
 
 /** Product maximums: a team may only shorten these retention periods (D19). */

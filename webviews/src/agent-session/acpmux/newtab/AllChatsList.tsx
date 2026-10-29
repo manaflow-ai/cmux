@@ -21,6 +21,7 @@ import { AgentMark, ageLabel } from "../NewTabPage";
 import { useNt } from "./strings";
 import { useMinuteClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
+import { AllChatsLoading } from "./AllChatsLoading";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
@@ -370,6 +371,7 @@ export function AllChatsList({
   onViewOnly,
   onBring,
   now: fixedNow,
+  scrollParent,
 }: {
   load: LoadChatsPage;
   onOpen(key: string): void;
@@ -382,6 +384,8 @@ export function AllChatsList({
   /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
   onBring?(keys: string[]): void;
   now?: number;
+  /** New Tab scrolls the whole page; History retains its own list viewport. */
+  scrollParent?: string;
 }) {
   const t = useT();
   const nt = useNt();
@@ -637,6 +641,8 @@ export function AllChatsList({
       )}
       {!indexed ? (
         activeShown.length === 0 && <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>
+      ) : rows.length === 0 && (!state.loaded || state.loading || (!state.ready && !state.failed)) ? (
+        <AllChatsLoading rowHeight={ROW_HEIGHT} design={state.design} view={view} />
       ) : state.loaded && rows.length === 0 ? (
         state.failed ? (
           <output className="nt-chats-empty nt-chats-failed">
@@ -658,6 +664,7 @@ export function AllChatsList({
           <div className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>
             <VirtualList
               className="nt-all-list"
+              scrollParent={scrollParent}
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
               role="list"
               label={nt("allChats")}
