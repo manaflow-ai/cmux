@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import re
 import unittest
+
+import yaml
 from pathlib import Path
 
 
@@ -293,11 +295,79 @@ def runner_label_errors(runs_on: str) -> list[str]:
 
 
 # (workflow, job) -> why its runner may come from elsewhere. Exact jobs only.
-APP_KEY_RUNNER_EXCEPTIONS = {
+# (workflow, job) -> why a job that holds a secret takes its runner from something this check
+# cannot enumerate (a picker job's output, a computed matrix). Exact jobs only. "open:" marks a
+# job that runs on a reused owned machine by design and still holds a secret there: each needs
+# its secret moved to a separate job on an ephemeral label, as #27622 did for the dogfood capture.
+SECRET_RUNNER_EXCEPTIONS = {
     ("nightly.yml", "generate-nightly-deltas"):
         "pick-classic-sign-runner's output, which names only Blacksmith macOS labels "
         "(classic_nightly_build_runner.py), else the literal Blacksmith fallback",
+    ("nightly.yml", "build-sign-notarize-nightly"):
+        "the same picker as generate-nightly-deltas: only Blacksmith macOS labels",
+    ("cmux-next-dev-daily.yml", "tip-deltas"):
+        "the runner job's `cloud`/`alternate` outputs, from classic_nightly_build_runner.py: "
+        "only Blacksmith macOS labels",
+    ("ios-app-store.yml", "upload-and-validate"):
+        "resolve_runners.py's macos_26_ios capability: .github/runners.json maps it to "
+        "blacksmith-6vcpu-macos-26 or the hosted macos-26 only",
+    ("nightly.yml", "build-nightly-app"):
+        "open: CI_CACHE_R2 and SENTRY_AUTH_TOKEN on the pinned trusted mini (CI_NIGHTLY_TRUSTED_RUNNER) "
+        "by design; nightlies never use Blacksmith",
+    ("seed-derived-data.yml", "seed"):
+        "open: CI_CACHE_R2 on the pools seed_decide.py names, owned Macs included, by design "
+        "(it seeds their DerivedData)",
+    ("test-ios.yml", "ios-simulator-build"):
+        "open: CI_CACHE_R2 on ios_runner_pool.py's pick, an owned simulator Mac when CI_IOS_OWNED is 1",
+    ("ios-screenshots.yml", "screenshots"):
+        "open: the App Store Connect API key on ios_runner_pool.py's pick, an owned simulator Mac "
+        "when CI_IOS_OWNED is 1",
 }
+APP_KEY_RUNNER_EXCEPTIONS = {key: why for key, why in SECRET_RUNNER_EXCEPTIONS.items()
+                             if key == ("nightly.yml", "generate-nightly-deltas")}
+# A secret a job reads: `${{ secrets.X }}` (not the job's own GITHUB_TOKEN), `secrets[...]`, or
+# `secrets: inherit` into a reusable workflow. Context names are case-insensitive.
+SECRET_MARKER = re.compile(
+    r"\$\{\{(?:[^}]|\}(?!\}))*?\bsecrets\s*(?:\.\s*(?!github_token\b)[a-z_][a-z0-9_]*|\[)|^\s*secrets:\s*inherit\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def secret_jobs() -> list[tuple[str, str, object, dict]]:
+    """(workflow, job, runs-on, job) for every job that holds a secret or a GitHub App key."""
+    found = []
+    for path in sorted(WORKFLOWS.glob("*.y*ml")):
+        text = path.read_text(encoding="utf-8")
+        document = yaml.load(text, Loader=yaml.BaseLoader) or {}
+        for name, job in (document.get("jobs") or {}).items():
+            body = yaml.safe_dump(job, sort_keys=False, width=100000)
+            if SECRET_MARKER.search(body) or APP_KEY_MARKER.search(body):
+                found.append((path.name, name, job.get("runs-on"), job))
+    return found
+
+
+def job_runner_errors(workflow: str, job: dict) -> list[str]:
+    """runner_label_errors for a whole job: a local reusable call is checked through its callee's
+    jobs, and `${{ matrix.KEY }}` through each value the job's own matrix lists."""
+    if "uses" in job and "runs-on" not in job:
+        uses = str(job["uses"])
+        if not uses.startswith("./.github/workflows/") or not (ROOT / uses).is_file():
+            return [f"passes secrets to {uses}, which is not a workflow of this repository"]
+        return []  # The callee's jobs are in secret_jobs() themselves.
+    runs_on = job.get("runs-on")
+    if not isinstance(runs_on, str):
+        return [f"runs-on {runs_on!r} is not one label"]
+    key = re.fullmatch(r"\$\{\{\s*matrix\.([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", runs_on.strip())
+    if key is None:
+        return runner_label_errors(runs_on)
+    matrix = (job.get("strategy") or {}).get("matrix")
+    if not isinstance(matrix, dict):
+        return [f"runs-on reads matrix.{key.group(1)} from a computed matrix {matrix!r}"]
+    values = list(matrix.get(key.group(1)) or [])
+    values += [entry[key.group(1)] for entry in matrix.get("include") or [] if key.group(1) in entry]
+    if not values:
+        return [f"matrix.{key.group(1)} lists no value"]
+    return [error for value in values for error in runner_label_errors(str(value))]
 
 
 def app_key_jobs() -> list[tuple[str, str, str]]:
@@ -1258,6 +1328,40 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             with self.subTest(workflow=workflow, job=job):
                 self.assertEqual(runner_label_errors(runs_on), [], f"{workflow}:{job} holds an App key")
         self.assertGreater(bounded, 0)
+
+    def test_a_job_with_a_secret_runs_where_no_variable_can_move_it(self) -> None:
+        # Every secret, not only App keys: R2, Vercel, Cloudflare, Stack server keys, Sentry,
+        # signing material. A job reading one runs where no variable value reaches a reused machine.
+        jobs = secret_jobs()
+        names = {(workflow, job) for workflow, job, _, _ in jobs}
+        for key in (("presence.yml", "deploy"), ("r2-cache-prune.yml", "prune"), ("ci-queue-janitor.yml", "sweep"),
+                    ("build-ghosttykit.yml", "build-ghosttykit"), ("docs-channels.yml", "nightly")):
+            self.assertIn(key, names)  # not vacuous
+        for key in SECRET_RUNNER_EXCEPTIONS:
+            self.assertIn(key, names, f"stale exception {key}")
+        for workflow, job, _, body in jobs:
+            if (workflow, job) in SECRET_RUNNER_EXCEPTIONS:
+                continue
+            with self.subTest(workflow=workflow, job=job):
+                self.assertEqual(job_runner_errors(workflow, body), [], f"{workflow}:{job} holds a secret")
+
+    def test_the_secret_detector_and_matrix_check(self) -> None:
+        for held in ("${{ secrets.R2_KEY }}", "${{ SECRETS.Vercel_Token }}", "${{ secrets['X'] }}",
+                     "secrets: inherit", "${{ format('{0}', secrets.A) }}"):
+            self.assertTrue(SECRET_MARKER.search(held), held)
+        for clean in ("${{ secrets.GITHUB_TOKEN }}", "${{ secrets.github_token }}", "python3 -c 'import secrets'",
+                      "secrets.token_hex(8)", "${{ github.token }}"):
+            self.assertFalse(SECRET_MARKER.search(clean), clean)
+        literal = {"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": {"pool": ["blacksmith-6vcpu-macos-15"]}}}
+        self.assertEqual(job_runner_errors("x.yml", literal), [])
+        moved = {"runs-on": "${{ matrix.pool }}",
+                 "strategy": {"matrix": {"pool": ["${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}"]}}}
+        self.assertNotEqual(job_runner_errors("x.yml", moved), [])
+        computed = {"runs-on": "${{ matrix.pool }}", "strategy": {"matrix": "${{ fromJSON(needs.a.outputs.m) }}"}}
+        self.assertNotEqual(job_runner_errors("x.yml", computed), [])
+        self.assertNotEqual(job_runner_errors("x.yml", {"uses": "org/repo/.github/workflows/x.yml@v1"}), [])
+        self.assertEqual(runner_label_errors("ubuntu-latest"), [])
+        self.assertNotEqual(runner_label_errors("self-hosted"), [])
 
     def test_key_holding_linux_jobs_follow_linux_runner_through_the_bounded_selector(self) -> None:
         runs_on = {(workflow, job): line for workflow, job, line in app_key_jobs()}
