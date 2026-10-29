@@ -11,6 +11,13 @@ impl Hub {
     /// that name (its session is the one meant), so it can only reach a session the bare `NAME`
     /// names exactly.
     pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
+        // A configured peer owns its namespace even when its mirrored row disappeared
+        // after lookup. A local display name must never intercept the resolved route.
+        if let Some((host, _)) = key.split_once('/')
+            && self.peer(host).is_some()
+        {
+            return Err(RpcError::not_found(format!("no local session with the id {key:?}")));
+        }
         let found = self.resolve_here(key);
         if found.as_ref().is_err_and(|e| e.code == RpcError::not_found("").code)
             && let Some((host, rest)) = key.split_once('/')
