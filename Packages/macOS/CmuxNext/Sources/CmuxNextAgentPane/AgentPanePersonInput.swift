@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import Darwin
 
 /// Whether a key or mouse event in an agent pane is the person's own input, for the pane's gesture
@@ -32,7 +32,7 @@ enum AgentPanePersonInput {
 
     /// Whether the event AppKit is dispatching now (a menu choice, a shortcut, a drop) is the
     /// person's; none (a call from outside an event) is not.
-    @MainActor static var currentIsPerson: Bool { NSApp.currentEvent.map(isPerson) ?? false }
+    @MainActor static var currentIsPerson: Bool { NSApp.currentEvent.map { isPerson($0) } ?? false }
 
     /// Records the gesture of a native choice (a menu item, a shortcut, a drop) only when the event
     /// in dispatch is the person's: a posted click or key, or a scripted run, grants nothing.
