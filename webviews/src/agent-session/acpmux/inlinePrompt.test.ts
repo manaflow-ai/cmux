@@ -123,7 +123,7 @@ test("send retains ID-bound image and video order through a reply before echo", 
           },
         },
       ),
-    ).toBe(true);
+    ).toBe("back");
     expect(restored?.input).toBe(input);
     const again = await io.client.resendPrompt(row.id, row.text);
     await io.client.send(again.input, again.attachments);

@@ -73,8 +73,9 @@ const takeBackButtons = () =>
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /// A chat whose steer `promptId` waits; `refuses` makes acpmux answer the X's withdraw false (the
-/// agent took the steer already, or its harness cannot drop one).
-async function waitingSteer({ promptId = "p-steer", refuses = false } = {}) {
+/// agent took the steer already, or its harness cannot drop one); `lost` makes the withdraw fail on
+/// the way, unanswered.
+async function waitingSteer({ promptId = "p-steer", refuses = false, lost = false } = {}) {
   const daemon = fakeDaemon(
     record([
       ["mux", "user_message", { promptId: "p-turn", text: "Add retries" }],
@@ -87,7 +88,9 @@ async function waitingSteer({ promptId = "p-steer", refuses = false } = {}) {
     unsteer: (row: Parameters<typeof takeBackSteer>[0]) =>
       takeBackSteer(row, {
         withdraw: (promptId) =>
-          client.editQueued(promptId, { op: "withdraw" }).then((reply) => !refuses && reply?.ok === true),
+          lost
+            ? Promise.reject(new Error("socket closed"))
+            : client.editQueued(promptId, { op: "withdraw" }).then((reply) => !refuses && reply?.ok === true),
         attachments: (rowId) => client.promptAttachments(rowId),
         restore: (text) => restored.push(text),
       }),
@@ -165,7 +168,7 @@ test("a steer whose attachments cannot be read stays, and nothing is withdrawn",
     attachments: () => Promise.reject(new Error("acpmux has no image")),
     restore: (text) => restored.push(text),
   });
-  expect([took, withdrawn, restored]).toEqual([false, [], []]);
+  expect([took, withdrawn, restored]).toEqual(["failed", [], []]);
 });
 
 test("a steer with an image acpmux could not give back stays", async () => {
@@ -184,7 +187,7 @@ test("a steer with an image acpmux could not give back stays", async () => {
     attachments: async () => [],
     restore: () => {},
   });
-  expect([took, withdrawn]).toEqual([false, []]);
+  expect([took, withdrawn]).toEqual(["failed", []]);
 });
 
 const sendNow = () =>
@@ -221,6 +224,46 @@ test("an X acpmux refuses gives way to Read after this step; Send now stays the 
     await render();
     expect(takeBackButtons().length).toBe(0);
     expect(dom.window.document.querySelector(".cv-user__kept") !== null).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// Review, 2026-10-29: a take-back that failed on the way (the withdraw never got its answer) is no
+// refusal. The X stays to be tried again, and the row says nothing it does not know.
+test("an X whose withdraw fails on the way stays to be tried again", async () => {
+  const row = {
+    id: "user-2",
+    version: 1,
+    kind: "user",
+    text: "Use this",
+    steer: "waiting",
+    steerPromptId: "p-x",
+  } as const;
+  const lost = await takeBackSteer(row as never, {
+    withdraw: () => Promise.reject(new Error("socket closed")),
+    attachments: async () => [],
+    restore: () => {},
+  });
+  const refused = await takeBackSteer(row as never, {
+    withdraw: async () => false,
+    attachments: async () => [],
+    restore: () => {},
+  });
+  expect([lost, refused]).toEqual(["failed", "refused"]);
+
+  const { daemon, root, render } = await waitingSteer({ promptId: "p-transient", lost: true });
+  try {
+    await render();
+    const [x] = takeBackButtons();
+    await act(async () => {
+      x!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      await settle();
+    });
+    expect(daemon.requests.filter((request) => request.method === "_acpmux/queue_edit").length).toBe(0);
+    expect(takeBackButtons().length).toBe(1);
+    expect(takeBackButtons()[0]!.disabled).toBe(false);
+    expect(dom.window.document.querySelector(".cv-user__kept") === null).toBe(true);
   } finally {
     await act(async () => root.unmount());
   }

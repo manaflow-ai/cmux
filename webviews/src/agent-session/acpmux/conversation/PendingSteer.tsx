@@ -4,7 +4,7 @@ import { useT } from "../i18n";
 import type { AcpmuxRow, QueueEdit } from "../model";
 import { Close } from "./icons";
 import { MessageCopy, MessageFooterRow, ROW_ICON } from "./MessageActions";
-import { TurnActionsContext } from "./turnActions";
+import { TurnActionsContext, type TakeBack } from "./turnActions";
 
 /// Under a steer the agent has not read yet: a quiet clock (it reads a steer when its current
 /// step ends), Send now, which stops that step so the agent reads the message at once, and an X
@@ -21,6 +21,7 @@ import { TurnActionsContext } from "./turnActions";
 /// An X acpmux refuses (the agent took the steer already, or its harness cannot drop one) never
 /// sits there doing nothing: it gives way to "Read after this step", so the row says why the
 /// message stays (Leo, 2026-10-29: "this fucking edit message thing. It doesn't even fucking work").
+/// One that failed on the way (an RPC error, attachments not read) stays to be tried again.
 export function PendingSteer({
   row,
   send,
@@ -77,9 +78,9 @@ export function PendingSteer({
             onClick={() => {
               setSending(true);
               void unsteer(row)
-                .catch(() => false)
-                .then((back) => {
-                  if (back) return;
+                .catch((): TakeBack => "failed")
+                .then((result) => {
+                  if (result !== "refused") return;
                   keptIds.add(promptId);
                   setKept(true);
                 })
@@ -110,10 +111,10 @@ export function takesSteersBack(summary: { backgroundsWork?: boolean } | undefin
 }
 
 /// Takes back steer `row` while the agent has not read it: acpmux drops it (`withdraw`), and its
-/// text and attachments go back into the composer to edit. Its attachments are read first (the
-/// row goes with acpmux's `steer_withdrawn` record), and one that cannot be read keeps the steer:
-/// the composer never gets the text without its images. False, with nothing restored, when the
-/// steer stays (read already, or its attachments unreadable).
+/// text and attachments go back into the composer to edit (`back`). Its attachments are read first
+/// (the row goes with acpmux's `steer_withdrawn` record), and one that cannot be read keeps the
+/// steer: the composer never gets the text without its images (`failed`, as is a withdraw that
+/// never got its answer). `refused` when acpmux answered that the steer stays, or it was read.
 export async function takeBackSteer(
   row: AcpmuxRow,
   io: {
@@ -122,9 +123,9 @@ export async function takeBackSteer(
     draft?: (rowId: string, text: string) => Promise<{ input: string; attachments: ComposerAttachment[] }>;
     restore: (text: string, attachments: ComposerAttachment[]) => void;
   },
-): Promise<boolean> {
+): Promise<TakeBack> {
   const promptId = row.steerPromptId;
-  if (!promptId || row.steer !== "waiting") return false;
+  if (!promptId || row.steer !== "waiting") return "refused";
   const text = row.resend ?? row.text ?? "";
   const draft = await (
     io.draft ? io.draft(row.id, text) : io.attachments(row.id).then((attachments) => ({ input: text, attachments }))
@@ -132,7 +133,10 @@ export async function takeBackSteer(
   const attachments = draft?.attachments;
   // An image acpmux could not give back is left out of what it read: the steer stays then too.
   const images = attachments?.filter((attachment) => attachment.kind === "image").length ?? 0;
-  if (!draft || images < (row.images?.length ?? 0) || !(await io.withdraw(promptId))) return false;
+  if (!draft || images < (row.images?.length ?? 0)) return "failed";
+  const withdrawn = await io.withdraw(promptId).catch(() => undefined);
+  if (withdrawn === undefined) return "failed";
+  if (!withdrawn) return "refused";
   io.restore(draft.input, draft.attachments);
-  return true;
+  return "back";
 }
