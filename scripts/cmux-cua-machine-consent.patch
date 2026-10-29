@@ -1816,7 +1816,7 @@ index 459a6dbc..d3a4f2b6 100644
      pub fn current_state(&self) -> RecordingState {
          let inner = self.inner.lock().unwrap();
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
-index 013fc39f..37a4b254 100644
+index 013fc39f..d700bb72 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
 @@ -481,6 +481,28 @@ pub struct ToolRegistry {
@@ -1995,7 +1995,7 @@ index 013fc39f..37a4b254 100644
              let window_id = args.opt_u64("window_id");
              let pid = args.opt_i64("pid");
              if let Some(png_bytes) = screenshot_for(window_id, pid) {
-@@ -814,6 +914,138 @@ impl ToolRegistry {
+@@ -814,6 +914,140 @@ impl ToolRegistry {
      }
  }
  
@@ -2037,8 +2037,10 @@ index 013fc39f..37a4b254 100644
 +    }
 +
 +    /// Start (once per registry) the thread that stops a running recording,
-+    /// video included, within half a second of a `screen` revoke, without
-+    /// waiting for the next tool call. It holds only a weak reference to the
++    /// video included, after a `screen` revoke without waiting for the next
++    /// tool call: it checks every half second, and each check takes at most
++    /// the source's own deadline (1.5 s for the cmux host), so a revoke
++    /// ends the recording within about two seconds. It holds only a weak reference to the
 +    /// recording. Stop condition: the registry is dropped (its `Drop` drops
 +    /// the sender and joins the thread) or the recording is gone. Returns
 +    /// false when no watcher runs and none could be started.
@@ -2134,7 +2136,7 @@ index 013fc39f..37a4b254 100644
  /// Shared watchable-action boundary: validate first, then front exactly once.
  /// Kept separate from [`ToolRegistry::invoke`] so focus ordering can be tested
  /// without mutating the process-wide watchable-mode environment.
-@@ -1715,3 +1947,427 @@ mod capability_tests {
+@@ -1715,3 +1949,427 @@ mod capability_tests {
          assert_eq!(v["tools"].as_array().unwrap().len(), 0);
      }
  }
