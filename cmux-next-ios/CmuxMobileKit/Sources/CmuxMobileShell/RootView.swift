@@ -452,6 +452,7 @@ struct ShellView: View {
                 if let team = shell.invitingTeam { shell.sendInvite(email: inviteEmail, to: team) }
                 inviteEmail = ""
             }
+                .keyboardShortcut(.defaultAction)
         } message: {
             Text("They'll get an email invitation to join.")
         }

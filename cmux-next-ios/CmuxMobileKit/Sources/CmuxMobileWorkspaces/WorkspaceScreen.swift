@@ -115,6 +115,7 @@ public struct WorkspaceScreen: View {
                 Button("Rename") {
                     if let id = renameID { Task { await source.rename(id, to: renameText) } }
                 }
+                    .keyboardShortcut(.defaultAction)
             }
             .modifier(TabMoveAndGroupSheets(source: source, groupName: $groupName))
             // Closing a tab with a running program asks first (Codex QA F9).

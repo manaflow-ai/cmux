@@ -62,6 +62,7 @@ struct TabMoveAndGroupSheets: ViewModifier {
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.editGroup(.rename(groupName), tab.id) } }
+                    .keyboardShortcut(.defaultAction)
             }
     }
 }
