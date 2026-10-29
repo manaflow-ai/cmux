@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextMemory
 import CmuxNextWakeups
+import Dispatch
 import Testing
 
 /// The working set and hysteresis of ``MemoryCoordinator``. A limit applies only to
@@ -17,13 +18,20 @@ import Testing
     let source = ManualMemoryPressureSource()
     let pressure: MemoryPressureEvents
     let slicer: ManualSlicer
+    /// Each heap relief the coordinator asks its sink for.
+    let reliefs: ReleaseThreadLog
+    let sink: MemoryReleaseSink
     let coordinator: MemoryCoordinator
 
     init() {
         pressure = MemoryPressureEvents(source: source)
         slicer = ManualSlicer(clock: clock)
+        let reliefs = ReleaseThreadLog()
+        self.reliefs = reliefs
+        sink = MemoryReleaseSink(queue: DispatchQueue(label: "test.memory.hysteresis.release-sink"),
+                                 heapRelief: .init { reliefs.record() })
         coordinator = MemoryCoordinator(
-            pressure: pressure, mode: .medium, slicer: slicer, clock: clock,
+            pressure: pressure, mode: .medium, slicer: slicer, clock: clock, releaseSink: sink,
             limitRiseDeadline: MainDeadline(owner: "test.memory.limit-rise", workClass: .background, scheduler: rig.deadlines),
             workingSetDeadline: MainDeadline(owner: "test.memory.working-set", workClass: .background, scheduler: rig.deadlines))
     }
@@ -87,23 +95,51 @@ import Testing
         withExtendedLifetime(registrations) {}
     }
 
-    @Test func aRiseBackToTheHeldLevelCancelsTheHold() {
+    /// The heap relief follows the effective level, ``MemoryCoordinator/limitLevel`` (the level after the hold),
+    /// not the raw signal: each escalation of it to critical asks for one relief, a repeated level for none
+    /// (the release sink's contract). A raw fall inside the hold keeps the effective level at critical, so a
+    /// raw return to critical there is a repeated level: it cancels the hold and asks for no release and no relief.
+    @Test func aRawReturnToCriticalInsideTheHoldCancelsItAndIsARepeatedLevelWithNoRelief() async {
+        let cache = WorkingSetConsumer(name: "cache", entries: 4, clock: clock)
+        let registration = register(cache, managedTraits())
+        clock.advance(by: .seconds(10))
+        source.send(.critical)
+        slicer.drain()
+        await sink.drained()
+        #expect(reliefs.count == 1, "the escalation to critical did not relieve the heap once")
+        source.send(.normal)
+        #expect(rig.hasArmedWake)
+        #expect(coordinator.limitLevel == .critical, "the fall was not held")
+        source.send(.critical)
+        rig.fireAndRun()
+        #expect(coordinator.limitLevel == .critical, "the cancelled hold still raised the limits")
+        #expect(cache.limits == [100, 0])
+        #expect(!slicer.hasPendingSlice, "a level its consumers are already at asked for a release or a relief")
+        slicer.drain()
+        await sink.drained()
+        #expect(cache.releasePasses == 1)
+        #expect(reliefs.count == 1, "a raw return to critical inside the hold relieved the heap again")
+        withExtendedLifetime(registration) {}
+    }
+
+    /// Once the hold ends the effective level has left critical: a later critical is a new escalation, with one
+    /// relief.
+    @Test func aCriticalAfterTheHoldEndedIsANewEscalationWithOneRelief() async {
         let cache = WorkingSetConsumer(name: "cache", entries: 4, clock: clock)
         let registration = register(cache, managedTraits())
         clock.advance(by: .seconds(10))
         source.send(.critical)
         slicer.drain()
         source.send(.normal)
-        #expect(rig.hasArmedWake)
-        source.send(.critical)
         rig.fireAndRun()
-        #expect(coordinator.limitLevel == .critical, "the cancelled hold still raised the limits")
-        #expect(cache.limits == [100, 0])
-        // The way back up to critical is an escalation, so its pass relieves the heap once (the release sink's
-        // contract): that slice may be asked for, but it calls no consumer already at its limit.
+        #expect(coordinator.limitLevel == .normal, "the hold did not end")
         slicer.drain()
-        #expect(cache.releasePasses == 1, "a level its consumers are already at asked for a release")
-        #expect(!slicer.hasPendingSlice, "the relief pass asked for another slice")
+        await sink.drained()
+        #expect(reliefs.count == 1)
+        source.send(.critical)
+        slicer.drain()
+        await sink.drained()
+        #expect(reliefs.count == 2, "a new escalation to critical did not relieve the heap")
         withExtendedLifetime(registration) {}
     }
 
