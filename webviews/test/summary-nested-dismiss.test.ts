@@ -70,6 +70,10 @@ await requireBrowserLane("summary-nested-dismiss.test.ts", async () => {
             }
             await page.locator(menu).waitFor({ state: "hidden" });
             if (process.env.CMUX_CAPTURE_DIR) {
+              // Capture the settled result, including the baseline's incorrectly dismissed card.
+              await page.locator('.acpmux-summary-menu[role="menu"]').waitFor({ state: "hidden" });
+              if ((await page.locator(card).count()) === 0)
+                await page.locator('.acpmux-summary-card[data-placement="popover"]').waitFor({ state: "hidden" });
               await mkdir(process.env.CMUX_CAPTURE_DIR, { recursive: true });
               await page.screenshot({
                 type: "jpeg",
