@@ -145,6 +145,7 @@ describe("devbox image template", () => {
       "cmux-claude",
       "cmux-codex",
       "cmux-devbox-boot",
+      "cmux-dns",
       "cmux-motd",
       "cmux-opencode",
       "cmux-prompt.bash",
