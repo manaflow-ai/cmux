@@ -57,6 +57,7 @@ import hashlib
 import json
 import os
 import plistlib
+import re
 import stat
 import struct
 import sys
@@ -133,6 +134,8 @@ def signature_range(macho: bytes, residue_source: bytes | None = None):
     off = 32
     for _ in range(ncmds):
         cmd, size = struct.unpack("<II", macho[off:off + 8])
+        if size < 8:
+            raise ValueError("a load command smaller than its header")
         if cmd == LC_CODE_SIGNATURE:
             dataoff, datasize = struct.unpack("<II", macho[off + 8:off + 16])
             if datasize < 12 or dataoff + datasize > len(macho):
@@ -187,6 +190,8 @@ def code_signature_command(macho: bytes):
     off = 32
     for _ in range(ncmds):
         cmd, size = struct.unpack("<II", macho[off:off + 8])
+        if size < 8:
+            raise ValueError("a load command smaller than its header")
         if cmd == LC_CODE_SIGNATURE:
             return struct.unpack("<II", macho[off + 8:off + 16])
         off += size
@@ -203,6 +208,8 @@ def payload(macho: bytes) -> bytes:
     off = 32
     for _ in range(ncmds):
         cmd, size = struct.unpack("<II", macho[off:off + 8])
+        if size < 8:
+            raise ValueError("a load command smaller than its header")
         if cmd == LC_SEGMENT_64 and macho[off + 8:off + 24].rstrip(b"\0") == b"__LINKEDIT":
             out[off + 32:off + 40] = bytes(8)  # vmsize
             out[off + 48:off + 56] = bytes(8)  # filesize
@@ -783,6 +790,9 @@ def cms_side_errors(cms: dict, raw: bytes, cds: dict, label: str) -> list:
             out.append(f"CMS ({label}): unsigned attributes other than one timestamp token "
                        f"({', '.join(o for o, _ in unsigned)})")
         signed = attributes(signer["signed"])
+        ids = [o for o, _ in signed]
+        if len(set(ids)) != len(ids):
+            out.append(f"CMS ({label}): a signed attribute appears twice")
         for attr_oid, values in signed:
             if attr_oid == SIGNING_TIME and (len(values.children) != 1 or values.children[0].cls != 0
                                              or values.children[0].number not in (23, 24)):
@@ -917,6 +927,15 @@ def strict_slice(a: bytes, b: bytes, labels=("A", "B")):
                 out += [f"{e} ({side}, slot {t:#x})" for e in code_directory_errors(blob)]
     if out:
         return out, slots
+    for side, body in zip(labels, (a, b)):
+        sig = code_signature_command(body)
+        length = struct.unpack(">I", body[sig[0] + 4:sig[0] + 8])[0]
+        for t, at in blob_offsets(body).items():
+            declared = struct.unpack(">I", body[at + 4:at + 8])[0]
+            if at - sig[0] + declared > length:
+                out.append(f"blob {t:#x} declares a length past the superblob ({side})")
+    if out:
+        return out, slots
     oa, ob = blob_offsets(a), blob_offsets(b)
     head_a, head_b = struct.unpack(">III", a[sa[0]:sa[0] + 12]), struct.unpack(">III", b[sb[0]:sb[0] + 12])
     ends_a = max(o + len(ba[t]) for t, o in oa.items()) - sa[0]
@@ -965,7 +984,7 @@ def label_path(name):
     """The item path in a hash_names() label ("<sha256 of PATH>", "<sha256 of PATH [arm64] CodeDirectory 0x0>")."""
     if not name:
         return None
-    return name.split(" of ", 1)[1][:-1].split(" [", 1)[0]
+    return re.sub(r" \[[^\]]*\] CodeDirectory 0x[0-9a-f]+$", "", name.split(" of ", 1)[1][:-1])
 
 
 HASH_FIELDS = {"hash", "hash2", "cdhash"}

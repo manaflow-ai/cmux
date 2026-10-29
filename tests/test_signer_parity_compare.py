@@ -938,5 +938,39 @@ class StrictFifthReviewTests(StrictFixture):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("signingTime is not one UTCTime or GeneralizedTime", proc.stdout)
 
+
+@unittest.skipUnless(shutil.which("openssl"), "openssl makes the test signatures")
+class StrictSeventhReviewTests(StrictFixture):
+    def test_a_path_with_brackets_names_only_itself(self):
+        self.assertEqual(spc.label_path("<sha256 of Contents/foo [bar]>"), "Contents/foo [bar]")
+        self.assertEqual(spc.label_path("<sha256 of Contents/foo [bar] [arm64] CodeDirectory 0x0>"), "Contents/foo [bar]")
+
+    def test_a_blob_length_past_the_superblob_fails(self):
+        good = bytearray(macho(b"T" * 32, lambda cd: self.signer.cms(cd)))
+        sig_at = struct.unpack("<I", bytes(good[32 + 72 + 8:32 + 72 + 12]))[0]
+        cms_at = sig_at + struct.unpack(">I", bytes(good[sig_at + 24:sig_at + 28]))[0]
+        longer = bytearray(good)
+        longer[cms_at + 4:cms_at + 8] = struct.pack(">I", 0xFFFFFFFF)
+        a, b = make_app(self.root / "a", tool=bytes(good)), make_app(self.root / "b", tool=bytes(longer))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertNotIn("strict parity: PASS", proc.stdout)
+
+    def test_a_signed_attribute_twice_fails(self):
+        twice = lambda cd: attribute(spc.SIGNING_TIME, tlv(0x17, b"261028120000Z"))
+        a, b = self.app("a", extra_signed=twice), self.app("b", extra_signed=twice)
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("a signed attribute appears twice", proc.stdout)
+
+    def test_a_zero_size_load_command_fails_without_hanging(self):
+        good = bytearray(macho(b"T" * 32, b"c"))
+        good[32 + 4:32 + 8] = struct.pack("<I", 0)  # the first load command's size
+        a = make_app(self.root / "a", tool=bytes(good))
+        proc = subprocess.run([sys.executable, "-I", str(SCRIPT), str(a), str(a), str(self.root / "o.json"), "--strict"],
+                              capture_output=True, text=True, timeout=60)
+        self.assertEqual(proc.returncode, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
