@@ -190,7 +190,7 @@ final class WindowRecordSaver {
                                           // full screen only for a page's fullscreen is not the window's own
                                           && controller?.pagePresentation?.entersWindowFullScreen != true)
                                           || states[window.id]?.restoresFullScreen == true,
-                                      selectedTabs: selectedTabs(window: window))
+                                      selectedTabs: selectedTabs(window: window), machines: manager.seenMachine)
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
             record?.focusedPanes = focusedPanes(window: window)
             return record

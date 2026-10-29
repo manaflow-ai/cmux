@@ -17,6 +17,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-tailnet",
  "cmux-sdk",
  "cmux-unix-socket",
  "cmux-worktree-care",
@@ -28,9 +29,11 @@ dependencies = [
  "libc",
  "memchr",
  "notify",
+ "plist",
  "png",
  "pulldown-cmark",
  "ratatui",
+ "rcgen",
  "regex",
  "reqwest",
  "ring",
@@ -40,8 +43,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "syntect",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tokio-util",
  "toml",
@@ -944,9 +949,11 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "jsonschema",
  "regex",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1563,6 +1570,18 @@ name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
  "proptest",
+]
+
+[[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

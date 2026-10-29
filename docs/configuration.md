@@ -607,6 +607,18 @@ The first-run Number Keys screen (also under Help > Continue Setup) offers the o
 
 A binding you set yourself for either action stays when you pick a choice. Rebind or unbind each family from Settings > Keyboard Shortcuts or `shortcuts.bindings`; the first key names the whole 1…9 family. To give Ctrl+digits back to terminal programs (for example Ctrl+6 for Vim's alternate file), set `"selectSurfaceByNumber": "cmd+opt+1"` or `null`. macOS Mission Control "Switch to Desktop N" uses Ctrl+1…9 when you turn it on in System Settings > Keyboard > Keyboard Shortcuts; macOS then takes those keys before cmux sees them.
 
+## Space shortcuts
+
+| Keys | Action | Id |
+| --- | --- | --- |
+| Ctrl+Option+Cmd+Left / Right | Previous / Next Space | `space.previous` / `space.next` |
+| Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
+| Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |
+| Shift+Cmd+N | New Window, on a new space | `newWindow` |
+
+Ctrl+Cmd+Left / Right resize the focused pane (Ghostty's `resize_split`) and Ctrl+Cmd+1…9 focus pane 1…9, so the space keys add Option. macOS keeps Ctrl+arrows and Ctrl+digits for Mission Control. Rebinding an action (Settings > Keyboard Shortcuts or `shortcuts.bindings["space.next"]`) replaces all its default keys; `null` removes them. Every space action is also in the command palette (Shift+Cmd+P), the `cmux space …` CLI and MCP: for example `cmux space next`, `cmux space select-1-9 --index 2` and `cmux space open-in-new-window --space <space>`.
+
 ## Several shortcuts for one action
 
 A binding in `shortcuts.bindings` is one key (`"cmd+]"`) or a two-key chord (`["ctrl+b", "n"]`). To give an action more than one, list them under `any`; each item is a key or a chord, and every one runs the action:
@@ -642,7 +654,7 @@ Turn it on in Settings > General > Start Agent from Any App. Its key is a separa
 
 ## Background mode and `app.hideDockIconWithoutWindows`
 
-When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab) and shows a cmux item in the menu bar instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
+When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab). The cmux menu bar item (`app.showMenuBarIcon`, below) stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
 
 ```json
 {
@@ -653,6 +665,31 @@ When you close the last cmux window, cmux keeps running, and so do your terminal
 ```
 
 Or turn off Settings > General > Hide Dock Icon When No Windows Are Open.
+
+## The menu bar item and `app.showMenuBarIcon`
+
+cmux puts a monochrome cmux icon in the macOS menu bar. Its menu, top to bottom:
+
+- Your cmux account: your name, email and team (the team row opens the team picker), or Sign In to cmux… when you are signed out.
+- Agents working: N, and Needs input: N (it jumps to the newest unread), when agents run or wait.
+- Open cmux (shows the Show/Hide All Windows key when `app.globalHotKey` is on), New Workspace, Go to Home, Message the Chief, Start Agent…
+- Send Feedback, cmux Documentation…, Troubleshooting and Support.
+- Join the cmux Discord, Follow @cmux on X, cmux on GitHub, What's New in cmux.
+- About cmux, Check for Updates… (Restart to Update instead when an update is downloaded; cmux restarts only when you choose it), Settings….
+- Reveal Logs in Finder (this build's error journal folder) and Copy Logs (the build, macOS version and the problems of the last 3 days, redacted, as text to paste into a bug report).
+- Sign Out (when signed in) and Quit cmux.
+
+The Help menu and the command palette have the same Troubleshooting, Discord, X, GitHub and log commands. To remove the icon:
+
+```json
+{
+  "app": {
+    "showMenuBarIcon": false
+  }
+}
+```
+
+Or turn off Settings > General > Show Menu Bar Icon. With the icon off and no cmux window open, background mode still shows its own menu bar item, so there is always a way back to cmux. A build started by an agent (`CMUX_NEXT_NO_ACTIVATE=1`) shows no menu bar item.
 
 ## Message the Chief from any app
 

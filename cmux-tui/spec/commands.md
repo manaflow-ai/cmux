@@ -7036,15 +7036,15 @@ poster?:DerivedImage, preview?:DerivedImage}`. An upload belongs to the
 connection that began it, ends with that connection, and expires after 15
 minutes. At most 32 uploads are open at once. A record no message references
 is removed after 24 hours, with its bytes when no other record names them.
-The store holds at most 10 GB (decimal) across every conversation, uploads in
-flight included: a `begin` that does not fit first removes the oldest records
-no message references, and is refused with `storage_full` when only bytes
-that messages reference are left.
+The store has an advisory 10 GB (decimal) budget across every conversation,
+including uploads in flight. A `begin` above that budget logs a warning and
+continues. Budget pressure never removes fresh unsent or referenced attachments;
+the normal 24-hour sweep still removes abandoned uploads. Filesystem failures,
+including a full disk, remain errors when creating, writing or syncing bytes.
 Refusals have `error_code` `attachment_rejected` and one of the reasons
 `validation_invalid`, `type_refused`, `too_large`, `poster_refused`,
 `preview_refused`, `unknown_upload`, `unknown_piece`, `bad_offset`,
-`chunk_too_large`, `incomplete`, `hash_mismatch`, `too_many_uploads` or
-`storage_full`;
+`chunk_too_large`, `incomplete`, `hash_mismatch` or `too_many_uploads`;
 `unknown_conversation` and `not_participant` are `conversation_rejected`.
 
 A `message.send` or `message.edit` with an `attachment` part commits only
@@ -9490,7 +9490,8 @@ Cloud only on the `owner` answer for the link the start goes over, through any
 daemon. The VM's own
 kind `owner` (written at a machine bind) never allows a start by itself: the
 agents there keep sudo and can write it. A chat move in
-(`agent-transfer-receive`) and `agent-session-trust` still take it. The session starts with permission policy `ask`
+(`agent-transfer-receive`, `-finish`) and `agent-session-trust` take the same
+rule with their own `vm_kind`. The session starts with permission policy `ask`
 whatever the daemon default is. It must then be in a mode that acpmux's
 remote table (`_acpmux/web_modes`) says asks before acting: a family that
 table refuses (Codex, opencode) is refused, and a session that starts in a
@@ -9550,9 +9551,11 @@ absolute (at most 4096 bytes, no control characters) or an unknown param is
 `home_confirmed: true` (the person chose it as the chat's folder first, as
 Use Home Folder on the Mac), else `agent_session.home_unconfirmed`. The tab
 must be an `agent_session` tab of this store whose `host` names this store
-(bound or not), else `agent_session.unknown_tab`; the machine kind gate,
-the trusted local connection rule and the acpmux start are those of
-`agent-session-start`. The daemon never answers by itself: a client sends a
+(bound or not), else `agent_session.unknown_tab`; the machine kind gate
+(with `vm_kind`, `agent-session-trust-vm-kind-v1`), the trusted local
+connection rule and the acpmux start are those of `agent-session-start`. A
+page cannot vouch for the Cloud API's answer: the routed operations take no
+`vm_kind` (`agent_session.bad_request`), so they reach no Cloud VM's trust. The daemon never answers by itself: a client sends a
 `level` only for the person's own answer (the app's agent pane relay needs
 a fresh gesture for a set that trusts, as for a chat on the Mac's own
 acpmux). Pages reach the same verb only as the routed v2 operations
@@ -9908,9 +9911,19 @@ daemon keeps the receive's folder in memory for its finish; at most 16
 receives are kept, checked before acpmux makes one.
 
 Machine kind: receive and finish read this machine's kind at each call, as
-`agent-session-start` does, and answer `agent_session.team_vm_blocked` on a
-team VM and `agent_session.host_unverified` on a Cloud VM of unknown kind
-(or a daemon never told its kind). A chat under peer control keeps its
+`agent-session-start` does, each with its own `vm_kind`
+(`agent-transfer-vm-kind-v1`, only `owner` counts), and answer
+`agent_session.team_vm_blocked` on a team VM and
+`agent_session.host_unverified` on a Cloud VM without the caller's
+`vm_kind: "owner"` (its own `owner` record never counts) or on a daemon never
+told its kind. `cmux link agent move --vm-kind KIND` (the caller says the
+target is a Cloud machine) sends it to a daemon that serves it; to an older
+one it sends none and refuses any kind but `owner` before the chat freezes,
+whatever that daemon advertises. Without the flag the caller says the target
+is not a Cloud machine. With `--to-pid PID` (the Cloud link process the
+caller read the kind from) the pump sends the receive and the finish only over
+a connection whose peer is that process, else it refuses before the receive
+and gives the chat back. A chat under peer control keeps its
 permission policy and mode and runs its queue at once, so it lands only on
 a Mac, an SSH host or a personal (owner) Cloud VM; under web control
 acpmux also requires a policy and mode that ask.

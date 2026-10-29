@@ -44,6 +44,20 @@ struct SidebarRowsMoveOnRenderServerTests {
 
     private static func sizeSprings(_ view: NSView) -> Int { springs(view, "bounds.size") }
 
+    @Test
+    func recyclingAParkedRowStopsItsListSpring() {
+        let list = SidebarListView(model: SidebarModel())
+        let view = SidebarRowView(key: .workspace(WorkspaceID("recycled")))
+        list.addSubview(view)
+        let spring = CASpringAnimation(keyPath: "position")
+        spring.isAdditive = true
+        view.layer?.add(spring, forKey: "\(SidebarDragSpring.batchKey).position.test")
+
+        #expect(Self.positionSprings(view) == 1)
+        list.recycle(view)
+        #expect(Self.positionSprings(view) == 0)
+    }
+
     /// The rows and group lines that still carry a row move's spring.
     private static func springing(_ list: SidebarListView) -> [String] {
         list.subviews.filter { $0 is SidebarRowView || $0 is GroupLineView }.compactMap { view in

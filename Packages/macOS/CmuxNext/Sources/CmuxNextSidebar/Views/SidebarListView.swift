@@ -81,6 +81,9 @@ final class SidebarListView: NSView {
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
+    /// The workspace whose tabs the last click folded or opened: a double-click's second press puts them back
+    /// before it renames the row.
+    var lastTabFold: WorkspaceID?
     let middleClick = SidebarMiddleClick()
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.

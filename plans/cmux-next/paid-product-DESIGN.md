@@ -154,7 +154,9 @@ Everything here was tested in Stripe test mode against a test-mode web deploymen
    one line and lets cmux-next sell the existing live plans (the same products classic sells today).
    It is a build constant, not a hidden setting, so nobody turns it on by accident.
 2. `CLOUD_PLAN_ENTITLEMENTS=on` in production: paid users get Cloud VMs at the section 2 limits
-   (our Freestyle cost).
+   (our Freestyle cost). The production promote holds it until the value is approved in
+   `production-approvals.json` (G7) and the provider key secret exists (G5, `prod-promote.ts`), and
+   `test/cloud-plan-production.test.ts` refuses it while production has no Cloud image.
 3. The included amounts of section 2 replace the test placeholders in `billing-catalog.ts`
    (`pricing-DESIGN.md` section 9 decisions).
 4. Stripe Link on the live account: Dashboard > Settings > Payment methods > Link. In test mode the

@@ -170,10 +170,29 @@ static NEXT_RECEIPT: std::sync::LazyLock<std::sync::atomic::AtomicU64> =
         std::sync::atomic::AtomicU64::new(u64::from(u32::from_le_bytes(high)) << 32)
     });
 
+/// The receipts that came while no fence waited for them (a previous daemon's, or one settled
+/// another way), newest last, at most [`UNCLAIMED_CAP`]: a line held again at adoption
+/// (`adopt_receipt`) whose receipt came between the log's read and its hold is settled by it.
+/// Locked only under `RECEIPTS`.
+static UNCLAIMED: std::sync::LazyLock<std::sync::Mutex<std::collections::VecDeque<(u64, bool)>>> =
+    std::sync::LazyLock::new(Default::default);
+
+const UNCLAIMED_CAP: usize = 4096;
+
 /// A host's receipt (`WRITTEN_METHOD`) for the line it names: written, or never (`written`
-/// false: its harness's stdin closed). An unknown one (a previous daemon's) is ignored.
+/// false: its harness's stdin closed). An unknown one (a previous daemon's) is kept for an
+/// adoption that holds its line again (`adopt_receipt`).
 pub fn settle_receipt(receipt: u64, written: bool) {
-    let fence = RECEIPTS.lock_or_recover().remove(&receipt).map(|(_, f)| f);
+    let mut receipts = RECEIPTS.lock_or_recover();
+    let fence = receipts.remove(&receipt).map(|(_, f)| f);
+    if fence.is_none() {
+        let mut unclaimed = UNCLAIMED.lock_or_recover();
+        if unclaimed.len() >= UNCLAIMED_CAP {
+            unclaimed.pop_front();
+        }
+        unclaimed.push_back((receipt, written));
+    }
+    drop(receipts);
     match fence {
         Some(f) if written => f.written(),
         Some(f) => f.failed(),
@@ -185,16 +204,67 @@ pub fn settle_receipt(receipt: u64, written: bool) {
 /// receipt.
 fn await_receipt(host: &HostRecord, fence: &crate::agent::Fence) -> u64 {
     let receipt = NEXT_RECEIPT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hold_receipt(host, receipt, fence);
+    receipt
+}
+
+/// `fence` waits in `RECEIPTS` for `receipt`, or for its host's end, which is watched.
+fn hold_receipt(host: &HostRecord, receipt: u64, fence: &crate::agent::Fence) {
     let mut receipts = RECEIPTS.lock_or_recover();
     // Settled ones another way (an answered request) go.
     receipts.retain(|_, (_, f)| !f.is_settled());
     receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
     drop(receipts);
+    watch_end(host);
+}
+
+/// Watches `host`'s end once, from its first held line.
+fn watch_end(host: &HostRecord) {
     if WATCHED.lock_or_recover().insert(host.incarnation.clone()) {
         // task-owner: ends with the host, or when its lock can not be watched.
         tokio::spawn(watch_host_end(host.clone()));
     }
-    receipt
+}
+
+/// A fenced line a previous daemon sent `host` under `receipt` whose receipt its log does not
+/// have (`QUEUED_METHOD` with no `WRITTEN_METHOD`): its harness may not have it yet, so it is
+/// held again until that receipt or its host's end settles it, and a cut ends its host
+/// (`Fence::held_by_host`). A receipt that came before this hold settles it at once; a line
+/// this daemon sent itself (a later adoption of the same host) keeps the fence it has.
+pub fn adopt_receipt(host: &HostRecord, receipt: u64) -> crate::agent::Fence {
+    // One lock across the look and the hold: its receipt is either kept already or finds it.
+    let mut receipts = RECEIPTS.lock_or_recover();
+    if let Some((_, own)) = receipts.get(&receipt) {
+        return own.clone();
+    }
+    let fence = crate::agent::Fence::held_by_host(host.clone());
+    let came = {
+        let mut unclaimed = UNCLAIMED.lock_or_recover();
+        let at = unclaimed.iter().position(|(r, _)| *r == receipt);
+        at.and_then(|at| unclaimed.remove(at)).map(|(_, written)| written)
+    };
+    if came.is_none() {
+        receipts.insert(receipt, (host.incarnation.clone(), fence.clone()));
+    }
+    drop(receipts);
+    match came {
+        Some(true) => fence.written(),
+        Some(false) => fence.failed(),
+        None => watch_end(host),
+    }
+    fence
+}
+
+/// What `host`'s log can not tell apart (a host older than protocol 3 logs no
+/// `QUEUED_METHOD`): a line a previous daemon fenced that its harness may not have yet. Held
+/// until `host` ends, as a line to a host that gives no receipt is (fail closed); a cut ends
+/// `host`.
+pub fn adopt_untold(host: &HostRecord) -> crate::agent::Fence {
+    let fence = crate::agent::Fence::held_by_host(host.clone());
+    // A receipt of this daemon's that `host` was never sent: only its end settles it.
+    let receipt = NEXT_RECEIPT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    hold_receipt(host, receipt, &fence);
+    fence
 }
 
 /// The host incarnations whose end is watched (`watch_host_end`), one watch each.
