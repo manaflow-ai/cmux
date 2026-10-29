@@ -73,7 +73,7 @@ nonisolated enum AcpmuxStatusClient {
     /// single all-sessions size failure. The daemon's cursor defines the page
     /// scope while rows may still change between requests.
     @concurrent static func sessionPages(socketPath: String, params: [String: any Sendable] = [:],
-                                         pageSize: Int = 64, maxPages: Int? = nil,
+                                         pageSize: Int = 64,
                                          deadline: Duration = .seconds(2)) async throws -> sending [[String: Any]] {
         var pageParams = params
         pageParams["limit"] = pageSize
@@ -81,14 +81,12 @@ nonisolated enum AcpmuxStatusClient {
         var seenCursors: Set<String> = []
         var seenRows: Set<String> = []
         var rows: [[String: Any]] = []
-        var pages = 0
         let end = ContinuousClock.now + deadline
         while true { // wakeup-allow: each pass awaits one bounded socket reply; EOF, error, cursor completion, or deadline ends it
             if let cursor { pageParams["cursor"] = cursor } else { pageParams.removeValue(forKey: "cursor") }
             let remaining = end - ContinuousClock.now
             guard remaining > .zero else { throw Failure.rpc("_acpmux/sessions deadline exceeded") }
             let result = try await sessions(socketPath: socketPath, deadline: remaining, params: pageParams).value
-            pages += 1
             guard let page = result["sessions"] as? [[String: Any]] else {
                 throw Failure.rpc("_acpmux/sessions returned no sessions page")
             }
@@ -101,7 +99,6 @@ nonisolated enum AcpmuxStatusClient {
                 let key = "\(peer)/\(qualified)"
                 if seenRows.insert(key).inserted { rows.append(row) }
             }
-            if let maxPages, pages >= maxPages { return rows }
             guard let next = (result["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return rows }
             guard seenCursors.insert(next).inserted else {
                 throw Failure.rpc("_acpmux/sessions returned a repeated cursor")
@@ -142,8 +139,9 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     static func sessionSummary(_ sessionId: String, in result: [String: Any]) -> [String: Any]? {
-        guard let summary = result["session"] as? [String: Any],
-              summary["sessionId"] as? String == sessionId else { return nil }
+        let summary = (result["session"] as? [String: Any]).flatMap { $0["sessionId"] as? String == sessionId ? $0 : nil }
+            ?? (result["matches"] as? [[String: Any]])?.first { $0["sessionId"] as? String == sessionId }
+        guard let summary else { return nil }
         var summary = summary
         // Legacy resolver cards name the local machine in `host`; exact cards
         // use the absence of `peer` as the local marker. Do not turn that

@@ -20,6 +20,14 @@ import Testing
         #expect(AcpmuxStatusClient.sessionSummary("other", in: result) == nil)
     }
 
+    @Test func legacyResolverUsesAnExactMatchWhenPrimaryMatchDiffers() {
+        let result: [String: Any] = [
+            "session": ["sessionId": "newer-name-match"],
+            "matches": [["sessionId": "target"]],
+        ]
+        #expect(AcpmuxStatusClient.sessionSummary("target", in: result)?["sessionId"] as? String == "target")
+    }
+
     @Test func exactResolveFallsBackForOlderDaemons() {
         #expect(AcpmuxStatusClient.shouldFallbackExactResolve(AcpmuxRPCError(code: -32601, message: "missing")))
         #expect(AcpmuxStatusClient.shouldFallbackExactResolve(AcpmuxRPCError(code: -32602, message: "invalid")))
