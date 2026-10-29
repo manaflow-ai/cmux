@@ -57,14 +57,23 @@ const RECHECK_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 6 *
 /** A member whose removal made no progress this many times is set aside (logged) until the object restarts. */
 const DRAIN_MAX_ATTEMPTS = 3
 /**
- * A sync that could not read Stack now (no pace token, a 429 or another read failure) waits 1 min doubling
- * to 1 h with ±20 % jitter (cx-f5tk4), then tries again from the alarm; after SYNC_MAX_FAILS (about two
+ * A sync that could not read Stack (a 429 or another read failure) waits 1 min doubling to 1 h with ±20 %
+ * jitter (cx-f5tk4; one without a pace token waits less first, pacedBackoffMs), then tries again from the alarm; after SYNC_MAX_FAILS (about two
  * days) it ends, logged. The delivery itself was already answered 200 `queued`.
  */
 export const SYNC_BACKOFF_MS = { first: 60_000, max: 60 * 60_000 } as const
 export const SYNC_MAX_FAILS = 50
 export const syncBackoffMs = (fails: number, random: () => number = Math.random) =>
   Math.round(Math.min(SYNC_BACKOFF_MS.max, SYNC_BACKOFF_MS.first * 2 ** Math.max(0, fails - 1)) * (0.8 + 0.4 * random()))
+/**
+ * A sync that found the shared pace full (no token; Stack was not asked) waits 5, 10, 20 and 40 s first, ±20 %:
+ * the pace frees a token within its 60 s window and a person waits on a join (prod 2026-10-29: a new team listed
+ * after 67 s). After PACED_QUICK_TRIES it follows syncBackoffMs, so a pace that stays full still ends in about two days.
+ */
+export const PACED_QUICK_TRIES = 4
+const PACED_FIRST_MS = 5_000
+export const pacedBackoffMs = (fails: number, random: () => number = Math.random) =>
+  fails <= PACED_QUICK_TRIES ? Math.round(PACED_FIRST_MS * 2 ** Math.max(0, fails - 1) * (0.8 + 0.4 * random())) : syncBackoffMs(fails - PACED_QUICK_TRIES, random)
 
 type QueueRow = { k: string; type: string; stack_team: string; stack_user: string | null; due_at: number; attempts: number; fails: number; gen: number; merged: number }
 /** While a row's Stack read runs, the row waits this long (a lease): a restart mid-read leaves it for the alarm. */
@@ -376,7 +385,7 @@ const backoff = (deps: StackSyncDeps, row: QueueRow, why: "paced" | "lookup", at
     console.error(JSON.stringify({ msg: "stack team sync abandoned", team: deps.team, type: row.type, code: why, fails: row.fails }))
     return
   }
-  deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ?, fails = ? WHERE k = ?`, at + syncBackoffMs(fails), fails, row.k)
+  deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ?, fails = ? WHERE k = ?`, at + (why === "paced" ? pacedBackoffMs(fails) : syncBackoffMs(fails)), fails, row.k)
 }
 
 /** Asks Stack again later (attempt+1); false once the schedule is spent (logged). */

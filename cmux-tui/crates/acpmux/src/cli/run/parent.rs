@@ -82,7 +82,7 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
         if json_out {
             print_json(&started);
         } else {
-            println!("started {name} ({}) under {parent}", &id[..8.min(id.len())]);
+            println!("started {name} ({}) under {parent}", id.get(..8).unwrap_or(&id));
         }
         return Ok(());
     }
