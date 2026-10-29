@@ -96,7 +96,8 @@ struct AgentPaneFilePutTests {
         let put = Task {
             try await AcpmuxStatusClient.putFileChunked(sessionId: "s", name: "large.bin",
                                                        data: Data(repeating: 7, count: AcpmuxStatusClient.filePutChunkBytes + 3)) { method, params in
-                try await peer.send(method, params: params)
+                let reply = try await peer.send(method, params: params)
+                return reply.mapValues { $0 as Any }
             }
         }
         await peer.waitUntilBlocked()
@@ -156,7 +157,7 @@ struct AgentPaneFilePutTests {
 
         func snapshot() -> (Bool, [Bool]) { (stageRemains, cancellations) }
 
-        func send(_ method: String, params: [String: any Sendable]) async throws -> [String: Any] {
+        func send(_ method: String, params: [String: any Sendable]) async throws -> [String: any Sendable] {
             if method == AcpmuxStatusClient.filePutCancelMethod {
                 cancellations.append(Task.isCancelled)
                 // Acpmux's exchange checks cancellation before sending the cleanup request.
