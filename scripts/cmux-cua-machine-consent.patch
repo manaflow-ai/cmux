@@ -2884,7 +2884,7 @@ index 0456fb798..00f1f9ac4 100644
              "command": binary,
              "args": ["mcp"]
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
-index 47b3f9825..9d511f07c 100644
+index 47b3f9825..2f48c41b4 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
 @@ -11,6 +11,8 @@
@@ -2913,7 +2913,7 @@ index 47b3f9825..9d511f07c 100644
      fn SecCodeCopySelf(flags: SecurityFlags, code: *mut SecurityCodeRef) -> SecurityStatus;
      fn SecCodeCopyDesignatedRequirement(
          code: SecurityCodeRef,
-@@ -774,6 +786,117 @@ fn approval_broker_peer_is_trusted(peer_pid: libc::pid_t) -> Result<(), String>
+@@ -774,6 +786,144 @@ fn approval_broker_peer_is_trusted(peer_pid: libc::pid_t) -> Result<(), String>
      validate_codex_dynamic_code(process_parent_pid(peer_pid)?)
  }
  
@@ -2924,16 +2924,43 @@ index 47b3f9825..9d511f07c 100644
 +#[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
 +const CMUX_TEAM_REQUIREMENT: &str = "anchor apple generic and certificate leaf[subject.OU] = \"7WLXT3NR37\"";
 +
-+/// `com.cmuxterm.app` and its channels and tags (`com.cmuxterm.app.nightly`,
-+/// `com.cmuxterm.app.debug.<tag>`), never another identifier that merely
-+/// starts with those letters.
++/// The cmux main apps a consent answer may come from; never a helper.
++/// The same list as cmux's Computer Use helper v2 (`CmuxAppIdentity` in
++/// CmuxCuaHelperCore/HostVerifier.swift): stable, NIGHTLY, cmux NEXT
++/// nightly, RC, untagged DEV and staging, and tagged DEV and staging builds
++/// whose tag is `[a-z0-9]+` segments joined by single dots (`sanitize_bundle`).
++#[cfg(any(test, all(target_os = "macos", feature = "cmux-host-consent")))]
++const CMUX_APP_IDENTIFIERS: &[&str] = &[
++    "com.cmuxterm.app",
++    "com.cmuxterm.app.nightly",
++    "com.cmuxterm.app.nightly.cmux-next",
++    "com.cmuxterm.app.rc",
++    "com.cmuxterm.app.debug",
++    "com.cmuxterm.app.staging",
++];
++
++#[cfg(any(test, all(target_os = "macos", feature = "cmux-host-consent")))]
++const CMUX_APP_TAGGED_PREFIXES: &[&str] = &["com.cmuxterm.app.debug.", "com.cmuxterm.app.staging."];
++
++/// Whether `identifier` is a cmux main app's. Any id naming a helper
++/// (`cua`, `computer-use`, `helper`: com.cmuxterm.cua, the Computer Use
++/// helper apps, server helpers) is refused, whatever else matches.
 +#[cfg(any(test, all(target_os = "macos", feature = "cmux-host-consent")))]
 +fn is_cmux_app_identifier(identifier: &str) -> bool {
-+    match identifier.strip_prefix("com.cmuxterm.app") {
-+        Some("") => true,
-+        Some(rest) => rest.starts_with('.') && rest.len() > 1,
-+        None => false,
++    if ["cua", "computer-use", "helper"].iter().any(|marker| identifier.contains(marker)) {
++        return false;
 +    }
++    if CMUX_APP_IDENTIFIERS.contains(&identifier) {
++        return true;
++    }
++    CMUX_APP_TAGGED_PREFIXES.iter().any(|prefix| {
++        identifier.strip_prefix(prefix).is_some_and(|tag| {
++            tag.split('.').all(|segment| {
++                !segment.is_empty()
++                    && segment.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
++            })
++        })
++    })
 +}
 +
 +/// The connected peer's audit token (LOCAL_PEERTOKEN), so the code check
@@ -3031,7 +3058,7 @@ index 47b3f9825..9d511f07c 100644
  #[cfg(all(unix, not(target_os = "macos")))]
  fn approval_broker_peer_pid(_stream: &tokio::net::UnixStream) -> Result<libc::pid_t, String> {
      Err("Codex Computer Use approval brokers are supported only on macOS".to_owned())
-@@ -2135,6 +2258,8 @@ pub async fn run_serve_with_owner(
+@@ -2135,6 +2285,8 @@ pub async fn run_serve_with_owner(
                  }
                  #[cfg(target_os = "macos")]
                  let peer_process_id = macos_peer_process_id(&stream);
@@ -3040,7 +3067,7 @@ index 47b3f9825..9d511f07c 100644
                  #[cfg(target_os = "macos")]
                  let peer_process_identity =
                      peer_process_id.and_then(macos_process_identity);
-@@ -2239,6 +2364,74 @@ pub async fn run_serve_with_owner(
+@@ -2239,6 +2391,74 @@ pub async fn run_serve_with_owner(
                                  }
                                  return;
                              }
@@ -3115,7 +3142,7 @@ index 47b3f9825..9d511f07c 100644
                              "permissions_status" => {
                                  #[cfg(target_os = "macos")]
                                  let resp = DaemonResponse::ok(daemon_permission_status(
-@@ -2778,12 +2971,22 @@ pub async fn run_serve_with_owner(
+@@ -2778,12 +2998,22 @@ pub async fn run_serve_with_owner(
                                  // capability_version + schema_version so MCP
                                  // proxy callers can pass them through verbatim
                                  // (one daemon round-trip, complete response).
@@ -3140,7 +3167,7 @@ index 47b3f9825..9d511f07c 100644
                                  let _ = writer.write_all(
                                      (serde_json::to_string(&resp).unwrap() + "\n").as_bytes()
                                  ).await;
-@@ -5341,3 +5544,58 @@ mod session_boundary_tests {
+@@ -5341,3 +5571,79 @@ mod session_boundary_tests {
          ));
      }
  }
@@ -3154,15 +3181,36 @@ index 47b3f9825..9d511f07c 100644
 +        for identifier in [
 +            "com.cmuxterm.app",
 +            "com.cmuxterm.app.nightly",
-+            "com.cmuxterm.app.debug.my-tag",
-+            "com.cmuxterm.app.next",
++            "com.cmuxterm.app.nightly.cmux-next",
++            "com.cmuxterm.app.rc",
++            "com.cmuxterm.app.debug",
++            "com.cmuxterm.app.staging",
++            "com.cmuxterm.app.debug.mytag",
++            "com.cmuxterm.app.debug.next",
++            "com.cmuxterm.app.debug.split.spring2",
++            "com.cmuxterm.app.staging.mytag",
 +        ] {
 +            assert!(is_cmux_app_identifier(identifier), "{identifier}");
 +        }
 +        for identifier in [
++            // Helpers, whatever else matches.
++            "com.cmuxterm.cua",
++            "com.cmuxterm.cua.dev",
++            "com.cmuxterm.app.computer-use",
++            "com.cmuxterm.app.debug.cua",
++            "com.cmuxterm.app.nightly.server-helper",
++            "com.cmuxterm.app.debug.mytag.server-helper",
++            // Near misses.
 +            "com.cmuxterm.apple",
 +            "com.cmuxterm.app.",
-+            "com.cmuxterm.cua",
++            "com.cmuxterm.app.next",
++            "com.cmuxterm.app.nightly.leo",
++            "com.cmuxterm.app.debug.",
++            "com.cmuxterm.app.debug.my-tag",
++            "com.cmuxterm.app.debug.MyTag",
++            "com.cmuxterm.app.debug.a..b",
++            "com.cmuxterm.app.debug.a.",
++            "com.cmuxterm.app.debugger",
 +            "acpmux",
 +            "cmux-cua",
 +            "",
