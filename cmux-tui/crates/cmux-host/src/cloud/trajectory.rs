@@ -215,8 +215,14 @@ fn list(api: &mut dyn Api, body: &Value) -> Result<Vec<Remote>, Pass> {
                     return Err(Pass::Failed("trajectory list exceeded page cap".to_owned()));
                 }
                 let page = remotes_of(&v);
+                // An older backend sorts by update time rather than session id. Accept that
+                // ordering only when its whole list fits a single reply; new cursor pages must
+                // be strictly increasing, including the first one.
+                let paginated = v["has_more"].as_bool().is_some();
                 if page.len() != raw.len()
-                    || page.windows(2).any(|rows| rows[0].session.as_str() >= rows[1].session.as_str())
+                    || (paginated && page.windows(2).any(|rows| {
+                        rows[0].session.as_str() >= rows[1].session.as_str()
+                    }))
                     || cursor.as_deref().is_some_and(|after| {
                         page.first().is_some_and(|row| row.session.as_str() <= after)
                     })
