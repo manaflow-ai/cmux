@@ -27,10 +27,10 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(variant: string, width = 640, height = 560) {
+  async function open(variant: string, width = 640, height = 560, entry = "new-tab.quick-model-menu") {
     const page = await browser.newPage({ viewport: { width, height } });
     const { port } = vite.httpServer!.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}${galleryFrame("new-tab.quick-model-menu", { variant, width, height })}`);
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width, height })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     return page;
   }
@@ -125,6 +125,29 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     }
   });
 
+  test("inline effort controls keep a narrow railed menu inside the viewport when switching harnesses", async () => {
+    const page = await open("claude-many-harnesses-inline-effort", 320, 560);
+    try {
+      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor();
+      const menu = await bounds(page, ".acpmux-quick-menu");
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      await page.getByRole("button", { name: "Codex", exact: true }).click();
+      await page.waitForFunction(
+        () =>
+          document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
+      );
+      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor();
+      const switched = await bounds(page, ".acpmux-quick-menu");
+      const switchedRail = await bounds(page, ".acpmux-quick-rail");
+      expect(switched.width).toBeLessThanOrEqual(296);
+      expect(switched.x + switched.width).toBeLessThanOrEqual(320);
+      expect(Math.abs(switched.width - menu.width)).toBeLessThan(1);
+      expect(Math.abs(switchedRail.x - rail.x)).toBeLessThan(1);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("a midpoint menu keeps its opening side as tall content becomes short", async () => {
     const page = await open("newtab-midpoint");
     try {
@@ -210,6 +233,18 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const search = await bounds(page, ".acpmux-quick-search");
       expect(search.height).toBe(row.height);
       expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("inline effort keeps the compact rail at its narrow geometry", async () => {
+    const page = await open("compact", 640, 560, "agent-pane.inline-model-effort");
+    try {
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      expect(rail.width).toBeGreaterThanOrEqual(76);
+      expect(rail.width).toBeLessThan(110);
+      expect(await page.locator(".acpmux-quick-effort-segment").count()).toBeGreaterThan(0);
     } finally {
       await page.close();
     }
