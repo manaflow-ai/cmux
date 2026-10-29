@@ -284,6 +284,7 @@ export function IncomingMessageLine({
       id={bodyId}
       className="cv-received__body selectable"
       data-cut={cut || undefined}
+      data-interactive={cut ? "" : undefined}
       onClick={cut ? openCut : undefined}
     >
       {/* The chips read whose files these are (chips/messageScope.ts). */}
@@ -385,7 +386,7 @@ export function IncomingMessageLine({
             {from}
           </button>
         ) : (
-          <span className="cv-received__name is-plain" aria-hidden onClick={toggle}>
+          <span className="cv-received__name is-plain" data-interactive="" aria-hidden onClick={toggle}>
             {from}
           </span>
         )}

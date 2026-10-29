@@ -24,6 +24,11 @@ use router_owner::{ensure_router, release_router};
 pub(crate) mod login_placement;
 #[cfg(target_os = "macos")]
 pub(crate) mod login_session;
+// Reports to the Cloud agent's socket, which only Cloud machines (Linux) have; decided on
+// every Unix so its tests run on the Mac too.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod cloud_handoff;
 mod notify;
 mod persist_retry;
 #[cfg(windows)]
@@ -195,7 +200,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         .as_ref()
         .is_none_or(|w| w.token.as_deref().is_none_or(|t| t.trim().is_empty()));
     // Only the shared home owns the fixed port; any other home never saves it.
-    let shared_home = dirs::home_dir().map(|h| h.join(".acpmux")) == Some(home());
+    let shared_home = uses_shared_home();
     let saved_listen = config.websocket.as_ref().map(|w| w.listen.clone());
     let listen_ok =
         saved_listen.as_deref() == Some(first_run_listen(shared_home, saved_listen.as_deref()));
@@ -322,6 +327,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
+    // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
+    let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -526,6 +533,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     tokio::spawn(notify::notify_loop(hub.clone()));
+    #[cfg(target_os = "linux")]
+    tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
 
     let shutdown = async {
         #[cfg(unix)]
@@ -547,6 +556,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // Its last heartbeat empties this daemon's rows in the hub's address book.
+    if let Some(relay) = mesh_relay {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
+    }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
     // until a start), so a start racing this shutdown is refused either way.
@@ -830,7 +843,7 @@ fn narrow_to_owner(path: &std::path::Path) {
 use crate::owner_only::narrow as narrow_to_owner;
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
-const TOKEN_ROTATION: u32 = 1;
+pub(crate) const TOKEN_ROTATION: u32 = 1;
 
 /// Builds before this one sent the saved WebSocket token to remote-origin
 /// connections (`_acpmux/status` `webUrl`), so a token saved by one may be
@@ -1212,11 +1225,16 @@ fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
     let _ = link.shutdown(std::net::Shutdown::Both);
 }
 
+/// Use the same home classification for initial launch and CLI restart.
+pub(crate) fn uses_shared_home() -> bool {
+    dirs::home_dir().map(|h| h.join(".acpmux")) == Some(home())
+}
+
 /// The fixed dashboard port belongs to the shared daemon (`~/.acpmux`). Any other home (a
 /// tagged dev build's, `ACPMUX_HOME`) listens on a free port and never saves the fixed one,
 /// so it can never take the release daemon's port; a home that saved it before is moved off.
 /// Returns the address to save: the saved one when it is fine, else the default.
-fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
+pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
     const SHARED: &str = "127.0.0.1:47811";
     const ANY: &str = "127.0.0.1:0";
     match saved {
