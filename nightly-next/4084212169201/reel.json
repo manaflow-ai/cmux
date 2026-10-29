@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4084212169201",
+  "notes": "notes/4084212169201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26638,
+      "title": "cmux NEXT iOS: keep the tab bar fully visible while scrolling",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27277,
+      "title": "Agent chat: render Markdown in sent and delivered prompts; wrap long tokens at separators",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27084,
+      "title": "cmux NEXT iOS: tab group color, icon, collapse, moves and New Tab in Group; the workspace's screens (switch, new, rename, close)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27267,
+      "title": "ci(signing): a parked offline runner no longer keeps its mini from signing; at most one mini signs at once",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
