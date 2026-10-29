@@ -50,6 +50,13 @@ impl MeshRelayConfig {
         let path = url.path().trim_end_matches('/');
         Ok(format!("{}{path}", url.origin().ascii_serialization()))
     }
+
+    /// What a log may say of the hub: its scheme, host and port, never its path.
+    pub fn shown(&self) -> String {
+        reqwest::Url::parse(self.url.trim())
+            .map(|u| u.origin().ascii_serialization())
+            .unwrap_or_default()
+    }
 }
 
 /// The longest wait for the token command.
@@ -59,8 +66,9 @@ const MAX_TOKEN_OUTPUT: usize = 64 << 10;
 /// The largest hub answer read.
 const MAX_ANSWER_BYTES: usize = 4 << 20;
 
-/// A token and when it expires (ms since the epoch; 0: unknown, used until a 401).
-type Token = (Zeroizing<String>, u64);
+/// A token and when it expires (ms since the epoch; 0: unknown, used until a 401). One copy in
+/// memory: callers share it (`Arc`), never clone the text.
+type Token = (Arc<Zeroizing<String>>, u64);
 
 /// The token on the command's stdout: bare, or `{"access_token"|"accessToken", "expires_at"|...}`.
 fn parse_token(stdout: &str) -> Result<Token, String> {
@@ -81,6 +89,7 @@ fn parse_token(stdout: &str) -> Result<Token, String> {
     } else {
         (Zeroizing::new(text.to_owned()), 0)
     };
+    let token = Arc::new(token);
     if token.is_empty() || token.len() > 16_384 || !token.bytes().all(|b| b.is_ascii_graphic()) {
         return Err("the token command printed no token".into());
     }
@@ -107,14 +116,14 @@ impl HttpHub {
     }
 
     /// A token: the one held while it is good, else a new one from the command.
-    async fn token(&self, fresh: bool) -> Result<Zeroizing<String>, HubError> {
+    async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
         let mut held = self.token.lock().await;
         let now = crate::store::now_ms();
         if !fresh
             && let Some((token, expires)) = held.as_ref()
             && (*expires == 0 || expires.saturating_sub(60_000) > now)
         {
-            return Ok(token.clone());
+            return Ok(Arc::clone(token));
         }
         let (program, args) =
             self.command.split_first().ok_or_else(|| HubError::refused("no token command"))?;
@@ -162,7 +171,7 @@ impl HttpHub {
         let stdout = std::str::from_utf8(&out[..len])
             .map_err(|_| HubError::unavailable("the token command printed no text"))?;
         let token = parse_token(stdout).map_err(HubError::unavailable)?;
-        *held = Some((token.0.clone(), token.1));
+        *held = Some((Arc::clone(&token.0), token.1));
         Ok(token.0)
     }
 
@@ -209,20 +218,33 @@ impl HttpHub {
     }
 }
 
+/// The hub's error codes this client acts on or names in a log (the contract leaves `code` a free
+/// string): any other code is dropped, since a free string could carry anything.
+const KNOWN_CODES: &[&str] = &[
+    "mesh.unauthorized",
+    "mesh.forbidden",
+    "mesh.bad_request",
+    "mesh.unknown_recipient",
+    "mesh.ambiguous",
+    "mesh.conflict",
+    "mesh.rate_limited",
+    "mesh.too_large",
+    "mesh.unavailable",
+    "mesh.not_found",
+];
+
 /// The hub's answer as a value, or the error it names.
 fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
     let body: Value = serde_json::from_slice(bytes).unwrap_or(Value::Null);
     if (200..300).contains(&status) {
         return Ok(body);
     }
-    // Only the status and a well-formed code: the hub's free text (or a proxy's) could reflect
-    // the request, token included, and errors are logged.
+    // Only the status, and a code the contract names: anything else the hub (or a proxy) says
+    // could reflect the request, token included, and errors are logged.
     let code = body
         .get("code")
         .and_then(Value::as_str)
-        .filter(|c| {
-            c.len() <= 64 && c.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-        })
+        .filter(|c| KNOWN_CODES.contains(c))
         .map(str::to_owned);
     let mut error = HubError::refused(
         format!("the hub answered {status} {}", code.as_deref().unwrap_or("")).trim().to_owned(),
@@ -323,6 +345,11 @@ mod tests {
             config("https://hub.example.com/mesh/", &["mint"]).origin().unwrap(),
             "https://hub.example.com/mesh"
         );
+        // A log names the hub's origin only, never its path.
+        assert_eq!(
+            config("https://hub.example.com/s3cret", &["mint"]).shown(),
+            "https://hub.example.com"
+        );
     }
 
     #[tokio::test]
@@ -356,9 +383,13 @@ mod tests {
 
     #[test]
     fn a_hub_error_logs_no_free_text_from_the_answer() {
-        let e = answer(400, br#"{"code": "mesh.bad", "message": "Bearer abc.def"}"#).unwrap_err();
+        let e = answer(400, br#"{"code": "mesh.bad_request", "message": "Bearer abc.def"}"#)
+            .unwrap_err();
         assert!(!e.to_string().contains("abc.def"), "{e}");
-        assert_eq!(e.code.as_deref(), Some("mesh.bad"));
+        assert_eq!(e.code.as_deref(), Some("mesh.bad_request"));
+        // A code the contract does not name is dropped, however tidy: it could be a token.
+        let e = answer(400, br#"{"code": "eyJhbGciOi.abc.def"}"#).unwrap_err();
+        assert!(!e.to_string().contains("abc.def") && e.code.is_none(), "{e}");
         let e = answer(400, br#"{"code": "Bearer abc.def ghi"}"#).unwrap_err();
         assert!(!e.to_string().contains("abc.def") && e.code.is_none(), "{e}");
     }
