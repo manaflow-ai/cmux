@@ -19,8 +19,7 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { tailStart } from "./ToolGroupRow";
-import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { awaitsPermission, groupId, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
 
@@ -1074,7 +1073,7 @@ type OwnRow = true | { key: string; open: boolean } | undefined;
 
 /// Where ToolRows draws a call (TurnRows.tsx groupNode, ToolGroupRow.tsx): a lone call, a message
 /// card, a sub-session card and a lone MCP call have their own row; a grouped call shows under its group's line while
-/// the group is open, among its latest GROUP_TAIL; a folded run (`foldRun`, codexRuns) shows none
+/// the group is open (every step shows, ToolGroupRow.tsx); a folded run (`foldRun`, codexRuns) shows none
 /// until opened. The key is the one groupNode gives the group's disclosure.
 function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   const groups = toolGroups(row.items ?? []);
@@ -1092,9 +1091,7 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   )
     return true;
   const kind = group.type === "mcp" ? "mcp" : group.kind;
-  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= tailStart(group.items);
-  if (!tail) return undefined;
-  const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
+  const key = `group:${kind}:${(group.type === "mcp" ? group.items[0]!.tool!.id : groupId(group.items)) || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };
 }
 
