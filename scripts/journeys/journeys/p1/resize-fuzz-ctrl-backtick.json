@@ -76,6 +76,15 @@
    "do": "neutral_prompt"
   },
   {
+   "do": "node_chain",
+   "title": "after Ctrl-`: record whether both terminals count as shown, and which link hides one",
+   "panes": [
+    "left",
+    "right"
+   ],
+   "expect_shown": false
+  },
+  {
    "do": "expect",
    "title": "two fitted panes",
    "timeout": 10,

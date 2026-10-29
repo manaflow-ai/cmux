@@ -164,6 +164,49 @@ def _divider_start(j, a, b):
     return ((left + right) / 2, (fa[1] + fa[3] + fb[1]) / 2), "y", (fa, fb)
 
 
+
+def classify_chain(row):
+    """Names the link that keeps a pane's terminal from counting as shown (felt 1e candidates), from the
+    `shown` and `node_chain` fields `debug.surfaces` reports (builds from cp/fix-resize-standin-grid on).
+    Each chain entry is "name own/effective", from the surface's window node up to the root.
+      - "shown": the terminal counts as shown (no node problem);
+      - "c2-placement": `terminal.surface.window` is own-hidden while every node above is visible or occluded:
+        its placement (window, parking) was never read again (TerminalSurfaceView.syncPlacement);
+      - "c3-dead-parent": the chain ends before a window root (no `pane:`/`window` link above the tab node):
+        a parent the tree holds weakly is gone (a replaced pane controller's node);
+      - "hidden-link:<name>": another link is own-hidden (the first such link above the window node);
+      - "no-diagnostics": the build has no `node_chain` (older than the diagnostics commit)."""
+    surface = (row or {}).get("surface") or {}
+    if "node_chain" not in surface:
+        return "no-diagnostics", []
+    chain = surface.get("node_chain") or []
+    links = []
+    for entry in chain:
+        name, _, states = entry.rpartition(" ")
+        own, _, effective = states.partition("/")
+        links.append({"name": name, "own": own, "effective": effective})
+    if surface.get("shown"):
+        return "shown", links
+    if links and links[0]["own"] == "hidden" and all(l["own"] != "hidden" for l in links[1:]):
+        if any(l["name"].startswith("pane:") for l in links) and links[-1]["effective"] != "hidden":
+            return "c2-placement", links
+    if not any(l["name"].startswith("pane:") for l in links):
+        return "c3-dead-parent", links
+    for link in links[1:]:
+        if link["own"] == "hidden":
+            return "hidden-link:" + link["name"], links
+    return "unexplained", links
+
+
+def _chains(j, names):
+    """{name: (verdict, chain)} for the named panes now."""
+    out = {}
+    for name in names:
+        row = W.pane_row(j, W.named(j, name)["pane"])
+        verdict, links = classify_chain(row)
+        out[name] = {"verdict": verdict, "chain": [f"{l['name']} {l['own']}/{l['effective']}" for l in links]}
+    return out
+
 def _settled(j, names, timeout):
     """(ms until every named pane passes grid_fits, or None) and the last details."""
     t0 = time.monotonic()
@@ -260,6 +303,8 @@ def _fuzz_one(j, step):
             path = _line(start, delta, events)
             j.app.rpc("debug.mouse", {"window": wid, "action": "move", "x": start[0], "y": start[1]})
             op = {"i": index, "kind": kind, "axis": axis, "by": round(by), "events": events, "frames_before": list(frames)}
+        if index == 0:
+            j.ext_resize_chains_before = _chains(j, names)
         _trace(j, "start")
         samples = []
         op["settle_queue"] = _drag(j, wid, start, path, hz, names if sample else None, samples, hold)
@@ -275,16 +320,19 @@ def _fuzz_one(j, step):
         op["send_to_owner_ms"] = _summary(delays)
         if ms is None:
             op["unsettled"] = {n: d for n, d in details.items() if d.get("problems")}
+            op["chains"] = _chains(j, [n for n in names if n in op["unsettled"]])
             failures.append({"seed": seed, "op": index, "kind": kind, "detail": op["unsettled"]})
         ops.append(op)
-    result = {"seed": seed, "ops": ops, "failures": failures,
+    result = {"seed": seed, "ops": ops, "failures": failures, "chains_before": getattr(j, "ext_resize_chains_before", None),
+              "chains_after": _chains(j, names),
               "trail_all": _pooled(ops, names),
               "send_to_owner_ms_all": _summary(owner_delays),
               "settle_ms_all": _summary([o["settle_ms"] for o in ops if o["settle_ms"] is not None])}
     j.ext_resize_fuzz = result
     if failures:
-        raise D.StepError(f"resize_fuzz seed {seed}: {len(failures)} of {len(ops)} ops left a pane unfitted; first: "
-                          f"{str(failures[0])[:600]}")
+        verdicts = sorted({c["verdict"] for o in ops for c in (o.get("chains") or {}).values()})
+        raise D.StepError(f"resize_fuzz seed {seed}: {len(failures)} of {len(ops)} ops left a pane unfitted; node verdicts "
+                          f"{verdicts}; first: {str(failures[0])[:500]}")
     return result
 
 
@@ -308,4 +356,16 @@ def step_retarget_pane(j, step):
     raise D.StepError(f"retarget_pane {step['as']!r}: no new terminal with text: {last}")
 
 
-STEPS = {"resize_fuzz": step_resize_fuzz, "retarget_pane": step_retarget_pane}
+def step_node_chain(j, step):
+    """Records, for each named pane (`panes`), whether its terminal counts as shown and, if not, which link of its
+    visibility node chain is hidden or missing (``classify_chain``). With `expect_shown` (default on) it fails with
+    the verdicts when one is not shown; a build without the diagnostics passes with "no-diagnostics"."""
+    chains = _chains(j, list(step["panes"]))
+    if step.get("expect_shown", True):
+        bad = {n: c for n, c in chains.items() if c["verdict"] not in ("shown", "no-diagnostics")}
+        if bad:
+            raise D.StepError(f"node_chain: not shown: {bad}")
+    return {"chains": chains}
+
+
+STEPS = {"resize_fuzz": step_resize_fuzz, "retarget_pane": step_retarget_pane, "node_chain": step_node_chain}
