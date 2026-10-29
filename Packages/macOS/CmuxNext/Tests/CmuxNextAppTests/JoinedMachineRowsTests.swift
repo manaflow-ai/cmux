@@ -107,7 +107,7 @@ import Testing
         let menu = JoinedMachineMenu.make(Fake.machine("m_1", "lane-vm-3"), busy: false) { _, _ in }
         let items = menu.items.filter { !$0.isSeparatorItem }
         #expect(items.map(\.title) == ["Check", "Rotate Credential", "Revoke…"])
-        #expect(items.allSatisfy(\.isEnabled))
+        #expect(items.map(\.isEnabled) == [true, true, true])
         let gone = JoinedMachineMenu.make(Fake.machine("m_2", "old-box", state: .revoked), busy: false) { _, _ in }
         #expect(gone.items.filter { !$0.isSeparatorItem }.map(\.isEnabled) == [true, false, false])
         let busy = JoinedMachineMenu.make(Fake.machine("m_1", "lane-vm-3"), busy: true) { _, _ in }
@@ -201,6 +201,32 @@ import Testing
         #expect(await first.value)
         #expect(store.busy.isEmpty)
         #expect(gate.rotated == 0)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func anOlderReadThatLandsLateDoesNotBringBackItsRows() async {
+        let gate = Gate()
+        let fake = Fake()
+        let held = [Fake.machine("m_1", "lane-vm-3"), Fake.machine("m_2", "gpu-west")]
+        // The first read holds until released and then returns the old list; the second returns at once.
+        let store = JoinedMachineStore(service: {
+            MachineJoinService(mint: { _ in .failure(.failed) }, list: {
+                fake.lists += 1
+                if fake.lists == 1 { await gate.hold(); return held }
+                return [Fake.machine("m_1", "lane-vm-3")]
+            })
+        })
+        let older = Task { await store.refresh() }
+        await gate.waitEntered()
+        await store.refresh()
+        #expect(store.machines.map(\.id) == ["m_1"])
+        gate.release()
+        await older.value
+        #expect(store.machines.map(\.id) == ["m_1"], "the read that started first must not overwrite the newer one")
+        // Another reader's rows (Add Device's card) go through the same tickets.
+        let ticket = store.beginRead()
+        store.apply([])
+        store.finishRead(held, ticket: ticket)
+        #expect(store.machines.isEmpty)
     }
 
     @Test func aJoinedMachineTheAppConnectsToStaysOneLinkedRow() {

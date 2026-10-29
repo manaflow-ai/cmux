@@ -28,7 +28,10 @@ public final class JoinedMachineStore {
 
     /// The calls, nil while Labs `labs.machineJoin` is off (the store then lists nothing).
     @ObservationIgnored private let service: () -> MachineJoinService?
-    @ObservationIgnored private var generation = 0
+    /// The last read ticket handed out (``beginRead()``), and the newest one whose rows (or the
+    /// switch turning off) the store shows. A read that started before the shown one is dropped.
+    @ObservationIgnored private var issued = 0
+    @ObservationIgnored private var shown = 0
 
     public init(service: @escaping () -> MachineJoinService?) {
         self.service = service
@@ -37,20 +40,31 @@ public final class JoinedMachineStore {
     /// Reads `cmux machine list` once. With the switch off the list empties; a failed read keeps
     /// the rows it had.
     public func refresh() async {
-        generation += 1
-        let mine = generation
-        guard let service = service() else { machines = []; return }
-        let rows = await service.list()
-        guard mine == generation, let rows else { return }
-        apply(rows)
+        let ticket = beginRead()
+        guard let service = service() else { finishRead([], ticket: ticket); return }
+        guard let rows = await service.list() else { return }
+        finishRead(rows, ticket: ticket)
     }
 
-    /// Takes rows another reader got (Add Device's card reads the same list). A read of the store's
-    /// own still in flight is superseded by them.
-    public func apply(_ rows: [JoinedMachine]) {
-        generation += 1
+    /// A ticket for a list read about to start (the store's own, or Add Device's card reading the
+    /// same list). Take it before the read, and hand its rows to ``finishRead(_:ticket:)``.
+    public func beginRead() -> Int {
+        issued += 1
+        return issued
+    }
+
+    /// Shows a read's rows unless a read that started later has already been shown: reads can land
+    /// out of order, and an older one must not bring back rows a newer one dropped.
+    public func finishRead(_ rows: [JoinedMachine], ticket: Int) {
+        guard ticket > shown else { return }
+        shown = ticket
         failed = [:]
         if rows != machines { machines = rows }
+    }
+
+    /// Shows `rows` now, over any read still in flight (fixtures and tests).
+    public func apply(_ rows: [JoinedMachine]) {
+        finishRead(rows, ticket: beginRead())
     }
 
     /// Revokes or rotates `id`, then reads the list again. False when the platform refused or the
