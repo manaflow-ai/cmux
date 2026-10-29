@@ -138,6 +138,7 @@ build() {
   "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
     xcodebuild -scheme CmuxNextApp -configuration Release \
     -destination 'generic/platform=macOS' \
+    -skipPackagePluginValidation \
     -derivedDataPath "$derived_data" \
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
