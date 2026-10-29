@@ -70,13 +70,12 @@ const DOCS_MAX_LIMIT: usize = 30;
 const DOCS_MORE_NAMES: usize = 60;
 
 pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode, through cmux_exec. In a \
-    script, `cmux.docs(query)` searches every cmux tool (workspaces, screens, panes, tabs, \
-    terminals, browser, git, agents, notifications, keybindings, app actions) and returns its \
-    input schema, and the script calls them: `await cmux.pane_split({...})`; put related steps in \
+    script, `cmux.docs(query)` searches every cmux tool and returns its input schema, and the script calls them: `await cmux.pane_split({...})`; put related steps in \
     one script and return what you need. Tools of the chat's other cmux servers (cua_*, \
     secrets_*, sessions_*, subsessions_*, forum_*) come with their rules in `servers` of a \
     cmux.docs answer: follow them. Objects have public ids (ws_…, pane_…, tab_…, term_…) \
-    from the *_list tools; a unique prefix or <session>:<id> works. A change takes \
+    from the *_list tools; a unique prefix or <session>:<id> works. `current` is this chat's \
+    own workspace or pane; `focused` is the one the person looks at. A change takes \
     idempotency_key: on in_progress, retry with the key from the error; another server's \
     call that fails in_progress has no key and may have run, so check its effect first. Tools \
     never move the \

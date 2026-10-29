@@ -24,8 +24,9 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     /// Workspace row with a secondary detail line.
     public var rowHeightWithSubtitle: CGFloat
     public var tabRowHeight: CGFloat
+    /// The one gap between consecutive rows: a group's last member, a folder's last row and the
+    /// Pinned block's last row take it too, never a padding of their own (Leo 2026-10-21).
     public var rowSpacing: CGFloat
-    public var groupBottomPadding: CGFloat
     public var emptySectionHeight: CGFloat
     /// One line of a row's status block (`WorkspaceRowContent.status`).
     public var statusLineHeight: CGFloat = 14
@@ -37,7 +38,7 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
         rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, tabRowHeight: CGFloat, rowSpacing: CGFloat,
-        groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
+        emptySectionHeight: CGFloat
     ) {
         self.topPadding = topPadding
         self.bottomPadding = bottomPadding
@@ -47,7 +48,6 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.rowHeightWithSubtitle = rowHeightWithSubtitle
         self.tabRowHeight = tabRowHeight
         self.rowSpacing = rowSpacing
-        self.groupBottomPadding = groupBottomPadding
         self.emptySectionHeight = emptySectionHeight
     }
 

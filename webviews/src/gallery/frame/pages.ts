@@ -358,8 +358,9 @@ export async function mountCodeRouterPage(state: CodeRouterPageVariant, _context
 
 export async function mountChangelogPage(state: ChangelogPageVariant, _context: StageContext): Promise<void> {
   const provider = new MockChangelogProvider(JSON.parse(JSON.stringify(state.notes)), state.current);
+  // Every changelog operation the page calls (its reels too), as the app's host serves them.
   const host = installMockHost(
-    pageOps(provider, [ChangelogOps.list, ChangelogOps.get, CHANGELOG_ACTION_RUN], {
+    pageOps(provider, [...Object.values(ChangelogOps), CHANGELOG_ACTION_RUN], {
       mode: state.mode === "normal" ? undefined : state.mode,
       firstOperation: ChangelogOps.list,
       error: state.error,

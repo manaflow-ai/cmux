@@ -20,13 +20,55 @@ import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
-import { subagentStatus, subagentStatusLabel, type SubagentStatus } from "../summary/SubagentStatusList";
-import { orderedSessions, sessionStatus, sessionStateLabel } from "./ChildSessionRows";
+import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
+import { SUBSESSION_STATE_LABEL, type SubsessionRow, waitingLine } from "../subagents/subsessions";
+import {
+  SUBSESSION_STATUS,
+  subagentStateText,
+  subagentStatus,
+  type SubagentStatus,
+} from "../summary/SubagentStatusList";
+import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
+import { InspectorFold } from "./InspectorSection";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
 const NO_SESSIONS: readonly StartedSession[] = [];
+const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
+
+export type SubagentTally = { waiting: number; running: number; failed: number; stopped: number; done: number };
+
+/// The Inspector's one source of truth for subagent and started-chat counts. Compact summaries
+/// reuse this tally instead of walking the records a second time.
+export function subagentTally(
+  agents: readonly Subagent[],
+  waiting: ReadonlySet<string>,
+  sessions: readonly StartedSession[] = NO_SESSIONS,
+): SubagentTally {
+  const out: SubagentTally = { waiting: 0, running: 0, failed: 0, stopped: 0, done: 0 };
+  const add = (status: SubagentStatus) => {
+    out[status] += 1;
+  };
+  agents.forEach((agent) => add(subagentStatus(agent, waiting)));
+  sessions.forEach((session) => add(session.waitsForSlot ? "waiting" : sessionStatus(session)));
+  return out;
+}
+
+/// The same tally shape for App.tsx's folded `chatSubsessions` rows. Compact summaries and the
+/// Inspector header share this helper so a sub-session cannot disappear from either count.
+export function subsessionTally(rows: readonly SubsessionRow[] = NO_SUBSESSIONS): SubagentTally {
+  const out: SubagentTally = { waiting: 0, running: 0, failed: 0, stopped: 0, done: 0 };
+  rows.forEach((row) => {
+    const retry = sessionRetry(row);
+    if (row.slot) out.waiting += 1;
+    else if (retry.kind === "retrying" || row.state === "working") out.running += 1;
+    else if (row.state === "input") out.waiting += 1;
+    else if (row.state === "done") out.done += 1;
+    else out.failed += 1;
+  });
+  return out;
+}
 
 /// "1 waiting · 3 running · 40 done" for the section's head, the started chats counted with the
 /// subagents, or nothing for neither.
@@ -35,16 +77,20 @@ export function subagentCounts(
   agents: readonly Subagent[],
   waiting: ReadonlySet<string>,
   sessions: readonly StartedSession[] = NO_SESSIONS,
+  subsessions: readonly SubsessionRow[] = NO_SUBSESSIONS,
 ): string {
-  const count = (status: SubagentStatus) =>
-    agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
-    sessions.filter((child) => sessionStatus(child) === status).length;
+  const counts = subagentTally(agents, waiting, sessions);
+  const sub = subsessionTally(subsessions);
+  counts.waiting += sub.waiting;
+  counts.running += sub.running;
+  counts.failed += sub.failed;
+  counts.done += sub.done;
   return [
-    count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
-    count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
-    count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
-    count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
-    count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
+    counts.waiting > 0 && t("summary.subagents.waiting", { n: counts.waiting }),
+    counts.running > 0 && t("summary.subagents.running", { n: counts.running }),
+    counts.failed > 0 && t("summary.subagents.failed", { n: counts.failed }),
+    counts.stopped > 0 && t("summary.subagents.stopped", { n: counts.stopped }),
+    counts.done > 0 && t("summary.subagents.done", { n: counts.done }),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -72,6 +118,8 @@ type Line = {
   detail?: string;
   status: SubagentStatus;
   state: string;
+  /// acpmux retries it: its line shows the turning ring (retryState.ts).
+  working?: boolean;
   time?: string;
   /// Its whole task, for the hover card.
   task?: string;
@@ -116,6 +164,7 @@ const EndedAvatars = memo(
         item.key === next.key &&
         item.identity === next.identity &&
         item.status === next.status &&
+        item.working === next.working &&
         item.icon === next.icon &&
         item.agent?.state === next.agent?.state &&
         item.agent?.harness === next.agent?.harness
@@ -128,6 +177,7 @@ export function SubagentsSection({
   waiting,
   onOpen,
   sessions = NO_SESSIONS,
+  subsessions = NO_SUBSESSIONS,
   onOpenSession,
 }: {
   agents: readonly Subagent[];
@@ -136,6 +186,8 @@ export function SubagentsSection({
   onOpen?: (id: string) => void;
   /// The chats the agent started, and how one opens.
   sessions?: readonly StartedSession[];
+  /// The chats started through acpmux's sub-session API, listed with the same detail.
+  subsessions?: readonly SubsessionRow[];
   onOpenSession?: (sessionId: string) => void;
 }) {
   const t = useT();
@@ -151,7 +203,8 @@ export function SubagentsSection({
       name: agent.name,
       detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
       status,
-      state: t(subagentStatusLabel(agent, waiting)),
+      state: subagentStateText(t, agent, waiting),
+      working: Boolean(retrying(agent)),
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
       icon: "agent.session",
@@ -165,12 +218,30 @@ export function SubagentsSection({
     identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    state: t(sessionStateLabel(child)),
+    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
     icon: "agent.chat",
     depth: 0,
     at: child.createdAt ?? 0,
     open: onOpenSession && (() => onOpenSession(child.sessionId)),
   });
+  const subsessionLine = (session: SubsessionRow): Line => {
+    const retry = sessionRetry(session);
+    const status = retry.kind === "retrying" ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state];
+    const detail = session.waiting ? waitingLine(t, session.waiting) : session.doing;
+    return {
+      key: `subsession:${session.sessionId}`,
+      identity: session.sessionId,
+      name: session.name,
+      detail,
+      status,
+      state: retry.kind === "retrying" ? retryLabel(t, retry.retry) : t(SUBSESSION_STATE_LABEL[session.state]),
+      working: retry.kind === "retrying",
+      icon: "agent.session",
+      depth: session.depth,
+      at: 0,
+      open: onOpenSession && (() => onOpenSession(session.sessionId)),
+    };
+  };
   // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
   // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
   // parent), then the running chats.
@@ -182,11 +253,31 @@ export function SubagentsSection({
   );
   const children = orderedSessions(sessions);
   const runningLines = [
+    ...subsessions
+      .filter((session) => {
+        const phase = sessionRetry(session);
+        return (
+          phase.kind === "retrying" ||
+          SUBSESSION_STATUS[session.state] === "waiting" ||
+          SUBSESSION_STATUS[session.state] === "running"
+        );
+      })
+      .map(subsessionLine),
     ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
     ...runningAgents,
     ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
   ];
   const endedLines = [
+    ...subsessions
+      .filter((session) => {
+        const phase = sessionRetry(session);
+        return (
+          phase.kind !== "retrying" &&
+          SUBSESSION_STATUS[session.state] !== "waiting" &&
+          SUBSESSION_STATUS[session.state] !== "running"
+        );
+      })
+      .map(subsessionLine),
     ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
     ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
   ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
@@ -200,6 +291,7 @@ export function SubagentsSection({
         detail={item.detail}
         status={item.status}
         state={item.state}
+        working={item.working}
         time={item.time}
         icon={item.icon}
         depth={item.depth}
@@ -227,16 +319,11 @@ export function SubagentsSection({
         </ul>
       )}
       {runningLines.length > SUBAGENTS_SHOWN && (
-        <button
-          type="button"
-          className="acpmux-chat-inspector-fold acpmux-chat-inspector-subagents__more"
-          aria-expanded={more}
-          onClick={() => setMore(!more)}
-        >
+        <InspectorFold className="acpmux-chat-inspector-subagents__more" open={more} onToggle={() => setMore(!more)}>
           {more
             ? t("chatInspector.subagents.less")
             : t("chatInspector.subagents.more", { n: runningLines.length - SUBAGENTS_SHOWN })}
-        </button>
+        </InspectorFold>
       )}
       {endedLines.length > 0 && (
         <>

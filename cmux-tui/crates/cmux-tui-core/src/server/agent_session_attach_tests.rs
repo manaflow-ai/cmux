@@ -36,6 +36,11 @@ pub(super) struct FakeAcpmux {
 
 impl FakeAcpmux {
     pub(super) fn start(label: &str) -> Self {
+        Self::start_with(label, Fixture::default())
+    }
+
+    /// A fake whose attach page and watch answer carry `fixture`'s extras.
+    pub(super) fn start_with(label: &str, fixture: Fixture) -> Self {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
         let directory = PathBuf::from(format!(
             "/tmp/cmux-asa-{label}-{}-{}",
@@ -52,7 +57,8 @@ impl FakeAcpmux {
                 let Ok(stream) = stream else { return };
                 let _ = connection_tx.send(stream.try_clone().unwrap());
                 let frame_tx = frame_tx.clone();
-                std::thread::spawn(move || serve(stream, frame_tx));
+                let fixture = fixture.clone();
+                std::thread::spawn(move || serve(stream, frame_tx, &fixture));
             }
         });
         Self { directory, socket, frames, connections, current: None }
@@ -67,6 +73,16 @@ impl FakeAcpmux {
                 return frame;
             }
         }
+    }
+
+    /// The next frame the daemon sent to acpmux, its session watch included.
+    pub(super) fn raw_frame(&self) -> Value {
+        self.frames.recv_timeout(WAIT).expect("a frame to acpmux")
+    }
+
+    /// The next frame the daemon sent to acpmux within `timeout`, if any.
+    pub(super) fn next_frame(&self, timeout: Duration) -> Option<Value> {
+        self.frames.recv_timeout(timeout).ok()
     }
 
     pub(super) fn no_frame(&self) {
@@ -94,7 +110,7 @@ impl FakeAcpmux {
         self.current.as_mut().unwrap()
     }
 
-    fn notify(&mut self, method: &str, params: Value) {
+    pub(super) fn notify(&mut self, method: &str, params: Value) {
         let line = json!({"jsonrpc":"2.0","method":method,"params":params}).to_string();
         let stream = self.connection();
         writeln!(stream, "{line}").unwrap();
@@ -112,8 +128,22 @@ impl Drop for FakeAcpmux {
     }
 }
 
-fn serve(stream: UnixStream, frames: Sender<Value>) {
+/// What a test adds to the fake's answers: records after the attach page's
+/// own, and sessions after the watch answer's own.
+#[derive(Clone, Default)]
+pub(super) struct Fixture {
+    pub(super) page: Vec<Value>,
+    pub(super) watch: Vec<Value>,
+    /// The records an `_acpmux/events` (history) page answers.
+    pub(super) history: Vec<Value>,
+    /// When set, the attach answer waits for one message on it (at most [`WAIT`]).
+    pub(super) attach_gate: Option<Arc<Mutex<Receiver<()>>>>,
+}
+
+fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
     let mut writer = stream.try_clone().unwrap();
+    // acpmux takes 2 `_acpmux/typing` a second per connection: the fake refuses the third.
+    let mut typing_calls = 0;
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { return };
         let frame: Value = serde_json::from_str(&line).unwrap();
@@ -122,25 +152,47 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
         let params = &frame["params"];
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "_acpmux/attach" => {
+                if let Some(gate) = &fixture.attach_gate {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
                 // A running turn: acpmux subscribes first, so a live record
                 // can reach the daemon before the attach reply.
                 let early = json!({"jsonrpc":"2.0","method":"_acpmux/event","params":{
                     "sessionId": SESSION, "seq": 2, "dir": "in", "kind": "agent_message", "msg": {}}});
                 writeln!(writer, "{early}").unwrap();
+                let mut events = vec![
+                    json!({"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}),
+                ];
+                events.extend(fixture.page.iter().cloned());
                 Some(json!({
                     "session": {"sessionId": SESSION, "name": "sub", "status": "running",
                                 "pending": [{"permissionId": "perm_attach", "options": []}]},
-                    "events": [{"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}],
+                    "events": events,
                     "hasMore": false,
                     "lastSeq": 1,
                 }))
             }
-            "_acpmux/watch" => Some(json!({"sessions": [{"sessionId": "acp_unrelated"}]})),
+            "_acpmux/watch" => {
+                let mut sessions = vec![json!({"sessionId": "acp_unrelated"})];
+                sessions.extend(fixture.watch.iter().cloned());
+                Some(json!({"sessions": sessions}))
+            }
             // The machine's whole list: the attached session's family and others
             // (agent_session_children_tests.rs).
             "_acpmux/sessions" => Some(machine_sessions()),
-            "_acpmux/events" => Some(json!({"events": [], "hasMore": false, "lastSeq": 1})),
-            "_acpmux/permission_respond" => Some(json!({})),
+            "_acpmux/events" => {
+                Some(json!({"events": fixture.history, "hasMore": false, "lastSeq": 1}))
+            }
+            "_acpmux/typing" => {
+                typing_calls += 1;
+                Some(if typing_calls > 2 {
+                    json!({FAKE_ERROR: "typing too fast",
+                           FAKE_ERROR_DATA: {"reason": "typing.rate_limited"}})
+                } else {
+                    json!({})
+                })
+            }
+            "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
             method if method.starts_with("_acpmux/transfer_") => transfer_reply(method, params),
             "session/prompt" => {
@@ -321,6 +373,12 @@ impl Client {
         self.answer(id)
     }
 
+    /// Writes raw bytes on the connection, as a client would (a blank line).
+    pub(super) fn raw(&mut self, bytes: &str) {
+        self.writer.write_all(bytes.as_bytes()).unwrap();
+        self.writer.flush().unwrap();
+    }
+
     /// Sends a request without waiting for its answer; returns its id.
     pub(super) fn send(&mut self, mut value: Value) -> u64 {
         let id = self.next_id;
@@ -359,7 +417,7 @@ impl Client {
     }
 
     /// The next `agent-session-*` event (buffered first).
-    fn event(&mut self, timeout: Duration) -> Option<Value> {
+    pub(super) fn event(&mut self, timeout: Duration) -> Option<Value> {
         if let Some(index) = self.events.iter().position(is_agent_event) {
             return self.events.remove(index);
         }
@@ -429,6 +487,7 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
 }
 
 include!("agent_session_observe_tests.rs");
+include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
 
 // MARK: Capability and trust
@@ -477,6 +536,8 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":5,"cmd":"agent-session-permission","surface":surface,
                "permission_id":"perm_attach","option_id":"allow"}),
         json!({"id":6,"cmd":"agent-session-detach","surface":surface}),
+        json!({"id":7,"cmd":"agent-session-typing","surface":surface,"on":true}),
+        json!({"id":8,"cmd":"agent-session-view","surface":surface,"visible":true}),
     ]
 }
 
@@ -772,6 +833,108 @@ fn cancel_goes_to_the_pinned_session() {
     assert_eq!(sent["method"], json!("session/cancel"));
     assert_eq!(sent["params"], json!({"sessionId": SESSION}));
     assert!(sent.get("id").is_none(), "cancel is a notification");
+}
+
+// MARK: Presence
+
+/// Chat multiplayer (hq#4389): the person's typing and view go to acpmux on the tab's own session,
+/// and who is in the chat comes back as `agent-session-presence`, for that session only.
+#[test]
+fn typing_and_view_go_to_the_pinned_session_and_presence_streams_back() {
+    let mut fake = FakeAcpmux::start("presence");
+    let mux = mux_with(&fake, "asa-presence");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "presence");
+    let info = client.request(json!({"cmd":"set-client-info","name":"presence test",
+        "capabilities":[agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY]}));
+    assert_eq!(info["ok"], json!(true), "{info}");
+    let attached = attach(&mut client, surface);
+    let _ = fake.frame();
+    let _ = client.event(WAIT).expect("the early record");
+    assert_eq!(attached["ok"], json!(true), "{attached}");
+    for (frame, method, params) in [
+        (
+            json!({"cmd":"agent-session-typing","surface":surface,"on":true}),
+            "_acpmux/typing",
+            json!({"sessionId": SESSION, "on": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-view","surface":surface,"visible":false}),
+            "_acpmux/view",
+            json!({"sessionId": SESSION, "visible": false}),
+        ),
+    ] {
+        let reply = client.request(frame);
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], json!(method));
+        assert_eq!(sent["params"], params, "the session is the tab's own; nothing else is passed");
+    }
+    for bad in [
+        json!({"cmd":"agent-session-typing","surface":surface}),
+        json!({"cmd":"agent-session-typing","surface":surface,"on":"yes"}),
+        json!({"cmd":"agent-session-typing","surface":surface,"on":true,"sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-view","surface":surface,"visible":true,
+               "_meta":{"acpmux":{"author":{"id":"tailnet:x","name":"x"}}}}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
+    let people = json!({"sessionId": SESSION, "participants": [
+        {"id": "owner", "name": "Owner", "devices": 2, "viewing": true, "typing": false}]});
+    fake.notify("_acpmux/presence", json!({"sessionId": "acp_other", "participants": []}));
+    fake.notify("_acpmux/presence", people.clone());
+    let event = client.event(WAIT).expect("the chat's presence");
+    assert_eq!(event["event"], json!("agent-session-presence"));
+    assert_eq!(event["surface"], json!(surface));
+    assert_eq!(event["presence"], people);
+    assert!(client.event(Duration::from_millis(200)).is_none(), "no other chat's presence");
+    // Past acpmux's rate (the fake took one typing call above): the attachment's bound.
+    let again = json!({"cmd":"agent-session-typing","surface":surface,"on":true});
+    assert_eq!(client.request(again.clone())["ok"], json!(true));
+    assert_eq!(fake.frame()["method"], json!("_acpmux/typing"));
+    assert_code(&client.request(again), "agent_session.limit");
+}
+
+/// An app from before `agent-session-presence-v1` ends its attachment on an `agent-session-*`
+/// event it does not know, so a connection that did not echo the capability never gets one.
+#[test]
+fn presence_reaches_only_a_connection_that_asked_for_it() {
+    let mut fake = FakeAcpmux::start("presence-legacy");
+    let mux = mux_with(&fake, "asa-presence-legacy");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "presence-legacy");
+    assert_eq!(attach(&mut client, surface)["ok"], json!(true));
+    let _ = fake.frame();
+    let _ = client.event(WAIT).expect("the early record");
+    fake.notify("_acpmux/presence", json!({"sessionId": SESSION, "participants": []}));
+    fake.notify("_acpmux/event", json!({"sessionId": SESSION, "seq": 3, "kind": "agent_message"}));
+    let next = client.event(WAIT).expect("the record after the presence");
+    assert_eq!(next["event"], json!("agent-session-record"), "no presence event: {next}");
+    assert!(client.event(Duration::from_millis(200)).is_none());
+}
+
+#[test]
+fn typing_needs_an_attachment() {
+    let fake = FakeAcpmux::start("typing-unattached");
+    let mux = mux_with(&fake, "asa-typing-unattached");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "typing-unattached");
+    for frame in [
+        json!({"cmd":"agent-session-typing","surface":surface,"on":true}),
+        json!({"cmd":"agent-session-view","surface":surface,"visible":true}),
+    ] {
+        assert_code(&client.request(frame), "agent_session.not_attached");
+    }
+    fake.no_connection();
 }
 
 #[test]

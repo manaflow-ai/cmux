@@ -1,7 +1,8 @@
 // A call to the cmux-subsessions tools (subsessionCalls.ts) as the sub-sessions it touched, never
 // its JSON: a start as the sub-session's card (subagents/AgentCard.tsx) over its prompt as Markdown
 // cut to three lines; a wait or a list as each one's card, a finished one's reply under it; a
-// message as "→ tests: <first line>", which opens to all of it. Each card reads its state live from
+// message as "Sent message to tests" and its first line (SentMessageLine.tsx, the row a shell
+// `acpmux send` draws too), which opens to all of it. Each card reads its state live from
 // the session list (subagents/subsessions.ts). The call's JSON stays behind "Raw".
 import type { ReactNode } from "react";
 import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -10,10 +11,12 @@ import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
 import { AgentCard } from "../subagents/AgentCard";
 import { SubsessionContext, useSenderChat, useSubsessionInfo, waitingLine } from "../subagents/subsessions";
-import { ChevronRight, Envelope, Spinner } from "./icons";
+import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { Spinner } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
+import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
 
@@ -64,15 +67,22 @@ function SessionCard({
   const live = useSubsessionInfo(sessionId);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
-  const state = live?.state ?? fallback?.state;
+  // The card's retry, as every surface reads it (retryState.ts ``sessionRetry``): while acpmux
+  // retries its failed turn, the card works, and its state says so. Its Retry is on its end line.
+  const phase = live ? sessionRetry(live) : undefined;
+  const retry = phase?.kind === "retrying" ? phase.retry : undefined;
+  const state = retry ? "working" : (live?.state ?? fallback?.state);
   const waiting = live ? live.waiting : fallback?.waiting;
-  const doing = waiting ? waitingLine(t, waiting) : live?.doing;
+  // A failed one says why (acpmux's lane error), a retry acpmux refused included.
+  const doing = waiting ? waitingLine(t, waiting) : (live?.doing ?? (state === "failed" ? live?.error : undefined));
   return (
     <AgentCard
       name={live?.name ?? name}
       harness={listed ?? harness}
+      sessionId={sessionId}
       model={live?.model ?? model}
       state={state}
+      {...(retry && { stateLabel: retryLabel(t, retry) })}
       slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}
       queued={live?.queued}
@@ -153,34 +163,26 @@ export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
 
 /// The call's request and response as the generic MCP row shows them, behind "Raw".
 function Raw({ tool }: { tool: Tool }) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
+  return (
+    <RawToggle>
+      <McpDetails tool={tool} />
+    </RawToggle>
+  );
+}
+
+function McpDetails({ tool, reveal = 0 }: { tool: Tool; reveal?: number }) {
   const id = useId();
   const call = useMemo(() => mcpCall(tool), [tool]);
   if (!call) return null;
   return (
-    <div className="cv-subsession__raw">
-      <button
-        type="button"
-        className="cv-subsession__toggle"
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {t("subsession.raw")}
-        <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
-      </button>
-      {open && (
-        <McpCallDetails
-          id={id}
-          call={call}
-          raw={mcpRawName(tool, call)}
-          output={tool.output}
-          strip={false}
-          reveal={0}
-        />
-      )}
-    </div>
+    <McpCallDetails
+      id={id}
+      call={call}
+      raw={mcpRawName(tool, call)}
+      output={tool.output}
+      strip={false}
+      reveal={reveal}
+    />
   );
 }
 
@@ -200,43 +202,22 @@ function deliveryText(t: Translate, delivery: SubsessionDelivery): string {
   }
 }
 
-/// "→ tests: <first line>", which opens to the whole message and the call's Raw.
+/// "Sent message to tests" and the first line, the row a shell `acpmux send` draws too
+/// (SentMessageLine.tsx); it opens to the whole message and the call's Raw.
 function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send" }>; tool: Tool }) {
   const t = useT();
   const live = useSubsessionInfo(call.sessionId);
-  const [open, setOpen] = useState(false);
-  const id = useId();
-  const name = live?.name ?? shortId(call.sessionId);
-  const first = firstLine(call.text);
   return (
-    <>
-      <button
-        type="button"
-        className={`cv-tool is-toggle cv-subsession${call.running ? " is-live" : " is-strong"}`}
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span className="cv-tool__icon">{call.running ? <Spinner size={16} loading /> : <Envelope />}</span>
-        <span className="cv-tool__text">
-          {call.running ? t("subsession.sending", { name, text: first }) : t("subsession.to", { name, text: first })}
-          {call.delivery && <span className="cv-tool__detail">{` · ${deliveryText(t, call.delivery)}`}</span>}
-        </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
-      </button>
-      {open && (
-        <div id={id} className="cv-subsession__under">
-          <div className="cv-subsession__markdown selectable">
-            <Markdown commits="quiet">{call.text}</Markdown>
-          </div>
-          <Raw tool={tool} />
-        </div>
-      )}
-    </>
+    <SentMessageLine
+      tool={tool}
+      state={call.running ? "sending" : "sent"}
+      target={live?.name ?? shortId(call.sessionId)}
+      text={call.text}
+      detail={call.delivery && deliveryText(t, call.delivery)}
+      disclosureKey={`send:${tool.id}`}
+      targetSession={call.sessionId}
+      raw={(reveal) => <McpDetails tool={tool} reveal={reveal} />}
+    />
   );
 }
 
@@ -269,16 +250,6 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
       ))}
       <Raw tool={tool} />
     </div>
-  );
-}
-
-/// A message's first line that says something.
-function firstLine(text: string): string {
-  return (
-    text
-      .split("\n")
-      .map((line) => line.trim())
-      .find(Boolean) ?? ""
   );
 }
 

@@ -59,7 +59,7 @@ jobs:
   web-typecheck:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     # Matches the 10-minute siblings in this workflow.
     timeout-minutes: 10
     defaults:
@@ -110,7 +110,7 @@ jobs:
   web-production-build:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -155,7 +155,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: ["1/4", "2/4", "3/4", "4/4"]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -207,7 +207,7 @@ jobs:
   web-instant-navigation:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -263,7 +263,7 @@ jobs:
     # 4 vCPU runner (run 37666132324). The 32 vCPU size has the memory and runs
     # 32 files and 8 dev-server files at once (run-webviews-tests.sh). Fork pull
     # requests run the same suite on the hosted runner.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -442,10 +442,23 @@ jobs:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
-          CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results.json
+          CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
+          CMUX_WEB_TEST_RAW_LOG_DIR: ${{ runner.temp }}/webviews-head-results/raw-logs
           CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-        run: ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
+          # Room for one alone retry of the slowest file after a short one: at the
+          # runner's 120 s default, #27045's shard 1 spent 60 s retrying
+          # code-block-highlight-height and cut attach-huge-files' retry (about
+          # 130 s) short, so its first run's typing reads stood as reds. 300 s
+          # keeps the slowest shard (about 32 min on 16 vCPU) inside its 40 min.
+          CMUX_WEB_TEST_RETRY_BUDGET: "300"
+        run: |
+          # Replay uses this exact runner and result parser, with the base's tests and bun.
+          # Different deadline policies can otherwise turn an old named failure into a new timeout.
+          mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
+          cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/webviews_test_results.py \
+            "$RUNNER_TEMP/webviews-head-results/runner/"
+          ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
       - name: Upload head webview results
         if: ${{ always() && github.event_name == 'pull_request' }}
@@ -455,7 +468,7 @@ jobs:
           # the original head results while retrying only the base comparison.
           name: react-apps-head-results-shard${{ matrix.shard }}
           overwrite: true
-          path: ${{ runner.temp }}/webviews-head-results.json
+          path: ${{ runner.temp }}/webviews-head-results/
           if-no-files-found: error
           retention-days: 14
 
@@ -508,7 +521,7 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     name: react-apps-base-check (${{ matrix.shard }})
     strategy:
@@ -520,12 +533,19 @@ jobs:
           - shard: 3
           - shard: 4
     steps:
-      - name: Checkout base
+      # The base is the merge commit's first parent, the commit the head shards
+      # were merged onto (their prScope diff is HEAD^1 too). pull_request.base.sha
+      # lags it once the base moves: #27045's replay ran on a base 12 commits
+      # older, where agent-pane-no-capsules still passed, so a red the merge
+      # parent already had (#27019's capsule bars) was charged to the change.
+      - name: Checkout the merge commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          fetch-depth: 1
+          fetch-depth: 2
           persist-credentials: false
+
+      - name: Use the merge parent as the base
+        run: git checkout -q --detach HEAD^1
 
       - name: Download head webview results
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
@@ -598,7 +618,7 @@ jobs:
             CMUX_WEB_TEST_FILES="$(cat "$files")" \
               CMUX_WEB_TEST_RESULTS="$BASE_RESULTS" \
               env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
-              bash ../scripts/ci/run-webviews-tests.sh || true
+              bash "$RUNNER_TEMP/head-results/runner/run-webviews-tests.sh" || true
           fi
           python3 ../scripts/ci/guards_new_reds.py --label "Webview test" "$HEAD_RESULTS" "$BASE_RESULTS"
 
@@ -687,7 +707,7 @@ jobs:
     # Generated protocol checks and the sidecar tests only run for their owned inputs.
     needs: web-subarea-scope
     if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - name: Checkout

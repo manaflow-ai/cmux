@@ -144,6 +144,8 @@ final class WindowRecordSaver {
         DebugPaneFocus.noteMainWork("record_saves")
         manager.captureGeometry()
         let records = currentRecords()
+        // The front open window's place, kept once its record is pruned (`WindowStateDocument.lastFrame`).
+        let front = records.filter { !$0.isClosed && $0.frame != nil }.min { $0.order < $1.order }
         // Keys on every machine, plus those whose machine has not loaded yet
         // (they must survive until it reconnects).
         let live = Set(services.machines.allWorkspaces.compactMap(\.0.key))
@@ -152,6 +154,10 @@ final class WindowRecordSaver {
             try await windowState.update { document in
                 document.windows = records
                 document.prune(liveWorkspaces: live)
+                if let front {
+                    document.lastFrame = front.frame
+                    document.lastDisplay = front.display
+                }
             }
             await mirror(records)
             return nil
@@ -184,7 +190,7 @@ final class WindowRecordSaver {
                                           // full screen only for a page's fullscreen is not the window's own
                                           && controller?.pagePresentation?.entersWindowFullScreen != true)
                                           || states[window.id]?.restoresFullScreen == true,
-                                      selectedTabs: selectedTabs(window: window))
+                                      selectedTabs: selectedTabs(window: window), machines: manager.seenMachine)
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
             record?.focusedPanes = focusedPanes(window: window)
             return record

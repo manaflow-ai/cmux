@@ -57,13 +57,17 @@ struct AgentCursorSnapshotBuilder {
     }
 
     private func window(_ controller: WindowController, target: String,
-                        location: AgentCursorVisibilitySnapshot.TabLocation?, _ services: AppServices) -> AgentCursorVisibilitySnapshot.Window {
+                        location own: AgentCursorVisibilitySnapshot.TabLocation?, _ services: AppServices) -> AgentCursorVisibilitySnapshot.Window {
         let window = controller.window
         let content = controller.content
         let space = window?.contentView.map(AgentCursorContentSpace.init)
         // The Home page draws the home workspace's chief conversation: that workspace is on screen.
         let homePage = controller.shownTopPage == .home ? controller.topPages.views[.home] : nil
         let shown = content?.workspace.id ?? homePage.flatMap { _ in services.home.homeWorkspace?.id }
+        // A tab mirrored into the shown workspace (`TabMirrors`) is there for this window: its
+        // cursor follows the mirror, which holds the live page (plans/cmux-next/shared-browser-tabs.md).
+        let location = own.flatMap { own in own.workspace == shown ? own : nil }
+            ?? Self.mirror(of: target, inWorkspace: shown, content: content, services) ?? own
         var rows: [String: AgentCursorRect] = [:]
         var panes: [AgentCursorVisibilitySnapshot.Pane] = []
         if let location, let space {
@@ -95,6 +99,20 @@ struct AgentCursorSnapshotBuilder {
             sidebarRows: rows,
             panes: panes
         )
+    }
+
+    /// Where the shown workspace mirrors `target`, if it does.
+    private static func mirror(of target: String, inWorkspace shown: String?, content: WorkspaceContentController?,
+                               _ services: AppServices) -> AgentCursorVisibilitySnapshot.TabLocation? {
+        guard let shown else { return nil }
+        let workspace = content.map(\.workspace) ?? services.workspace(id: shown)
+        guard let workspace, workspace.id == shown else { return nil }
+        for screen in workspace.screens {
+            if let pane = screen.panes.first(where: { services.tabMirrors.mirrors(target, in: $0.id) }) {
+                return .init(workspace: shown, pane: pane.id)
+            }
+        }
+        return nil
     }
 
     // MARK: Pane

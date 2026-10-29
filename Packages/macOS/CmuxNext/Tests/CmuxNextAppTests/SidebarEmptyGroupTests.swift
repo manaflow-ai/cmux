@@ -43,10 +43,9 @@ import Testing
         #expect(placeholder.depth == header.depth + 1, "one level in, as a member")
         #expect(placeholder.y == header.maxY + SidebarLayoutMetrics.standard.rowSpacing)
         #expect(placeholder.isLastInGroup)
-        // The next group starts after the empty row and the group's bottom padding, not right under the header.
+        // The next group starts one row gap after the empty row, not right under the header.
         let next = try #require(layout.row(for: .group(perf)))
-        let m = SidebarLayoutMetrics.standard
-        #expect(next.y == placeholder.maxY + m.rowSpacing + m.groupBottomPadding)
+        #expect(next.y == placeholder.maxY + SidebarLayoutMetrics.standard.rowSpacing)
     }
 
     @Test func aCollapsedEmptyGroupStaysAHeaderAlone() {

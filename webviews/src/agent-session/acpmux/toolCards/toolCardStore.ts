@@ -11,13 +11,13 @@ export type ToolCardAction = { id: string; title: string; hint?: string; submits
 export type ToolCardInput = { placeholder: string; secure: boolean; maxBytes: number };
 export type ToolCard = {
   id: string;
-  state: "ask" | "working" | "failed";
+  state: "ask" | "working" | "done" | "failed";
   text: string;
   actions: ToolCardAction[];
   input?: ToolCardInput;
 };
 
-const STATES = new Set<string>(["ask", "working", "failed"]);
+const STATES = new Set<string>(["ask", "working", "done", "failed"]);
 let cards: ToolCard[] = [];
 const listeners = new Set<() => void>();
 
@@ -64,7 +64,8 @@ export function setToolCards(value: unknown): void {
   for (const listener of listeners) listener();
 }
 
-function current(): ToolCard[] {
+/// The cards kept now (the hook's snapshot; tests read it directly).
+export function currentToolCards(): ToolCard[] {
   return cards;
 }
 
@@ -74,7 +75,7 @@ function subscribe(listener: () => void): () => void {
 }
 
 export function useToolCards(): ToolCard[] {
-  return useSyncExternalStore(subscribe, current, current);
+  return useSyncExternalStore(subscribe, currentToolCards, currentToolCards);
 }
 
 declare global {

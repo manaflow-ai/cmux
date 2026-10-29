@@ -59,6 +59,25 @@ public enum WorkspaceSlot: Hashable, Sendable {
         }
     }
 
+    /// ``position(moving:section:in:)`` in the section that lists `anchor`
+    /// (loose or in a group), so the slot names `anchor`'s own container.
+    /// Nil when `sections` do not list `anchor`: resolved against another
+    /// section, `top`/`bottom` fell back to its loose rows and a grouped
+    /// workspace left its group (a notification's move to the top did that).
+    public func position(moving: Set<String>, besides anchor: String, in sections: [SidebarRowSection]) -> DropPosition? {
+        let home = sections.first { section in
+            section.nodes.contains { node in
+                switch node {
+                case let .workspace(workspace): workspace.id.rawValue == anchor
+                case let .group(group): group.workspaces.contains { $0.id.rawValue == anchor }
+                case .item: false
+                }
+            }
+        }
+        guard let home else { return nil }
+        return position(moving: moving, section: home.id, in: sections)
+    }
+
     private var isTop: Bool {
         if case .top = self { return true }
         return false

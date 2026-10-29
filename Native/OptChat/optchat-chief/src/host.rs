@@ -780,11 +780,11 @@ fn start(
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
     // Section 9's subagents run on this harness (default the Chief's).
     let mut sub_harness = sub_set.clone().unwrap_or_else(|| harness.clone());
-    // The monitoring trace (trace.rs); OPTCHAT_TRACE_FULL=1 adds whole texts.
-    let trace = match crate::trace::Trace::open(
-        &paths.traces,
-        env("OPTCHAT_TRACE_FULL").as_deref() == Some("1"),
-    ) {
+    // The monitoring trace (trace.rs); OPTCHAT_TRACE_FULL=1 or the Chief's
+    // `trace.full` setting adds whole texts (the app passes no OPTCHAT_ env).
+    let trace_full = env("OPTCHAT_TRACE_FULL").as_deref() == Some("1")
+        || crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json")).trace_full;
+    let trace = match crate::trace::Trace::open(&paths.traces, trace_full) {
         Ok(trace) => trace,
         Err(e) => {
             log(format!(
@@ -962,6 +962,12 @@ fn start(
     // channel until the brain runs.
     let (tx, rx) = channel();
     let _ = STOP_TX.set(tx.clone());
+    // An app update replaces this binary while this process keeps the old code,
+    // and the relaunched app keeps a host that holds the lock: hand off once no
+    // turn runs (update_watch.rs). OPTCHAT_BINARY_WATCH=0 turns it off.
+    if env("OPTCHAT_BINARY_WATCH").as_deref() != Some("0") {
+        watch_binary(&exe, tx.clone());
+    }
     // Turn sessions get their own Claude Code configuration (section 7: a
     // fresh call with nothing carried over). OPTCHAT_CHIEF_ISOLATE=0 turns it
     // off, for a harness that needs the user's configuration to sign in. On
@@ -1364,12 +1370,17 @@ fn start(
             // a423 (2026-10-21): the app's daemon, the user's own session, so a subagent's
             // workspace is the same kind of workspace as one the user makes (it outlives the app
             // as the app's daemon does). The tabs name the Chief home's acpmux (`chief:<home id>`).
+            // A Chief no app opened (`cmux chief --chief-home`): the link dangles, so
+            // its workspaces go to this host's own session until an app opens Home.
+            let fallback = (Path::new(daemon_socket) != daemon.as_path())
+                .then(|| PathBuf::from(daemon_socket));
             Some(Arc::new(crate::workspaces::DaemonWorkspaces {
                 daemon,
                 host: crate::workspaces::chief_host(home),
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: true,
+                fallback,
             }) as Arc<dyn crate::workspaces::Workspaces>)
         }
         crate::workspaces::Placement::Cloud(daemon, install) => {
@@ -1379,6 +1390,7 @@ fn start(
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: false,
+                fallback: None,
             }) as Arc<dyn crate::workspaces::Workspaces>)
         }
         // Fresh Chief with no app in its environment (user 12374): the host's own session.
@@ -1389,6 +1401,7 @@ fn start(
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: false,
+                fallback: None,
             }) as Arc<dyn crate::workspaces::Workspaces>)
         }
     };
@@ -1418,6 +1431,7 @@ fn start(
             Arc::new(|line: &str| log(line)),
         )
         .with_trace(trace.clone())
+        .with_person(paths.person.clone())
         .with_pinned_harness(sub_set.is_some())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
@@ -1431,7 +1445,11 @@ fn start(
         // `control cloud PEER` sets a peer at run time with no env.
         .with_cloud_text(sub_text.clone())
         .with_cloud_vms(cloud_vms.clone())
-        .with_agent_keys(agent_keys.clone());
+        .with_agent_keys(agent_keys.clone())
+        // cloud_workspace: the app's own Cloud actions (#25596).
+        .with_cloud_workspaces(
+            crate::cloud_workspace::CloudWorkspaces::from_env(&|k: &str| env(k)).map(Arc::new),
+        );
         let spawner = Arc::new(spawner);
         sub_starter = Some(spawner.queue_starter());
         spawner as Arc<dyn crate::tools::Orchestrator>
@@ -1876,6 +1894,31 @@ fn stop_started_acpmux() {
             Err(e) => log(format!("acpmux: its users unknown ({e}); the daemon keeps running")),
         }
     });
+}
+
+/// Looks at this host's binary every `CHECK_EVERY`; the first time another file
+/// is at its path, asks the brain to hand off once no turn runs.
+fn watch_binary(exe: &Path, tx: std::sync::mpsc::Sender<Input>) {
+    let watch = crate::update_watch::ExeWatch::new(exe);
+    let shown = exe.display().to_string();
+    let spawned = std::thread::Builder::new()
+        .name("binary-watch".into())
+        .spawn(move || {
+            loop {
+                // A fixed check interval for a file on disk (no change event to wait on).
+                std::thread::sleep(crate::update_watch::CHECK_EVERY);
+                if watch.replaced() {
+                    log(format!("{shown} was replaced on disk (an update)"));
+                    let _ = tx.send(Input::BinaryReplaced);
+                    return;
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        log(format!(
+            "binary watch: no thread ({e}); an update waits for the next restart"
+        ));
+    }
 }
 
 /// This host's `MUX_HOME` (`--mux-home`), for the stop path.

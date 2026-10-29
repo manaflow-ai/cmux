@@ -157,19 +157,11 @@ fn paths() -> Result<Paths, Refusal> {
     Paths::current().ok_or_else(|| Refusal::Failed("cmux: setup trust: no home directory".into()))
 }
 
-/// The level acpmux's record holds for `folder`, None without an entry.
+/// The level acpmux's record holds for `folder`, None without an entry: read as acpmux reads
+/// it (`trust::person_decision`), so a decision recorded under another spelling of the folder
+/// counts, and Undo forgets it.
 fn recorded(paths: &Paths, folder: &str) -> Result<Option<Level>, Refusal> {
-    let text = match std::fs::read_to_string(&paths.record) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(Refusal::Failed(format!("cmux: setup trust: trust record: {error}")));
-        }
-    };
-    let record: Value = serde_json::from_str(&text).map_err(|error| {
-        Refusal::Failed(format!("cmux: setup trust: trust record is not JSON: {error}"))
-    })?;
-    Ok(record.get(folder).and_then(Value::as_str).and_then(Level::parse))
+    trust::person_decision(paths, folder).map_err(failure)
 }
 
 /// `acp.trust.get`'s answer for `folder`.

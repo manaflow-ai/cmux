@@ -185,7 +185,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         upstreams.as_array().unwrap().iter().filter_map(|s| s["name"].as_str()).collect();
     assert_eq!(
         names,
-        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum"],
+        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"],
         "{upstreams}"
     );
     assert_eq!(upstreams[0]["command"], json!(cua), "{upstreams}");
@@ -208,6 +208,14 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         assert!(forum_env.contains(key), "{key}: {upstreams}");
     }
     assert!(forum_env.contains(&id), "{upstreams}");
+    // Messaging other sessions (`acpmux_mcp.rs`): acpmux_send and the reads act as this session
+    // the same way, so a message it sends is this session's, never the person's.
+    assert_eq!(upstreams[5]["args"], json!(["acpmux-mcp"]), "{upstreams}");
+    let lanes_env = upstreams[5]["env"].to_string();
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+        assert!(lanes_env.contains(key), "{key}: {upstreams}");
+    }
+    assert!(lanes_env.contains(&id), "{upstreams}");
     // No allowlist: the cmux server speaks code mode.
     assert_eq!(value("CMUX_MCP_TOOLS"), None, "{servers}");
 

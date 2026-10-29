@@ -186,6 +186,10 @@ pub(super) fn inline_parts(
     let kept_images: HashSet<&str> =
         images.iter().filter_map(|image| image.get("id").and_then(Value::as_str)).collect();
     let display = validated_display_parts(display_parts, blocks);
+    let companion_images: HashSet<u64> = display
+        .values()
+        .filter_map(|part| part.get("companionOf").and_then(Value::as_u64))
+        .collect();
     blocks
         .iter()
         .enumerate()
@@ -222,6 +226,9 @@ pub(super) fn inline_parts(
                     let persisted = kept_images.contains(id);
                     let mut part = named;
                     part["kind"] = Value::String("image".into());
+                    if companion_images.contains(&(block_index as u64)) {
+                        part["blockIndex"] = json!(block_index);
+                    }
                     if !persisted {
                         part["persisted"] = Value::Bool(false);
                     }
@@ -317,6 +324,20 @@ pub(crate) fn validated_display_parts(
         }
         let mut out =
             serde_json::Map::from_iter([(String::from("kind"), Value::String(kind.into()))]);
+        if let Some(raw) = object.get("companionOf") {
+            let Some(index) = raw.as_u64().and_then(|n| usize::try_from(n).ok()) else { continue };
+            if kind != "file"
+                || block_type != "resource_link"
+                || index.checked_add(1) != Some(block_index)
+                || !blocks.get(index).is_some_and(|target| {
+                    target.get("type").and_then(Value::as_str) == Some("image")
+                        && decode(target).is_some()
+                })
+            {
+                continue;
+            }
+            out.insert("companionOf".into(), json!(index));
+        }
         if let Some(name) = object.get("name").and_then(Value::as_str) {
             if name.is_empty() || name.chars().count() > MAX_DISPLAY_NAME {
                 continue;
@@ -362,7 +383,7 @@ pub(crate) fn validated_display_parts(
 
 fn copy_display_fields(part: &mut Value, display: &Value) {
     let Some(object) = display.as_object() else { return };
-    for key in ["name", "mimeType", "size", "pageCount", "start", "end"] {
+    for key in ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf"] {
         if let Some(value) = object.get(key) {
             part[key] = value.clone();
         }
@@ -374,6 +395,33 @@ fn block_size(block: &Value) -> Option<u64> {
     use base64::Engine;
     let data = block.get("data").and_then(Value::as_str)?;
     u64::try_from(base64::engine::general_purpose::STANDARD.decode(data).ok()?.len()).ok()
+}
+/// The `image` blocks of images a record names (`keep`'s `{id, mimeType, name}`), read back
+/// from where `keep` put them, so a prompt that is sent again (a restart's continuation,
+/// `restart_resume.rs`) carries them. One that is gone or whose id is not one `keep` makes is
+/// left out.
+pub(super) fn blocks_of(images: &[Value]) -> Vec<Value> {
+    use base64::Engine;
+    images
+        .iter()
+        .filter_map(|named| {
+            let id = named.get("id").and_then(Value::as_str).filter(|id| valid_id(id))?;
+            let bytes = std::fs::read(dir().join(id)).ok()?;
+            let mime = sniffed_type(&bytes)
+                .map(str::to_owned)
+                .or_else(|| named.get("mimeType").and_then(Value::as_str).map(str::to_owned))
+                .unwrap_or_else(|| "image/png".to_owned());
+            let mut block = json!({
+                "type": "image",
+                "mimeType": mime,
+                "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+            });
+            if let Some(name) = named.get("name") {
+                block["name"] = name.clone();
+            }
+            Some(block)
+        })
+        .collect()
 }
 
 impl Hub {
@@ -400,6 +448,10 @@ impl Hub {
             msg["inlineParts"] = Value::Array(ordered);
         }
         super::session::mark_pasted(&mut msg, blocks);
+        // Not recorded, so a retry knows it cannot send the prompt again whole (`retry_turn.rs`).
+        if blocks.iter().any(crate::prompt_context::is_context) {
+            msg["hiddenContext"] = Value::Bool(true);
+        }
         self.append(session, "mux", "user_message", msg);
     }
 
@@ -627,5 +679,34 @@ mod tests {
         let resource_block =
             vec![json!({"type": "resource_link", "uri": "", "name": "archive.zip"})];
         assert!(validated_display_parts(Some(&empty_resource), &resource_block).is_empty());
+    }
+    #[test]
+    fn inline_parts_validate_companion_relation() {
+        let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});
+        let file =
+            json!({"type": "resource_link", "name": "one.png", "uri": "file:///tmp/one.png"});
+        let blocks = vec![
+            image.clone(),
+            file.clone(),
+            json!({"type": "text", "text": "between"}),
+            image,
+            file,
+        ];
+        let display = json!([
+            {"kind": "file", "blockIndex": 1, "companionOf": 0},
+            {"kind": "file", "blockIndex": 4, "companionOf": 3}
+        ]);
+        let parts = inline_parts(&blocks, &[], Some(&display));
+        assert_eq!(parts[0]["id"], parts[3]["id"], "same bytes, distinct block identities");
+        assert_eq!(parts[0]["blockIndex"], 0);
+        assert_eq!(parts[1]["companionOf"], 0);
+        assert_eq!(parts[3]["blockIndex"], 3);
+        assert_eq!(parts[4]["companionOf"], 3);
+        assert_eq!(parts[1]["uri"], "file:///tmp/one.png", "the file is still delivered");
+        for (block, target) in [(1, 2), (1, 99), (1, -1), (0, 3), (4, 0)] {
+            let invalid = json!([{"kind": if block == 0 { "image" } else { "file" }, "blockIndex": block, "companionOf": target}]);
+            let parts = inline_parts(&blocks, &[], Some(&invalid));
+            assert!(parts.iter().all(|part| part.get("companionOf").is_none()));
+        }
     }
 }

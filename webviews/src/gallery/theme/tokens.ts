@@ -136,6 +136,58 @@ export function readable(color: ThemeRGB, surface: ThemeRGB, minimum: number): T
   return candidate;
 }
 
+/** `color` walked toward `pole` until it reaches `minimum` contrast over every surface (or `pole`). */
+function readableOver(color: ThemeRGB, surfaces: ThemeRGB[], pole: ThemeRGB, minimum: number): ThemeRGB {
+  const reads = (ink: ThemeRGB) => surfaces.every((surface) => contrast(ink, surface) >= minimum);
+  let step = 0;
+  let candidate = color;
+  while (step < 1 && !reads(candidate)) {
+    step += 0.02;
+    candidate = mixed(color, pole, step);
+  }
+  return candidate;
+}
+
+/**
+ * What text sits on in a window of `opacity` below 1 (ThemeTokens.seeThroughSurfaces): the background
+ * at that opacity over the worst desktop for the theme, alone and under each of `fills`.
+ */
+function seeThroughSurfaces(bg: ThemeRGB, opacity: number, isDark: boolean, fills: ThemeRGB[]): ThemeRGB[] {
+  if (opacity >= 1) return [];
+  const tint = composited(withAlpha(bg, opacity), isDark ? WHITE : BLACK);
+  return [tint, ...fills.map((fill) => composited(fill, tint))];
+}
+
+/**
+ * ThemeTokens.inks: the primary, secondary and tertiary text for `foreground`, read on every surface in
+ * `rows` (the strongest row fill and the bare background). A foreground that reads keeps its color;
+ * otherwise it is walked toward white and toward black (the pole that reads better on the row fill
+ * first), and the candidate whose primary and secondary keep the higher least contrast over `rows`
+ * wins, capped at 4.5:1 (a tie keeps the first). Hot Dog Stand takes the dark ink, Grass white.
+ */
+export function inks(
+  foreground: ThemeRGB,
+  rows: ThemeRGB[],
+  seeThrough: ThemeRGB[],
+  bg: ThemeRGB,
+): [ThemeRGB, ThemeRGB, ThemeRGB] {
+  const least = (ink: ThemeRGB) => Math.min(...rows.map((row) => contrast(ink, row)));
+  const poles = contrast(BLACK, rows[0]!) > contrast(WHITE, rows[0]!) ? [BLACK, WHITE] : [WHITE, BLACK];
+  let chosen: { score: number; inks: [ThemeRGB, ThemeRGB, ThemeRGB] } | null = null;
+  for (const pole of poles) {
+    const primary = readableOver(foreground, rows, pole, MINIMUM_TEXT_CONTRAST);
+    // Swift's `min` keeps the first of equal elements; so does this reduce.
+    const inkSurface = [...rows, ...seeThrough].reduce((worst, next) =>
+      contrast(primary, next) < contrast(primary, worst) ? next : worst,
+    );
+    const secondary = muted(primary, bg, 0.38, inkSurface, MINIMUM_TEXT_CONTRAST);
+    const tertiary = muted(primary, bg, 0.55, inkSurface, MINIMUM_MARK_CONTRAST);
+    const score = Math.min(least(primary), least(secondary), MINIMUM_TEXT_CONTRAST);
+    if (!chosen || score > chosen.score) chosen = { score, inks: [primary, secondary, tertiary] };
+  }
+  return chosen!.inks;
+}
+
 function muted(color: ThemeRGB, target: ThemeRGB, limit: number, surface: ThemeRGB, minimum: number): ThemeRGB {
   let fraction = limit;
   while (fraction > 0) {
@@ -172,9 +224,9 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
   const worstSurface = [composited(pressed, bg), composited(selection, bg)].reduce((worst, next) =>
     contrast(fg, next) < contrast(fg, worst) ? next : worst,
   );
-  const primary = readable(fg, worstSurface, MINIMUM_TEXT_CONTRAST);
-  const secondary = muted(primary, bg, 0.38, worstSurface, MINIMUM_TEXT_CONTRAST);
-  const tertiary = muted(primary, bg, 0.55, worstSurface, MINIMUM_MARK_CONTRAST);
+  // In a see-through window the quieter inks also hold over the tint on the worst desktop.
+  const seeThrough = seeThroughSurfaces(bg, input.backgroundOpacity, isDark, [pressed, selection]);
+  const [primary, secondary, tertiary] = inks(fg, [worstSurface, bg], seeThrough, bg);
   const palette = input.palette.length >= 8 ? input.palette : GHOSTTY_DEFAULT.palette;
   const status = (index: number) => readable(palette[index]!, bg, MINIMUM_MARK_CONTRAST);
   const surface = withAlpha(bg, input.backgroundOpacity);
@@ -226,6 +278,27 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     ansi: palette,
     backgroundOpacity: input.backgroundOpacity,
   };
+}
+
+/**
+ * The popup surface (OverlayMaterial.swift `ThemeTokens.opaqueOverlayFill`): the opaque window
+ * background lifted by up to `lift` toward white, or on a dark theme whose text is lighter than its
+ * page toward the text, stopping where secondary text would drop below 4.5:1 on a hovered row. A dark
+ * theme with dark text (Hot Dog Stand's red) lifts toward white: toward the text would darken the card.
+ */
+export function opaqueOverlayFill(tokens: ThemeTokens, lift: number): ThemeRGB {
+  const page = withAlpha(tokens.windowBackground, 1);
+  const text = withAlpha(tokens.textPrimary, 1);
+  if (!tokens.isDark || luminance(text) < luminance(page)) return mixed(page, WHITE, lift);
+  const secondary = withAlpha(tokens.textSecondary, 1);
+  // Swift's `rounded()` rounds half away from zero; the lift is positive, so Math.round agrees.
+  let step = Math.round(lift * 100) / 100;
+  while (step > 0) {
+    const fill = mixed(page, text, step);
+    if (contrast(secondary, composited(tokens.hoverFill, fill)) >= MINIMUM_TEXT_CONTRAST) return fill;
+    step -= 0.01;
+  }
+  return page;
 }
 
 /**

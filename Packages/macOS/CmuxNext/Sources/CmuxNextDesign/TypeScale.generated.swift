@@ -8,24 +8,50 @@ public import AppKit
 public nonisolated struct TypeScale: Sendable {
     public init() {}
 
+    /// The UI font as CSS names it (`--font-ui`), pinned by schemas/type-scale/leo-bans.json.
+    public static let family = "Inter"
+    /// The bundled TTF's own family, the name AppKit finds it by once registered (`BundledFonts`).
+    public static let fileFamily = "Inter Variable"
+    /// The bundled files (CmuxNextDesign/Resources/Fonts): the TTF registered natively, the WOFF2 pages load.
+    public static let nativeFontFile = "InterVariable.ttf"
+    public static let webFontFile = "InterVariable.woff2"
+    /// `--font-ui`: the bundled face, then the system's.
+    public static let fontStack = "\"Inter\", -apple-system, BlinkMacSystemFont, \"SF Pro Text\", system-ui, sans-serif"
+
+    /// Tracking in em at a size: trackingA + trackingB * e^(trackingC * size) (Inter's dynamic metrics).
+    public static let trackingA: CGFloat = -0.0223
+    public static let trackingB: CGFloat = 0.185
+    public static let trackingC: CGFloat = -0.1745
+
+    /// The UI font's tracking at `size` points, in em (each step's `<step>Tracking` is this at its size).
+    public static func tracking(em size: CGFloat) -> CGFloat {
+        trackingA + trackingB * exp(trackingC * size)
+    }
+
     /// Shortcuts, badges, counters, tooltips, group labels.
     public static let caption: CGFloat = 11
     public static let captionLineHeight: CGFloat = 14
+    public static let captionTracking: CGFloat = 0.0048
     /// Secondary lines, metadata, section headers, footer rows.
     public static let detail: CGFloat = 12
     public static let detailLineHeight: CGFloat = 16
+    public static let detailTracking: CGFloat = 0.0005
     /// Chrome text: labels, rows, menus, controls, settings.
     public static let body: CGFloat = 13
     public static let bodyLineHeight: CGFloat = 18
+    public static let bodyTracking: CGFloat = -0.0032
     /// The browser address bar's text.
     public static let field: CGFloat = 14
     public static let fieldLineHeight: CGFloat = 18
+    public static let fieldTracking: CGFloat = -0.0062
     /// Card and panel titles, search fields.
     public static let title: CGFloat = 15
     public static let titleLineHeight: CGFloat = 20
+    public static let titleTracking: CGFloat = -0.0088
     /// Page headings.
     public static let heading: CGFloat = 20
     public static let headingLineHeight: CGFloat = 26
+    public static let headingTracking: CGFloat = -0.0167
 
     /// Every step, small to large.
     public static let sizes: [CGFloat] = [11, 12, 13, 14, 15, 20]

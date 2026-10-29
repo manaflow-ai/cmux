@@ -33,10 +33,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
     var parkSerial: UInt64 = 0
+    /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
+    /// them (`arrangeOnScreen`). In memory only.
+    var pendingDocks: [String: DockEdge] = [:]
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
+    private var previewFeaturesObservation: Task<Void, Never>?
     /// The room theme: every workspace without its own theme. The window's
     /// own chrome (sidebar, titlebar, backdrop) draws in the shown
     /// workspace's colors at any light/dark, so it matches the content beside
@@ -114,6 +118,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()
+        observePreviewFeatures()
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
@@ -131,6 +136,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebarObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
+        previewFeaturesObservation?.cancel()
         roomObservation?.cancel()
         roomBrowserProfileObservation?.cancel()
         state.roomBrowserProfileOf = nil
@@ -140,6 +146,22 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         parked.removeAll()
         topPages.teardown()
         sidebar.teardown()
+    }
+
+    /// Preview pages are removed immediately when Labs is switched off,
+    /// including when another window currently shows one.
+    private func observePreviewFeatures() {
+        guard let settings = services.settings else { return }
+        previewFeaturesObservation = Task { [weak self, weak settings] in
+            guard let settings else { return }
+            await settings.waitForLoad(atLeast: 1)
+            for await enabled in ObservationStream({ settings.snapshot.previewFeatures }) {
+                guard !enabled, let self,
+                      let page = self.state.page,
+                      page == .page(.appStore) || page == .page(.changelog) else { continue }
+                _ = self.leaveTopPage()
+            }
+        }
     }
 
     // MARK: Workspace
@@ -178,7 +200,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
     private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
-        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled)
+        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled, LayoutTunables.dockedWorkspaces.value)
         _ = creationKey(state, cloud, machines)
         _ = windows.registry.members(of: state.id)
         for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
@@ -254,6 +276,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
+        // Panes pan and spring per display frame: shortcut chips over them follow.
+        controller.layoutView.onFramePlaced = { [weak self] in self?.shortcutHints?.scrollDidChange() }
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
         DebugWorkspaceSwitch.kind(self, controller === kept ? "warm" : "cold")
@@ -332,6 +356,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
     func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    /// A resize with no live resize (Zoom, macOS tiling, an Accessibility client such as Rectangle,
+    /// a display change) keeps the origin and never ends a live resize: it saves here (#25568).
+    func windowDidResize(_ notification: Notification) {
+        guard window?.inLiveResize != true else { return }
+        services.windows.recordSaver.geometryDidChange(state)
+    }
+    func windowDidChangeScreen(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
     var sidebarObservation: Task<Void, Never>?
 
@@ -356,13 +387,16 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var closeMotion: WindowCloseMotion?
 
     /// Starts the person's close as a fade of the whole window; false when it closes now (Reduce
-    /// Motion, not on screen, or a second close while it fades).
+    /// Motion, not on screen, a second close while it fades, or the launch restore still runs).
     private func fadeOutThenClose(_ window: NSWindow) -> Bool {
         if let closeMotion {
             closeMotion.finish()
             return true
         }
-        guard WindowCloseMotion.fades(window) else { return false }
+        // Before the restore finished the close lands at once: a fade could outlive the restore,
+        // which would then not know the window was closed and open it again.
+        let windows = services.windows
+        guard windows.restored, !windows.restoring, WindowCloseMotion.fades(window) else { return false }
         let motion = WindowCloseMotion(window: window) { [weak window] in window?.close() }
         closeMotion = motion
         let next = NSApp.orderedWindows.first { $0 !== window && $0 is ShellWindow && $0.isVisible && !$0.isMiniaturized }

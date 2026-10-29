@@ -44,14 +44,19 @@ enum WorkspaceDragResolver {
     ///     one instead of merging it (`sidebar.multiView`).
     ///   - isGroup: the drag carries a whole workspace group (never placed
     ///     at a slot or into another group).
+    ///   - besideEdge: the shown workspace's edge near the pointer (`WindowController.besideEdge`). With
+    ///     `placesBeside` it places the workspace beside where the layout has no pane target: a pane that takes no
+    ///     drop (Home's pinned dock) or a screen edge dock band (`WorkspaceMerge.hit`).
     static func outcome(windowID: String?, sidebarHit: WorkspaceDropTarget?, layoutHit: TabDropKind? = nil, placesBeside: Bool = false,
-                        sourceWindowID: String?, draggingAllOfSource: Bool, isGroup: Bool, screenPoint: CGPoint) -> WorkspaceDragOutcome {
+                        sourceWindowID: String?, draggingAllOfSource: Bool, isGroup: Bool, screenPoint: CGPoint,
+                        besideEdge: TabDropEdge? = nil) -> WorkspaceDragOutcome {
         guard let windowID else {
             return draggingAllOfSource ? .moveWindow(screenPoint: screenPoint) : .newWindow(screenPoint: screenPoint)
         }
         // A group keeps its members together: it joins the window as a
         // whole, where its own position in the daemon order puts it.
-        let target: WorkspaceDropTarget = isGroup ? .window : sidebarHit ?? layoutHit.map { pane(target: $0, placesBeside: placesBeside) } ?? .window
+        let beside = placesBeside ? besideEdge.map(WorkspaceDropTarget.beside) : nil
+        let target: WorkspaceDropTarget = isGroup ? .window : sidebarHit ?? layoutHit.map { pane(target: $0, placesBeside: placesBeside) } ?? beside ?? .window
         if windowID == sourceWindowID {
             // Back home: only a sidebar slot (a reorder) or a pane (a
             // merge) means something.

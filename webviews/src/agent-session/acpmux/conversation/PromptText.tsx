@@ -17,7 +17,7 @@ import {
   promptParts,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { foldMotion, foldMs } from "./fold";
+import { foldMotion, foldMs, markHeightFold } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
 
 export function PromptText({
@@ -107,6 +107,8 @@ export function PromptText({
     const to = bubble.getBoundingClientRect().height;
     if (Math.abs(to - from) < 1) return;
     const timing = { duration: ms, easing: foldMotion.easing(bubble) };
+    // The rows below are placed before paint while the bubble resizes, as under a fold.
+    markHeightFold(bubble, ms);
     if (collapsed) {
       // The clamped text is a box again: it starts as tall as the whole text was drawn.
       const clamped = text.getBoundingClientRect().height;

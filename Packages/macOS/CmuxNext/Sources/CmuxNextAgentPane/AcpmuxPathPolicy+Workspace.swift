@@ -14,7 +14,7 @@ nonisolated extension AcpmuxPathPolicy {
     /// no workspace key get none, and lose any value already there: a peer's workspaces are not
     /// this Mac's. Whether `acpmux` changed.
     static func stampWorkspace(_ acpmux: inout [String: Any]?, id: String?) -> Bool {
-        let peer = (acpmux?["peer"] as? String).map { !$0.isEmpty } ?? false
+        let peer = startsOnPeer(acpmux)
         let removed = acpmux?.removeValue(forKey: workspaceIDKey) != nil
         guard !peer, let key = id.flatMap(workspaceKey) else { return removed }
         var fields = acpmux ?? [:]

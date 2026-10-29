@@ -153,6 +153,30 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/login",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tailnet/logout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tailnet/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tailnet/state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/status",
       "params": true,
       "result": true
@@ -192,6 +216,16 @@
       "name": "_acpmux/view",
       "params": {
         "$ref": "#/types/ViewParams"
+      },
+      "result": {
+        "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/typing",
+      "params": {
+        "$ref": "#/types/TypingParams"
       },
       "result": {
         "$ref": "#/types/Done"
@@ -256,6 +290,12 @@
     {
       "kind": "request",
       "name": "_acpmux/subsession/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subsession/retry",
       "params": true,
       "result": true
     },
@@ -339,6 +379,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github_action",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github_app_lease",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": true,
       "result": true
@@ -387,6 +439,26 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/retry",
+      "params": {
+        "$ref": "#/types/RetryParams"
+      },
+      "result": {
+        "$ref": "#/types/RetryResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session/auth",
+      "params": {
+        "$ref": "#/types/SessionAuthParams"
+      },
+      "result": {
+        "$ref": "#/types/SessionAuthResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/list",
       "params": true,
       "result": true
@@ -400,6 +472,30 @@
     {
       "kind": "request",
       "name": "_acpmux/process/kill",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/output",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bg/stop",
       "params": true,
       "result": true
     },
@@ -428,6 +524,12 @@
     {
       "kind": "request",
       "name": "_acpmux/worktree/restore",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/retention",
       "params": true,
       "result": true
     },
@@ -560,6 +662,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/watch_add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_ls",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/watch_rm",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/ask",
       "params": true,
       "result": true
@@ -657,6 +777,18 @@
     {
       "kind": "request",
       "name": "_acpmux/file_put_cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_data",
       "params": true,
       "result": true
     },
@@ -805,6 +937,18 @@
     {
       "kind": "request",
       "name": "_acpmux/approvers_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mac_approver_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mac_approvers",
       "params": true,
       "result": true
     },
@@ -1018,6 +1162,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/harness/icon",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/harness/health",
       "params": true,
       "result": true
@@ -1208,6 +1358,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/vm_host",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/place",
       "params": true,
       "result": true
@@ -1233,6 +1389,12 @@
     {
       "kind": "request",
       "name": "_acpmux/peer_remove",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/peer_snapshot",
       "params": true,
       "result": true
     },
@@ -1295,6 +1457,20 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/presence",
+      "params": {
+        "$ref": "#/types/PresenceNote"
+      }
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/peer_state_changed",
+      "params": {
+        "$ref": "#/types/PeerStateChanged"
+      }
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/harnesses_changed",
       "params": true
     },
@@ -1346,6 +1522,27 @@
           ],
           "description": "`{device, feedItem}`, from the person's connection only."
         },
+        "approverDecision": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ApproverDecision"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An enrolled approver's signed answer beside `decisionNonce`: a phone's\n(`hub/approvers.rs`) or a Mac's (`hub/mac_approvers.rs`)."
+        },
+        "approverDecisions": {
+          "additionalProperties": {
+            "$ref": "#/types/MemberApproverDecision"
+          },
+          "description": "A group's one-time allow from an enrolled Mac (`_acpmux/permission_group_respond`):\none signed allow per pending member of the group, by permission id.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "decisionNonce": {
           "type": [
             "string",
@@ -1380,6 +1577,30 @@
       "required": [
         "device",
         "feedItem"
+      ],
+      "type": "object"
+    },
+    "ApproverDecision": {
+      "additionalProperties": false,
+      "description": "`{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as\nlowercase hex, over the approver's message for this exact answer.",
+      "properties": {
+        "approver": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "description": "Unix seconds, at most 300 ahead.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "signature": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "approver",
+        "expiresAt",
+        "signature"
       ],
       "type": "object"
     },
@@ -1471,6 +1692,16 @@
           "minimum": 0,
           "type": "integer"
         },
+        "pageThrough": {
+          "description": "How far the page holds: every record of the kinds asked from the page's first one up to it\nis in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`, covers that far). The\nlog's last seq, read before the page, for the newest page; a page of older records\n(`beforeSeq`) or a forward one with more to read holds only to its own last record.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "presence": {
+          "$ref": "#/types/PresenceNote",
+          "description": "Who has the chat open now, this attachment included (`hub/presence.rs`)."
+        },
         "session": {
           "$ref": "#/types/SessionDetail"
         }
@@ -1479,8 +1710,73 @@
         "events",
         "hasMore",
         "lastSeq",
+        "pageThrough",
+        "presence",
         "session"
       ],
+      "type": "object"
+    },
+    "Author": {
+      "additionalProperties": false,
+      "description": "The person a request comes from (`hub/author.rs`): stamped by the daemon that admitted\nthem, and accepted only from the unix socket or a peer forwarding for its own.",
+      "properties": {
+        "id": {
+          "description": "`tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes.",
+          "type": "string"
+        },
+        "login": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "One line of 1 to 64 characters.",
+          "type": "string"
+        },
+        "node": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "AuthorMeta": {
+      "properties": {
+        "acpmux": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMetaFields"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "AuthorMetaFields": {
+      "description": "`_meta.acpmux` of a request that may name its person; other fields pass.",
+      "properties": {
+        "author": {
+          "anyOf": [
+            {
+              "$ref": "#/types/Author"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "None: the chat's owner."
+        }
+      },
       "type": "object"
     },
     "ChangedSession": {
@@ -1576,6 +1872,90 @@
       ],
       "type": "object"
     },
+    "ErrorDetails": {
+      "description": "The facts of a typed failure (`errorKind`); only the keys that apply are present.",
+      "properties": {
+        "binary": {
+          "description": "The program that could not start.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exitCode": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "freeBytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lastSeenAt": {
+          "description": "When the peer last answered (RFC 3339).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "The folder whose disk is full or low.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "peer": {
+          "description": "The peer, by its name in `acpmux host ls`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "queued": {
+          "description": "The message is held in the durable outbox and goes when the peer or daemon is back.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "retryAfterMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signal": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "totalBytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "EventKinds": {
       "anyOf": [
         {
@@ -1649,6 +2029,12 @@
     },
     "EventsResult": {
       "properties": {
+        "createdAt": {
+          "description": "The session the page is of (its `createdAt`): a session recreated under the same id while\nthe page was asked is another journal (`hub/peer_snapshot.rs`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "events": {
           "items": {
             "$ref": "#/types/SessionEvent"
@@ -1662,12 +2048,20 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "pageThrough": {
+          "description": "How far the page holds: every record of the kinds asked after `afterSeq` up to it is in the\npage (`hub/peer_snapshot.rs`). The log's last seq, read before the page, when the page reads\nto its end; else (`beforeSeq`, or `hasMore`) the page's own last record.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
+        "createdAt",
         "events",
         "hasMore",
-        "lastSeq"
+        "lastSeq",
+        "pageThrough"
       ],
       "type": "object"
     },
@@ -1808,10 +2202,27 @@
             "null"
           ]
         },
+        "details": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ErrorDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "endedAt": {
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "errorKind": {
+          "description": "What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,\n`peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,\n`auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain\nerror. The same key is on a request's error `data` and on the `turn_error` and\n`turn_result` records.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "errorSource": {
           "type": [
@@ -1826,6 +2237,13 @@
           ]
         },
         "promptId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recovery": {
+          "description": "One sentence saying what to do about the failure.",
           "type": [
             "string",
             "null"
@@ -2145,12 +2563,132 @@
       ],
       "type": "object"
     },
+    "MemberApproverDecision": {
+      "additionalProperties": false,
+      "description": "One group member's signed one-time allow: the member prompt's nonce and the signature.",
+      "properties": {
+        "approverDecision": {
+          "$ref": "#/types/ApproverDecision"
+        },
+        "decisionNonce": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "decisionNonce",
+        "approverDecision"
+      ],
+      "type": "object"
+    },
     "MessageRole": {
       "enum": [
         "agent",
         "user"
       ],
       "type": "string"
+    },
+    "Participant": {
+      "description": "One person in a chat. The hub never marks the caller's own entry: a connection may carry\nseveral people, so the client compares ids (a caller with no author is `owner`).",
+      "properties": {
+        "devices": {
+          "description": "How many connections carry this person in the chat.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "typing": {
+          "type": "boolean"
+        },
+        "viewing": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "devices",
+        "id",
+        "name",
+        "typing",
+        "viewing"
+      ],
+      "type": "object"
+    },
+    "PeerLinkState": {
+      "description": "A peer link's state (`peer_link.rs` `PeerState`; `state` in `_acpmux/peers`).",
+      "oneOf": [
+        {
+          "const": "connecting",
+          "description": "Not reached yet, this run or a saved one.",
+          "type": "string"
+        },
+        {
+          "const": "connected",
+          "description": "The handshake finished and the peer answers.",
+          "type": "string"
+        },
+        {
+          "const": "degraded",
+          "description": "The WebSocket is open and the handshake runs, or a ping went unanswered.",
+          "type": "string"
+        },
+        {
+          "const": "reconnecting",
+          "description": "Down after it was reached; its last-known sessions stay listed. Attempts go on.",
+          "type": "string"
+        },
+        {
+          "const": "offline",
+          "description": "Never reached and attempts failed, or removed (`error: \"removed\"`, its last note).",
+          "type": "string"
+        }
+      ]
+    },
+    "PeerStateChanged": {
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nstate changes, never twice for the same state: a peer that is added sends its first state,\nand one that is removed a last `offline` with `error: \"removed\"`. Listed as the\n`peerStateEvents` feature.",
+      "properties": {
+        "at": {
+          "description": "When the state changed, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error": {
+          "description": "Why the link is down, when it is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastSeen": {
+          "description": "The last frame from the peer, ms since the epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "peer": {
+          "description": "The peer's name, as in `_acpmux/peers`.",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/types/PeerLinkState"
+        }
+      },
+      "required": [
+        "at",
+        "error",
+        "lastSeen",
+        "peer",
+        "state"
+      ],
+      "type": "object"
     },
     "PermissionBatching": {
       "properties": {
@@ -2317,6 +2855,13 @@
     },
     "PermissionGroupList": {
       "properties": {
+        "allowRefused": {
+          "description": "Set when this reader's group allows would be refused, with the\nrefusal's reason (`permission.person_required`: only the person\nallows a group, and a peer's link never is one). A deny still counts.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "batching": {
           "$ref": "#/types/PermissionBatching"
         },
@@ -2331,6 +2876,13 @@
             "$ref": "#/types/PermissionGroup"
           },
           "type": "array"
+        },
+        "macAllowOnce": {
+          "description": "Set (true) beside `allowRefused` when this daemon still counts a group's\none-time allow signed by an enrolled Mac for every pending member\n(`_meta.acpmux.approverDecisions`, `hub/mac_approvers.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -2505,6 +3057,9 @@
             }
           ]
         },
+        "annotations": {
+          "description": "Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`."
+        },
         "answers": {
           "description": "A question's answers, by question."
         },
@@ -2529,6 +3084,26 @@
       "type": "object"
     },
     "PermissionRespondResult": {
+      "type": "object"
+    },
+    "PresenceNote": {
+      "description": "`_acpmux/presence`, to every connection attached to the chat on each change, and\n`presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.",
+      "properties": {
+        "participants": {
+          "description": "One per person, by id; at most 32 besides the owner.",
+          "items": {
+            "$ref": "#/types/Participant"
+          },
+          "type": "array"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "participants",
+        "sessionId"
+      ],
       "type": "object"
     },
     "ProcessBackgroundParams": {
@@ -2581,6 +3156,23 @@
       ],
       "type": "object"
     },
+    "QueuedAuthor": {
+      "description": "The person who queued a prompt in a shared chat.",
+      "properties": {
+        "id": {
+          "description": "`tailnet:<login>` or `user_…`.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
     "QueuedImage": {
       "description": "An image a queued prompt sends.",
       "properties": {
@@ -2609,8 +3201,26 @@
     "QueuedPromptSummary": {
       "description": "A prompt waiting for the running turn to end.",
       "properties": {
+        "author": {
+          "anyOf": [
+            {
+              "$ref": "#/types/QueuedAuthor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,\n`author.rs`), null for the owner's and for an agent's message: an app shows it under their\nname and offers none of its own actions on it (only they change it, `queue.not_author`).\nKept across a restart and by their own edit."
+        },
         "client": {
           "type": "string"
+        },
+        "fromAgent": {
+          "description": "The sending agent's name when it is another agent's message, null for the person's: an\napp draws it as a received message waiting for the turn, not as a composer row.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "held": {
           "description": "Waits behind a failed turn until the queue is resumed.",
@@ -2640,7 +3250,9 @@
         }
       },
       "required": [
+        "author",
         "client",
+        "fromAgent",
         "held",
         "images",
         "prompt",
@@ -2671,6 +3283,279 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "RetryKind": {
+      "description": "What `_acpmux/retry` retried: the chat's own turn, or one of its subagents.",
+      "enum": [
+        "turn",
+        "subagent"
+      ],
+      "type": "string"
+    },
+    "RetryParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/retry` (the Retry button, `acpmux retry`): retry the chat's failed last turn now,\nin the same session (`hub/auto_resume/retry_turn.rs`).",
+      "properties": {
+        "sessionId": {
+          "description": "The chat's id, name or unique prefix.",
+          "type": "string"
+        },
+        "subagentId": {
+          "description": "One of the chat's failed subagents to resume instead, by its id or agent id\n(`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "RetryReason": {
+      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the\nagent process died mid-turn.",
+      "enum": [
+        "capacity",
+        "transport",
+        "agent_exited"
+      ],
+      "type": "string"
+    },
+    "RetryResult": {
+      "description": "What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next\nattempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn\nit started.",
+      "properties": {
+        "kind": {
+          "$ref": "#/types/RetryKind"
+        },
+        "promptId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "promptId",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "RetrySummary": {
+      "description": "An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`\nof `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same\nsession, for the cut turn `turnId`.",
+      "properties": {
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nextAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "of": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "promptId": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/types/RetryReason"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "nextAt",
+        "of",
+        "promptId",
+        "reason",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "SessionAuthLogin": {
+      "description": "`terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or\nsign in again to the route `routeId`.",
+      "properties": {
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/types/SessionAuthLoginKind"
+        },
+        "routeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "SessionAuthLoginKind": {
+      "enum": [
+        "terminal",
+        "route"
+      ],
+      "type": "string"
+    },
+    "SessionAuthParams": {
+      "description": "A chat by `sessionId`, or by `target` before it has a session (a new tab before its first\nsend). Exactly one of the two. `refresh`: probe the route and run the harness's own sign-in\ncheck that reads no keychain, when no newer evidence answers.",
+      "properties": {
+        "refresh": {
+          "default": false,
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionAuthTarget"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SessionAuthResult": {
+      "description": "What `_acpmux/session/auth` answers. A client blocks a send only on `signedOut`, `expired`\nor `routeAuthNeeded`; `unknown` never blocks.",
+      "properties": {
+        "detail": {
+          "description": "One sentence: the probe's status, the turn's error, or the check that ran.",
+          "type": "string"
+        },
+        "evidenceAt": {
+          "description": "When the evidence was observed (ms since the epoch); null when `source` is `none`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fromSessionId": {
+          "description": "The chat whose turn is the evidence (`source` `turn`): for a `target`, a chat on this\ndaemon with the same harness, account home and route.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "harness": {
+          "type": "string"
+        },
+        "host": {
+          "description": "The peer the chat runs on; null on this daemon.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "login": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionAuthLogin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`."
+        },
+        "routeId": {
+          "description": "The route the chat is bound to; null when it is not routed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "$ref": "#/types/SessionAuthSource"
+        },
+        "state": {
+          "$ref": "#/types/SessionAuthState"
+        }
+      },
+      "required": [
+        "state",
+        "source",
+        "detail",
+        "harness"
+      ],
+      "type": "object"
+    },
+    "SessionAuthSource": {
+      "enum": [
+        "peerLink",
+        "routeProbe",
+        "turn",
+        "authCheck",
+        "none"
+      ],
+      "type": "string"
+    },
+    "SessionAuthState": {
+      "enum": [
+        "ready",
+        "signedOut",
+        "expired",
+        "routeAuthNeeded",
+        "routeUnreachable",
+        "peerUnreachable",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "SessionAuthTarget": {
+      "description": "The chat a send would start: its harness, the peer it runs on (`host`, a peer name; absent:\nthis daemon) and the route the picker selected (absent: the harness's default route, as at\nspawn).",
+      "properties": {
+        "harness": {
+          "type": "string"
+        },
+        "host": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "routeId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "harness"
+      ],
       "type": "object"
     },
     "SessionChanged": {
@@ -2755,10 +3640,17 @@
           "type": "string"
         },
         "depth": {
-          "description": "0 for a root session, 1 for its sub-sessions, and so on.",
+          "description": "Its lineage depth (`parent`): 0 for a root session, 1 for the sessions\nits agent started, and so on.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"
@@ -2887,6 +3779,14 @@
         "name": {
           "type": "string"
         },
+        "parent": {
+          "default": null,
+          "description": "The session whose agent started this one (`acpmux new` in its shell, or its\n`start_session` tool), recorded at creation from the proven caller; null for a\nsession a person or the app started. Not the fork parent (`parentId`). Absent\nfrom a peer on an older acpmux.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "parentId": {
           "type": [
             "string",
@@ -2945,6 +3845,26 @@
           "minimum": 0,
           "type": "integer"
         },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/types/RetrySummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
+        },
+        "retryDeciding": {
+          "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
+        "root": {
+          "default": "",
+          "description": "The root of its lineage tree: the first ancestor no agent started; its own\nid for a root. Absent from a peer on an older acpmux.",
+          "type": "string"
+        },
         "rules": {
           "description": "The session has its own permission rules.",
           "type": "boolean"
@@ -2966,8 +3886,16 @@
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
+        "spawnToolCallId": {
+          "default": null,
+          "description": "The parent's tool call that started it, when acpmux could tell.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "spawnedBy": {
-          "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "description": "The session whose agent started this one, kept only while that parent\nis listed and is a root itself: one level, for lists that fold one level.\n`parent` without those rules, else an older client's `spawnedBy` tag.",
           "type": [
             "string",
             "null"
@@ -3200,10 +4128,17 @@
           "type": "string"
         },
         "depth": {
-          "description": "0 for a root session, 1 for its sub-sessions, and so on.",
+          "description": "Its lineage depth (`parent`): 0 for a root session, 1 for the sessions\nits agent started, and so on.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "effort": {
+          "description": "The harness's current reasoning effort, when it reports one.\nAdditive for older clients and peers.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "enforcement": {
           "$ref": "#/types/Enforcement"
@@ -3328,6 +4263,14 @@
         "name": {
           "type": "string"
         },
+        "parent": {
+          "default": null,
+          "description": "The session whose agent started this one (`acpmux new` in its shell, or its\n`start_session` tool), recorded at creation from the proven caller; null for a\nsession a person or the app started. Not the fork parent (`parentId`). Absent\nfrom a peer on an older acpmux.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "parentId": {
           "type": [
             "string",
@@ -3381,6 +4324,26 @@
           "minimum": 0,
           "type": "integer"
         },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/types/RetrySummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
+        },
+        "retryDeciding": {
+          "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
+        "root": {
+          "default": "",
+          "description": "The root of its lineage tree: the first ancestor no agent started; its own\nid for a root. Absent from a peer on an older acpmux.",
+          "type": "string"
+        },
         "rules": {
           "description": "The session has its own permission rules.",
           "type": "boolean"
@@ -3399,8 +4362,16 @@
           "description": "Some attached client shows the chat.",
           "type": "boolean"
         },
+        "spawnToolCallId": {
+          "default": null,
+          "description": "The parent's tool call that started it, when acpmux could tell.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "spawnedBy": {
-          "description": "The session whose agent started this one (its `spawnedBy` tag), kept\nonly while that parent is listed; one level.",
+          "description": "The session whose agent started this one, kept only while that parent\nis listed and is a root itself: one level, for lists that fold one level.\n`parent` without those rules, else an older client's `spawnedBy` tag.",
           "type": [
             "string",
             "null"
@@ -3696,9 +4667,47 @@
       ],
       "type": "object"
     },
+    "TypingParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/typing`: at most 2 a second per connection (`typing.rate_limited`); an `on`\nlapses after 8 s. The connection must be attached to the chat.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "on": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "on"
+      ],
+      "type": "object"
+    },
     "ViewParams": {
       "additionalProperties": false,
       "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An author changes only that person's presence (`hub/presence.rs`), not whether the\nchat counts as shown."
+        },
         "sessionId": {
           "type": "string"
         },

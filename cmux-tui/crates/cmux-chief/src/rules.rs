@@ -23,6 +23,13 @@ pub const CHIEF_CONVERSATION_TITLE: &str = "Chief";
 pub const CHIEF_DISPLAY_NAME: &str = "Chief";
 /// Tag on every agent the Chief started; its value is the Chief's session name.
 pub const PARENT_TAG: &str = "mux.parent";
+/// acpmux's names for a session in a person's approval card (its
+/// `hub/permissions/display.rs`): who asks (`mux.label` on the asker), and
+/// whom a message reaches (`mux.handle` and `mux.label` on a child, found
+/// among the sessions whose `mux.parent` is the asker's `mux.children`).
+pub const LABEL_TAG: &str = "mux.label";
+pub const HANDLE_TAG: &str = "mux.handle";
+pub const CHILDREN_TAG: &str = "mux.children";
 /// Prefix of host prompts about child agents.
 pub const EVENT_PREFIX: &str = "[mux-event]";
 /// The owner's minimum gap between agent messages (2 s) plus a margin.

@@ -20,9 +20,42 @@ before installation. Its `state` is one of:
 | `pending` | `expires_at` | An approval code is awaiting a recorded result |
 | `indeterminate` | `retry_not_before` | A begin request may have succeeded, but its reply was lost |
 | `paired` | `host`, `team`, `user`, `install` | A pushed approval was saved locally |
+| `network_pending` | The paired IDs and public `network` locator | Approval reserved a network identity; registration needs confirmation |
 
 These states describe enrollment. Transport reachability and serving roles have
 their own health. An enrollment record is not an execution grant.
+
+## Enroll in the selected network
+
+When the approving human selects a network, the pushed result includes a
+short-lived private invitation bound to this server's existing install and
+WireGuard public keys. The daemon persists it before contacting the network
+service, redeems it with a fresh install-key signature, then confirms the
+authoritative tenant, mesh, device and both keys with a signed policy read.
+Neither request needs an account credential. HTTPS origins are validated;
+redirects and unbounded responses are refused.
+
+Until confirmation, status is `network_pending` and the identity cannot be
+exported to a link. Repeat `cmux server pair` to resume. After a lost enrollment
+reply, the reserved device locator permits a signed recovery read even after
+the invitation expires. An unavailable service, mismatched binding or revoked
+identity leaves the record pending; the daemon does not silently restart basic
+pairing or replace its keys. Native registration removes the spent invitation
+and saves a backend-confirmation checkpoint. The daemon obtains a short-lived
+token with its own install key and approved team, then calls
+`server.network.confirm` with a new signed policy proof. The backend independently
+checks the reserved identity and current grant. Tokens and proofs are never saved.
+
+A lost backend reply resumes with the same operation key and a fresh proof,
+including after invitation expiry. Until the backend acknowledges the matching
+host, tenant, mesh and device, status remains `network_pending` with
+`network.state: confirmation_pending`, and link export stays blocked. Completion
+returns `paired` with `network.state: confirmed` and a historical `confirmed_at`.
+
+Confirmation records identity only. Applying current peer/port policy and
+enabling serving roles remain separate.
+Chief's current pairing consumer refuses network invitations; use the server
+pairing flow for network enrollment.
 
 ## Use the enrolled transport identity
 
@@ -82,11 +115,15 @@ backend; local expiry does not revoke them.
 
 On Unix, the identity directory and file must be private to the current user
 (0700 and 0600), with symlinks refused. On Windows, private keys and the pending
-collection response use current-user DPAPI with UI disabled, rather than
+collection response or network invitation use current-user DPAPI with UI disabled, rather than
 machine-wide protection. See Microsoft's
 [CryptProtectData contract](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata).
 Public status, progress, debug output and error messages omit key material and
-the collection secret. The secret travels only in the WebSocket subprotocol
+the collection secret and invitation. Schema 3 adds backend confirmation to
+network records. Schema-1 basic records remain readable. Schema-2 pending
+records resume, while schema-2 registered records require backend confirmation
+before link export. Saving schema 3 is one-way; older binaries cannot read it. Unix storage
+uses private file permissions; it does not add encryption. The collection secret travels only in the WebSocket subprotocol
 header, which is marked sensitive.
 
 ## Protocol ownership

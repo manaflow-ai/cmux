@@ -21,6 +21,7 @@
   white-space: normal;
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .ce-form {
   display: flex;
@@ -44,6 +45,7 @@
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   font-weight: 700;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 .ce-lead {
   margin: 4px 0 0;
@@ -82,19 +84,23 @@
   font-size: var(--text-detail);
   font-weight: 600;
   color: var(--ce-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .ce-sublabel {
   font-size: var(--text-detail);
   color: var(--ce-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .ce-note {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--ce-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .ce-error {
   font-size: var(--text-detail);
   color: var(--ce-danger);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .ce-row {
   display: flex;
@@ -152,6 +158,7 @@
   font-size: var(--text-detail);
   font-weight: 600;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .ce-button:not(.primary):hover:not(:disabled) {
   background: var(--ce-hover);
@@ -240,6 +247,7 @@
   gap: 4px 10px;
   font-size: var(--text-detail);
   color: var(--ce-text-2);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .ce-check.passed {
   color: var(--ce-good);
