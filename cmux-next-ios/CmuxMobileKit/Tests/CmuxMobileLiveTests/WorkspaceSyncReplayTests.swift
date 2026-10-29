@@ -55,8 +55,12 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
     func send(_ data: Data) async throws {
         for line in data.split(separator: 0x0A) {
             guard let request = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
-                  let id = request["id"] as? String,
-                  let command = request["cmd"] as? String else { continue }
+                  let id = request["id"] as? String else { continue }
+            if request["operation"] != nil {
+                push(Self.withID(id, body: #"{"ok":true,"result":{}}"#))
+                continue
+            }
+            guard let command = request["cmd"] as? String else { continue }
             if command == "list-workspaces" {
                 lock.withLock { listWorkspaceRequests += 1 }
                 if let replayTitle, lock.withLock({ listWorkspaceRequests == 1 }) {
