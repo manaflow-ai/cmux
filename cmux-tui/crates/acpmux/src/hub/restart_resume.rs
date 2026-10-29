@@ -66,11 +66,6 @@ impl OmittedTools {
             self.retire(*id);
         } else if self.retired.contains(id) {
             return;
-        } else if self.unknown > 0 {
-            // Overflow calls are folded in journal order. Their terminal update is
-            // the only identity we need to settle the bounded count.
-            self.unknown -= 1;
-            self.retire(*id);
         }
     }
     fn retire(&mut self, id: [u8; 32]) {
@@ -101,9 +96,17 @@ struct UnfinishedTool {
 
 /// The fields useful to a person resuming a cut turn. Tool updates are JSON-RPC notifications,
 /// so the session update is nested under `params.update` in the journal record.
-fn tool_update(record: &EventRecord) -> Option<&Value> {
-    if record.msg.pointer("/params/_meta/acpmux/subagent").is_some()
-        || record.msg.pointer("/_meta/acpmux/subagent").is_some()
+fn tool_update(record: &EventRecord, own_session_id: Option<&str>) -> Option<&Value> {
+    let marked_subagent = record
+        .msg
+        .pointer("/params/_meta/acpmux/subagent")
+        .or_else(|| record.msg.pointer("/_meta/acpmux/subagent"));
+    let update_session_id = record.msg.pointer("/params/sessionId").and_then(Value::as_str);
+    // The hub's annotation may appear on a root-owned update that mentions a child.
+    // A differing sessionId is the reliable child attribution; keep the marker-only
+    // fallback for old records that have no session id.
+    if marked_subagent.is_some()
+        && (own_session_id.is_none() || update_session_id != own_session_id)
     {
         return None;
     }
@@ -194,10 +197,26 @@ impl serde::Serialize for MaskedInput<'_> {
 }
 
 fn sensitive_key(key: &str) -> bool {
-    // Never retain an unbounded object key in the serializer context.
+    // Match the credential classes used by secret_scan, case-insensitively, while
+    // keeping only a bounded normalized key in memory.
     let bounded: String = key.chars().take(MAX_TOOL_FIELD_CHARS).collect();
-    let lowered: String = bounded.chars().flat_map(char::to_lowercase).collect();
-    lowered.contains("pass") || lowered.contains("secret") || lowered.contains("token")
+    let normalized: String =
+        bounded.chars().flat_map(char::to_lowercase).filter(char::is_alphanumeric).collect();
+    [
+        "apikey",
+        "secret",
+        "token",
+        "password",
+        "pass",
+        "credential",
+        "privatekey",
+        "accesskey",
+        "authorization",
+        "auth",
+        "cookie",
+    ]
+    .iter()
+    .any(|needle| normalized.contains(needle))
 }
 
 struct BoundedJsonWriter<'a> {
@@ -322,7 +341,7 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, usize) {
     let mut open = Vec::<UnfinishedTool>::new();
     let mut omitted = OmittedTools::default();
     for record in records {
-        if let Some(update) = tool_update(record) {
+        if let Some(update) = tool_update(record, None) {
             note_unfinished_tool(&mut open, &mut omitted, update);
         }
     }
@@ -438,7 +457,9 @@ impl Hub {
                 | "tool_call_update.replay"
                     if started =>
                 {
-                    if let Some(update) = tool_update(&e) {
+                    if let Some(update) =
+                        tool_update(&e, session.meta().agent_session_id.as_deref())
+                    {
                         note_unfinished_tool(&mut unfinished, &mut omitted_tools, update);
                     }
                 }
@@ -747,7 +768,7 @@ mod tests {
             msg: json!({"params": {"_meta": {"acpmux": {"subagent": {"id": "child"}}}, "update": {"sessionUpdate": "tool_call", "toolCallId": "child-call", "status": "in_progress"}}}),
             host_seq: None,
         };
-        assert!(tool_update(&child).is_none());
+        assert!(tool_update(&child, None).is_none());
 
         let mut open = Vec::new();
         let mut omitted = OmittedTools::default();
@@ -779,6 +800,21 @@ mod tests {
             &json!({"toolCallId": format!("{huge}2"), "status": "failed"}),
         );
         assert!(open.is_empty());
+    }
+
+    #[test]
+    fn root_tool_updates_with_subagent_metadata_are_retained() {
+        let record = EventRecord {
+            seq: 1,
+            at: 1,
+            dir: "in".into(),
+            kind: "tool_call".into(),
+            msg: json!({"params": {"sessionId": "root", "_meta": {"acpmux": {"subagent": "child-1"}},
+                "update": {"sessionUpdate": "tool_call", "toolCallId": "root-call", "title": "Own build", "status": "in_progress"}}}),
+            host_seq: None,
+        };
+        assert!(tool_update(&record, Some("root")).is_some());
+        assert!(tool_update(&record, Some("other")).is_none());
     }
 
     #[test]
