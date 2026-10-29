@@ -3,6 +3,11 @@
   "strings": {
     "plus.apps": {"comment":"Composer plus menu section.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Apps"}},"ar":{"stringUnit":{"state":"translated","value":"التطبيقات"}},"bs":{"stringUnit":{"state":"translated","value":"Aplikacije"}},"da":{"stringUnit":{"state":"translated","value":"Apps"}},"de":{"stringUnit":{"state":"translated","value":"Apps"}},"es":{"stringUnit":{"state":"translated","value":"Aplicaciones"}},"fr":{"stringUnit":{"state":"translated","value":"Applications"}},"it":{"stringUnit":{"state":"translated","value":"App"}},"ja":{"stringUnit":{"state":"translated","value":"アプリ"}},"km":{"stringUnit":{"state":"translated","value":"កម្មវិធី"}},"ko":{"stringUnit":{"state":"translated","value":"앱"}},"nb":{"stringUnit":{"state":"translated","value":"Apper"}},"pl":{"stringUnit":{"state":"translated","value":"Aplikacje"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Aplicativos"}},"ru":{"stringUnit":{"state":"translated","value":"Приложения"}},"th":{"stringUnit":{"state":"translated","value":"แอป"}},"tr":{"stringUnit":{"state":"translated","value":"Uygulamalar"}},"uk":{"stringUnit":{"state":"translated","value":"Програми"}},"vi":{"stringUnit":{"state":"translated","value":"Ứng dụng"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"应用"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"應用程式"}}}},
     "plus.tools": {"comment":"Composer plus menu section.","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tools"}},"ar":{"stringUnit":{"state":"translated","value":"أدوات"}},"bs":{"stringUnit":{"state":"translated","value":"Alati"}},"da":{"stringUnit":{"state":"translated","value":"Værktøjer"}},"de":{"stringUnit":{"state":"translated","value":"Werkzeuge"}},"es":{"stringUnit":{"state":"translated","value":"Herramientas"}},"fr":{"stringUnit":{"state":"translated","value":"Outils"}},"it":{"stringUnit":{"state":"translated","value":"Strumenti"}},"ja":{"stringUnit":{"state":"translated","value":"ツール"}},"km":{"stringUnit":{"state":"translated","value":"ឧបករណ៍"}},"ko":{"stringUnit":{"state":"translated","value":"도구"}},"nb":{"stringUnit":{"state":"translated","value":"Verktøy"}},"pl":{"stringUnit":{"state":"translated","value":"Narzędzia"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Ferramentas"}},"ru":{"stringUnit":{"state":"translated","value":"Инструменты"}},"th":{"stringUnit":{"state":"translated","value":"เครื่องมือ"}},"tr":{"stringUnit":{"state":"translated","value":"Araçlar"}},"uk":{"stringUnit":{"state":"translated","value":"Інструменти"}},"vi":{"stringUnit":{"state":"translated","value":"Công cụ"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"工具"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"工具"}}}},
+    "computerUse.preview.runningLabelNoApp": {"comment":"Agent pane: accessibility label of the live preview card while the agent uses an app whose name is not known (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"معاينة مباشرة للتطبيق. فتح في نشاط الوكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pregled aplikacije uživo. Otvori u Aktivnosti agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"Live forhåndsvisning af app. Åbn i Agentaktivitet"}},"de":{"stringUnit":{"state":"needs_review","value":"Live-Vorschau der App. In Agentenaktivität öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Live app preview. Open in Agent Activity"}},"es":{"stringUnit":{"state":"needs_review","value":"Vista previa de la app en directo. Abrir en Actividad de agentes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aperçu de l'app en direct. Ouvrir dans Activité des agents"}},"it":{"stringUnit":{"state":"needs_review","value":"Anteprima dell'app dal vivo. Apri in Attività degli agenti"}},"ja":{"stringUnit":{"state":"translated","value":"アプリのライブプレビュー。エージェントのアクティビティで開く"}},"km":{"stringUnit":{"state":"needs_review","value":"ការមើលកម្មវិធីជាមុនផ្ទាល់។ បើកក្នុងសកម្មភាពភ្នាក់ងារ"}},"ko":{"stringUnit":{"state":"needs_review","value":"실시간 앱 미리보기. 에이전트 활동에서 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Direkte forhåndsvisning av app. Åpne i Agentaktivitet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podgląd aplikacji na żywo. Otwórz w Aktywności agentów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Prévia do app ao vivo. Abrir em Atividade de agentes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Просмотр приложения в реальном времени. Открыть в Активности агентов"}},"th":{"stringUnit":{"state":"needs_review","value":"ตัวอย่างแอปสด เปิดในกิจกรรมของเอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Canlı uygulama önizlemesi. Ajan etkinliğinde aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перегляд застосунку наживо. Відкрити в Активності агентів"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xem trước ứng dụng trực tiếp. Mở trong Hoạt động của tác tử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"实时应用预览。在代理活动中打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"即時 App 預覽。在代理活動中開啟"}}}},
+    "computerUse.preview.doneLabelNoApp": {"comment":"Agent pane: accessibility label of the live preview card after the agent's session ended, when the app's name is not known (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"معاينة التطبيق، انتهى. فتح في نشاط الوكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pregled aplikacije, završeno. Otvori u Aktivnosti agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"Forhåndsvisning af app, færdig. Åbn i Agentaktivitet"}},"de":{"stringUnit":{"state":"needs_review","value":"App-Vorschau, fertig. In Agentenaktivität öffnen"}},"en":{"stringUnit":{"state":"translated","value":"App preview, done. Open in Agent Activity"}},"es":{"stringUnit":{"state":"needs_review","value":"Vista previa de la app, terminado. Abrir en Actividad de agentes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aperçu de l'app, terminé. Ouvrir dans Activité des agents"}},"it":{"stringUnit":{"state":"needs_review","value":"Anteprima dell'app, completato. Apri in Attività degli agenti"}},"ja":{"stringUnit":{"state":"translated","value":"アプリのプレビュー、完了。エージェントのアクティビティで開く"}},"km":{"stringUnit":{"state":"needs_review","value":"ការមើលកម្មវិធីជាមុន រួចរាល់។ បើកក្នុងសកម្មភាពភ្នាក់ងារ"}},"ko":{"stringUnit":{"state":"needs_review","value":"앱 미리보기, 완료. 에이전트 활동에서 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forhåndsvisning av app, ferdig. Åpne i Agentaktivitet"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podgląd aplikacji, gotowe. Otwórz w Aktywności agentów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Prévia do app, concluído. Abrir em Atividade de agentes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Просмотр приложения, готово. Открыть в Активности агентов"}},"th":{"stringUnit":{"state":"needs_review","value":"ตัวอย่างแอป เสร็จแล้ว เปิดในกิจกรรมของเอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Uygulama önizlemesi, bitti. Ajan etkinliğinde aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перегляд застосунку, готово. Відкрити в Активності агентів"}},"vi":{"stringUnit":{"state":"needs_review","value":"Xem trước ứng dụng, đã xong. Mở trong Hoạt động của tác tử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"应用预览，已完成。在代理活动中打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"App 預覽，已完成。在代理活動中開啟"}}}},
+    "computerUse.preview.runningLabel": {"comment":"Agent pane: accessibility label of the live preview card while the agent uses the app; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{app}، مباشر. فتح في نشاط الوكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"{app}, uživo. Otvori u Aktivnosti agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"{app}, live. Åbn i Agentaktivitet"}},"de":{"stringUnit":{"state":"needs_review","value":"{app}, live. In Agentenaktivität öffnen"}},"en":{"stringUnit":{"state":"translated","value":"{app}, live. Open in Agent Activity"}},"es":{"stringUnit":{"state":"needs_review","value":"{app}, en directo. Abrir en Actividad de agentes"}},"fr":{"stringUnit":{"state":"needs_review","value":"{app}, en direct. Ouvrir dans Activité des agents"}},"it":{"stringUnit":{"state":"needs_review","value":"{app}, dal vivo. Apri in Attività degli agenti"}},"ja":{"stringUnit":{"state":"translated","value":"{app}、ライブ。エージェントのアクティビティで開く"}},"km":{"stringUnit":{"state":"needs_review","value":"{app} ផ្ទាល់។ បើកក្នុងសកម្មភាពភ្នាក់ងារ"}},"ko":{"stringUnit":{"state":"needs_review","value":"{app}, 실시간. 에이전트 활동에서 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"{app}, direkte. Åpne i Agentaktivitet"}},"pl":{"stringUnit":{"state":"needs_review","value":"{app}, na żywo. Otwórz w Aktywności agentów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{app}, ao vivo. Abrir em Atividade de agentes"}},"ru":{"stringUnit":{"state":"needs_review","value":"{app}, в реальном времени. Открыть в Активности агентов"}},"th":{"stringUnit":{"state":"needs_review","value":"{app} สด เปิดในกิจกรรมของเอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"{app}, canlı. Ajan etkinliğinde aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"{app}, наживо. Відкрити в Активності агентів"}},"vi":{"stringUnit":{"state":"needs_review","value":"{app}, trực tiếp. Mở trong Hoạt động của tác tử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{app}，实时。在代理活动中打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{app}，即時。在代理活動中開啟"}}}},
+    "computerUse.preview.doneLabel": {"comment":"Agent pane: accessibility label of the live preview card after the agent's session ended; {app} is the app's name (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"{app}، انتهى. فتح في نشاط الوكيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"{app}, završeno. Otvori u Aktivnosti agenta"}},"da":{"stringUnit":{"state":"needs_review","value":"{app}, færdig. Åbn i Agentaktivitet"}},"de":{"stringUnit":{"state":"needs_review","value":"{app}, fertig. In Agentenaktivität öffnen"}},"en":{"stringUnit":{"state":"translated","value":"{app}, done. Open in Agent Activity"}},"es":{"stringUnit":{"state":"needs_review","value":"{app}, terminado. Abrir en Actividad de agentes"}},"fr":{"stringUnit":{"state":"needs_review","value":"{app}, terminé. Ouvrir dans Activité des agents"}},"it":{"stringUnit":{"state":"needs_review","value":"{app}, completato. Apri in Attività degli agenti"}},"ja":{"stringUnit":{"state":"translated","value":"{app}、完了。エージェントのアクティビティで開く"}},"km":{"stringUnit":{"state":"needs_review","value":"{app} រួចរាល់។ បើកក្នុងសកម្មភាពភ្នាក់ងារ"}},"ko":{"stringUnit":{"state":"needs_review","value":"{app}, 완료. 에이전트 활동에서 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"{app}, ferdig. Åpne i Agentaktivitet"}},"pl":{"stringUnit":{"state":"needs_review","value":"{app}, gotowe. Otwórz w Aktywności agentów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{app}, concluído. Abrir em Atividade de agentes"}},"ru":{"stringUnit":{"state":"needs_review","value":"{app}, готово. Открыть в Активности агентов"}},"th":{"stringUnit":{"state":"needs_review","value":"{app} เสร็จแล้ว เปิดในกิจกรรมของเอเจนต์"}},"tr":{"stringUnit":{"state":"needs_review","value":"{app}, bitti. Ajan etkinliğinde aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"{app}, готово. Відкрити в Активності агентів"}},"vi":{"stringUnit":{"state":"needs_review","value":"{app}, đã xong. Mở trong Hoạt động của tác tử"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{app}，已完成。在代理活动中打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{app}，已完成。在代理活動中開啟"}}}},
+    "computerUse.preview.close": {"comment":"Agent pane: accessibility label of the live preview card's close button, which hides the card for that session (computerUse/ComputerUsePreviewCard.tsx)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء المعاينة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij pregled"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul forhåndsvisning"}},"de":{"stringUnit":{"state":"needs_review","value":"Vorschau ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Hide Preview"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar vista previa"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer l'aperçu"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi anteprima"}},"ja":{"stringUnit":{"state":"translated","value":"プレビューを隠す"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់ការមើលជាមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"미리보기 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul forhåndsvisning"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj podgląd"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar prévia"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть просмотр"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนตัวอย่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önizlemeyi gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати перегляд"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn bản xem trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏预览"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏預覽"}}}},
     "composer.sandboxed": {"comment":"Environment picker: run the first message once on a throwaway Cloud VM (preview)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Sandboxed"}},"de":{"stringUnit":{"state":"translated","value":"Sandbox"}},"fr":{"stringUnit":{"state":"translated","value":"Isolé"}},"ar":{"stringUnit":{"state":"translated","value":"معزول"}},"es":{"stringUnit":{"state":"translated","value":"Aislado"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"沙箱"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"沙箱"}},"ko":{"stringUnit":{"state":"translated","value":"샌드박스"}},"ja":{"stringUnit":{"state":"translated","value":"サンドボックス"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izolovano"}},"da":{"stringUnit":{"state":"needs_review","value":"Sandkasse"}},"it":{"stringUnit":{"state":"needs_review","value":"Sandbox"}},"km":{"stringUnit":{"state":"needs_review","value":"ប្រអប់ខ្សាច់"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sandkasse"}},"pl":{"stringUnit":{"state":"needs_review","value":"Piaskownica"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Isolado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Песочница"}},"th":{"stringUnit":{"state":"needs_review","value":"แซนด์บ็อกซ์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Korumalı alan"}},"uk":{"stringUnit":{"state":"needs_review","value":"Пісочниця"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hộp cát"}}}},
     "composer.sandboxedDetail": {"comment":"Environment picker: one line under Sandboxed (New Cloud Machine's alternate, preview): what a Sandboxed send does and costs","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Runs this message once on a throwaway Cloud VM, then destroys it. VM time is billed and shown on the receipt."}},"de":{"stringUnit":{"state":"translated","value":"Führt diese Nachricht einmal auf einer Wegwerf-Cloud-VM aus und löscht sie danach. Die VM-Zeit wird berechnet und auf dem Beleg angezeigt."}},"fr":{"stringUnit":{"state":"translated","value":"Exécute ce message une fois sur une VM Cloud jetable, puis la détruit. Le temps de VM est facturé et indiqué sur le reçu."}},"ar":{"stringUnit":{"state":"translated","value":"يشغّل هذه الرسالة مرة واحدة على جهاز Cloud افتراضي مؤقت ثم يحذفه. يُحتسب وقت الجهاز الافتراضي ويظهر في الإيصال."}},"es":{"stringUnit":{"state":"translated","value":"Ejecuta este mensaje una vez en una VM de Cloud desechable y luego la destruye. El tiempo de VM se factura y aparece en el recibo."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"在一次性的 Cloud 虛擬機上執行這則訊息一次，之後將其銷毀。虛擬機時間會計費，並顯示在收據上。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"在一次性的 Cloud 虚拟机上运行这条消息一次，之后将其销毁。虚拟机时间会计费，并显示在回执上。"}},"ko":{"stringUnit":{"state":"translated","value":"이 메시지를 일회용 Cloud VM에서 한 번 실행한 뒤 VM을 삭제합니다. VM 시간은 청구되며 영수증에 표시됩니다."}},"ja":{"stringUnit":{"state":"translated","value":"このメッセージを使い捨ての Cloud VM で一度だけ実行し、その後 VM を破棄します。VM の利用時間は課金され、レシートに表示されます。"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokreće ovu poruku jednom na privremenoj Cloud VM, zatim je uništava. Vrijeme VM-a se naplaćuje i prikazuje na potvrdi."}},"da":{"stringUnit":{"state":"needs_review","value":"Kører denne besked én gang på en engangs-Cloud-VM og sletter den bagefter. VM-tiden faktureres og vises på kvitteringen."}},"it":{"stringUnit":{"state":"needs_review","value":"Esegue questo messaggio una volta su una VM Cloud usa e getta, poi la distrugge. Il tempo della VM viene addebitato e mostrato nella ricevuta."}},"km":{"stringUnit":{"state":"needs_review","value":"ដំណើរការសារនេះម្តងលើ Cloud VM ប្រើតែម្តង រួចលុបវាចោល។ ពេលវេលា VM ត្រូវគិតថ្លៃ ហើយបង្ហាញនៅលើបង្កាន់ដៃ។"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører denne meldingen én gang på en engangs-Cloud-VM og sletter den etterpå. VM-tiden faktureres og vises på kvitteringen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Uruchamia tę wiadomość raz na jednorazowej maszynie wirtualnej Cloud, a potem ją usuwa. Czas maszyny jest naliczany i widoczny na potwierdzeniu."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Executa esta mensagem uma vez em uma VM Cloud descartável e depois a destrói. O tempo de VM é cobrado e aparece no recibo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Выполняет это сообщение один раз на одноразовой Cloud VM, затем удаляет её. Время VM оплачивается и указывается в квитанции."}},"th":{"stringUnit":{"state":"needs_review","value":"รันข้อความนี้หนึ่งครั้งบน Cloud VM แบบใช้แล้วทิ้ง แล้วลบ VM นั้น เวลาของ VM มีค่าใช้จ่ายและแสดงในใบเสร็จ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bu mesajı tek kullanımlık bir Cloud VM'de bir kez çalıştırır, ardından VM'i yok eder. VM süresi ücretlendirilir ve makbuzda gösterilir."}},"uk":{"stringUnit":{"state":"needs_review","value":"Виконує це повідомлення один раз на одноразовій Cloud VM, потім видаляє її. Час VM оплачується й показується в квитанції."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chạy tin nhắn này một lần trên một Cloud VM dùng một lần, rồi hủy nó. Thời gian VM được tính phí và hiện trên biên nhận."}}}},
     "sandbox.running": {"comment":"Chat: a Sandboxed message is running on its throwaway VM","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Running in a sandbox…"}},"de":{"stringUnit":{"state":"translated","value":"Läuft in einer Sandbox…"}},"fr":{"stringUnit":{"state":"translated","value":"Exécution dans un bac à sable…"}},"ar":{"stringUnit":{"state":"translated","value":"يعمل في صندوق معزول…"}},"es":{"stringUnit":{"state":"translated","value":"Ejecutándose en un sandbox…"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在沙箱中執行…"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在沙箱中运行…"}},"ko":{"stringUnit":{"state":"translated","value":"샌드박스에서 실행 중…"}},"ja":{"stringUnit":{"state":"translated","value":"サンドボックスで実行中…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokreće se u sandboxu…"}},"da":{"stringUnit":{"state":"needs_review","value":"Kører i en sandkasse…"}},"it":{"stringUnit":{"state":"needs_review","value":"In esecuzione in un sandbox…"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងដំណើរការក្នុងប្រអប់ខ្សាច់…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kjører i en sandkasse…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Działa w piaskownicy…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Executando em um sandbox…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Выполняется в песочнице…"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังทำงานในแซนด์บ็อกซ์…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Korumalı alanda çalışıyor…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Виконується в пісочниці…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang chạy trong hộp cát…"}}}},
@@ -96,6 +101,7 @@
     "workflow.unassigned": {"comment":"Agent pane: workflow unassigned","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unassigned"}},"ja":{"stringUnit":{"state":"translated","value":"未割り当て"}},"de":{"stringUnit":{"state":"translated","value":"Nicht zugewiesen"}},"fr":{"stringUnit":{"state":"translated","value":"Non attribués"}},"es":{"stringUnit":{"state":"translated","value":"Sin asignar"}},"ar":{"stringUnit":{"state":"translated","value":"غير معيّن"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"未分配"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"未指派"}},"ko":{"stringUnit":{"state":"translated","value":"미할당"}},"bs":{"stringUnit":{"state":"translated","value":"Nedodijeljeno"}},"da":{"stringUnit":{"state":"translated","value":"Ikke tildelt"}},"it":{"stringUnit":{"state":"translated","value":"Non assegnati"}},"km":{"stringUnit":{"state":"translated","value":"មិនបានកំណត់"}},"nb":{"stringUnit":{"state":"translated","value":"Ikke tilordnet"}},"pl":{"stringUnit":{"state":"translated","value":"Nieprzypisane"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Não atribuídos"}},"ru":{"stringUnit":{"state":"translated","value":"Не назначено"}},"th":{"stringUnit":{"state":"translated","value":"ยังไม่ได้กำหนด"}},"tr":{"stringUnit":{"state":"translated","value":"Atanmamış"}},"uk":{"stringUnit":{"state":"translated","value":"Не призначено"}},"vi":{"stringUnit":{"state":"translated","value":"Chưa phân công"}}}},
     "transcript.viaCli": {"comment":"Agent pane: under a prompt the person sent with acpmux send from a terminal; host is the machine it ran on","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أنت · عبر CLI على {host}"}},"bs":{"stringUnit":{"state":"needs_review","value":"vi · putem CLI-ja na {host}"}},"da":{"stringUnit":{"state":"needs_review","value":"dig · via CLI på {host}"}},"de":{"stringUnit":{"state":"needs_review","value":"du · über CLI auf {host}"}},"en":{"stringUnit":{"state":"translated","value":"you · via CLI on {host}"}},"es":{"stringUnit":{"state":"needs_review","value":"tú · por CLI en {host}"}},"fr":{"stringUnit":{"state":"needs_review","value":"vous · via la CLI sur {host}"}},"it":{"stringUnit":{"state":"needs_review","value":"tu · tramite CLI su {host}"}},"ja":{"stringUnit":{"state":"needs_review","value":"あなた · {host} の CLI から"}},"km":{"stringUnit":{"state":"needs_review","value":"អ្នក · តាម CLI លើ {host}"}},"ko":{"stringUnit":{"state":"needs_review","value":"나 · {host}의 CLI에서"}},"nb":{"stringUnit":{"state":"needs_review","value":"deg · via CLI på {host}"}},"pl":{"stringUnit":{"state":"needs_review","value":"ty · przez CLI na {host}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"você · via CLI em {host}"}},"ru":{"stringUnit":{"state":"needs_review","value":"вы · через CLI на {host}"}},"th":{"stringUnit":{"state":"needs_review","value":"คุณ · ผ่าน CLI บน {host}"}},"tr":{"stringUnit":{"state":"needs_review","value":"sen · {host} üzerinde CLI ile"}},"uk":{"stringUnit":{"state":"needs_review","value":"ви · через CLI на {host}"}},"vi":{"stringUnit":{"state":"needs_review","value":"bạn · qua CLI trên {host}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你 · 通过 {host} 上的 CLI"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你 · 透過 {host} 上的 CLI"}}}},
     "composer.reorderAttachmentsHint": {"comment":"Agent pane: a hidden hint on the composer's attachment strip, how to move an attachment from the keyboard","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يحرّك Option مع السهم الأيسر أو الأيمن المرفق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Option-lijevo ili Option-desno pomiče prilog"}},"da":{"stringUnit":{"state":"needs_review","value":"Option-venstre eller Option-højre flytter en vedhæftning"}},"de":{"stringUnit":{"state":"needs_review","value":"Wahl-Links oder Wahl-Rechts verschiebt einen Anhang"}},"en":{"stringUnit":{"state":"translated","value":"Option-Left or Option-Right moves an attachment"}},"es":{"stringUnit":{"state":"needs_review","value":"Opción-Izquierda u Opción-Derecha mueve un adjunto"}},"fr":{"stringUnit":{"state":"needs_review","value":"Option-Gauche ou Option-Droite déplace une pièce jointe"}},"it":{"stringUnit":{"state":"needs_review","value":"Opzione-Sinistra o Opzione-Destra sposta un allegato"}},"ja":{"stringUnit":{"state":"needs_review","value":"Option-左/右で添付ファイルを移動"}},"km":{"stringUnit":{"state":"needs_review","value":"Option-ឆ្វេង ឬ Option-ស្ដាំ ផ្លាស់ទីឯកសារភ្ជាប់"}},"ko":{"stringUnit":{"state":"needs_review","value":"Option-왼쪽 또는 Option-오른쪽으로 첨부 파일 이동"}},"nb":{"stringUnit":{"state":"needs_review","value":"Option-venstre eller Option-høyre flytter et vedlegg"}},"pl":{"stringUnit":{"state":"needs_review","value":"Option-lewo lub Option-prawo przesuwa załącznik"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Option-Esquerda ou Option-Direita move um anexo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Option-влево или Option-вправо перемещает вложение"}},"th":{"stringUnit":{"state":"needs_review","value":"Option-ซ้าย หรือ Option-ขวา เพื่อย้ายไฟล์แนบ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Option-Sol veya Option-Sağ bir eki taşır"}},"uk":{"stringUnit":{"state":"needs_review","value":"Option-ліворуч або Option-праворуч переміщує вкладення"}},"vi":{"stringUnit":{"state":"needs_review","value":"Option-Trái hoặc Option-Phải để di chuyển tệp đính kèm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Option-左箭头或 Option-右箭头可移动附件"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Option-左鍵或 Option-右鍵可移動附件"}}}},
+    "chatInspector.reorderSection": {"comment":"Agent pane: Session Info, the six-dot handle at a section's left; dragging it, or Up/Down Arrow on it, moves the section ({section} is its title, e.g. Outputs)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"نقل {section}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Premjesti {section}"}},"da":{"stringUnit":{"state":"needs_review","value":"Flyt {section}"}},"de":{"stringUnit":{"state":"needs_review","value":"{section} verschieben"}},"en":{"stringUnit":{"state":"translated","value":"Move {section}"}},"es":{"stringUnit":{"state":"needs_review","value":"Mover {section}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Déplacer {section}"}},"it":{"stringUnit":{"state":"needs_review","value":"Sposta {section}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{section}を移動"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្លាស់ទី {section}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{section} 이동"}},"nb":{"stringUnit":{"state":"needs_review","value":"Flytt {section}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przenieś {section}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mover {section}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Переместить {section}"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้าย {section}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{section} öğesini taşı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Перемістити {section}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Di chuyển {section}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"移动{section}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"移動{section}"}}}},
     "composer.attachmentMoved": {"comment":"Agent pane: announced when an attachment is moved in the composer's strip","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"نُقل {name} إلى {position} من {count}"}},"bs":{"stringUnit":{"state":"needs_review","value":"{name} premješten na {position} od {count}"}},"da":{"stringUnit":{"state":"needs_review","value":"{name} flyttet til {position} af {count}"}},"de":{"stringUnit":{"state":"needs_review","value":"{name} an Position {position} von {count} verschoben"}},"en":{"stringUnit":{"state":"translated","value":"{name} moved to {position} of {count}"}},"es":{"stringUnit":{"state":"needs_review","value":"{name} movido a {position} de {count}"}},"fr":{"stringUnit":{"state":"needs_review","value":"{name} déplacé en {position} sur {count}"}},"it":{"stringUnit":{"state":"needs_review","value":"{name} spostato in {position} di {count}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name}を{count}件中{position}番目に移動"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្លាស់ {name} ទៅ {position} នៃ {count}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}을(를) {count}개 중 {position}번째로 이동"}},"nb":{"stringUnit":{"state":"needs_review","value":"{name} flyttet til {position} av {count}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Przeniesiono {name} na {position} z {count}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{name} movido para {position} de {count}"}},"ru":{"stringUnit":{"state":"needs_review","value":"{name} перемещено на {position} из {count}"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้าย {name} ไปที่ {position} จาก {count}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name}, {count} içinde {position}. sıraya taşındı"}},"uk":{"stringUnit":{"state":"needs_review","value":"{name} переміщено на {position} з {count}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã chuyển {name} đến vị trí {position}/{count}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已将 {name} 移到第 {position} 个（共 {count} 个）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已將 {name} 移到第 {position} 個（共 {count} 個）"}}}},
     "composer.cancelAttachment": {"comment":"Agent pane: the × of an attachment still loading in the composer","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إلغاء {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otkaži {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Annuller {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"{name} abbrechen"}},"en":{"stringUnit":{"state":"translated","value":"Cancel {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Cancelar {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name}をキャンセル"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់ {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name} 취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avbryt {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Anuluj {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Cancelar {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отменить {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"ยกเลิก {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} iptal et"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hủy {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"取消 {name}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"取消 {name}"}}}},
     "composer.retryAttachment": {"comment":"Agent pane: the button on an attachment that could not be attached, to try it again","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokušaj ponovo"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøv igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Erneut versuchen"}},"en":{"stringUnit":{"state":"translated","value":"Retry"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réessayer"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprova"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行"}},"km":{"stringUnit":{"state":"needs_review","value":"ព្យាយាមម្ដងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"다시 시도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøv igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторить"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองอีกครั้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeniden dene"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thử lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重試"}}}},
@@ -105,6 +111,9 @@
     "workflow.agentQueued": {"comment":"Agent pane: a workflow agent waiting to start","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Queued"}},"ja":{"stringUnit":{"state":"translated","value":"待機中"}},"de":{"stringUnit":{"state":"translated","value":"In Warteschlange"}},"fr":{"stringUnit":{"state":"translated","value":"En file d’attente"}},"es":{"stringUnit":{"state":"translated","value":"En cola"}},"it":{"stringUnit":{"state":"translated","value":"In coda"}},"da":{"stringUnit":{"state":"translated","value":"I kø"}},"pl":{"stringUnit":{"state":"translated","value":"W kolejce"}},"ru":{"stringUnit":{"state":"translated","value":"В очереди"}},"bs":{"stringUnit":{"state":"translated","value":"Na čekanju"}},"ar":{"stringUnit":{"state":"translated","value":"في الانتظار"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Na fila"}},"th":{"stringUnit":{"state":"translated","value":"อยู่ในคิว"}},"tr":{"stringUnit":{"state":"translated","value":"Sırada"}},"km":{"stringUnit":{"state":"translated","value":"កំពុងរង់ចាំ"}},"uk":{"stringUnit":{"state":"translated","value":"У черзі"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"排队中"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"排隊中"}},"nb":{"stringUnit":{"state":"translated","value":"I kø"}},"vi":{"stringUnit":{"state":"translated","value":"Đang chờ"}},"ko":{"stringUnit":{"state":"translated","value":"대기 중"}}}},
     "workflow.upNext": {"comment":"Agent pane: the workflow phases no agent has started yet","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Up next: {phases}"}},"ja":{"stringUnit":{"state":"translated","value":"次: {phases}"}},"de":{"stringUnit":{"state":"translated","value":"Als Nächstes: {phases}"}},"fr":{"stringUnit":{"state":"translated","value":"Ensuite : {phases}"}},"es":{"stringUnit":{"state":"translated","value":"A continuación: {phases}"}},"it":{"stringUnit":{"state":"translated","value":"Prossimo: {phases}"}},"da":{"stringUnit":{"state":"translated","value":"Næste: {phases}"}},"pl":{"stringUnit":{"state":"translated","value":"Następnie: {phases}"}},"ru":{"stringUnit":{"state":"translated","value":"Далее: {phases}"}},"bs":{"stringUnit":{"state":"translated","value":"Sljedeće: {phases}"}},"ar":{"stringUnit":{"state":"translated","value":"التالي: {phases}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"A seguir: {phases}"}},"th":{"stringUnit":{"state":"translated","value":"ถัดไป: {phases}"}},"tr":{"stringUnit":{"state":"translated","value":"Sıradaki: {phases}"}},"km":{"stringUnit":{"state":"translated","value":"បន្ទាប់៖ {phases}"}},"uk":{"stringUnit":{"state":"translated","value":"Далі: {phases}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"接下来：{phases}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"接下來：{phases}"}},"nb":{"stringUnit":{"state":"translated","value":"Neste: {phases}"}},"vi":{"stringUnit":{"state":"translated","value":"Tiếp theo: {phases}"}},"ko":{"stringUnit":{"state":"translated","value":"다음: {phases}"}}}},
     "workflow.model": {"comment":"Agent pane: the model a workflow phase's agents run on","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Model: {model}"}},"ja":{"stringUnit":{"state":"translated","value":"モデル: {model}"}},"de":{"stringUnit":{"state":"translated","value":"Modell: {model}"}},"fr":{"stringUnit":{"state":"translated","value":"Modèle : {model}"}},"es":{"stringUnit":{"state":"translated","value":"Modelo: {model}"}},"it":{"stringUnit":{"state":"translated","value":"Modello: {model}"}},"da":{"stringUnit":{"state":"translated","value":"Model: {model}"}},"pl":{"stringUnit":{"state":"translated","value":"Model: {model}"}},"ru":{"stringUnit":{"state":"translated","value":"Модель: {model}"}},"bs":{"stringUnit":{"state":"translated","value":"Model: {model}"}},"ar":{"stringUnit":{"state":"translated","value":"النموذج: {model}"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Modelo: {model}"}},"th":{"stringUnit":{"state":"translated","value":"โมเดล: {model}"}},"tr":{"stringUnit":{"state":"translated","value":"Model: {model}"}},"km":{"stringUnit":{"state":"translated","value":"ម៉ូដែល៖ {model}"}},"uk":{"stringUnit":{"state":"translated","value":"Модель: {model}"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"模型：{model}"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"模型：{model}"}},"nb":{"stringUnit":{"state":"translated","value":"Modell: {model}"}},"vi":{"stringUnit":{"state":"translated","value":"Mô hình: {model}"}},"ko":{"stringUnit":{"state":"translated","value":"모델: {model}"}}}},
+    "workflow.openInSideTab": {"comment":"Agent pane: open a workflow transcript card in the full-height side tab","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"فتح في علامة تبويب جانبية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Otvori u bočnoj kartici"}},"da":{"stringUnit":{"state":"needs_review","value":"Åbn i sidefane"}},"de":{"stringUnit":{"state":"needs_review","value":"In Seitenregisterkarte öffnen"}},"en":{"stringUnit":{"state":"translated","value":"Open in side tab"}},"es":{"stringUnit":{"state":"needs_review","value":"Abrir en pestaña lateral"}},"fr":{"stringUnit":{"state":"needs_review","value":"Ouvrir dans l’onglet latéral"}},"it":{"stringUnit":{"state":"needs_review","value":"Apri nella scheda laterale"}},"ja":{"stringUnit":{"state":"needs_review","value":"サイドタブで開く"}},"km":{"stringUnit":{"state":"needs_review","value":"បើកក្នុងផ្ទាំងចំហៀង"}},"ko":{"stringUnit":{"state":"needs_review","value":"사이드 탭에서 열기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Åpne i sidetab"}},"pl":{"stringUnit":{"state":"needs_review","value":"Otwórz na bocznej karcie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Abrir na aba lateral"}},"ru":{"stringUnit":{"state":"needs_review","value":"Открыть в боковой вкладке"}},"th":{"stringUnit":{"state":"needs_review","value":"เปิดในแท็บด้านข้าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yan sekmede aç"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкрити в бічній вкладці"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mở trong tab bên"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在侧边标签页中打开"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在側邊標籤頁中開啟"}}}},
+    "workflow.state": {"comment":"Agent pane: workflow side-tab table state column heading","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الحالة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Stanje"}},"da":{"stringUnit":{"state":"needs_review","value":"Status"}},"de":{"stringUnit":{"state":"needs_review","value":"Status"}},"en":{"stringUnit":{"state":"translated","value":"State"}},"es":{"stringUnit":{"state":"needs_review","value":"Estado"}},"fr":{"stringUnit":{"state":"needs_review","value":"État"}},"it":{"stringUnit":{"state":"needs_review","value":"Stato"}},"ja":{"stringUnit":{"state":"needs_review","value":"状態"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្ថានភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"상태"}},"nb":{"stringUnit":{"state":"needs_review","value":"Status"}},"pl":{"stringUnit":{"state":"needs_review","value":"Stan"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Estado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Состояние"}},"th":{"stringUnit":{"state":"needs_review","value":"สถานะ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Durum"}},"uk":{"stringUnit":{"state":"needs_review","value":"Стан"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trạng thái"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"状态"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"狀態"}}}},
+    "workflow.closeSideTab": {"comment":"Agent pane: close button for the full-height workflow side tab","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إغلاق علامة التبويب الجانبية"}},"bs":{"stringUnit":{"state":"needs_review","value":"Zatvori bočnu karticu"}},"da":{"stringUnit":{"state":"needs_review","value":"Luk sidefane"}},"de":{"stringUnit":{"state":"needs_review","value":"Seitenregisterkarte schließen"}},"en":{"stringUnit":{"state":"translated","value":"Close workflow side tab"}},"es":{"stringUnit":{"state":"needs_review","value":"Cerrar pestaña lateral"}},"fr":{"stringUnit":{"state":"needs_review","value":"Fermer l’onglet latéral"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiudi scheda laterale"}},"ja":{"stringUnit":{"state":"needs_review","value":"サイドタブを閉じる"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទផ្ទាំងចំហៀង"}},"ko":{"stringUnit":{"state":"needs_review","value":"사이드 탭 닫기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lukk sidetab"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zamknij boczną kartę"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Fechar aba lateral"}},"ru":{"stringUnit":{"state":"needs_review","value":"Закрыть боковую вкладку"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดแท็บด้านข้าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yan sekmeyi kapat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Закрити бічну вкладку"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đóng tab bên"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"关闭侧边标签页"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"關閉側邊標籤頁"}}}},
     "workflow.kind": {"comment":"Agent pane: what a finished workflow task is, before how it ended","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Workflow"}},"ja":{"stringUnit":{"state":"translated","value":"ワークフロー"}},"de":{"stringUnit":{"state":"translated","value":"Workflow"}},"fr":{"stringUnit":{"state":"translated","value":"Workflow"}},"es":{"stringUnit":{"state":"translated","value":"Flujo de trabajo"}},"it":{"stringUnit":{"state":"translated","value":"Workflow"}},"da":{"stringUnit":{"state":"translated","value":"Arbejdsgang"}},"pl":{"stringUnit":{"state":"translated","value":"Przepływ pracy"}},"ru":{"stringUnit":{"state":"translated","value":"Рабочий процесс"}},"bs":{"stringUnit":{"state":"translated","value":"Tok rada"}},"ar":{"stringUnit":{"state":"translated","value":"سير عمل"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Fluxo de trabalho"}},"th":{"stringUnit":{"state":"translated","value":"เวิร์กโฟลว์"}},"tr":{"stringUnit":{"state":"translated","value":"İş akışı"}},"km":{"stringUnit":{"state":"translated","value":"លំហូរការងារ"}},"uk":{"stringUnit":{"state":"translated","value":"Робочий процес"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"工作流"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"工作流程"}},"nb":{"stringUnit":{"state":"translated","value":"Arbeidsflyt"}},"vi":{"stringUnit":{"state":"translated","value":"Quy trình"}},"ko":{"stringUnit":{"state":"translated","value":"워크플로"}}}},
     "composer.speedLabel": {
       "comment": "Agent pane: the composer's speed toggle (lightning bolt left of the mic); {tier} is Standard, Fast or Ultrafast",
@@ -2219,133 +2228,133 @@
       }
     },
     "permission.receipt.fullAccess": {
-      "comment": "Agent pane: one-line transcript receipt of a permission ask a chat in Full access (Claude Code's Bypass permissions, Codex's full access) answered without asking. {action} is the ask's title, such as 'rm -rf build'",
+      "comment": "Agent pane: one-line transcript receipt of a permission ask a chat in its highest permission mode (Claude Code's Bypass permissions, Codex's Full access) answered without asking. {action} is the ask's title and {mode} is the harness's native highest-permission mode label, such as 'Bypass permissions' or 'Full access'",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تمت الموافقة: {action} (وصول كامل)"
+            "value": "تمت الموافقة: {action} ({mode})"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odobreno: {action} (Potpuni pristup)"
+            "value": "Odobreno: {action} ({mode})"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Godkendt: {action} (Fuld adgang)"
+            "value": "Godkendt: {action} ({mode})"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Genehmigt: {action} (Vollzugriff)"
+            "value": "Genehmigt: {action} ({mode})"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Approved: {action} (Full access)"
+            "value": "Approved: {action} ({mode})"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aprobado: {action} (Acceso total)"
+            "value": "Aprobado: {action} ({mode})"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Approuvé : {action} (Accès complet)"
+            "value": "Approuvé : {action} ({mode})"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Approvato: {action} (Accesso completo)"
+            "value": "Approvato: {action} ({mode})"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "承認済み: {action}（フルアクセス）"
+            "value": "承認済み: {action}（{mode}）"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានយល់ព្រម៖ {action} (សិទ្ធិចូលប្រើពេញលេញ)"
+            "value": "បានយល់ព្រម៖ {action} ({mode})"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "승인됨: {action} (전체 액세스)"
+            "value": "승인됨: {action} ({mode})"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Godkjent: {action} (Full tilgang)"
+            "value": "Godkjent: {action} ({mode})"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatwierdzono: {action} (Pełny dostęp)"
+            "value": "Zatwierdzono: {action} ({mode})"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aprovado: {action} (Acesso total)"
+            "value": "Aprovado: {action} ({mode})"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Одобрено: {action} (Полный доступ)"
+            "value": "Одобрено: {action} ({mode})"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุมัติแล้ว: {action} (สิทธิ์เต็ม)"
+            "value": "อนุมัติแล้ว: {action} ({mode})"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Onaylandı: {action} (Tam erişim)"
+            "value": "Onaylandı: {action} ({mode})"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Схвалено: {action} (Повний доступ)"
+            "value": "Схвалено: {action} ({mode})"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã phê duyệt: {action} (Toàn quyền truy cập)"
+            "value": "Đã phê duyệt: {action} ({mode})"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已批准：{action}（完全访问）"
+            "value": "已批准：{action}（{mode}）"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已核准：{action}（完整存取）"
+            "value": "已核准：{action}（{mode}）"
           }
         }
       }
@@ -38582,6 +38591,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有相符的模型"
+          }
+        }
+      }
+    },
+    "picker.noMatchesFor": {
+      "comment": "Agent pane: the model menu's empty search ({query} is what the person typed)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد نماذج تطابق “{query}”. جرّب جزءًا من الاسم، أو امسح البحث لتصفح الأدوات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan model ne odgovara “{query}”. Probajte dio naziva ili obrišite pretragu da pregledate po alatu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller matcher “{query}”. Prøv en del af et navn, eller ryd søgningen for at gennemse efter værktøj."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Modelle passen zu “{query}”. Versuche einen Teil des Namens oder leere die Suche, um nach Harness zu stöbern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No models match “{query}”. Try part of a name, or clear the search to browse by harness."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ningún modelo coincide con “{query}”. Prueba con parte del nombre o borra la búsqueda para explorar por harness."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun modèle ne correspond à “{query}”. Essayez une partie du nom, ou effacez la recherche pour parcourir par harness."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun modello corrisponde a “{query}”. Prova con parte del nome o cancella la ricerca per sfogliare per harness."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}” に一致するモデルはありません。名前の一部で試すか、検索を消してハーネスごとに見てください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានម៉ូដែលត្រូវនឹង “{query}” ទេ។ សាកផ្នែកមួយនៃឈ្មោះ ឬសម្អាតការស្វែងរកដើម្បីរកមើលតាម harness។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}”와 일치하는 모델이 없습니다. 이름의 일부로 검색하거나 검색어를 지우고 하네스별로 둘러보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller samsvarer med “{query}”. Prøv en del av et navn, eller tøm søket for å bla etter harness."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żaden model nie pasuje do “{query}”. Spróbuj części nazwy albo wyczyść wyszukiwanie, by przeglądać według harnessu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum modelo corresponde a “{query}”. Tente parte do nome ou limpe a busca para navegar por harness."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет моделей, подходящих под “{query}”. Попробуйте часть названия или очистите поиск, чтобы смотреть по харнессам."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีโมเดลที่ตรงกับ “{query}” ลองใช้ส่วนหนึ่งของชื่อ หรือล้างการค้นหาเพื่อดูตาม harness"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}” ile eşleşen model yok. Adın bir kısmını deneyin ya da harness'e göre göz atmak için aramayı temizleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає моделей, що відповідають “{query}”. Спробуйте частину назви або очистьте пошук, щоб переглядати за харнесами."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có mô hình nào khớp “{query}”. Thử một phần tên, hoặc xóa tìm kiếm để duyệt theo harness."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有与“{query}”匹配的模型。试试名称的一部分，或清除搜索以按 harness 浏览。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有與「{query}」相符的模型。試試名稱的一部分，或清除搜尋以依 harness 瀏覽。"
+          }
+        }
+      }
+    },
+    "picker.noMatchesForQuery": {
+      "comment": "Agent pane: a started chat's model menu's empty search, which has no harness list ({query} is what the person typed)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد نماذج تطابق “{query}”. جرّب جزءًا من الاسم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan model ne odgovara “{query}”. Probajte dio naziva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller matcher “{query}”. Prøv en del af et navn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Modelle passen zu “{query}”. Versuche einen Teil des Namens."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No models match “{query}”. Try part of a name."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ningún modelo coincide con “{query}”. Prueba con parte del nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun modèle ne correspond à “{query}”. Essayez une partie du nom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun modello corrisponde a “{query}”. Prova con parte del nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}” に一致するモデルはありません。名前の一部で試してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានម៉ូដែលត្រូវនឹង “{query}” ទេ។ សាកផ្នែកមួយនៃឈ្មោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}”와 일치하는 모델이 없습니다. 이름의 일부로 검색해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller samsvarer med “{query}”. Prøv en del av et navn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żaden model nie pasuje do “{query}”. Spróbuj części nazwy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum modelo corresponde a “{query}”. Tente parte do nome."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет моделей, подходящих под “{query}”. Попробуйте часть названия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีโมเดลที่ตรงกับ “{query}” ลองใช้ส่วนหนึ่งของชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}” ile eşleşen model yok. Adın bir kısmını deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає моделей, що відповідають “{query}”. Спробуйте частину назви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có mô hình nào khớp “{query}”. Thử một phần tên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有与“{query}”匹配的模型。试试名称的一部分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有與「{query}」相符的模型。試試名稱的一部分。"
           }
         }
       }

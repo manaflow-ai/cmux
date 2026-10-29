@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 517,
+  "count": 525,
   "sections": [
     {
       "id": "general",
@@ -170,6 +170,20 @@
             "fullAccess",
             "standard",
             "ask"
+          ]
+        },
+        {
+          "key": "agents.modelRouter.model",
+          "title": "cmux Model Router Model",
+          "help": "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
+          "kind": "choice",
+          "default": "deepseek/deepseek-v4.1-flash-1017",
+          "group": "Agent Chat",
+          "values": [
+            "deepseek/deepseek-v4.1-flash-1017",
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-pro"
           ]
         },
         {
@@ -414,6 +428,14 @@
           "group": "Computer Use"
         },
         {
+          "key": "computerUse.livePreview",
+          "title": "Live Preview in Chat",
+          "help": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Computer Use"
+        },
+        {
           "key": "files.textEditor",
           "title": "Text Editor",
           "help": "The app Open in Text Editor uses for a path: an app name, a bundle ID or the path of an app. Empty uses the app that opens source code.",
@@ -519,7 +541,7 @@
           "title": "Fixed Column Width",
           "help": "A share of the window width, for Fixed Width new columns.",
           "kind": "number",
-          "default": 0.5,
+          "default": 0.6666666666666666,
           "group": "Columns",
           "range": {
             "min": 0.1,
@@ -630,7 +652,7 @@
           "title": "New Column Sizing",
           "help": "",
           "kind": "choice",
-          "default": "matchCurrent",
+          "default": "fixed",
           "group": "Columns",
           "values": [
             "matchCurrent",
@@ -649,6 +671,14 @@
             "tab",
             "split"
           ]
+        },
+        {
+          "key": "layout.pagesHandleCommandScroll",
+          "title": "Web Pages Get Command + Scroll First",
+          "help": "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Columns"
         },
         {
           "key": "layout.rows",
@@ -995,7 +1025,7 @@
         {
           "key": "tabs.barPosition",
           "title": "Tab Bar Position",
-          "help": "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",
+          "help": "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane.",
           "kind": "choice",
           "default": "top",
           "group": "Tabs",
@@ -1363,7 +1393,7 @@
         {
           "key": "window.titlebarButtons",
           "title": "Titlebar Buttons",
-          "help": "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+          "help": "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show.",
           "kind": "choice",
           "default": "hover",
           "group": "Window",
@@ -1432,7 +1462,7 @@
         {
           "key": "workspaces.newPlacement",
           "title": "New Workspace Position",
-          "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+          "help": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
           "kind": "choice",
           "default": "top",
           "group": "Sidebar",
@@ -2040,6 +2070,14 @@
             "both",
             "none"
           ]
+        },
+        {
+          "key": "appearance.highlightColor",
+          "title": "Highlight Color",
+          "help": "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.",
+          "kind": "color",
+          "default": null,
+          "group": "App Theme"
         },
         {
           "key": "appearance.hue",
@@ -3021,7 +3059,7 @@
         {
           "key": "sidebar.controlsOnHover",
           "title": "Show Sidebar Controls Only on Hover",
-          "help": "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show.",
+          "help": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -3080,7 +3118,7 @@
           "title": "Hover Card Delay",
           "help": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
           "kind": "number",
-          "default": 250,
+          "default": 1300,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -3101,7 +3139,7 @@
           "title": "Group Card Delay",
           "help": "How long the pointer rests on a group before its summary card opens.",
           "kind": "number",
-          "default": 600,
+          "default": 1500,
           "group": "Sidebar",
           "range": {
             "min": 0,
@@ -4990,6 +5028,38 @@
           "kind": "toggle",
           "default": false,
           "group": "Attachments"
+        },
+        {
+          "key": "home.bubbleColors.received",
+          "title": "Their Bubble Color",
+          "help": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+          "kind": "color",
+          "default": null,
+          "group": "Chief Chat"
+        },
+        {
+          "key": "home.bubbleColors.receivedText",
+          "title": "Their Text Color",
+          "help": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+          "kind": "color",
+          "default": null,
+          "group": "Chief Chat"
+        },
+        {
+          "key": "home.bubbleColors.sent",
+          "title": "My Bubble Color",
+          "help": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+          "kind": "color",
+          "default": null,
+          "group": "Chief Chat"
+        },
+        {
+          "key": "home.bubbleColors.sentText",
+          "title": "My Text Color",
+          "help": "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+          "kind": "color",
+          "default": null,
+          "group": "Chief Chat"
         },
         {
           "key": "home.channelsEnabled",
