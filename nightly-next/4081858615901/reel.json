@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4081858615901",
+  "notes": "notes/4081858615901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27189,
+      "title": "fix(agent-pane): keep Preview tab-row tools visible",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27196,
+      "title": "MacName: a run under PR capture names the showcase Mac everywhere",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27191,
+      "title": "ci(cmux-tui): publish-tree reads each commit object once and moves companions concurrently",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
