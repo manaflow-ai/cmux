@@ -37,6 +37,7 @@ import Testing
         defer { binding.stop(); other.stop() }
         binding.apply(root)
         other.apply(root)
+        await binding.folderRefresh?.value
         let expected = BackdropShuffle(source: .folder(folder), rotation: .quarterHour)
         #expect(left.backdropSelection == expected.pick(on: date, calendar: calendar))
         let rightBefore = right.backdropSelection
@@ -44,6 +45,7 @@ import Testing
         date = date.addingTimeInterval(900)
         center.post(name: .NSSystemClockDidChange, object: nil)
         for _ in 0..<50 { await Task.yield() }
+        await binding.folderRefresh?.value
         #expect(left.backdropSelection == expected.pick(on: date, calendar: calendar))
         #expect(left.backdropSelection != leftBefore)
         #expect(right.backdropSelection == rightBefore)
@@ -65,7 +67,63 @@ import Testing
         })
         defer { binding.stop() }
         binding.apply(["appearance": ["displayBackgrounds": .object([first: "folder:/wallpapers"])]])
+        await binding.folderRefresh?.value
         #expect(scope.backdropSelection == .art(.munchScream))
+    }
+
+    @Test func slowFolderReadDoesNotBlockRefreshAndStaleResultsCannotWin() async {
+        let loader = SuspendedBackdropFolderListing()
+        let app = ThemeScope(level: .room)
+        app.setBackdropSelection(.art(.munchScream))
+        let scope = ThemeScope(level: .room, parent: app)
+        var display = first
+        var date = Date(timeIntervalSince1970: 1_791_938_451)
+        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { display }, now: { date },
+                                            listFolder: { await loader.list($0) })
+        defer { binding.stop() }
+        let root: JSONValue = ["appearance": [
+            "displayBackgrounds": .object([first: "folder:/slow", second: "folder:/new"]),
+            "displayBackgroundRotations": .object([second: "15m"]),
+        ]]
+        binding.apply(root)
+        // This executes on the main actor before the slow lister is released: refresh must return immediately.
+        #expect(scope.backdropSelection == nil)
+        await loader.started("/slow", count: 1)
+        let stale = binding.folderRefresh
+        display = second
+        binding.apply(root)
+        await loader.started("/new", count: 1)
+        await loader.finish("/new", pictures: [.art(.hokusaiGreatWave)])
+        await binding.folderRefresh?.value
+        #expect(scope.backdropSelection == .art(.hokusaiGreatWave))
+        await loader.finish("/slow", pictures: [.art(.munchScream)])
+        await stale?.value
+        #expect(scope.backdropSelection == .art(.hokusaiGreatWave), "A stale display's completion must not overwrite the new selection")
+        binding.apply(root)
+        await binding.folderRefresh?.value
+        #expect(await loader.count("/new") == 1, "Settings refreshes reuse the folder listing during its rotation period")
+        date = date.addingTimeInterval(900)
+        binding.apply(root)
+        await loader.started("/new", count: 2)
+        let stopped = binding.folderRefresh
+        binding.stop()
+        await loader.finish("/new", pictures: [.art(.hokusaiGreatWave)])
+        await stopped?.value
+        #expect(scope.backdropSelection == app.backdropSelection, "A completion after stop must not restore the display override")
+    }
+
+    @Test func pendingFolderReadDoesNotRetainBinding() async {
+        let loader = SuspendedBackdropFolderListing()
+        var binding: DisplayBackdropBinding? = DisplayBackdropBinding(window: NSWindow(), scope: ThemeScope(level: .room),
+                                                                      displayID: { first }, listFolder: { await loader.list($0) })
+        weak var released = binding
+        binding?.apply(["appearance": ["displayBackgrounds": .object([first: "folder:/slow"])]])
+        await loader.started("/slow", count: 1)
+        let pending = binding?.folderRefresh
+        binding = nil
+        #expect(released == nil)
+        await loader.finish("/slow", pictures: [.art(.munchScream)])
+        await pending?.value
     }
 
     @Test func defaultsOptOutWorkspacePriorityAndCleanup() async {

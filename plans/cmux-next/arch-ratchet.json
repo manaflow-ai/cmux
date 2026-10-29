@@ -595,8 +595,8 @@
     {
       "date": "2026-10-28",
       "row": "observer_sites",
-      "allow": 1,
-      "why": "DisplayBackdropBinding observes screen and system clock changes once per window so a moved window rebinds its display-specific wallpaper and cadence; stop removes the token and timer with the window. A process-wide observer cannot identify affected windows without reintroducing a per-window dispatch table."
+      "allow": 4,
+      "why": "DisplayBackdropBinding observes exactly four named screen and system clock notifications per window, delivered on the posting thread with an asynchronous hop to the UI actor so a moved window rebinds its display-specific wallpaper and cadence; stop removes all four tokens and the timer with the window. A process-wide observer cannot identify affected windows without reintroducing a per-window dispatch table."
     }
   ],
   "observer_wrappers": [

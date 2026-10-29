@@ -9,40 +9,69 @@ public final class DisplayBackdropBinding {
     private let scope: ThemeScope
     private let displayScope: ThemeScope
     private let inheritedScope: ThemeScope
-    private let window: NSWindow
     private let center: NotificationCenter
     private let displayID: () -> String?
     private let now: () -> Date
-    private let listFolder: @Sendable (String) -> [BackdropSelection]
     private let calendar: () -> Calendar
+    private let listFolder: @Sendable (String) async -> [BackdropSelection]
     private let timer = DemandTimer(owner: "display-backdrop")
     private var observers: [NSObjectProtocol] = []
     private var root: JSONValue = [:]
     private var stopped = false
+    private var generation = 0
+    private var folders: [String: (task: Task<[BackdropSelection], Never>, expires: Date?, pictures: [BackdropSelection]?)] = [:]
+    private(set) var folderRefresh: Task<Void, Never>?
 
     public init(window: NSWindow, scope: ThemeScope, center: NotificationCenter = .default,
                 displayID: @escaping () -> String?, now: @escaping () -> Date = Date.init,
                 calendar: @escaping () -> Calendar = { .current },
-                listFolder: @escaping @Sendable (String) -> [BackdropSelection] = { path in
-                    BackdropUserImages(folder: URL(fileURLWithPath: path, isDirectory: true)).list().sorted { $0.id < $1.id }
-                }) {
+                listFolder: @escaping @Sendable (String) async -> [BackdropSelection] = DisplayBackdropBinding.readFolder) {
+        self.scope = scope; self.center = center; self.displayID = displayID; self.now = now; self.calendar = calendar
         self.listFolder = listFolder
-        self.window = window; self.scope = scope; self.center = center; self.displayID = displayID; self.now = now; self.calendar = calendar
         inheritedScope = scope.parent ?? .app
         displayScope = ThemeScope(level: .room, parent: inheritedScope)
         scope.setParent(displayScope)
-        observers.append(center.addObserver(forName: nil, object: nil, queue: .main) { [weak self, weak window] note in
-            guard note.name == NSWindow.didChangeScreenNotification || note.name == .NSSystemClockDidChange || note.name == .NSCalendarDayChanged || note.name == .NSSystemTimeZoneDidChange,
-                  note.name != NSWindow.didChangeScreenNotification || note.object as AnyObject? === window else { return }
-            Task { @MainActor [weak self] in self?.refresh() }
-        })
+        let names: [Notification.Name] = [NSWindow.didChangeScreenNotification, .NSSystemClockDidChange,
+                                         .NSCalendarDayChanged, .NSSystemTimeZoneDidChange]
+        for name in names {
+            // Never make a notification's posting thread wait for the UI actor (SwiftUI can hold its render lock).
+            observers.append(center.addObserver(forName: name, object: name == NSWindow.didChangeScreenNotification ? window : nil,
+                                                queue: nil) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refresh() }
+            })
+        }
     }
 
-    public func apply(_ root: JSONValue) { self.root = root; refresh() }
+    deinit {
+        folderRefresh?.cancel()
+        for folder in folders.values { folder.task.cancel() }
+    }
+
+    /// Resolves and lists a folder on the global executor, including all symlink and metadata reads.
+    @concurrent public nonisolated static func readFolder(_ path: String) async -> [BackdropSelection] {
+        guard !Task.isCancelled else { return [] }
+        return BackdropUserImages(folder: URL(fileURLWithPath: path, isDirectory: true)).list().sorted { $0.id < $1.id }
+    }
+
+    public func apply(_ root: JSONValue) {
+        self.root = root
+        // Bound cached/in-flight listings to configured folders; a removed folder cannot keep work alive.
+        let paths = Set((root.value(at: ["appearance", "displayBackgrounds"])?.objectValue ?? [:]).values
+            .compactMap { $0.stringValue.flatMap(BackdropSelectionSetting.folderPath) })
+        for path in Array(folders.keys) where !paths.contains(path) {
+            folders.removeValue(forKey: path)?.task.cancel()
+        }
+        refresh()
+    }
 
     public func stop() {
         stopped = true
+        generation += 1
         timer.cancel()
+        folderRefresh?.cancel()
+        folderRefresh = nil
+        for folder in folders.values { folder.task.cancel() }
+        folders.removeAll()
         observers.forEach(center.removeObserver)
         observers.removeAll()
         displayScope.pinBackdrop(.inherit)
@@ -51,36 +80,63 @@ public final class DisplayBackdropBinding {
 
     private func refresh() {
         guard !stopped else { return }
+        generation += 1
         timer.cancel()
-        let result = selection()
-        displayScope.pinBackdrop(result.pin)
-        if let wait = result.wait { timer.schedule(after: .seconds(wait)) { @MainActor [weak self] in self?.refresh() } }
+        folderRefresh?.cancel()
+        folderRefresh = nil
+        let values = root.value(at: ["appearance", "displayBackgrounds"])?.objectValue
+        guard let id = displayID(), let raw = values?[id]?.stringValue else {
+            displayScope.pinBackdrop(.inherit)
+            return
+        }
+        guard raw != "none" else { displayScope.pinBackdrop(.none); return }
+        let rotation = root.value(at: ["appearance", "displayBackgroundRotations"])?.objectValue?[id]?.stringValue
+            .flatMap(BackdropRotation.init(rawValue:)) ?? .defaultRotation
+        if let path = BackdropSelectionSetting.folderPath(raw) {
+            refreshFolder(path, rotation: rotation)
+        } else if raw == BackdropSelectionSetting.dailyID {
+            let turn = BackdropShuffle(source: .paintings, rotation: rotation).turn(at: now(), calendar: calendar())
+            displayScope.pinBackdrop(turn.picture.map(BackdropPin.selection) ?? .none)
+            schedule(after: turn.wait)
+        } else {
+            displayScope.pinBackdrop(BackdropSelection(id: raw).map(BackdropPin.selection) ?? .inherit)
+        }
     }
 
-    private func selection() -> (pin: BackdropPin, wait: TimeInterval?) {
-        let id = displayID()
-        let values = root.value(at: ["appearance", "displayBackgrounds"])?.objectValue
-        let rotations = root.value(at: ["appearance", "displayBackgroundRotations"])?.objectValue
-        guard let id, let raw = values?[id]?.stringValue else {
-            return (.inherit, nil)
+    private func refreshFolder(_ path: String, rotation: BackdropRotation) {
+        // A pending read is shared across refreshes. Completed listings expire at the next rotation,
+        // so screen/settings changes reuse them while additions and removals appear on the next turn.
+        if let expires = folders[path]?.expires, expires <= now() {
+            folders.removeValue(forKey: path)?.task.cancel()
         }
-        guard raw != "none" else { return (.none, nil) }
-        let rotation = rotations?[id]?.stringValue.flatMap(BackdropRotation.init(rawValue:)) ?? .defaultRotation
-        let shuffle: BackdropShuffle?
-        if raw == BackdropSelectionSetting.dailyID { shuffle = BackdropShuffle(source: .paintings, rotation: rotation) }
-        else if raw.hasPrefix(BackdropSelectionSetting.folderPrefix) {
-            shuffle = BackdropSelectionSetting.folderPath(raw).map { BackdropShuffle(source: .folder($0), rotation: rotation) }
-        } else { shuffle = nil }
-        if let shuffle {
-            if case .folder(let path) = shuffle.source {
-                let pictures = listFolder(path)
-                let date = now(), calendar = calendar()
-                let picture = rotation.index(count: pictures.count, on: date, calendar: calendar).map { pictures[$0] }
-                return (picture.map(BackdropPin.selection) ?? .none, max(1, rotation.nextTurn(after: date, calendar: calendar).timeIntervalSince(date) + 1))
-            }
-            let turn = shuffle.turn(at: now(), calendar: calendar())
-            return (turn.picture.map(BackdropPin.selection) ?? .none, turn.wait)
+        if folders[path] == nil {
+            let listFolder = listFolder
+            folders[path] = (Task.detached(priority: .utility) { await listFolder(path) }, nil, nil)
         }
-        return (BackdropSelection(id: raw).map(BackdropPin.selection) ?? .inherit, nil)
+        guard let request = folders[path] else { return }
+        if let pictures = request.pictures {
+            applyFolder(pictures, rotation: rotation)
+            return
+        }
+        let requestedGeneration = generation
+        displayScope.pinBackdrop(.none)
+        folderRefresh = Task { [weak self] in
+            let pictures = await request.task.value
+            guard !Task.isCancelled, let self, !self.stopped, self.generation == requestedGeneration else { return }
+            self.folders[path]?.expires = rotation.nextTurn(after: self.now(), calendar: self.calendar())
+            self.folders[path]?.pictures = pictures
+            self.applyFolder(pictures, rotation: rotation)
+        }
+    }
+
+    private func applyFolder(_ pictures: [BackdropSelection], rotation: BackdropRotation) {
+        let date = now(), calendar = calendar()
+        let picture = rotation.index(count: pictures.count, on: date, calendar: calendar).map { pictures[$0] }
+        displayScope.pinBackdrop(picture.map(BackdropPin.selection) ?? .none)
+        schedule(after: max(1, rotation.nextTurn(after: date, calendar: calendar).timeIntervalSince(date) + 1))
+    }
+
+    private func schedule(after wait: TimeInterval) {
+        timer.schedule(after: .seconds(wait)) { @MainActor [weak self] in self?.refresh() }
     }
 }
