@@ -118,7 +118,8 @@ struct ZoomTransitionTests {
     func nothingUnderTheZoomingPaneShowsThroughIt(_ zoomed: String) throws {
         let screen = Screen()
         let pane = PaneID(zoomed)
-        let others = ["p1", "p2", "p3"].map(PaneID.init).filter { $0 != pane }
+        let all: [PaneID] = ["p1", "p2", "p3"]
+        let others = all.filter { $0 != pane }
         func check(_ phase: String, _ frame: Int) {
             guard let cover = screen.frame(pane) else { return }
             for other in others {
@@ -237,7 +238,8 @@ struct ZoomTransitionTests {
         screen.unzoom()
         screen.step()
         #expect(screen.screen?.zoomMotion.pane == nil)
-        for pane in ["p1", "p2", "p3"].map(PaneID.init) {
+        let all: [PaneID] = ["p1", "p2", "p3"]
+        for pane in all {
             #expect(screen.host(pane)?.layer?.mask == nil, "\(pane) keeps a mask at rest")
         }
     }
