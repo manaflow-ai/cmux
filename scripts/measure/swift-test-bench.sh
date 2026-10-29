@@ -7,6 +7,7 @@
 #
 #   cmux-ci run --class exclusive --script scripts/measure/swift-test-bench.sh --ref SHA \
 #     --arg PACKAGE --arg FILTER [--arg source=SHA] [--arg restore_from=SHA --arg restore=PATH,PATH] \
+#     [--arg config=release] [--arg enable=CMUX_<NAME>_BENCH] \
 #     --artifact artifacts/swift-test-bench/output.txt
 #
 # PACKAGE  a package directory under Packages/ or cmux-next-ios/ (it holds a
@@ -24,6 +25,12 @@
 #          it) as they are at SHA, keeping the rest of the measured tree: the
 #          "before" half of an A/B whose harness exists only at the head. Each
 #          PATH must be a file at SHA.
+# config=debug|release
+#          build and run the tests in this configuration (`-c release`); default
+#          debug. A benchmark of optimized code (MainTurnMeterBench) needs release.
+# enable=CMUX_<NAME>_BENCH
+#          set this one benchmark switch to 1 for the test run: a bench suite that
+#          is disabled unless its switch is set (MainTurnMeterBench: CMUX_MAIN_TURN_BENCH).
 #
 # The step fails when the build fails, when the filter runs no test, or when a
 # test fails; it never retries. The checkout goes back to the step's own commit
@@ -37,7 +44,7 @@ main() {
   source "$(dirname "${BASH_SOURCE[0]}")/../cmux-next/lib/fleet-only.sh"
 
   # --- Arguments (checked before anything else runs) ----------------------
-  local usage="usage: swift-test-bench.sh PACKAGE FILTER [source=SHA] [restore_from=SHA restore=PATH[,PATH...]]"
+  local usage="usage: swift-test-bench.sh PACKAGE FILTER [source=SHA] [restore_from=SHA restore=PATH[,PATH...]] [config=debug|release] [enable=CMUX_<NAME>_BENCH]"
   [[ $# -ge 2 ]] || { echo "$usage" >&2; exit 2; }
   local a
   for a in "$@"; do
@@ -53,7 +60,7 @@ main() {
   if ! [[ "$filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_./:-]*$ ]] || [[ "$filter" == *. || "$filter" == */ ]]; then
     echo "swift-test-bench.sh: FILTER must be a test name such as Suite/test (letters, digits, _ . / : -; got '$filter')" >&2; exit 2
   fi
-  local source_sha="" restore_sha="" restore_list="" arg key seen=" "
+  local source_sha="" restore_sha="" restore_list="" config="" bench_switch="" arg key seen=" "
   for arg in "$@"; do
     key=${arg%%=*}
     # Each key at most once, and never with an empty value.
@@ -65,9 +72,20 @@ main() {
       source) source_sha=${arg#source=} ;;
       restore_from) restore_sha=${arg#restore_from=} ;;
       restore) restore_list=${arg#restore=} ;;
+      config) config=${arg#config=} ;;
+      enable) bench_switch=${arg#enable=} ;;
       *) echo "swift-test-bench.sh: unknown argument '$arg'; $usage" >&2; exit 2 ;;
     esac
   done
+  if [[ -n "$config" && "$config" != debug && "$config" != release ]]; then
+    echo "swift-test-bench.sh: config= takes debug or release (got '$config')" >&2; exit 2
+  fi
+  # One benchmark switch only, never another variable (a token, a path).
+  if [[ -n "$bench_switch" ]] && ! [[ "$bench_switch" =~ ^CMUX_[A-Z0-9]+(_[A-Z0-9]+)*_BENCH$ ]]; then
+    echo "swift-test-bench.sh: enable= takes one benchmark switch CMUX_<NAME>_BENCH (got '$bench_switch')" >&2; exit 2
+  fi
+  local config_args=()
+  [[ "$config" != release ]] || config_args=(-c release)
   local sha
   for sha in "$source_sha" "$restore_sha"; do
     [[ -z "$sha" || "$sha" =~ ^[0-9a-f]{40}$ ]] ||
@@ -144,6 +162,7 @@ main() {
   note "- measured tree: $(git rev-parse HEAD) (step commit $step_ref)"
   note "- package: $package"
   note "- filter: $filter"
+  note "- configuration: ${config:-debug}${bench_switch:+, $bench_switch=1}"
   if [[ -n "$restore_sha" ]]; then
     note "- restored from $restore_sha: ${restore_paths[*]}"
     git diff --stat HEAD -- "${restore_paths[@]}" | tee -a "$report"
@@ -174,7 +193,7 @@ main() {
   t0=$SECONDS
   local build_status
   set +e
-  swift build --package-path "$package" --build-tests 2>&1 | tee "$work/build.log"
+  swift build --package-path "$package" --build-tests ${config_args[@]+"${config_args[@]}"} 2>&1 | tee "$work/build.log"
   local -a build_pipe=("${PIPESTATUS[@]}")
   set -e
   build_status=${build_pipe[0]}
@@ -192,7 +211,8 @@ main() {
   t0=$SECONDS
   local status
   set +e
-  swift test --package-path "$package" --skip-build --filter "$filter" 2>&1 | tee "$work/test.log" | tee -a "$report"
+  if [[ -n "$bench_switch" ]]; then export "$bench_switch=1"; fi
+  swift test --package-path "$package" --skip-build --filter "$filter" ${config_args[@]+"${config_args[@]}"} 2>&1 | tee "$work/test.log" | tee -a "$report"
   status=${PIPESTATUS[0]}
   set -e
   note ""
