@@ -58,7 +58,13 @@ export function workflowFixture(stage: WorkflowFixtureStage, now = Date.now()): 
       phases: PHASES,
       workflowAgents: [
         ...brainstorm,
-        agent(4, 2, "punchy", { state: "running", startedAt: start + 8_500, tokens: 12_000 }),
+        agent(4, 2, "punchy", {
+          state: "running",
+          startedAt: start + 8_500,
+          tokens: 12_000,
+          action: "Compare the strongest names against the brief",
+          result: "The latest shortlist favors names that read clearly at a glance.",
+        }),
         agent(5, 2, "playful", { state: "queued", queuedAt: start + 8_500 }),
         agent(6, 2, "descriptive", { state: "queued", queuedAt: start + 8_500 }),
       ],

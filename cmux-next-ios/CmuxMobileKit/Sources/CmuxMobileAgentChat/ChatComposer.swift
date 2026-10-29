@@ -122,6 +122,35 @@ struct ChatComposer: View {
         }
     }
 
+    /// A copied image or file pasted into the field: attached as Photos or
+    /// Files would attach it (`UIPasteboard.composerImages`).
+    private func pasteAttachments() {
+        let board = UIPasteboard.general
+        if board.hasImages {
+            let stamp = Date().formatted(date: .omitted, time: .shortened)
+            for (index, image) in board.composerImages().enumerated() {
+                let suffix = index > 0 ? " \(index + 1)" : ""
+                attachments.append(AgentAttachment(kind: .image, name: "Pasted image \(stamp)\(suffix)", data: image.data))
+            }
+        } else if board.composerHoldsFileData {
+            // A file copied in Files is its bytes on the pasteboard, not a path.
+            let providers = board.itemProviders
+            Task {
+                let pasted = await ComposerPastedFiles.load(providers)
+                attachments += pasted.files.map { file in
+                    let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
+                    return AgentAttachment(kind: image == nil ? .file : .image, name: file.name,
+                                           data: file.data, fileURL: file.fileURL, byteCount: file.byteCount)
+                }
+                if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
+            }
+        } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
+            let (files, refused) = Self.readFiles(urls)
+            attachments += files
+            if let refused { store.clientError = refused }
+        }
+    }
+
     /// Bytes held in memory for a picked file up to this size (the prompt
     /// inlines small text files); larger files stream from their URL at send.
     static let inlineFileBytes = 256 << 10
@@ -161,7 +190,8 @@ struct ChatComposer: View {
                 }
                 // Return starts a new line, the send button sends; a hardware
                 // keyboard's Return sends, Shift-Return starts a new line.
-                ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard)
+                ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
+                                  onPasteAttachments: pasteAttachments)
                     .padding(.horizontal, 16)
                     .padding(.top, 14)
                     .padding(.bottom, 6)

@@ -105,7 +105,13 @@ public nonisolated struct WorkspaceGroupConfig: Sendable, Hashable {
     /// The placement for a group whose anchor is in `directory`: its entry's, else the global one,
     /// else ``Placement/end``.
     public func placement(for directory: String?, home: String = NSHomeDirectory()) -> Placement {
-        entry(for: directory, home: home)?.entry.newWorkspacePlacement ?? newWorkspacePlacement ?? .end
+        configuredPlacement(for: directory, home: home) ?? .end
+    }
+
+    /// The placement cmux.json names for a group whose anchor is in `directory`: its entry's, else
+    /// the global one; nil when neither is set, so the caller can follow `workspaces.newPlacement`.
+    public func configuredPlacement(for directory: String?, home: String = NSHomeDirectory()) -> Placement? {
+        entry(for: directory, home: home)?.entry.newWorkspacePlacement ?? newWorkspacePlacement
     }
 
     /// The key a new entry for `directory` takes: the folder with the home folder written as `~`.
