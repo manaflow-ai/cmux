@@ -71,7 +71,7 @@ test("file search keeps rows while the first result arrives and cached rows duri
   expect(placeholders()).toHaveLength(3);
   expect(host.querySelectorAll('[role="option"]')).toHaveLength(0);
   expect(host.querySelector('[aria-busy="true"]')).not.toBeNull();
-  await act(async () => answer({ results }));
+  await act(async () => answer({ root: "/project", results }));
   expect(placeholders()).toHaveLength(0);
   expect(host.querySelector('[role="option"]')?.textContent).toContain("example.ts");
   started = new Promise<void>((resolve) => {
@@ -87,7 +87,7 @@ test("file search keeps rows while the first result arrives and cached rows duri
       .dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   });
   expect(picked).toEqual(["src/example.ts"]);
-  await act(async () => answer({ results: [] }));
+  await act(async () => answer({ root: "/project", results: [] }));
   expect(placeholders()).toHaveLength(0);
   expect(host.querySelector("output")?.textContent).toBeTruthy();
 });
