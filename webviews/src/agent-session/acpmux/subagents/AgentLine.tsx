@@ -12,7 +12,7 @@
 // subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
 import type { ReactNode } from "react";
-import { AgentMark, knownMark } from "../../shared/AgentMark";
+import { AgentMark, hasAgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
 import { Spinner } from "../conversation/icons";
@@ -31,6 +31,7 @@ export function AgentLine({
   time,
   icon = "agent.session",
   mark,
+  tone,
   iconSize = ROW_ICON,
   depth = 0,
   current = false,
@@ -58,6 +59,9 @@ export function AgentLine({
   icon?: string;
   /// The harness of an agent of another family (`codex`), whose mark replaces the icon.
   mark?: string;
+  /// Its stable color (agentTones.ts `agentTone`), for the icon when no harness mark replaces it, so
+  /// lines without a mark still tell apart (Leo, 2026-10-29: "you can just randomize the colors").
+  tone?: number;
   iconSize?: number;
   /// How far it sits under the agent that spawned it.
   depth?: number;
@@ -87,7 +91,8 @@ export function AgentLine({
   trayColumns?: boolean;
 }) {
   const shimmer = waveProps(wave);
-  const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
+  const named = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
+  const brand = named && hasAgentMark(named) ? named : undefined;
   const button = (
     <button
       type="button"
@@ -106,6 +111,7 @@ export function AgentLine({
         className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
         style={shimmer.style}
         data-state={status}
+        data-agent-tone={brand || tone === undefined ? undefined : tone}
       >
         {working ? (
           <Spinner size={iconSize} loading />

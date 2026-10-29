@@ -18,3 +18,8 @@
 .acpmux-chat-inspector-subagents__avatars .agent-mark {
   fill: currentColor;
 }
+/* An ended agent with no harness mark draws its icon in its own stable tone (agentTones.ts; the
+   wrapper carries data-agent-tone), as its line does. */
+.acpmux-chat-inspector-subagents__avatars [data-agent-tone] .cv-subagent-avatar {
+  color: var(--agent-tone-ink);
+}

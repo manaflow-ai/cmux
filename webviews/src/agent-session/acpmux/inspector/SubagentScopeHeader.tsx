@@ -9,6 +9,8 @@
 //   task under it, and "Back to <parent>".
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { AgentMark, hasAgentMark } from "../../shared/AgentMark";
+import { agentTone } from "../subagents/agentTones";
 import { tooltipProps } from "../shortcuts";
 import type { SubagentScope } from "./subagentScope";
 
@@ -79,7 +81,15 @@ export function SubagentBanner({ scope, variant }: Props & { variant: Exclude<Su
     );
   return (
     <div className="acpmux-chat-inspector-scope" data-variant="card">
-      <Icon name="agent.session" size={14} className="acpmux-chat-inspector-scope__glyph" />
+      {scope.agent.harness && hasAgentMark(scope.agent.harness) ? (
+        <span className="acpmux-chat-inspector-scope__glyph">
+          <AgentMark agent={scope.agent.harness} size={14} />
+        </span>
+      ) : (
+        <span className="acpmux-chat-inspector-scope__glyph" data-agent-tone={agentTone(scope.agent.id)}>
+          <Icon name="agent.session" size={14} />
+        </span>
+      )}
       <span className="acpmux-chat-inspector-scope__text">
         <Name scope={scope} />
         {scope.agent.task && scope.agent.task !== scope.agent.name && (
