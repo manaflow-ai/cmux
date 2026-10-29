@@ -1357,6 +1357,13 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func openInputChannel(service: String, argsJson: String) async throws  -> ChannelHandle
     
+    /**
+     * Open a streamed Mac simulator surface (a phone tab: `surface` service,
+     * args JSON `{"tab"}`). The stream is a browser tab's (the same viewer,
+     * media lane and lane ownership); only the Mac's source differs.
+     */
+    func openSurface(argsJson: String, observer: BrowserObserver) async throws  -> BrowserStream
+    
     func path()  -> LinkPath
     
     /**
@@ -1594,6 +1601,28 @@ open func openInputChannel(service: String, argsJson: String)async throws  -> Ch
             completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u64,
             freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u64,
             liftFunc: FfiConverterTypeChannelHandle_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
+    /**
+     * Open a streamed Mac simulator surface (a phone tab: `surface` service,
+     * args JSON `{"tab"}`). The stream is a browser tab's (the same viewer,
+     * media lane and lane ownership); only the Mac's source differs.
+     */
+open func openSurface(argsJson: String, observer: BrowserObserver)async throws  -> BrowserStream  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_open_surface(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(argsJson),FfiConverterTypeBrowserObserver_lower(observer)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeBrowserStream_lift,
             errorHandler: FfiConverterTypeCmuxMobileError_lift
         )
 }
@@ -3248,6 +3277,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_input_channel() != 47191) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_surface() != 44893) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_path() != 46489) {

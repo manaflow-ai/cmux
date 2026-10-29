@@ -1,7 +1,7 @@
-// A New Tab menu with no room in a short pane shows past the window's edge in the native popup host,
-// and opens there in one frame too (Leo 2026-10-22: no entry animations on the New Tab): while the
-// root carries `data-new-tab` the request says `instant: true` (WebPopupHost.swift skips the
-// entrance); anywhere else it leaves the flag out.
+// Escaped menus and lists open instantly in the native host on every page (Leo 2026-10-24:
+// "No fade in ever for any of these"), just like their in-page surfaces. New Tab also keeps
+// tooltips instant; other tooltips retain their entrance. WebPopupHost.swift consumes `instant`
+// by choosing showPopupAtOnce instead of openPopup, while close motion stays unchanged.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { createPopupHost, type PopupModel } from "../src/ui/popupHost";
@@ -22,15 +22,15 @@ const MODEL: PopupModel = {
 };
 
 /// Shows and updates a menu through a fake native side; what each call sent there.
-async function sent(): Promise<[string, unknown][]> {
+async function sent(kind?: PopupModel["kind"]): Promise<[string, unknown][]> {
   const calls: [string, unknown][] = [];
   const host = createPopupHost(
     async (call, params) => calls.push([call, params.instant]),
     () => () => {},
   );
   const owner = {};
-  await host.show(MODEL, owner);
-  host.update({ ...MODEL, highlighted: "0" }, owner);
+  await host.show({ ...MODEL, ...(kind ? { kind } : {}) }, owner);
+  host.update({ ...MODEL, ...(kind ? { kind } : {}), highlighted: "0" }, owner);
   return calls;
 }
 
@@ -46,8 +46,19 @@ test("on a New Tab, the menu it shows past the window's edge asks for no entranc
   }
 });
 
-test("anywhere else the request leaves the flag out", async () => {
-  expect(await sent()).toEqual([
+test("menus and lists outside New Tab ask the native host for no entrance", async () => {
+  for (const kind of [undefined, "menu", "list"] as const)
+    expect({ kind, calls: await sent(kind) }).toEqual({
+      kind,
+      calls: [
+        ["show", true],
+        ["update", true],
+      ],
+    });
+});
+
+test("a tooltip outside New Tab keeps its existing entrance", async () => {
+  expect(await sent("tooltip")).toEqual([
     ["show", undefined],
     ["update", undefined],
   ]);

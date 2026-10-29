@@ -1,0 +1,41 @@
+# cmux-harness keeps Pi's model loop behind an ACP v1 supervisor.
+schema = 1
+id = "cmux-harness"
+name = "cmux Harness (Pi)"
+icon = "pi"
+family = "cmux-harness"
+protocol = "acp"
+command = "cmux-harness"
+args = ["--model", "${model}"]
+
+[defaults]
+model = "anthropic/claude-sonnet-4-5"
+effort = "medium"
+policy = "ask"
+
+[capabilities]
+effort = ["low", "medium", "high"]
+resume = true
+
+[models]
+list = [
+  { id = "anthropic/claude-sonnet-4-5", name = "Claude Sonnet 4.5", short_name = "Sonnet 4.5", family = "Anthropic", efforts = ["low", "medium", "high"], default_effort = "medium", context_window = 200000 },
+  { id = "openai-codex/gpt-5.6-sol", name = "GPT-5.6 Sol", short_name = "GPT-5.6 Sol", family = "OpenAI", efforts = ["low", "medium", "high"], default_effort = "medium", context_window = 200000 },
+]
+
+[auth]
+check = ["cmux-harness", "doctor"]
+docs = "https://github.com/manaflow-ai/cmux-harness#install-and-run"
+
+[sessions]
+adapter = "jsonl"
+roots = ["~/.cmux-harness/sessions"]
+files = "**/*.jsonl"
+
+[sessions.fields]
+id = "file.stem"
+cwd = "first:/cwd"
+updated = "file.mtime"
+
+[sessions.resume]
+adopt = true

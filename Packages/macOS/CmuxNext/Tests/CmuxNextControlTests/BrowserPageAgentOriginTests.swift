@@ -12,7 +12,7 @@ import Testing
     typealias Engine = BrowserPageAgentInputTests.AnnouncingEngine
 
     func install() -> (ControlRouter, Engine) {
-        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let engine = Engine(BrowserPageAgentInputTests.field)
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = HomeChatCallerTests.snapshot()

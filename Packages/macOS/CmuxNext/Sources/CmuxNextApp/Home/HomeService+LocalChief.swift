@@ -45,15 +45,18 @@ extension HomeService {
     }
 
     /// Reads again which engine each of this Mac's Chiefs in the list runs on (engine.json,
-    /// else its record) for the Home list's badges; the list redraws only when one changed.
+    /// else its record) for the Home list's badges, and which of them are deleted (their rows
+    /// hide); the list redraws only when one changed.
     func refreshChiefHarnesses() {
         let chiefs = Set(homeStore.rows.filter { !isCloudConversation($0.id) }
             .flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         let reader = HomeChiefHarnesses(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag), connection: connection)
         // task-owner: one read (an owner call and a few small files off the main actor); ends when it is set
         Task { [weak self] in
-            let harnesses = await reader.read(chiefs: chiefs)
-            guard let self, directory.chiefHarnesses != harnesses else { return }
+            let (harnesses, deleted) = await reader.readWithDeleted(chiefs: chiefs)
+            guard let self else { return }
+            if let deleted, directory.deletedLocalChiefs != deleted { directory.deletedLocalChiefs = deleted }
+            guard directory.chiefHarnesses != harnesses else { return }
             directory.chiefHarnesses = harnesses
         }
     }

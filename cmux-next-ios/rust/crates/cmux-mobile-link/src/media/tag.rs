@@ -40,15 +40,20 @@ pub fn append(access_unit: &[u8], tag: u32) -> Bytes {
 /// The tag of `access_unit`, which loses the SEI; `None` (and unchanged)
 /// when it has none.
 pub fn strip(access_unit: &mut Vec<u8>) -> Option<u32> {
+    let tag = peek(access_unit)?;
+    access_unit.truncate(access_unit.len() - SEI_LEN);
+    Some(tag)
+}
+
+/// The tag of `access_unit`, left as it is; `None` when it has none.
+pub fn peek(access_unit: &[u8]) -> Option<u32> {
     let start = access_unit.len().checked_sub(SEI_LEN)?;
     let sei = &access_unit[start..];
     let header = [0, 0, 0, 1, NAL_SEI, SEI_USER_DATA_UNREGISTERED, PAYLOAD as u8];
     if sei[..7] != header || sei[7..23] != UUID || sei[SEI_LEN - 1] != 0x80 {
         return None;
     }
-    let tag = std::str::from_utf8(&sei[23..31]).ok().and_then(|hex| u32::from_str_radix(hex, 16).ok())?;
-    access_unit.truncate(start);
-    Some(tag)
+    std::str::from_utf8(&sei[23..31]).ok().and_then(|hex| u32::from_str_radix(hex, 16).ok())
 }
 
 #[cfg(test)]
@@ -65,6 +70,7 @@ mod tests {
             // A NAL unit of its own, after the slices; no zero bytes inside.
             assert_eq!(h264::nal_types(&tagged).last(), Some(&NAL_SEI));
             assert!(!tagged[au.len() + 4..].contains(&0));
+            assert_eq!(peek(&tagged), Some(tag));
             let mut back = tagged.to_vec();
             assert_eq!(strip(&mut back), Some(tag));
             assert_eq!(back, au.to_vec());

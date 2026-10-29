@@ -419,13 +419,13 @@ fn combine_model(
                 })
         })
         .transpose()?;
-    if harness.is_some() || model.is_some() {
-        let selector = match (harness, model) {
-            (Some(harness), Some(model)) => format!("{harness}/{model}"),
-            (Some(harness), None) => harness.to_owned(),
-            (None, Some(model)) => model.to_owned(),
-            (None, None) => unreachable!("checked above"),
-        };
+    let selector = match (harness, model) {
+        (Some(harness), Some(model)) => Some(format!("{harness}/{model}")),
+        (Some(harness), None) => Some(harness.to_owned()),
+        (None, Some(model)) => Some(model.to_owned()),
+        (None, None) => None,
+    };
+    if let Some(selector) = selector {
         output.insert("model".into(), Value::String(selector));
     }
     Ok(())
@@ -498,7 +498,7 @@ pub(super) fn acpmux_request(
                 })?;
             Ok::<Value, RequestError>(answer)
         });
-        return result.map_err(|error| match error {
+        result.map_err(|error| match error {
             RequestError::Owner(error) => CallFailure {
                 kind: FailureKind::Rejected,
                 // Preserve the daemon's error object and numeric RPC code so
@@ -524,7 +524,7 @@ pub(super) fn acpmux_request(
                     .then(|| idempotency_key.map(str::to_owned))
                     .flatten(),
             },
-        });
+        })
     }
     #[cfg(not(unix))]
     {

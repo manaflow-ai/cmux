@@ -61,9 +61,17 @@ public final class HomeStore {
     @ObservationIgnored var liveRowReads: Set<String> = []
 
     @ObservationIgnored public let source: any HomeSource
-    // Every input of `transcript(for:)` drops its cache when it changes.
-    @ObservationIgnored var mirror = HomeMirror() { didSet { transcriptCache.removeAll() } }
-    @ObservationIgnored var log = IntentLog() { didSet { transcriptCache.removeAll() } }
+    // Every input of `transcript(for:)` drops its cache when it changes. Both are the owner state
+    // the client cache holds: a write to what it holds schedules a cache write
+    // (`ownerStateChanged`); typing, connection and row changes schedule none.
+    @ObservationIgnored var mirror = HomeMirror() {
+        didSet { transcriptCache.removeAll(); ownerStateChanged() }
+    }
+    @ObservationIgnored var log = IntentLog() {
+        didSet { transcriptCache.removeAll(); ownerStateChanged() }
+    }
+    /// `mirror.cacheChanges` and `log.cacheChanges` at the last cache write scheduled or restored.
+    @ObservationIgnored var cachedOwnerState = (mirror: UInt64(0), log: UInt64(0))
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored var resendTask: Task<Void, Never>?
     @ObservationIgnored var pendingResends: [HomeIntent] = []
@@ -87,6 +95,11 @@ public final class HomeStore {
     /// cancelled or failed its upload. So a text sent while a photo uploads
     /// waits for the photo, and the owner commits them in that order.
     @ObservationIgnored var sendQueue: [ConversationID: [IdempotencyKey]] = [:]
+    /// The messages one send became past the owner's parts per message
+    /// (`send(conversation:parts:uploads:)`), each chain in order, its head
+    /// the one going now. A later one goes only once the one before it
+    /// committed or left the log; a failure holds the rest until its retry.
+    @ObservationIgnored var sendChains: [[IdempotencyKey]] = []
     @ObservationIgnored var turnWaiters: [IdempotencyKey: CheckedContinuation<Void, Never>] = [:]
     /// Delayed resends (and upload passes) of sends that got no answer
     /// while the connection stayed up, and how many each has had.
@@ -173,7 +186,7 @@ public final class HomeStore {
         self.clock = clock
         self.cache = cache
         self.viewCache = HomeClientViewCache(cache: cache, writeDelay: cacheWriteDelay, clock: clock)
-        viewCache.ownerSnapshot = { [weak self] in self?.ownerCacheSnapshot() ?? HomeCacheSnapshot() }
+        viewCache.ownerState = { [weak self] in self?.ownerCacheState() ?? HomeCacheState() }
     }
 
     /// Starts consuming owner events. Idempotent.
@@ -199,9 +212,10 @@ public final class HomeStore {
         }
     }
 
-    /// Ends this store (sign-out, account switch). Every later op is refused.
+    /// Ends this store (sign-out, account switch). Every later op is refused. The last cache
+    /// batch goes to the cache actor without a wait; `await flushCache()` waits for the disk.
     public func stop() {
-        viewCache.flush()
+        viewCache.writeNow()
         stopped = true
         eventTask?.cancel()
         eventTask = nil
@@ -295,11 +309,12 @@ public final class HomeStore {
             let keys = Set(log.entries.map(\.intent.key))
             for key in Array(offlineDeadlines.keys) where !keys.contains(key) { endOfflineDeadline(key) }
         }
-        guard !uploads.isEmpty || !sendQueue.isEmpty else { return }
+        guard !uploads.isEmpty || !sendQueue.isEmpty || !sendChains.isEmpty else { return }
         let keys = Set(log.entries.map(\.intent.key))
         for key in uploads.keys where !keys.contains(key) { uploads[key] = nil }
         for conversation in Array(sendQueue.keys) { removeFromSendQueue(conversation) { !keys.contains($0) } }
         for key in Array(turnWaiters.keys) where !keys.contains(key) { turnWaiters.removeValue(forKey: key)?.resume() }
+        advanceSendChains(present: keys)
     }
 
     func afterLogChange(_ op: HomeOp) {
@@ -311,7 +326,6 @@ public final class HomeStore {
     func bumpTranscript(_ id: ConversationID) {
         transcriptCache[id] = nil
         transcriptVersion[id, default: 0] += 1
-        scheduleCacheWrite()
     }
 
     struct UploadJob {
@@ -338,8 +352,11 @@ public final class HomeStore {
         var uploadedAfterSweep = false
     }
 
+    /// Rows from the mirror, the log and who types. Equal rows are not assigned: an assignment
+    /// notifies every observer of `rows` even when nothing changed. Rows are not in the client
+    /// cache, so a rebuild writes nothing (the mirror and the log schedule their own writes).
     func rebuildRows() {
-        rows = mirror.inboxRows(log: log, typing: Set(typing.keys))
-        scheduleCacheWrite()
+        let next = mirror.inboxRows(log: log, typing: Set(typing.keys))
+        if next != rows { rows = next }
     }
 }

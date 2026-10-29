@@ -4,6 +4,7 @@ import OSLog
 import CmuxMobileAgentChat
 import CmuxMobileDesign
 import CmuxMobileMarkdown
+import CmuxMobileModel
 import SwiftUI
 import UIKit
 
@@ -340,7 +341,9 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         let width = CGFloat(layout.key.width)
         if !same { setOffset(0, animated: false) }
         row.frame = CGRect(x: offset, y: 0, width: width, height: layout.dividerY)
-        divider.frame = CGRect(x: 0, y: layout.dividerY, width: width, height: layout.height - layout.dividerY)
+        // From the text column, as every list's separators (the avatar hangs in the gutter).
+        divider.frame = CGRect(x: layout.column.minX, y: layout.dividerY, width: width - layout.column.minX,
+                               height: layout.height - layout.dividerY)
         accessibilityIdentifier = "feed.row.\(item.id)"
 
         avatar.frame = layout.avatar
@@ -692,6 +695,8 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         guard body.bounds.contains(tap.location(in: body)) else { return delegate?.rowOpen(id) ?? () }
         if !inlineText.isHidden { url = NativeMarkdownView.link(in: inlineText, at: tap.location(in: inlineText)) }
         if url == nil, made.contains("markdown"), !markdown.isHidden { url = markdown.link(at: tap.location(in: markdown)) }
+        // A cmux link (`cmux://tab/…`) opens what it names in the app.
+        if let url, CmuxLinkOpener.shared.open(url) { return }
         if let url, let scheme = url.scheme?.lowercased(), ["http", "https", "mailto", "tel", "sms", "facetime"].contains(scheme) {
             UIApplication.shared.open(url)
             return

@@ -362,13 +362,77 @@ pub(super) fn set_hello(
 }
 
 /// Records kernel peer identity at accept, before a legacy client can skip hello.
-pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer_key: Option<String>) {
+pub(super) fn set_peer_identity_at_accept(
+    mux: &Mux,
+    client: u64,
+    peer_key: Option<String>,
+    peer_token: Option<cmux_link::app_caller::PeerToken>,
+) {
     let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
+    let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
+        .is_some_and(|path| is_bundled_mobile_host_path(&path));
     let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.peer_key = peer_key;
         record.origin.local_peer = local_peer;
+        record.origin.mobile_host = mobile_host;
     }
+}
+
+/// Name of the phone host beside the daemon's executable
+/// (`Contents/Resources/bin/cmux-mobile-host` next to `.../bin/cmux-tui`).
+const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
+
+/// Whether `path` (a peer's executable) is this build's bundled
+/// `cmux-mobile-host`: by real path, the regular file of that name beside
+/// the daemon's own (canonical) executable. Any lookup failure is false (a
+/// daemon with no hostd beside it, such as a development build run from
+/// another folder, has no phone lane that may write the host policy).
+fn is_bundled_mobile_host_path(path: &Path) -> bool {
+    static SIBLING: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    let sibling = SIBLING.get_or_init(|| {
+        let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
+        let sibling = std::fs::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
+        std::fs::metadata(&sibling).ok()?.is_file().then_some(sibling)
+    });
+    let Some(sibling) = sibling else { return false };
+    std::fs::canonicalize(path).is_ok_and(|path| &path == sibling)
+}
+
+/// The executable of the accepted peer, read so that a process that reused
+/// the peer's pid never answers for it. macOS reads it by the peer's audit
+/// token (the kernel refuses a token whose pid version is stale; exec gives
+/// a process a new pid version). Linux reads the peer pid's executable and
+/// then checks the pid still has the start time in the peer key
+/// (`platform::peer_executable`, the peer authentication module); a process that
+/// exec'd after it connected keeps its pid and start time there, which
+/// PROTOCOL.md lists as the residual risk.
+fn peer_executable(
+    peer_key: Option<&str>,
+    peer_token: Option<&cmux_link::app_caller::PeerToken>,
+) -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = peer_key;
+        cmux_link::app_caller::executable_path(peer_token?)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = peer_token;
+        platform::peer_executable(peer_key?)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (peer_key, peer_token);
+        None
+    }
+}
+
+/// Whether `client` is a phone's lane spliced by this build's
+/// cmux-mobile-host (fixed at accept; a client with no record is not).
+pub(super) fn is_mobile_host_lane(mux: &Mux, client: u64) -> bool {
+    let state = mux.control_clients.state.lock().recover_poison();
+    state.clients.get(&client).is_some_and(|record| record.origin.mobile_host)
 }
 
 /// The page a WebSocket connection serves, from its handshake Origin
@@ -548,6 +612,11 @@ mod test_hooks {
         with_origin(mux, client, |origin| origin.verified_app = verified);
     }
 
+    /// What accept sets for a connection from the bundled cmux-mobile-host.
+    pub(in crate::server) fn set_mobile_host_peer_for_test(mux: &Arc<Mux>, client: u64) {
+        with_origin(mux, client, |origin| origin.mobile_host = true);
+    }
+
     pub(in crate::server) fn set_peer_key_for_test(mux: &Arc<Mux>, client: u64, peer_key: &str) {
         with_origin(mux, client, |origin| origin.peer_key = Some(peer_key.to_string()));
     }
@@ -594,3 +663,27 @@ mod pairing_gate_tests;
 #[cfg(all(test, unix))]
 #[path = "chief_profile_ws_tests.rs"]
 mod chief_profile_ws_tests;
+
+/// The peer executable is read only while the peer key or token still
+/// names the same process (review 2 finding 3): a stale pid version, as a
+/// process that reused the pid would have, reads nothing.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod peer_executable_tests {
+    use super::peer_executable;
+    use crate::platform::transport::Stream;
+
+    #[test]
+    fn peer_executable_needs_the_peers_own_pid_version() {
+        let (ours, _theirs) = std::os::unix::net::UnixStream::pair().unwrap();
+        let key = Stream::peer_process_key(&ours);
+        let token = Stream::peer_token(&ours);
+        let own = std::fs::canonicalize(std::env::current_exe().unwrap()).unwrap();
+        let read = peer_executable(key.as_deref(), token.as_ref()).expect("our own executable");
+        assert_eq!(std::fs::canonicalize(read).unwrap(), own);
+        let key = key.unwrap();
+        let (pid, _) = key.split_once('.').unwrap();
+        let stale_key = format!("{pid}.1");
+        let stale_token = token.map(|token| token.with_pid_version_for_test(1));
+        assert_eq!(peer_executable(Some(&stale_key), stale_token.as_ref()), None);
+    }
+}

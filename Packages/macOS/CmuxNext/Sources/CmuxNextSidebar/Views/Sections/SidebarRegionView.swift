@@ -40,6 +40,8 @@ final class SidebarRegionView: NSView {
     /// A press the list's drag ended early (a cancel): it drags nothing more until its release.
     var docSpentPress: LayoutItemID?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// A workspace tile's close x: closes that workspace (the sidebar sends `.close`).
+    var onCloseWorkspace: ((WorkspaceID) -> Void)?
     /// The sidebar's edit mode (`SidebarView.isEditingItems`): every item but a client-only one
     /// wiggles and shows its ✕, which asks `onRemoveItem` to take it out.
     var isEditing = false {
@@ -224,6 +226,7 @@ final class SidebarRegionView: NSView {
                 let new = headerViews[id] == nil
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
+                view.trailingTrim = SidebarRegionLayout.itemTrailingTrim(section, look: content.look, metrics: content.metrics)
                 view.setAccessibilityIdentifier("cmux.sidebar.region.\(id.rawValue)")
                 place(view, row.frame, new: new)
             case let .app(id):
@@ -352,6 +355,16 @@ final class SidebarRegionView: NSView {
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
+        }
+        // A workspace tile's hover more button opens the same menu under itself; its x closes the
+        // workspace as a workspace row's x does (SidebarItemRowView+HoverActions).
+        view.onMore = { [weak self, weak view] in
+            guard let view, let button = view.hoverMore, let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
+            _ = menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY : 0), in: button)
+        }
+        view.onClose = { [weak self, weak view] in
+            guard let workspace = view?.info.workspace else { return }
+            self?.onCloseWorkspace?(workspace)
         }
         return view
     }

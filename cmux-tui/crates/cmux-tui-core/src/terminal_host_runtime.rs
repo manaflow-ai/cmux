@@ -621,6 +621,9 @@ mod unix {
                 command.env(key, value);
             }
         }
+        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
+            command.env_remove(*key);
+        }
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
@@ -697,6 +700,9 @@ pub(crate) use unix::input_ack_surface_fixture;
 pub(crate) use unix::launch_terminal_host_adopting_with_program_status;
 #[cfg(unix)]
 pub(crate) use unix::sweep_released_pty_locks;
+// The holder launch marks the holder with the same owner (holder_runtime).
+#[cfg(unix)]
+pub(crate) use unix::host_owner_args;
 #[cfg(unix)]
 pub use unix::{
     PtyCustody, TerminalHostAdoption, enter_terminal_host_process,

@@ -4,7 +4,7 @@
 #   - generated files: copies DIR's files (the cmux-next generated files job's
 #     cmux-next-generated-patch artifact, or the base autofix's action-exports
 #     artifact: the action contracts, the CI target graph and the settings
-#     exports with their source stamp, regenerated on a Mac by
+#     exports, regenerated on a Mac by
 #     regenerate-action-exports.sh and regenerate-settings-exports.sh, at their
 #     repository paths) over the checkout;
 #   - the CI target graph: rewrites Packages/macOS/CmuxNext/ci-target-graph.json
@@ -166,6 +166,23 @@ if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-docs-shortcuts.ts" ]]
     else
       echo "fixed: regenerated $shortcuts"
     fi
+  fi
+fi
+
+# 1e1. The cmux-next docs reference pages (web/data/next-docs), from the same
+# export and the settings schema (plans/cmux-next/docs-DESIGN.md).
+if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-next-docs.ts" ]]; then
+  (cd "$repo" && bun web/scripts/export-next-docs.ts >/dev/null)
+  changed="$(git -C "$repo" status --porcelain -- web/data/next-docs | cut -c4-)"
+  if [[ -n "$changed" ]]; then
+    while IFS= read -r rel; do
+      if frozen "$rel"; then
+        git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+        echo "skipped (frozen): $rel (stale; bun web/scripts/export-next-docs.ts)"
+      else
+        echo "fixed: regenerated $rel"
+      fi
+    done <<<"$changed"
   fi
 fi
 

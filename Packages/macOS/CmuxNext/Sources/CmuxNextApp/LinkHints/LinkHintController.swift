@@ -32,7 +32,7 @@ final class LinkHintController {
         session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
                           openInSplit: openInSplit, notice: notice)
         work = Task { [weak self] in
-            let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated)
+            let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated, gesture: .cmux)
             guard !Task.isCancelled else { return }
             self?.collected(value.map(LinkHintSession.targets(from:)) ?? [], from: tab)
         }
@@ -77,7 +77,7 @@ final class LinkHintController {
         }
         session = nil
         // task-owner: fire-and-forget overlay removal; nothing waits on it.
-        Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated) }
+        Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
     }
 
     private func collected(_ targets: [LinkHintTarget], from tab: CEFTab) {
@@ -91,7 +91,7 @@ final class LinkHintController {
         }
         let draw = LinkHintSession.drawScript(current.keys.hints ?? [])
         work = Task { [weak self] in
-            _ = try? await tab.evaluate(draw, world: .isolated)
+            _ = try? await tab.evaluate(draw, world: .isolated, gesture: .cmux)
             guard !Task.isCancelled else { return }
             self?.apply(outcome, on: tab)
         }
@@ -107,7 +107,7 @@ final class LinkHintController {
             // A newer prefix wins over a draw or narrow still in flight.
             work?.cancel()
             work = Task { [weak self] in
-                let shown = try? await tab.evaluate(LinkHintSession.narrowScript(prefix), world: .isolated)
+                let shown = try? await tab.evaluate(LinkHintSession.narrowScript(prefix), world: .isolated, gesture: .cmux)
                 guard !Task.isCancelled, shown != .bool(true) else { return }
                 // The labels are gone (the page scrolled): end the session.
                 self?.cancel()
@@ -117,7 +117,7 @@ final class LinkHintController {
             work?.cancel()
             work = Task {
                 // Labels a scroll removed mean stale positions: click nothing.
-                guard (try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated)) == .bool(true) else { return }
+                guard (try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux)) == .bool(true) else { return }
                 switch current.keys.mode {
                 case .follow: await Self.click(target, in: tab)
                 case .newSplit: if let url = target.href { current.openInSplit(url) }
@@ -129,6 +129,8 @@ final class LinkHintController {
     /// A trusted click at the target's center (viewport CSS pixels), like
     /// the user's own: links honor their target and page handlers run.
     private static func click(_ target: LinkHintTarget, in tab: CEFTab) async {
+        // A native click (fork API 29) opens no DevTools session: the tab's renderer stays shareable.
+        if tab.sendClick(x: target.x * tab.emulationInputScale, y: target.y * tab.emulationInputScale) { return }
         for type in ["mouseMoved", "mousePressed", "mouseReleased"] {
             let pressed = type != "mouseMoved"
             _ = try? await tab.devTools(method: "Input.dispatchMouseEvent", params: [

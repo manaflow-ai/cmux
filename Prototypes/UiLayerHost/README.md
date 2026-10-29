@@ -18,15 +18,22 @@ Run from the repository root with:
 
 The checked-in Resources/cmux-ui-layer.example.json is a safe fixture. The
 optional --watch flag uses the checked-in Swift DispatchSource vnode watcher to
-restart the host after source saves and emits event timing without an external watcher. The attach adapter only
-uses `system.identify`, `snapshot.get` and `events.stream`: the current native
-snapshot exposes workspace/tab topology, so chat transcript and sidebar
-document export remain future projection work. The prototype deliberately
-uses a lightweight chrome shell: linking CmuxNext here would pull the app's
-composition root and mutation-capable models into a standalone host.
+restart the host after source saves and emits event timing without an external
+watcher. The attach adapter only uses `system.identify`, `snapshot.get` and
+`events.stream`: the current native snapshot exposes workspace/tab topology, so
+chat transcript and sidebar document export remain future projection work.
+
+The host imports `CmuxNextUiLayerPreview` from the real CmuxNext package. That
+leaf product owns the preview surface and reuses production SwiftUI views from
+`CmuxNextDesign` and `CmuxNextIcons`; it does not copy the app's views or link
+`CmuxNextApp`. A save in one of those modules terminates and restarts this
+small host, so the running cmux app is never touched. See
+`docs/cmux-next/native-ui-host.md` for the fleet capture setup and timing
+receipt format.
 
 `cmux dev ui-host` is the one-command Debug/DEV entry point; when the CLI
 wrapper is present it forwards to this launcher. Until that wrapper is landed,
-run the launcher above on the developer's own Mac. The attach socket must be a
-current-user local Debug/DEV cmux NEXT socket. This host is off by default, is
-never run on Big Red, and sends no user-data mutations.
+run the launcher above on a developer or capture-slot Mac. The attach socket
+must be a current-user local Debug/DEV cmux NEXT socket. This host is off by
+default, is never run on Big Red, is excluded from release app targets, and
+sends no user-data mutations.

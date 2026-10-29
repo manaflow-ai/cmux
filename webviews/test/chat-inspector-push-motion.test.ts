@@ -1,6 +1,5 @@
 // Lawrence: "animation at end is jumpy" (the chat's right-hand panel, the Inspector, as it opens or
-// closes). Pushing the chat aside (a pane whose gutter has no room for it, inspector/ChatInspector.tsx
-// `pushes`), the panel slid by `translate` while the chat laid out once: the chat narrowed on the
+// closes). Pushing the chat aside (Settings Push always, inspector/ChatInspector.tsx `pushes`), the panel slid by `translate` while the chat laid out once: the chat narrowed on the
 // first frame of the open, the panel still off to the right, and widened again only on the frame
 // after the close ended, when the panel unmounted. The chat's column, its composer and the header's
 // tools jumped the panel's width (328px in a 900px pane) right as the slide finished. Now the room
@@ -16,7 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { papercutPane } from "./support/papercutChat";
+import { inspectorPushAlways, papercutPane } from "./support/papercutChat";
 
 await requireBrowserLane("chat-inspector-push-motion.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -50,7 +49,7 @@ await requireBrowserLane("chat-inspector-push-motion.test.ts", async () => {
 
   /// The Inspector on (Debug Settings `agent.inspector`, pushed with the header state) and closed,
   /// with the motion tokens at 4 s, so a seeked point holds.
-  const ready = async (page: Page) => {
+  const ready = async (page: Page, push = true) => {
     await page.evaluate(() => {
       const bridge = (window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } })
         .cmuxAcpmuxBridge;
@@ -58,6 +57,8 @@ await requireBrowserLane("chat-inspector-push-motion.test.ts", async () => {
       document.documentElement.style.setProperty("--agent-motion-in", "4000ms");
       document.documentElement.style.setProperty("--agent-motion-out", "4000ms");
     });
+    // It takes a column only with Settings Push always (ChatInspector.tsx pushes).
+    await inspectorPushAlways(page, push);
     const toggle = page.locator("button.acpmux-chat-inspector-toggle");
     await toggle.waitFor({ timeout: 10_000 });
     const panel = page.locator("aside.acpmux-chat-inspector");
@@ -158,8 +159,8 @@ await requireBrowserLane("chat-inspector-push-motion.test.ts", async () => {
       }
     });
 
-  // Floating and pushing keep the same right margin (the inset), so a pane that grows or shrinks across
-  // the line between the two moves the panel to its new place at once, with no margin sliding after.
+  // Floating and pushing keep the same right margin (the inset), so a switch between the two (Settings
+  // Push always) moves the panel to its new place at once, with no margin sliding after.
   for (const name of browsers.keys())
     test(`${name}: a switch between floating and pushing starts no slide`, async () => {
       current = browsers.get(name)!;
@@ -177,11 +178,8 @@ await requireBrowserLane("chat-inspector-push-motion.test.ts", async () => {
           ),
         );
         const switched: string[] = [];
-        for (const [width, placement] of [
-          [1700, "overlay"],
-          [900, "push"],
-        ] as const) {
-          await page.setViewportSize({ width, height: 600 });
+        for (const placement of ["overlay", "push"] as const) {
+          await inspectorPushAlways(page, placement === "push");
           await page.locator(`aside.acpmux-chat-inspector[data-placement="${placement}"]`).waitFor({ timeout: 10_000 });
           switched.push(
             ...(await page.evaluate(() => {
@@ -205,7 +203,7 @@ await requireBrowserLane("chat-inspector-push-motion.test.ts", async () => {
       // at 1700px the shift is zero and the old stage selector would pass this assertion too.
       const page = await pane!.open({ width: 1200, height: 600 });
       try {
-        const toggle = await ready(page);
+        const toggle = await ready(page, false);
         const before = await page.evaluate(
           () => document.querySelector<HTMLElement>(".acpmux-header-tools")!.getBoundingClientRect().right,
         );

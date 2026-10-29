@@ -2,12 +2,14 @@
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileBrowserStream
+import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileSettings
 import CmuxMobileTerminal
+import CmuxMobileVoice
 import Observation
 import OSLog
 import SwiftUI
@@ -66,12 +68,16 @@ final class ShellModel {
     var live: LiveCoordinator?
     /// Settings → Connection's device list and account deletion (live mode).
     private(set) var deviceDirectory: (any SettingsDeviceDirectory)?
+    /// The Macs' terminal sizing policies (Settings and Connected Devices).
+    var sizingService: (any TerminalSizingService)? { live }
     /// DEBUG mock mode (Settings → Developer → Mock): sample content only.
-    private let mockMode: Bool
+    let mockMode: Bool
     /// The team an email invite is being written for (live mode).
     var invitingTeam: Team?
     var isFetchingInvite = false
     var shareURL: ShareItem?
+    /// Connected Devices for the terminal on screen (its title menu).
+    var connectedDevices: ConnectedDevicesItem?
     /// Debug-driven scroll target for the Settings list.
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
@@ -86,6 +92,14 @@ final class ShellModel {
     struct ShareItem: Identifiable {
         let id = UUID()
         let url: URL
+    }
+
+    /// One terminal's Connected Devices sheet.
+    struct ConnectedDevicesItem: Identifiable {
+        let id = UUID()
+        let live: TerminalSizingLive
+        let macID: String
+        let surface: Int
     }
 
     init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, lastOpen: LastOpenMemory = .standard) {
@@ -126,6 +140,15 @@ final class ShellModel {
             theme.haptics.error()
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
         }
+    }
+
+    /// Shows `workspace` in place of the one on screen (the Chats list's Open in New Workspace).
+    /// The destination keeps its screen state at the same place in the path, so the path is
+    /// emptied first and the workspace pushed on the next turn, as `openTerminal` does.
+    func show(workspace: Workspace) {
+        tab = .workspaces
+        workspacesPath = []
+        Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
     }
 
     /// A terminal agent's Feed event: its workspace on Workspaces, at that
@@ -169,6 +192,9 @@ final class ShellModel {
             terminalTabs.sessionProvider = { [weak live] tab, macID in
                 live?.terminalSession(tabID: tab.id, programName: tab.title, macID: macID)
             }
+            terminalTabs.showConnectedDevices = { [weak self] session, macID in
+                self?.connectedDevices = ConnectedDevicesItem(live: session.sizing, macID: macID, surface: session.surface)
+            }
             terminalTabs.hasLiveSession = { [weak live] id, macID in live?.hasLiveSession(tabID: id, macID: macID) ?? false }
             terminalTabs.workspaceLookup = { [weak store] id in store?.workspace(id: id) }
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
@@ -183,6 +209,14 @@ final class ShellModel {
                 guard let backend, !macs.isEmpty else { throw WorkspaceCreationError("Not connected to a Mac") }
                 for macID in macs { try await backend.clearAllNotifications(on: macID) }
             }
+            FeedRouting.shared.markAllNotificationsRead = { [weak live, weak backend] in
+                // Each linked Mac reads its own unread tabs, as its Mark All Notifications as Read.
+                let macs = (live?.linkedMacIDs ?? []).filter { backend?.canClearNotifications(on: $0) == true }
+                guard let backend, !macs.isEmpty else { return 0 }
+                var read = 0
+                for macID in macs { read += try await backend.markAllNotificationsRead(on: macID) }
+                return read
+            }
             // A Feed reply to a terminal agent goes to its own Mac's link, into that terminal.
             FeedRouting.shared.replyToTerminal = { [weak live] item, text in
                 guard let feed = live?.terminalFeed(macID: item.macID) else { return "Not connected to that Mac." }
@@ -195,8 +229,10 @@ final class ShellModel {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
             FeedRouting.shared.clearAllNotifications = nil
+            FeedRouting.shared.markAllNotificationsRead = nil
             FeedRouting.shared.replyToTerminal = nil
             terminalTabs.sessionProvider = nil
+            terminalTabs.showConnectedDevices = nil
             terminalTabs.hasLiveSession = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
@@ -242,6 +278,11 @@ final class ShellModel {
 
     /// Whether the route's chat is on screen now (its notification shows no banner).
     func isShowing(_ route: NotificationRoute) -> Bool {
+        // Chief lives on Home: its conversation on screen there shows the message itself.
+        if route.kind == "chief" {
+            guard UIApplication.shared.applicationState == .active, tab == .home, let id = route.conversationID else { return false }
+            return ChiefSession.conversationOnScreen == id
+        }
         guard UIApplication.shared.applicationState == .active, tab == .feed, let shown = feedPath.last,
               let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else { return false }
         return destination == shown
@@ -277,6 +318,12 @@ final class ShellModel {
         guard pendingRestore == nil, let saved = lastOpen.load() else { return }
         pendingRestore = saved
         continueRestore()
+    }
+
+    /// A link opened: the launch restore is dropped.
+    func cancelRestore() {
+        restoreAttempted = true
+        pendingRestore = nil
     }
 
     /// The workspaces (or a Mac's data phase) changed while a restore waits.
@@ -368,10 +415,11 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         #if DEBUG
-        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset`.
+        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting`.
         switch UserDefaults.standard.string(forKey: "cmux-mobile-banner-demo") {
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
+        case "reconnecting"?: return .reconnecting(to: "Mac")
         default: break
         }
         #endif
@@ -417,6 +465,18 @@ final class ShellModel {
                 theme.haptics.error()
             }
         }
+    }
+
+    /// Call Chief from anywhere: the live call, or Settings → Chief Calls
+    /// when this account has no OpenAI API key yet.
+    func callChief() {
+        guard !ChiefLiveCall.shared.start() else { return }
+        openChiefCallSettings()
+    }
+
+    func openChiefCallSettings() {
+        tab = .settings
+        settingsPath = [.chiefCalls]
     }
 
     func invite(to team: Team) {

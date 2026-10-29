@@ -1,0 +1,42 @@
+{
+  "t": 1792812829.365047,
+  "utc": "03:33:49",
+  "kind": "phone-unresponsive",
+  "detail": "26 inputs in a row with no screen change in 8 s (last: back on B)",
+  "tab": "B",
+  "since_start_s": 573.5,
+  "kf_last": [],
+  "lane_last": [],
+  "fps_last": [],
+  "decode_failed": [],
+  "host_events": [
+    {
+      "t": 1792812256.964916,
+      "utc": "03:24:16",
+      "line": "link up session_id=\"ec680f43-5621-4ef0-b771-2d4d231c33b7\" kind=WireGuard path=Turn phone=\"07d3d268-ebfe-4601-af11-a32bd5d268cd\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=126.3ms link_ready=126.3ms"
+    },
+    {
+      "t": 1792812256.965181,
+      "utc": "03:24:16",
+      "line": "link path changed session_id=\"ec680f43-5621-4ef0-b771-2d4d231c33b7\" path=Turn"
+    },
+    {
+      "t": 1792812266.778085,
+      "utc": "03:24:26",
+      "line": "media session down session_id=\"a096ad75-8add-4153-a5c5-6a2eda787ff2\" link_session=\"df65c97a-9cc4-46c4-9f1b-f8f0cab967d9\" reason=\"failed\""
+    },
+    {
+      "t": 1792812282.689303,
+      "utc": "03:24:42",
+      "line": "media session up session_id=\"a52ae1c4-3607-4615-964c-fdc63a801eeb\" link_session=\"ec680f43-5621-4ef0-b771-2d4d231c33b7\" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent=0.8ms remote_host=0.8ms remote_srflx=0."
+    },
+    {
+      "t": 1792812290.396274,
+      "utc": "03:24:50",
+      "line": "link down session_id=\"df65c97a-9cc4-46c4-9f1b-f8f0cab967d9\" reason=\"keepalive timed out\""
+    }
+  ],
+  "tabs": {
+    "A": "new-c3dfdf05-t1"
+  }
+}

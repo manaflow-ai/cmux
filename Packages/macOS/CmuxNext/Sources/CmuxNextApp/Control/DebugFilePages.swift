@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.filepages`: the file pages for live checks (diff-host S6, S7, R96). `{}` reports every
 /// file page tab (its file and whether it has a page), the recovery drafts on disk and the toasts
 /// of every window. `{restore: <draft id>}` runs the launch notice's Open for that draft (the

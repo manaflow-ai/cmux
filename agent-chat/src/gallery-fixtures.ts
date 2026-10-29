@@ -158,6 +158,8 @@ export const turnSummaryBlocks: Block[] = [
   { kind: "tool", toolId: "search-picker", name: "rg", detail: "RepositoryPicker", status: "ok", out: "Sources/RepositoryPicker.tsx\nSources/WorkspaceView.swift" },
   { kind: "tool", toolId: "list-files", name: "ls", detail: "Sources", status: "ok", out: "RepositoryPicker.tsx\nWorkspaceView.swift\n" },
   { kind: "tool", toolId: "edit-picker", name: "apply_patch", detail: "RepositoryPicker.tsx +1 -1", status: "ok", out: "*** Begin Patch\n*** Update File: RepositoryPicker.tsx\n+fixed\n-old\n*** End Patch" },
+  { kind: "tool", toolId: "described-command", name: "shell", detail: "bun test --filter @cmux/webviews -- --runInBand --reporter=verbose", description: "Run focused tests", status: "ok", out: "86 tests passed" },
+  { kind: "tool", toolId: "fallback-command", name: "shell", detail: "git show --stat --oneline --decorate HEAD && git status --short", status: "ok", out: "clean" },
   { kind: "assistant", text: "Updated the picker to preserve the selected repository while filtering.", open: false },
   { kind: "footer", text: "1432 in · 82 out · 4.2s" },
 ];
@@ -166,7 +168,7 @@ export const turnSummaryBlocks: Block[] = [
 // agent after its reply.
 export const agentMessageBlocks: Block[] = [
   { kind: "user", text: "Cut the 1.4 release branch." },
-  { kind: "message", id: "m-1", from: "coordinator", body: "Hold the v1.4 tag until #15302 merges." },
+  { kind: "message", id: "m-1", from: "coordinator", body: "Hold the v1.4 tag until #15302 merges.\n\n## Release notes\n\n- Verify the signed archive\n- Post the changelog\n- Keep the rollback link\n\n```bash\n./scripts/release-notes.sh\n```" },
   { kind: "assistant", text: "Branch `release/1.4` is ready. I'll hold the tag until #15302 merges.", open: false },
   { kind: "footer", text: "3.1s" },
   { kind: "message", id: "m-2", from: "reviewer", body: "#15302 merged. The tag is clear." },

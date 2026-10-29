@@ -58,6 +58,13 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "resize-attached-view",
         "release-attached-view-size",
         "detach-attached-view",
+        // Shared sizing: the size state, the phone's own activity, and this
+        // Mac's sizing policy (`host-size-policy-v1`; the Mac-wide preference
+        // only, never `set-size-policy`).
+        "get-size-state",
+        "note-size-activity",
+        "get-host-size-policy",
+        "set-host-size-policy",
         // Per-client focus (never moves the Mac's view).
         "client-focus",
         "report-focus",
@@ -261,6 +268,10 @@ const AGENT_SESSION_FIELDS: &[&str] = &["host", "session", "harness", "host_name
 #[derive(Debug, Clone)]
 pub struct DaemonPolicy {
     projection_subject: String,
+    /// The link's device id. Every `set-client-info` carries it as
+    /// `device_id`, with `remote: true`: a phone is never one of this Mac's
+    /// own views and never another device in the sizing order.
+    device_id: String,
     /// The `agent_session.host` this Mac's app records on its own agent tabs
     /// (`CMUX_MOBILE_AGENT_TAB_HOST`). Unset: a phone cannot create agent tabs.
     agent_tab_host: Option<String>,
@@ -268,7 +279,11 @@ pub struct DaemonPolicy {
 
 impl DaemonPolicy {
     pub fn new(device_id: &str) -> Self {
-        Self { projection_subject: format!("ios-device:{device_id}"), agent_tab_host: None }
+        Self {
+            projection_subject: format!("ios-device:{device_id}"),
+            device_id: device_id.to_string(),
+            agent_tab_host: None,
+        }
     }
 
     /// The phone's device id this policy was made for.
@@ -351,7 +366,24 @@ impl DaemonPolicy {
             let id = id.cloned();
             return self.agent_tab_verdict(object, id);
         }
+        if command == "set-client-info" {
+            return self.client_info_verdict(object);
+        }
+        if command == "resize-attached-view" && object.contains_key("identity") {
+            return sub_view_verdict(object);
+        }
         Verdict::Forward
+    }
+
+    /// `set-client-info` from a phone, marked as this link's remote device:
+    /// `remote: true` and the link's own `device_id`, whatever the phone sent.
+    fn client_info_verdict(&self, mut object: Map<String, Value>) -> Verdict {
+        object.insert("remote".into(), Value::Bool(true));
+        object.insert("device_id".into(), Value::String(self.device_id.clone()));
+        match serde_json::to_vec(&Value::Object(object)) {
+            Ok(line) => Verdict::Rewrite(line),
+            Err(_) => Verdict::Refuse(error_line(None, "bad_request", "request is not a JSON object")),
+        }
     }
 
     /// `new-conversation-tab` from a phone: an acpmux session tab of this
@@ -430,6 +462,20 @@ impl DaemonPolicy {
 /// identifier (the daemon mints `saved_<hex>`), a reopen names its `pane` (a
 /// pane number or a short public id), and `transaction` is 1-128 printable
 /// ASCII characters, as the daemon checks.
+/// A relay sub-view's `identity` from a phone, without `user_id` and
+/// `device_id`: a phone relays no other device, so its sub-views can never
+/// take another device's place in the Mac's sizing order.
+fn sub_view_verdict(mut object: Map<String, Value>) -> Verdict {
+    if let Some(Value::Object(identity)) = object.get_mut("identity") {
+        identity.remove("user_id");
+        identity.remove("device_id");
+    }
+    match serde_json::to_vec(&Value::Object(object)) {
+        Ok(line) => Verdict::Rewrite(line),
+        Err(_) => Verdict::Refuse(error_line(None, "bad_request", "request is not a JSON object")),
+    }
+}
+
 fn saved_group_refusal(object: &Map<String, Value>, reopen: bool) -> Option<String> {
     if !object.get("saved").and_then(Value::as_str).is_some_and(|saved| short_identifier(saved, 128)) {
         return Some("a saved tab group is named by its id".into());
@@ -1460,6 +1506,47 @@ mod tests {
             };
             assert!(answer.contains("forbidden"), "{answer}");
         }
+    }
+
+    /// `host-size-policy-v1`: the sizing commands pass; `set-client-info`
+    /// always names this link's device and marks it remote, so a phone can
+    /// neither pose as this Mac nor as another phone in the sizing order.
+    #[test]
+    fn phone_sizing_commands_pass_and_client_info_is_marked_remote() {
+        for line in [
+            br#"{"cmd":"get-size-state","id":"s1","surface":7}"#.as_slice(),
+            br#"{"cmd":"note-size-activity","id":"s2","surface":7}"#,
+            br#"{"cmd":"get-host-size-policy","id":"s3","surface":7}"#,
+            br#"{"cmd":"set-host-size-policy","id":"s4","policy":{"mode":"priority","order":["mac"]}}"#,
+        ] {
+            assert_eq!(policy().evaluate(line), Verdict::Forward, "{}", String::from_utf8_lossy(line));
+        }
+        for line in [
+            br#"{"cmd":"set-size-policy","id":"s5","surface":7,"policy":{"mode":"fixed"}}"#.as_slice(),
+            br#"{"cmd":"set-size-counts","id":"s6","surface":7,"counts":false}"#,
+        ] {
+            assert!(matches!(policy().evaluate(line), Verdict::Refuse(_)), "{}", String::from_utf8_lossy(line));
+        }
+        let line = br#"{"cmd":"set-client-info","id":"c1","device_kind":"mac","device_id":"someone-else","remote":false}"#;
+        let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
+        let sent: Value = serde_json::from_slice(&sent).unwrap();
+        assert_eq!(sent["remote"], true);
+        assert_eq!(sent["device_id"], "phone-1");
+        assert_eq!(sent["device_kind"], "mac");
+        assert_eq!(sent["id"], "c1");
+    }
+
+    /// A relay sub-view's identity from a phone never names a user or a
+    /// device (review 2 finding 1): the daemon gives it its own key.
+    #[test]
+    fn phone_sub_view_identity_names_no_user_or_device() {
+        let line = br#"{"cmd":"resize-attached-view","id":"r1","surface":7,"view":"v","cols":40,"rows":20,"identity":{"user_id":"u","device_id":"ipad-1","device_kind":"ipad","device_name":"iPad"}}"#;
+        let Verdict::Rewrite(sent) = policy().evaluate(line) else { panic!("not rewritten") };
+        let sent: Value = serde_json::from_slice(&sent).unwrap();
+        assert_eq!(sent["identity"], serde_json::json!({"device_kind":"ipad","device_name":"iPad"}));
+        assert_eq!(sent["cols"], 40);
+        let bare = br#"{"cmd":"resize-attached-view","id":"r2","surface":7,"view":"v","cols":40,"rows":20}"#;
+        assert_eq!(policy().evaluate(bare), Verdict::Forward);
     }
 
     #[test]

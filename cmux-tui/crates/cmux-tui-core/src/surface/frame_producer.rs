@@ -135,10 +135,11 @@ fn produce(surface: &Weak<Surface>, requested: u64) -> bool {
     let Some(surface) = surface.upgrade() else { return false };
     let Some(pty) = surface.as_pty() else { return false };
     #[cfg(test)]
-    if let Some(hook) = pty.frame_producer_before_upgrade.lock().unwrap().clone() {
+    if let Some(hook) = pty.frame_producer_before_upgrade.lock().recover_poison().clone() {
         hook();
     }
-    let term = pty.term.lock().unwrap();
+    // A poisoned terminal lock skips this frame; the next output requests one.
+    let Ok(term) = pty.term.lock() else { return false };
     let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
     let colors_pending = pty.attach_colors_pending.load(Ordering::Acquire);
     if colors_pending {

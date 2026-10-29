@@ -9,6 +9,7 @@ import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
+import { AcpmuxSendLine } from "./SentMessageLine";
 import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
@@ -18,11 +19,13 @@ import { awaitsPermission, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { footerLabel, isEmptyFooter, workedLabel } from "./turns";
+import { hasTokens, TimedLabel, TurnTokens } from "./TurnTokens";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
   forkWithFeedback,
   MessageCopy,
+  MessageFooterRow,
   MessageMore,
   MessageTime,
   PinButton,
@@ -37,6 +40,15 @@ import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { ToolVerbColumn } from "./ToolVerb";
+
+/// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
+function WorkedLabel({ row }: { row: AcpmuxRow }) {
+  const t = useT();
+  if (row.previous !== undefined || row.durationMs === undefined) return workedLabel(t, row);
+  const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
+  return <TimedLabel text={(time) => t(key, { time })} time={row.durationMs} />;
+}
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
 export function WorkedFor({
@@ -50,7 +62,6 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
-  const t = useT();
   return (
     <button
       type="button"
@@ -59,7 +70,17 @@ export function WorkedFor({
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
     >
-      <span className="cv-worked__label">{workedLabel(t, row)}</span>
+      <span className="cv-worked__label">
+        <WorkedLabel row={row} />
+      </span>
+      {hasTokens(row.tokens) && (
+        <span className="cv-worked__count">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          <TurnTokens split={row.tokens} />
+        </span>
+      )}
       <ChevronRight
         size={14}
         strokeWidth={1.2}
@@ -78,6 +99,7 @@ function groupNode(
   group: ToolGroup,
   index: number,
   rowId: string,
+  rowAt: number,
   live: boolean,
   folded = false,
   thoughts = 0,
@@ -103,11 +125,27 @@ function groupNode(
         />
       );
     case "message":
-      return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
+      return (
+        <MessageCard
+          key={group.item.tool!.id || index}
+          item={group.item}
+          message={group.message}
+          messageAt={group.item.tool!.startedAt ?? rowAt}
+        />
+      );
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
+    case "send":
+      return <AcpmuxSendLine key={group.item.tool!.id || index} tool={group.item.tool!} send={group.send} />;
     case "subsession":
-      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} />;
+      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
+    case "subsessionGroup":
+      return (
+        <SubsessionCallCard
+          key={group.items[0]!.tool!.id || index}
+          group={group.calls.map((call, i) => ({ call, tool: group.items[i]!.tool! }))}
+        />
+      );
     case "item":
       // A short interim note folded into the run (turns.ts mergeShortNotes).
       if (group.item.kind === "note")
@@ -190,7 +228,14 @@ export function thoughtIds(groups: readonly ToolGroup[]): number[] {
 /// the rest of the work and the line names them (Leo 2026-10-22: "this is pretty good ui: … the
 /// collapsing i mean"); the turn's edited-files card lists them once it ends.
 function staysInSight(group: ToolGroup): boolean {
-  if (group.type === "message" || group.type === "subsession" || group.type === "dispatch") return true;
+  if (
+    group.type === "message" ||
+    group.type === "send" ||
+    group.type === "subsession" ||
+    group.type === "subsessionGroup" ||
+    group.type === "dispatch"
+  )
+    return true;
   // A pending change draws as its own item (toolGroups.ts `toolGroupKind`); any entry holding one
   // stays in sight all the same.
   return ("items" in group ? group.items : [group.item]).some((item) => awaitsPermission(item.tool));
@@ -208,6 +253,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         group,
         at,
         row.id,
+        row.at,
         row.live === true && at === groups.length - 1,
         row.foldRun === true && !stretch.fold,
         thoughts[at],
@@ -231,7 +277,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     <TranscriptDisclosureProvider sessionId={sessionId}>
       <McpNamesContext.Provider value={names}>
         <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-          <div className="cv-tools">{nodes}</div>
+          <ToolVerbColumn className="cv-tools">{nodes}</ToolVerbColumn>
         </FindReveal.Provider>
       </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
@@ -245,8 +291,18 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, resume, route, switchModel } =
-    useContext(TurnActionsContext);
+  const {
+    fork,
+    forkSeq,
+    forkAny,
+    retry,
+    retryWith,
+    reauthenticate,
+    transferCloudCredentials,
+    resume,
+    route,
+    switchModel,
+  } = useContext(TurnActionsContext);
   const text = row.text;
   const prompt = row.prompt;
   const seq = row.seq;
@@ -288,53 +344,80 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 : "cv-turn-actions"
         }
       >
-        {label && <span className="cv-turn-summary">{label}</span>}
-        {resumable && (
-          <button
-            type="button"
-            className="cv-iconbtn cv-turn-continue"
-            disabled={resuming}
-            onClick={() => {
-              setResuming(true);
-              void resume().finally(() => setResuming(false));
-            }}
-          >
-            {t("turn.continue")}
-            <ArrowRight size={ROW_ICON} aria-hidden="true" />
-          </button>
-        )}
-        <span className="cv-turn-action-group">
-          {text && <MessageCopy text={text} />}
-          {failed && retry && prompt && (
+        <MessageFooterRow className="cv-turn-footer-row">
+          {label && (
+            <span className="cv-turn-summary">
+              {label}
+              {hasTokens(row.tokens) && (
+                <>
+                  <span className="cv-worked__sep" aria-hidden="true">
+                    {" · "}
+                  </span>
+                  <TurnTokens split={row.tokens} />
+                </>
+              )}
+            </span>
+          )}
+          {resumable && (
             <button
               type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={t("turn.retry")}
-              title={t("turn.retryLabel")}
-              onClick={() => retry(row.retryRowId ?? "", prompt)}
+              className="cv-iconbtn cv-turn-continue"
+              disabled={resuming}
+              onClick={() => {
+                setResuming(true);
+                void resume().finally(() => setResuming(false));
+              }}
             >
-              <Retry size={ROW_ICON} />
+              {t("turn.continue")}
+              <ArrowRight size={ROW_ICON} aria-hidden="true" />
             </button>
           )}
-          {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
-            <RetryModelMenu
-              retryWith={retryWith}
-              onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
-            />
-          )}
-          {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
-            <ForkButton onFork={() => forkWithFeedback(seq, () => fork(seq))} />
-          )}
-          <PinButton rowId={row.id} />
-          {text && <ReadAloudButton id={row.id} text={text} />}
-          {text && row.answerId && <MessageMore rowId={row.answerId} />}
-          {authenticationFailed && reauthenticate && (
-            <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
-              {t("turn.signInAgain")}
-            </button>
-          )}
-        </span>
-        <MessageTime at={row.at} className="cv-turn-time" />
+          <span className="cv-turn-action-group">
+            {text && <MessageCopy text={text} />}
+            {failed && retry && prompt && (
+              <button
+                type="button"
+                className="cv-iconbtn cv-iconbtn--compact"
+                aria-label={t("turn.retry")}
+                title={t("turn.retryLabel")}
+                onClick={() => retry(row.retryRowId ?? "", prompt)}
+              >
+                <Retry size={ROW_ICON} />
+              </button>
+            )}
+            {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
+              <RetryModelMenu
+                retryWith={retryWith}
+                onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
+              />
+            )}
+            {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
+              <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+            )}
+            <PinButton rowId={row.id} />
+            {text && <ReadAloudButton id={row.id} text={text} />}
+            {text && row.answerId && <MessageMore rowId={row.answerId} />}
+            {authenticationFailed && reauthenticate && (
+              <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
+                {t("turn.signInAgain")}
+              </button>
+            )}
+            {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
+              <button
+                type="button"
+                className="cv-turn-auth-action"
+                onClick={() => {
+                  void transferCloudCredentials(row.retryRowId!, prompt).catch(() => undefined);
+                }}
+              >
+                {t("turn.transferCredentials", {
+                  harness: route?.name || route?.harness || t("turn.failure.theAgent"),
+                })}
+              </button>
+            )}
+          </span>
+          <MessageTime at={row.at} className="cv-turn-time" />
+        </MessageFooterRow>
       </div>
     </>
   );

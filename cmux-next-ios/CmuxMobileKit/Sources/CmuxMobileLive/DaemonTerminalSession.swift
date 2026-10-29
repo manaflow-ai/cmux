@@ -1,3 +1,4 @@
+import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileTransport
 import Foundation
@@ -27,6 +28,15 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 ///   (`size-lease-v1`) every ``sizeLeaseRefresh`` (PROTOCOL.md, "Terminal
 ///   size claims").
 ///
+/// - Shared sizing (`shared-sizing-v1`, PROTOCOL.md "Terminal sizing
+///   policy"): the attach reply and `size-state` events feed ``sizing``, the
+///   terminal's live size state (who is connected, the size each one asks
+///   for, who sets the grid). Typing, pasting or tapping the terminal sends
+///   `note-size-activity` (at most once a second, only while this view does
+///   not set the grid), so the Mac's "Prefer the Active Device" can pick the
+///   phone: keystrokes go on the input lane, another connection, and never
+///   count as this view's activity by themselves.
+///
 /// The alternate screen flag is derived from the bytes (no event carries it).
 ///
 /// A channel that ends without `detached` is a dropped link (background,
@@ -47,8 +57,39 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
     public var remoteRows: Int? { reportedRows ?? lastSize?.rows ?? 24 }
     private var reportedRows: Int?
+    /// The Mac's grid changed since the screen was last told (``TerminalSessionEvent/hostGrid(columns:rows:)``).
+    private var hostGridChanged = false
+    /// The Mac terminal's columns (`vt-state`, `resized`); nil before the
+    /// first attach. The screen renders this grid when it is not the phone's.
+    public var remoteColumns: Int? { reportedColumns }
+    /// The owner the screen was last told (``TerminalSessionEvent/hostGridOwner(_:)``).
+    private var toldHostGridOwner: String??
+
+    /// Tells the screen when the device that sets the grid changed.
+    private func noteHostGridOwner() {
+        let name = hostGridOwnerName
+        guard toldHostGridOwner != .some(name) else { return }
+        toldHostGridOwner = .some(name)
+        handler?(.hostGridOwner(name))
+    }
+
+    /// The device that sets the Mac's grid, when it is not this phone.
+    public var hostGridOwnerName: String? {
+        guard let state = sizing.state, !sizing.selfIsOwner, let owner = state.owners.first,
+              let row = state.participants.first(where: { $0.id == owner }) else { return nil }
+        return row.deviceName ?? row.displayName
+    }
     /// The last attach or send failure (shown nowhere yet; logged).
     public private(set) var lastError: String?
+    /// The terminal's shared size state, live while attached to a daemon
+    /// with `shared-sizing-v1`.
+    public let sizing = TerminalSizingLive()
+    /// The daemon takes `note-size-activity` (it listed `shared-sizing-v1`).
+    private var sharedSizing = false
+    /// When the last `note-size-activity` went out (``now``'s clock).
+    private var lastActivityNote: TimeInterval?
+    /// At most one activity note per this many seconds.
+    static let activityNoteInterval: TimeInterval = 1
 
     private let open: @Sendable () async throws -> DaemonClient
     private let clientInfo: [String: String]
@@ -220,6 +261,7 @@ public final class DaemonTerminalSession: TerminalSession {
         input.append((bytes, now(), !attached))
         if attached {
             scheduleInputDrain()
+            noteInteraction()
         } else {
             // Dropped once they are too old to send, not at the reattach:
             // the screen says so while the person still remembers typing.
@@ -394,6 +436,33 @@ public final class DaemonTerminalSession: TerminalSession {
         handler?(.exited(code: Int32(clamping: exitCode ?? 0)))
     }
 
+    // MARK: Shared sizing
+
+    /// The person typed, pasted or tapped the terminal: tells the Mac this
+    /// view is the active one (`note-size-activity`), at most once per
+    /// ``activityNoteInterval`` and only while it does not set the grid
+    /// already. A no-op against a daemon without shared sizing.
+    public func noteInteraction() {
+        guard attached, sharedSizing, claimsSize, let client, !sizing.selfIsOwner else { return }
+        let at = now()
+        if let last = lastActivityNote, at - last < Self.activityNoteInterval { return }
+        lastActivityNote = at
+        let surface = surface
+        Task {
+            if let reply = try? await client.request("note-size-activity", params: ["surface": surface]),
+               let error = Self.error(in: reply) {
+                log.error("note-size-activity failed: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    /// The size state and own participant of an attach reply (shared sizing).
+    nonisolated static func attachSizing(_ reply: Data) -> (TerminalSizeState?, String?) {
+        guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              let data = object["data"] as? [String: Any] else { return (nil, nil) }
+        return (TerminalSizeState.decode(data["size_state"]), data["participant"] as? String)
+    }
+
     // MARK: Attach
 
     private func attach() async {
@@ -469,7 +538,7 @@ public final class DaemonTerminalSession: TerminalSession {
             sizeClaimed = false
             // One write: the client info (it opts into the size lease) and identify.
             var info: [String: Any] = clientInfo
-            info["capabilities"] = [Self.sizeLeaseCapability]
+            info["capabilities"] = Self.clientCapabilities
             let setup = await client.requests(
                 [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
             )
@@ -477,6 +546,9 @@ public final class DaemonTerminalSession: TerminalSession {
             // Hidden: attach without a size, so the attach claims none.
             let initialSize = claimsSize && (identify.map(Self.acceptsInitialSize) ?? false)
             leased = identify.map { Self.lists(Self.sizeLeaseCapability, $0) } ?? false
+            sharedSizing = identify.map { Self.lists(Self.sharedSizingCapability, $0) } ?? false
+            sizing.clear()
+            lastActivityNote = nil
             // The mirror is not reset yet: a reattach that fails (a Mac host
             // that just restarted answers "unknown surface" for a moment) keeps
             // the last frame on screen under the reconnecting badge, instead
@@ -517,6 +589,9 @@ public final class DaemonTerminalSession: TerminalSession {
             }
             if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
             guard self.client === client else { heldEvents = nil; return }
+            let (sizeState, participant) = Self.attachSizing(reply)
+            sizing.apply(sizeState, selfParticipant: participant)
+            noteHostGridOwner()
             // The replay rebuilds the screen and scrollback. The reset also
             // tells the screen where the Mac's screen starts in its taller
             // mirror (TerminalRowShift).
@@ -612,9 +687,16 @@ public final class DaemonTerminalSession: TerminalSession {
         case .alternateScreen(let on):
             setAlternate(on)
         case .columns(let columns):
+            // Told with the rows that follow on the same line.
+            if reportedColumns != columns { hostGridChanged = true }
             reportedColumns = columns
         case .rows(let rows):
+            if reportedRows != rows { hostGridChanged = true }
             reportedRows = rows
+            if hostGridChanged, let columns = reportedColumns {
+                hostGridChanged = false
+                handler?(.hostGrid(columns: columns, rows: rows))
+            }
             // The Mac answered a size other than the one asked for (another
             // view of this terminal, the Mac's own window, sets the grid): the
             // request was overruled. A reattach then keeps the Mac's size
@@ -635,6 +717,9 @@ public final class DaemonTerminalSession: TerminalSession {
             ended(reason: reason)
         case .sameGridResize(let columns, let rows):
             log.notice("surface \(self.surface, privacy: .public): resized event at the mirrored grid \(columns, privacy: .public)x\(rows, privacy: .public): kept, no reset")
+        case .sizeState(let state, let participant):
+            sizing.apply(state, selfParticipant: participant)
+            noteHostGridOwner()
         }
     }
 
@@ -1013,6 +1098,13 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// Listed in `set-client-info` and by the daemon in `identify`.
     static let sizeLeaseCapability = "size-lease-v1"
+    /// Shared sizing: `size-state` on the attach stream, `note-size-activity`.
+    static let sharedSizingCapability = "shared-sizing-v1"
+    /// `host-grid-view-v1`: this phone renders a Mac grid larger than its
+    /// own (pans, letterboxes), so the daemon need not cap the PTY at it.
+    static let hostGridViewCapability = "host-grid-view-v1"
+    /// What the attach channel lists in `set-client-info`.
+    static let clientCapabilities = [sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability]
 
     /// While the size is claimed and the daemon leases it: the same size
     /// again every `sizeLeaseRefresh` (a same-size `resize-surface` renews

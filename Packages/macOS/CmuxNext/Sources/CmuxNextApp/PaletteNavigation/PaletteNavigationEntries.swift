@@ -49,6 +49,22 @@ nonisolated enum PaletteNavigationEntries {
         return entries
     }
 
+    /// The record's title of a tab that names nothing a person reads (an agent chat, a Home
+    /// conversation or a page carry `about:blank`; a new tab none), replaced by `title`, the name
+    /// its tab shows (`TabTitleResolver`). Cmd-P listed agent chats as "about:blank" (msg 11943).
+    static func titled(_ entries: [PaletteNavigationEntry], title: (PaletteNavigationEntry) -> String?) -> [PaletteNavigationEntry] {
+        entries.map { entry in
+            guard case .tab = entry.kind, entry.title.isEmpty || entry.title == blankTitle,
+                  let shown = title(entry), !shown.isEmpty else { return entry }
+            var titled = entry
+            titled.title = shown
+            return titled
+        }
+    }
+
+    /// The address a page-backed tab's record is titled with.
+    static let blankTitle = "about:blank"
+
     /// What Copy Session ID copies: an agent chat's acpmux handle
     /// (`acp:<session id>`, the address `cmux agent message` and acpmux take),
     /// else the Claude Code or Codex session id of the tab's terminal.

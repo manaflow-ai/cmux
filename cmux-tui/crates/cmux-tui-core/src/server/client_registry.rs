@@ -432,6 +432,7 @@ impl ClientRegistry {
                 name: None,
                 kind: None,
                 identity: ClientIdentityWire::default(),
+                remote_device: false,
                 capabilities: HashSet::new(),
                 browser_pointer_owner: None,
                 attached: BTreeMap::new(),
@@ -664,9 +665,11 @@ impl ClientRegistry {
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
-                    || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
+                    || (capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY || capability == super::conversation_runs::CONVERSATION_RUN_ANSWERS_CAPABILITY)
                     || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
                     || capability == super::cloud_conversations::CLOUD_TYPING_CAPABILITY
+                    || capability == super::cloud_conversations::CLOUD_PRESENCE_CAPABILITY
+                    || agent_session_presence(capability)
                     // No placement restatement on `session.events`
                     // (state/placement_shift.rs).
                     || capability == crate::state::placement_shift::CAPABILITY
@@ -709,6 +712,14 @@ impl ClientRegistry {
         }
     }
 
+    /// Marks the connection as a remote device's lane (`host-size-policy-v1`).
+    pub(super) fn mark_remote_device(&self, client: u64) {
+        let mut state = self.state.lock().recover_poison();
+        if let Some(record) = state.clients.get_mut(&client) {
+            record.remote_device = true;
+        }
+    }
+
     /// The connection's identity for shared sizing. Without explicit
     /// fields it falls back to `name` and a device kind parsed from `kind`.
     pub(crate) fn sizing_identity(&self, client: u64) -> Option<ClientSizingIdentity> {
@@ -721,7 +732,8 @@ impl ClientRegistry {
         if identity.device_kind.is_none() {
             identity.device_kind.clone_from(&record.kind);
         }
-        Some(identity.into_identity())
+        let remote = record.remote_device;
+        Some(ClientSizingIdentity { remote, ..identity.into_identity() })
     }
 
     /// Deliver a `size-state` event on every attach stream of `surface`.
@@ -1023,5 +1035,19 @@ impl ClientRegistry {
                 })
                 .collect::<Vec<_>>()
         )
+    }
+}
+
+/// An attached agent session's presence (`agent-session-presence`), which only a unix host serves,
+/// as it alone attaches agent sessions.
+fn agent_session_presence(capability: &str) -> bool {
+    #[cfg(unix)]
+    {
+        capability == agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = capability;
+        false
     }
 }

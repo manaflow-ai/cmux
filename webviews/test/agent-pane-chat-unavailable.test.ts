@@ -2,8 +2,9 @@
 // A tab's chat that the daemon does not list (`sessionMustExist`): the pane says which case it is
 // (Leo 2026-10-21: "second pic is weird has "this chat isn't available""), centered where the chat
 // would be and in the pane's own type. Deleted: "This chat was deleted" and Remove from Sidebar.
-// Its machine is not connected: the machine, when it was last seen, and Reconnect. A chat that is
-// only loading (its attach in flight, or its machine still connecting) never reads as unavailable,
+// Its machine is not connected: a neutral "Reconnecting…" (Leo, #26115), when it was last seen, and
+// Reconnect. A chat that is only loading (its attach in flight, or its machine still connecting)
+// never reads as unavailable,
 // and a chat on another machine whose tab names it by another id than acpmux's opens.
 //
 // Real Chromium from Playwright, against a stand-in acpmux on a WebSocket and the pane's Vite dev
@@ -214,7 +215,9 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     );
     const connecting = waiting.locator('[data-unavailable="connecting"]');
     await connecting.waitFor({ timeout: 60_000 });
-    expect(await connecting.innerText()).toContain("Connecting to build-box");
+    // A neutral "Reconnecting…" with a spinner, never an error (86ebb89edfcf, #26115).
+    expect(await connecting.locator("h2").innerText()).toBe("Reconnecting…");
+    expect(await connecting.getAttribute("role")).toBe("status");
     // Loading: nothing to reconnect or remove yet; the missing-chat line's Resume and Close Tab stay.
     expect(await connecting.getByRole("button", { name: /Reconnect|Remove from Sidebar/ }).count()).toBe(0);
     expect(await connecting.getByRole("button", { name: "Close Tab" }).count()).toBe(1);
@@ -229,7 +232,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await waiting.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))),
     );
-    expect(await connecting.innerText()).toContain("Connecting to build-box");
+    expect(await connecting.locator("h2").innerText()).toBe("Reconnecting…");
     // The machine connects and acpmux lists its chats.
     scenario.peers = [{ name: "build-box", transport: "ssh", connected: true, state: "connected" }];
     const listed = summary("chat-on-box", { peer: "build-box" });
@@ -264,7 +267,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.close();
   });
 
-  test("a chat whose machine goes offline names it, says when it was last seen, and Reconnect opens it", async () => {
+  test("a chat whose machine goes offline says it is reconnecting, when it was last seen, and Reconnect opens it", async () => {
     scenario = {
       sessions: [summary("chat-kept"), summary("chat-on-box", { peer: "build-box" })],
       peers: [{ name: "build-box", transport: "ssh", connected: true, state: "connected", lastSeen: Date.now() }],
@@ -281,7 +284,9 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
     const shown = page.locator('[data-unavailable="offline"]');
     await shown.waitFor({ timeout: 60_000 });
-    expect(await shown.locator("h2").innerText()).toBe("build-box isn't connected");
+    // Neutral, as connecting (86ebb89edfcf, #26115): "Reconnecting…", when it was last seen, and Reconnect.
+    expect(await shown.locator("h2").innerText()).toBe("Reconnecting…");
+    expect(await shown.getAttribute("role")).toBe("status");
     await page.waitForFunction(() => document.body.innerText.includes("Last seen 5 minutes ago."));
     expect(await page.getByText(/isn't available|was deleted/).count()).toBe(0);
     const reconnect = shown.getByRole("button", { name: "Reconnect" });

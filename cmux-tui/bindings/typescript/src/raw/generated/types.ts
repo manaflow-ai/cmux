@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd. */
+/* cmux-tui mux protocol 12, IR 2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -206,6 +206,11 @@ export type CloseTerminalResult = {
   "terminal_revision": bigint;
 };
 
+export type CloudConversationPresenceParticipant = {
+  "participant": string;
+  "viewing": boolean;
+};
+
 export type ColorHex = string;
 
 export type ColumnMoveDirection = "left" | "right";
@@ -215,6 +220,8 @@ export type ColumnPin = {
   "mode": string;
   "role"?: (string) | null;
 };
+
+export type ColumnSide = "left" | "right";
 
 export type ConversationChange = {
   /** kind conversation. */
@@ -484,6 +491,11 @@ export type GetCellPixelsResult = {
   "width_px": number;
 };
 
+export type GetHostSizePolicyResult = {
+  "mac_participants": Array<string>;
+  "policy": HostSizePolicy;
+};
+
 export type GetSizeStateResult = {
   "self_participant": (string) | null;
   "state": SizeState;
@@ -542,6 +554,18 @@ export type HomeInboxRow = {
   "unread": bigint;
 };
 
+export type HostSizeMode = "smallest" | "mac" | "latest" | "priority";
+
+export type HostSizePolicy = {
+  "mode": HostSizeMode;
+  "order": Array<string>;
+};
+
+export type HostSizePolicyRequest = {
+  "mode": HostSizeMode;
+  "order"?: (Array<string>) | null;
+};
+
 export type Id = bigint;
 
 export type IdMapping = {
@@ -555,6 +579,7 @@ export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
+  "build_time"?: (bigint) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;
   "crate_version"?: (string) | null;
@@ -1090,6 +1115,10 @@ export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;
   "resizes": Array<CellPixelResize>;
+};
+
+export type SetHostSizePolicyResult = {
+  "policy": HostSizePolicy;
 };
 
 export type SetSizeCountsResult = {

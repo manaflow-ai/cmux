@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# cmux-dns-check: does this machine resolve names through systemd-resolved?
+#
+# Checks that /etc/resolv.conf is a link to systemd-resolved's stub, that
+# systemd-resolved runs, that a public name resolves and, on a machine logged
+# in to a tailnet with MagicDNS, that its own MagicDNS name resolves (else that
+# check is skipped with the reason). With --restart it first restarts
+# systemd-resolved, then tailscaled when installed, so the checks prove the
+# machine comes back resolving: Tailscale picks its DNS mode when it starts,
+# and it uses systemd-resolved only when resolv.conf is the resolved stub and
+# resolved runs. Otherwise it writes resolv.conf itself ("direct" mode), which
+# is how a machine ends with "no upstream resolvers set". The mode this
+# tailscaled run picked is read from its journal and must be systemd-resolved.
+#
+# It changes nothing but the two restarts. Baked into the cmux VM image
+# (images/cmux-vm) as /usr/local/sbin/cmux-dns-check; it runs the same on any
+# systemd machine, e.g. as root from a checkout:
+#   sudo images/cmux-vm/machine-health/cmux-dns-check --restart
+#
+# Usage: cmux-dns-check [--restart] [--name NAME]... [--timeout SECS]
+# Output: one PASS, FAIL or SKIP line per check.
+# Exit 0 when nothing failed, 1 when a check failed, 2 on bad usage.
+
+set -u
+export LC_ALL=C
+
+# Tests point these at a temp dir; on a machine they are the real paths.
+resolv_conf="${CMUX_DNS_RESOLV_CONF:-/etc/resolv.conf}"
+stub="${CMUX_DNS_STUB:-/run/systemd/resolve/stub-resolv.conf}"
+
+restart=0
+timeout=20
+names=()
+usage() { echo "usage: cmux-dns-check [--restart] [--name NAME]... [--timeout SECS]" >&2; exit 2; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --restart) restart=1 ;;
+    --name) shift; [ -n "${1:-}" ] || usage; names+=("$1") ;;
+    --timeout) shift; case "${1:-}" in ''|*[!0-9]*) usage ;; esac; timeout=$((10#$1)) ;;
+    -h|--help) usage ;;
+    *) echo "unknown argument: $1" >&2; usage ;;
+  esac
+  shift
+done
+[ ${#names[@]} -gt 0 ] || names=(github.com)
+
+failed=0
+pass() { printf 'PASS %s\n' "$*"; }
+fail() { printf 'FAIL %s\n' "$*"; failed=1; }
+skip() { printf 'SKIP %s\n' "$*"; }
+
+# The first address NAME resolves to through the system resolver (nsswitch, so
+# the same path every program takes), retried until the deadline: right after
+# a restart the stub can take a moment to answer.
+resolve() {
+  local name="$1" end=$((SECONDS + timeout)) addr
+  while :; do
+    addr="$(timeout 5 getent ahosts "$name" 2>/dev/null | awk 'NR == 1 { print $1 }')"
+    [ -n "$addr" ] && { printf '%s\n' "$addr"; return 0; }
+    [ "$SECONDS" -ge "$end" ] && return 1
+    sleep 1
+  done
+}
+
+has_tailscaled() { systemctl cat tailscaled.service >/dev/null 2>&1; }
+
+# The DNS mode in tailscaled's journal text on stdin (the last `dns: [... ret=MODE]`), in bash
+# alone so no missing tool can turn into an empty answer.
+dns_mode() {
+  local line found="" re='dns: \[[^]]*ret=([a-z-]+)'
+  while IFS= read -r line; do
+    [[ $line =~ $re ]] && found="${BASH_REMATCH[1]}"
+  done
+  printf '%s' "$found"
+}
+
+if [ "$restart" = 1 ]; then
+  if systemctl restart systemd-resolved.service; then pass "restart systemd-resolved"; else fail "restart systemd-resolved: systemctl restart failed"; fi
+  if has_tailscaled; then
+    if systemctl restart tailscaled.service; then pass "restart tailscaled"; else fail "restart tailscaled: systemctl restart failed"; fi
+  else
+    skip "restart tailscaled: tailscaled is not installed"
+  fi
+fi
+
+if [ -L "$resolv_conf" ] && target="$(readlink -f "$resolv_conf")" && want="$(readlink -f "$stub")" && [ -n "$target" ] && [ "$target" = "$want" ]; then
+  pass "resolv.conf: $resolv_conf links to $stub"
+elif [ -L "$resolv_conf" ]; then
+  fail "resolv.conf: $resolv_conf links to $(readlink "$resolv_conf"), not to $stub"
+else
+  fail "resolv.conf: $resolv_conf is not a link to $stub"
+fi
+
+if systemctl is-active --quiet systemd-resolved.service; then pass "systemd-resolved: active"; else fail "systemd-resolved: not active"; fi
+
+# Tailscale's DNS mode for this tailscaled run: its startup log line
+# `dns: [rc=... ret=MODE]` in the journal of the unit's current invocation.
+tailscaled_state=absent
+if has_tailscaled; then
+  if systemctl is-active --quiet tailscaled.service; then tailscaled_state=running; else tailscaled_state=stopped; fi
+fi
+if [ "$tailscaled_state" = stopped ]; then
+  skip "tailscale DNS mode: tailscaled is installed but not running"
+elif [ "$tailscaled_state" = running ]; then
+  invocation="$(systemctl show -p InvocationID --value tailscaled.service 2>/dev/null)"
+  # tailscaled logs its DNS mode once, as it starts, so read only the first 10 minutes of this run.
+  # A long run's whole journal (380k lines on huge-blue after 8 h) takes longer than the read's timeout.
+  window=()
+  started="$(systemctl show -p ExecMainStartTimestamp --value tailscaled.service 2>/dev/null)"
+  if [ -n "$started" ] && started_s="$(date -d "$started" +%s 2>/dev/null)"; then
+    window=(--since "@$((started_s - 5))" --until "@$((started_s + 600))")
+  fi
+  end=$((SECONDS + timeout)); mode="!tailscaled has no invocation ID"
+  while [ -n "$invocation" ]; do
+    if ! journal="$(timeout 10 journalctl -q -o cat "${window[@]}" "_SYSTEMD_INVOCATION_ID=$invocation" 2>/dev/null)"; then
+      mode="!could not read the tailscaled journal"; break
+    fi
+    mode="$(dns_mode <<<"$journal")"
+    if [ -n "$mode" ] || [ "$SECONDS" -ge "$end" ]; then break; fi
+    sleep 1
+  done
+  case "$mode" in
+    systemd-resolved) pass "tailscale DNS mode: systemd-resolved" ;;
+    "") skip "tailscale DNS mode: this tailscaled run logged no DNS mode" ;;
+    "!"*) fail "tailscale DNS mode: ${mode#!}" ;;
+    *) fail "tailscale DNS mode: $mode (tailscaled writes resolv.conf itself instead of using systemd-resolved)" ;;
+  esac
+fi
+
+for name in "${names[@]}"; do
+  if addr="$(resolve "$name")"; then pass "resolve $name: $addr"; else fail "resolve $name: no address within ${timeout}s"; fi
+done
+
+# The machine's own MagicDNS name, when it is logged in to a tailnet with MagicDNS on.
+if ! command -v tailscale >/dev/null 2>&1; then
+  skip "resolve tailnet name: tailscale is not installed"
+elif [ "$tailscaled_state" = stopped ]; then
+  skip "resolve tailnet name: tailscaled is installed but not running"
+else
+  # A logged-out or MagicDNS-off machine skips ("!"); a status that cannot be read or parsed, or a
+  # state tailscale does not document, fails ("?"); a starting tailscaled ("~", right after
+  # --restart) is asked again until the deadline.
+  end=$((SECONDS + timeout))
+  while :; do
+    if ! status="$(timeout 10 tailscale status --json 2>/dev/null)"; then
+      self_name="?tailscale status --json failed"
+    elif ! self_name="$(printf '%s' "$status" | python3 -c '
+import json, sys
+try:
+    s = json.load(sys.stdin)
+except ValueError:
+    print("?tailscale status --json gave no JSON"); sys.exit()
+if not isinstance(s, dict):
+    print("?tailscale status --json gave no status object"); sys.exit()
+state = s.get("BackendState")
+if state in ("NoState", "Starting"):
+    print("~tailscaled is still starting (BackendState %s)" % state); sys.exit()
+if state in ("NeedsLogin", "NeedsMachineAuth", "Stopped", "InUseOtherUser"):
+    print("!not logged in to a tailnet (BackendState %s)" % state); sys.exit()
+if state != "Running":
+    print("?unknown BackendState %r" % (state,)); sys.exit()
+tailnet = s.get("CurrentTailnet") or {}
+if not s.get("MagicDNSSuffix") or tailnet.get("MagicDNSEnabled") is False:
+    print("!MagicDNS is off on this tailnet"); sys.exit()
+name = ((s.get("Self") or {}).get("DNSName") or "").rstrip(".")
+print(name or "!this machine has no MagicDNS name")
+')"; then
+      self_name="?could not parse tailscale status (python3)"
+    fi
+    case "$self_name" in "~"*) [ "$SECONDS" -lt "$end" ] && { sleep 1; continue; } ;; esac
+    break
+  done
+  case "$self_name" in
+    ""|"?"*|"~"*) fail "resolve tailnet name: ${self_name#?}" ;;
+    "!"*) skip "resolve tailnet name: ${self_name#!}" ;;
+    *) if addr="$(resolve "$self_name")"; then pass "resolve tailnet name $self_name: $addr"; else fail "resolve tailnet name $self_name: no address within ${timeout}s"; fi ;;
+  esac
+fi
+
+exit "$failed"

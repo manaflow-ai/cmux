@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import CoreMedia
 import Foundation
 
@@ -10,6 +11,8 @@ import Foundation
 /// its exit starts the next one while the stream is on.
 @MainActor
 final class AndroidScreenStream {
+    /// Spawns and stops adb off the main thread, in call order (a fork can take hundreds of ms).
+    private let launcher = ProcessLauncher(label: "com.cmuxterm.next.android-screen", priority: .userVisible)
     private let adb: String
     private let serial: String
     private var process: Process?
@@ -33,7 +36,7 @@ final class AndroidScreenStream {
     /// Ends the stream: no adb process, no frames.
     func stop() {
         running = false
-        process?.terminate()
+        if let process { launcher.terminate(process) }
         process = nil
     }
 
@@ -46,9 +49,12 @@ final class AndroidScreenStream {
         process.standardError = FileHandle.nullDevice
         let decoder = AndroidFrameAssembler()
         pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
+            let data: Data
+            switch handle.readReady() {
+            case .bytes(let ready): data = ready
+            case .retry: return
+            case .end: handle.readabilityHandler = nil; return
+            }
             for sample in decoder.samples(from: data) {
                 // task-owner: one main-actor hop per frame; it ends when the frame is enqueued.
                 Task { @MainActor [weak self] in self?.onSample?(sample.buffer) }
@@ -59,12 +65,16 @@ final class AndroidScreenStream {
             // task-owner: restarts screenrecord after its time limit, or reports the failure; ends at once.
             Task { @MainActor [weak self] in self?.ended(finished, status: status) }
         }
-        do {
-            try process.run()
-            self.process = process
-        } catch {
-            running = false
-            onError?(.commandFailed(command: "adb screenrecord", status: -1, stderr: error.localizedDescription))
+        self.process = process
+        // The spawn runs off main, in order with a later stop's terminate.
+        launcher.launch(process) { error in
+            let message = error.localizedDescription
+            Task { @MainActor [weak self] in
+                guard let self, self.process === process else { return }
+                self.running = false
+                self.process = nil
+                self.onError?(.commandFailed(command: "adb screenrecord", status: -1, stderr: message))
+            }
         }
     }
 

@@ -1,7 +1,6 @@
 // A settled run of tool calls: one summary line ("Read 6 files, ran 4 commands", and "1 failed"
-// when a call failed) that opens to the calls themselves, in a list that scrolls past nine rows.
-// Scrolled, the list's top fades out under the summary line (useScrollEdges, conversation.css
-// .cv-tool-run).
+// when a call failed) that opens to the calls themselves. The rows grow with the transcript's one
+// vertical scroll surface; opened command/output bodies keep their own horizontal overflow.
 import { useFindReveal } from "./chatFind";
 import { useId, useMemo, type ReactNode } from "react";
 import { useT } from "../i18n";
@@ -12,7 +11,7 @@ import { mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./too
 import { useToolRunLook } from "../toolRunLook";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { useScrollEdges } from "../summary/scrollEdges";
+import { ToolLabel } from "./ToolVerb";
 
 /// The summary's glyph: its main kind of work's, with searches and reads both as the magnifier.
 function runIcon(category: ToolRunCategory | undefined): ReactNode {
@@ -46,7 +45,6 @@ export function ToolRun({
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
-  const edges = useScrollEdges();
   // Read once per run: the row draws again only when its version moves (App.tsx ToolActivityRow),
   // and then only a new list of calls counts again.
   const { summary, main, failures, running } = useMemo(
@@ -74,7 +72,7 @@ export function ToolRun({
       >
         <span className="cv-tool__icon">{running ? <Spinner size={16} /> : runIcon(pencil ? "edited" : main)}</span>
         <span className="cv-tool__text" data-find-skip>
-          {summary}
+          <ToolLabel text={summary} />
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
         <ChevronRight
@@ -85,7 +83,7 @@ export function ToolRun({
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
-          <div className="cv-tool-run" id={list} ref={edges}>
+          <div className="cv-tool-run" id={list}>
             {children}
           </div>
         </div>

@@ -318,9 +318,9 @@ const LAYOUT_ICON = { unified: "unified", split: "split", auto: "auto" } as cons
   IconName
 >;
 const LAYOUT_NEXT_LABEL = {
-  unified: "switchToSplitDiff",
-  split: "switchToAutoLayout",
-  auto: "switchToUnifiedDiff",
+  auto: "switchToSplitDiff",
+  split: "switchToUnifiedDiff",
+  unified: "switchToAutoLayout",
 } as const satisfies Record<DiffViewerOptions["layout"], DiffViewerLabelKey>;
 
 export function toolbarPillButtons(state: {

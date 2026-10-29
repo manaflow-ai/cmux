@@ -72,12 +72,11 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
   return (
     <span className="acpmux-speed">
       {inline ? (
-        <span
+        <button
+          type="button"
           className="acpmux-fast"
           data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
           aria-pressed={at >= 0}
-          role="button"
-          tabIndex={0}
           aria-label={label}
           {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
           // The inline glyph lives inside the model picker trigger. Stop the pointer gesture
@@ -98,7 +97,7 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
           }}
         >
           <BoltIcon />
-        </span>
+        </button>
       ) : (
         <button
           type="button"

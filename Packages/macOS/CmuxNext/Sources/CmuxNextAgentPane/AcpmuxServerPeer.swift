@@ -62,6 +62,13 @@ nonisolated enum AcpmuxServerPeer {
             case .olderDaemon: "the other install's acpmux predates the person challenge"
             }
         }
+
+        /// A socket that vanished while a daemon hands off is expected to come back shortly.
+        /// Other refusals name a live peer or a protocol problem and must remain visible.
+        var isTransientRestart: Bool {
+            if case .unreachable = self { return true }
+            return false
+        }
     }
 
     /// What a passing peer is: the acpmux at this app's own path, or another install's.
@@ -299,7 +306,9 @@ nonisolated enum AcpmuxServerPeer {
         return getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 1 ? pid : nil
     }
 
-    private static func connect(_ socketPath: String) throws -> Int32 {
+    /// A connected unix socket to `socketPath`, unchecked: the caller reads its peer on this
+    /// very descriptor (``UnixSocketPeer``) before it writes anything.
+    static func connect(_ socketPath: String) throws -> Int32 {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let capacity = MemoryLayout.size(ofValue: address.sun_path)
@@ -380,7 +389,7 @@ nonisolated enum AcpmuxServerPeer {
         guard ready > 0 else { throw ready == 0 ? Refusal.timedOut : Refusal.closed }
     }
 
-    private static func write(_ data: Data, to descriptor: Int32, until: Date) throws {
+    static func write(_ data: Data, to descriptor: Int32, until: Date) throws {
         var offset = 0
         while offset < data.count {
             try wait(descriptor, for: Int16(POLLOUT), until: until)
@@ -393,7 +402,7 @@ nonisolated enum AcpmuxServerPeer {
         }
     }
 
-    private static func read(from descriptor: Int32, until: Date) throws -> Data {
+    static func read(from descriptor: Int32, until: Date) throws -> Data {
         try wait(descriptor, for: Int16(POLLIN), until: until)
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         let count = Darwin.recv(descriptor, &chunk, chunk.count, 0)

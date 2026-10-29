@@ -56,6 +56,7 @@ struct AgentPeerUploads {
                 guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(10 * 60))
                 Task { @MainActor in
+                    // wakeup-allow: one-shot peer stage expiry; a later chunk refreshes the expiry date.
                     try? await Task.sleep(for: .seconds(10 * 60))
                     if let expired = stages[token], expired.expires <= Date() {
                         stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
@@ -66,6 +67,7 @@ struct AgentPeerUploads {
                     let id = UUID().uuidString.lowercased()
                     batches[id] = Batch(session: target.session, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
                     Task { @MainActor in
+                        // wakeup-allow: one-shot peer batch expiry; the next batch request refreshes it.
                         try? await Task.sleep(for: .seconds(10 * 60))
                         if let batch = batches[id], batch.expires <= Date() { batches.removeValue(forKey: id) }
                     }
@@ -77,6 +79,7 @@ struct AgentPeerUploads {
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
                 Task { @MainActor in
+                    // wakeup-allow: one-shot peer stage expiry; a later chunk refreshes the expiry date.
                     try? await Task.sleep(for: .seconds(10 * 60))
                     if let expired = stages[token], expired.expires <= Date() {
                         stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)

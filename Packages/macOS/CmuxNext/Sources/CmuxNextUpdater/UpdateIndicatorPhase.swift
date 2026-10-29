@@ -52,8 +52,9 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
         case .extracting(let extracting):
             self = .downloading(.preparing(extracting.progress > 0 ? extracting.progress : nil))
         case .installing(let installing):
-            // Sparkle's "Restart to Complete Update" is the staged update.
-            self = installing.isAutoUpdate ? .ready(version: version) : .installing
+            // Sparkle's "Restart to Complete Update" is the staged update, and so is an idle
+            // install the relaunch gate holds: no waiting card, a click relaunches at once.
+            self = installing.isAutoUpdate || installing.relaunchBlockers != nil ? .ready(version: version) : .installing
         }
     }
 
@@ -89,6 +90,12 @@ extension UpdateIndicatorPhase {
         case .installing: UpdaterStrings.installing
         case .note(let note): note.text
         }
+    }
+
+    /// A downloaded update waits for Restart to Update (the menu bar menu offers it).
+    public var isReady: Bool {
+        if case .ready = self { return true }
+        return false
     }
 
     /// Whether the ring spins: work with no measured progress.

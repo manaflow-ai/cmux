@@ -18,6 +18,8 @@
 //! {"id":1,"ok":true,"data":{"app":"cmux-tui","session":"main",...}}
 //! ```
 
+use cmux_json::JsonSet as _;
+
 #[cfg(test)]
 use crate::mux::DaemonHandoffRequest;
 #[cfg(test)]
@@ -132,8 +134,9 @@ mod agent_session_attach;
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY, AcpmuxStarter,
-    AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_VM_KIND_CAPABILITY, AGENT_SESSION_TRUST_CAPABILITY,
+    AGENT_SESSION_TRUST_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 #[cfg(unix)]
 pub mod agent_transfer;
@@ -151,6 +154,10 @@ mod origin_gate;
 mod orphan_shutdown;
 mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+mod starter_exit;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub use starter_exit::{Starter, exit_with_process};
 mod pending_handoff;
 mod renderer_grant;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
@@ -465,6 +472,8 @@ pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
 /// (`{reason, at_ms}`). Viewing the tab keeps it; the agent's clear, a browser
 /// tab's navigation to another page, or the tab's close clears it.
 pub const TAB_ATTENTION_CAPABILITY: &str = "tab-attention-v1";
+/// Persisted request identities and compare-and-clear for tab attention.
+pub const TAB_ATTENTION_REQUEST_ID_CAPABILITY: &str = "tab-attention-request-id-v1";
 /// A workspace's description: `description` on `workspace.update` (null
 /// clears it) and the workspace snapshot's `extra.description` while set.
 pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
@@ -581,6 +590,11 @@ pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
 pub fn api_revision_range() -> (u32, u32) {
     api_revision_wire::identify_fields()
 }
+
+/// The compiled API revision history for clients connecting to an older daemon.
+pub fn api_revision_compat() -> &'static cmux_api_compat::Compat {
+    api_revision_wire::compat()
+}
 mod protocol_key;
 #[cfg(test)]
 use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
@@ -642,6 +656,15 @@ struct BrowserProviderTargetRequest {
     target_id: String,
 }
 
+/// `set-host-size-policy`'s `policy`: a mode and optionally the order.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostSizePolicyRequest {
+    mode: String,
+    #[serde(default)]
+    order: Option<Vec<String>>,
+}
+
 /// Optional shared-sizing identity carried by `set-client-info` and relay sub-views.
 #[derive(Clone, Debug, Default, Deserialize)]
 struct ClientIdentityWire {
@@ -659,6 +682,11 @@ struct ClientIdentityWire {
 }
 
 impl ClientIdentityWire {
+    /// The same identity without a user or a device id.
+    fn anonymous(self) -> Self {
+        Self { user_id: None, device_id: None, ..self }
+    }
+
     fn is_empty(&self) -> bool {
         self.user_id.is_none()
             && self.display_name.is_none()
@@ -677,6 +705,7 @@ impl ClientIdentityWire {
                 .map_or(TerminalDeviceKind::Unknown, TerminalDeviceKind::parse),
             device_name: self.device_name.map(clamp_client_label),
             device_id: self.device_id.map(clamp_client_label),
+            remote: false,
         }
     }
 }
@@ -820,6 +849,11 @@ enum Command {
         /// so a refusal names its update command.
         #[serde(default)]
         install: Option<String>,
+        /// `host-size-policy-v1`: this connection is a remote device's
+        /// spliced lane (cmux-mobile-host sets it on every phone), never one
+        /// of this host's own views. Sticky: `false` never clears it.
+        #[serde(default)]
+        remote: Option<bool>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -904,6 +938,16 @@ enum Command {
     },
     GetSizeState {
         surface: SurfaceId,
+    },
+    /// The host sizing policy (`host-size-policy-v1`) and, with `surface`,
+    /// which of its terminal's participants are this host's own views.
+    GetHostSizePolicy {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+    },
+    /// Store the host sizing policy in the settings file and apply it.
+    SetHostSizePolicy {
+        policy: HostSizePolicyRequest,
     },
     /// Record explicit input or focus activity for the caller's own view, or
     /// with `view` for one of its relay sub-views (input a relay forwards).
@@ -1789,6 +1833,7 @@ enum Command {
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
     CloudConversationLive(cloud_conversations::TargetParams),
     CloudConversationTyping(cloud_conversations::TypingParams),
+    CloudConversationPresence(cloud_conversations::PresenceParams),
     /// The leased chief's MuxDO wake queue (`mux:<agent>`) and the ack of handled wakes.
     CloudMuxSubscribe(cloud_conversations::NoParams),
     CloudMuxUnsubscribe(cloud_conversations::NoParams),
@@ -2279,7 +2324,8 @@ impl Command {
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. }
-            | Self::SetSizePolicy { surface, .. } => *surface,
+            | Self::SetSizePolicy { surface, .. }
+            | Self::GetHostSizePolicy { surface } => *surface,
             _ => None,
         }
     }
@@ -2703,7 +2749,7 @@ fn node_json(
                 "b": node_json(b, active_pane, split_ids),
             });
             if let Some(public_id) = split_ids.get(id) {
-                value["split_id"] = json!(public_id);
+                value.set("split_id", json!(public_id));
             }
             value
         }
@@ -2812,9 +2858,9 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
-    workspaces["registry_id"] = json!(registry_id);
-    workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
+    workspaces.set("registry_id", json!(registry_id));
+    workspaces.set("generation", json!(generation));
+    workspaces.set("terminal_revision", json!(mux.terminal_registry_revision()?));
     Ok(workspaces)
 }
 
@@ -2845,6 +2891,9 @@ mod orphan_shutdown_tests;
 #[cfg(test)]
 #[path = "server/session_identity_tests.rs"]
 mod session_identity_tests;
+#[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
+#[path = "server/starter_exit_tests.rs"]
+mod starter_exit_tests;
 
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
@@ -2868,6 +2917,9 @@ mod pinned_columns_tests;
 #[path = "server/rows_tests.rs"]
 mod rows_tests;
 
+#[cfg(test)]
+#[path = "server/column_left_tests.rs"]
+mod column_left_tests;
 #[cfg(test)]
 #[path = "server/column_move_tests.rs"]
 mod column_move_tests;

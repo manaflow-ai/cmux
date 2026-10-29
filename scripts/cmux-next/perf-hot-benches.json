@@ -1,6 +1,11 @@
 {
   "_doc": "Hot-path ids for `// perf-hot: <budget> <path-id>` markers (plans/cmux-next/codebase-health.md section 6). scripts/cmux-next/guardrails.py warns when a push changes a marked function and names the bench here. Run it yourself on the fleet (nx-remote --needs gui), light and STRESS (perf-lead-brief), before and after; never add it to CI.",
   "paths": {
+    "cef-host-input": {
+      "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helperPrototype): encode and one non-blocking write",
+      "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
+      "owner": "PL-cef-helper"
+    },
     "key-dispatch": {
       "what": "every key-down: shortcut table, chord tracker, focus routing",
       "bench": "scripts/cmux-next/bench-typing.py",
@@ -65,6 +70,11 @@
       "what": "new terminal or Chromium tab to its first frame",
       "bench": "scripts/cmux-next/instant-new-surfaces-bench.py",
       "owner": "PL-cef-tab"
+    },
+    "action-budget": {
+      "what": "every action run's always-on budget record: two clock reads and one ring-slot write (ActionBudgetMonitor.record)",
+      "bench": "CMUX_ACTION_BUDGET_BENCH=1 swift test -c release --filter ActionBudgetMonitorBench (ns per run and per batch), on macOS 26 and 27",
+      "owner": "Performance Lead (PL-instant)"
     }
   }
 }

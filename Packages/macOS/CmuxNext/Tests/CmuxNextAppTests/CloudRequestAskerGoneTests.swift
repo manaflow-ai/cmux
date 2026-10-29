@@ -36,7 +36,7 @@ import Testing
     func create(_ services: AppServices, in window: NSWindow, chats: Chats, asker chat: String, sent: Sent) async throws -> (Task<String, any Error>, SidebarNoticeCard) {
         let asks = services.machineAsks
         let task = Task {
-            try await CloudMachineCreateFlow.legacy(name: "builder", startedByPerson: false, askedBy: chat,
+            try await CloudMachineCreateFlow.legacy(name: "builder", startedByPerson: false, askedBy: chat, askFirst: true,
                                                     confirm: { await CloudPresenter.confirmCreate($0, in: window, asks: asks, chatOpen: { chats.open.contains($0) }) },
                                                     create: { sent.send() })
         }

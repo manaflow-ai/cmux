@@ -16,6 +16,13 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var initialSize = false
     /// `identify` advertises size-lease-v1.
     var sizeLease = false
+    /// `identify` advertises shared-sizing-v1: the attach reply carries the
+    /// view's participant and size state, and a newer `size-state` follows.
+    var sharedSizing = false
+    /// The owners of the size state the attach sends (shared sizing).
+    var owners = ["c2"]
+    /// The Mac's sizing policy (`get-host-size-policy`, `set-host-size-policy`).
+    var hostPolicy: [String: Any] = ["mode": "smallest", "order": [String]()]
     /// The surface the terminal is on now (a daemon restart renumbers it).
     var liveSurface = 7
     /// `resolve-terminal` answers: terminal id to its surface (nil: the
@@ -53,8 +60,20 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         switch cmd {
         case "send" where lock.withLock({ unansweredSends }):
             return []
-        case "identify" where initialSize || sizeLease:
-            return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])])]
+        case "identify" where initialSize || sizeLease || sharedSizing:
+            return [reply(["capabilities": (initialSize ? ["attach-initial-size"] : []) + (sizeLease ? ["size-lease-v1"] : [])
+                    + (sharedSizing ? ["shared-sizing-v1", "host-size-policy-v1"] : [])])]
+        case "get-host-size-policy":
+            return [reply(["policy": lock.withLock { hostPolicy }, "mac_participants": object["surface"] == nil ? [String]() : ["c1"]])]
+        case "set-host-size-policy":
+            guard var policy = object["policy"] as? [String: Any] else {
+                return [Self.line(["id": id, "ok": false, "error": "bad request: policy"])]
+            }
+            lock.withLock {
+                if policy["order"] == nil { policy["order"] = hostPolicy["order"] }
+                hostPolicy = policy
+            }
+            return [reply(["policy": policy])]
         case "resolve-terminal":
             guard let terminals = lock.withLock({ self.terminals }) else {
                 return [Self.line(["id": id, "ok": false, "error": "unknown command resolve-terminal"])]
@@ -93,11 +112,19 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             guard object["surface"] as? Int == live else {
                 return [Self.line(["id": id, "ok": false, "error": "unknown surface \(object["surface"] as? Int ?? -1)"])]
             }
+            let (shared, owners) = lock.withLock { (sharedSizing, self.owners) }
+            func sizeState(_ generation: Int) -> [String: Any] {
+                ["generation": generation, "cols": 80, "rows": 24, "reason": "smallest", "owners": owners,
+                 "policy": ["mode": "smallest", "priority": [], "fixed": NSNull()],
+                 "participants": [["id": "c1", "device_kind": "mac", "viewport": ["cols": 80, "rows": 24], "counts": true],
+                                  ["id": "c2", "device_kind": "iphone", "device_id": "ios-1", "viewport": ["cols": 80, "rows": 30], "counts": true]]]
+            }
             return [
                 Self.line(["event": "vt-state", "surface": live, "cols": 80, "rows": 24,
                            "data": Data(replay.utf8).base64EncodedString()]),
-                reply(["lease": "l1"]),
-            ] + (afterAttach.map { [Self.line(["event": "output", "surface": live, "data": Data($0.utf8).base64EncodedString()])] } ?? []) + [
+                reply(shared ? ["lease": "l1", "participant": "c2", "size_state": sizeState(1)] as [String: Any] : ["lease": "l1"]),
+            ] + (shared ? [Self.line(["event": "size-state", "surface": live, "self_participant": "c2", "state": sizeState(2)])] : [])
+                + (afterAttach.map { [Self.line(["event": "output", "surface": live, "data": Data($0.utf8).base64EncodedString()])] } ?? []) + [
                 Self.line(["event": "output", "surface": 8, "data": Data("other".utf8).base64EncodedString()]),
             ]
         default:

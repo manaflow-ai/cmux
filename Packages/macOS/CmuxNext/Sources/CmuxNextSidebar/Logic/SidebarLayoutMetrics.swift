@@ -24,8 +24,9 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     /// Workspace row with a secondary detail line.
     public var rowHeightWithSubtitle: CGFloat
     public var tabRowHeight: CGFloat
+    /// The one gap between consecutive rows: a group's last member, a folder's last row and the
+    /// Pinned block's last row take it too, never a padding of their own (Leo 2026-10-21).
     public var rowSpacing: CGFloat
-    public var groupBottomPadding: CGFloat
     public var emptySectionHeight: CGFloat
     /// One line of a row's status block (`WorkspaceRowContent.status`).
     public var statusLineHeight: CGFloat = 14
@@ -37,7 +38,7 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
         rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, tabRowHeight: CGFloat, rowSpacing: CGFloat,
-        groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
+        emptySectionHeight: CGFloat
     ) {
         self.topPadding = topPadding
         self.bottomPadding = bottomPadding
@@ -47,7 +48,6 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.rowHeightWithSubtitle = rowHeightWithSubtitle
         self.tabRowHeight = tabRowHeight
         self.rowSpacing = rowSpacing
-        self.groupBottomPadding = groupBottomPadding
         self.emptySectionHeight = emptySectionHeight
     }
 
@@ -162,6 +162,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
+    /// Age labels this pass made, shared by its rows (a label per row was most of a 10k group's layout).
+    var ages = AgeTextCache()
     /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
     public var hidesWorkspaces = false
     /// `sidebar.groupBy`. Group by Folder: the only machine's loose rows sit under a header per
@@ -228,17 +230,17 @@ nonisolated extension SidebarLayoutOptions {
     private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         // Workspaces as tabs: one line at any density; attention states (the needs-you mark) still show.
         if workspacesAsTabs {
-            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now)
+            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now, ages: ages)
             (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
             return content
         }
         if expanded && !minimal {
             let shown = workspaceRow.resolved(for: ws.rowKind)
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine, showsNotification: shown.shows(.notification),
-                                       showsPullRequest: shown.shows(.pullRequest))
+                                       showsPullRequest: shown.shows(.pullRequest), ages: ages)
         }
-        guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
-        var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
+        guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine, ages: ages) }
+        var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now, ages: ages)
         content.detail = nil
         content.badgeTime = nil
         content.status = nil

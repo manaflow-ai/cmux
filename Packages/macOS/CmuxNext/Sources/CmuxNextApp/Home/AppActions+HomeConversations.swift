@@ -75,6 +75,17 @@ extension AppActions {
             }
             registry.track(work)
         })
+        registry.bind("home.deleteChief", invoke: { invocation in
+            guard let chief = invocation["chief"]?.stringValue, !chief.isEmpty else {
+                registry.refuse(HomeStrings.deleteFailed)
+                return
+            }
+            let work = ActionWork {
+                guard let reason = await services.home.deleteChief(chief) else { return nil }
+                return ActionWorkFailure(refusal: .unavailable, reason: reason)
+            }
+            registry.track(work)
+        })
         // Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [ on Home: the next or previous conversation in
         // the list, wrapping as a pane's tabs do; opening it gives its message box the keyboard.
         for (id, offset) in [("home.previousConversation", -1), ("home.nextConversation", 1)] as [(ActionID, Int)] {
