@@ -92,6 +92,8 @@ where
 async fn with_inline_creation(
     hub: Arc<Hub>,
     deadline: Option<tokio::time::Instant>,
+    is_claude: bool,
+    claude_env: std::collections::BTreeMap<String, String>,
     future: Pin<Box<dyn Future<Output = Result<Arc<Session>, RpcError>> + Send>>,
 ) -> Result<Arc<Session>, RpcError> {
     let Some(deadline) = deadline else {
@@ -105,7 +107,7 @@ async fn with_inline_creation(
         Err(_) => {
             task.abort();
             if let Ok(Ok(side)) = task.await {
-                hub.btw_discard(&side).await;
+                hub.btw_cleanup(&side, is_claude, &claude_env).await;
             }
             Err(RpcError::internal("the inline side question timed out"))
         }
@@ -134,12 +136,15 @@ impl Hub {
         // it cannot spend separate acceptance and answer windows beyond the app's request budget.
         let inline_deadline = inline.then(|| tokio::time::Instant::now() + INLINE_TIMEOUT);
         let meta = session.meta();
+        let (is_claude, claude_env) = if inline {
+            with_inline_deadline(inline_deadline, self.harness_env(&meta)).await?
+        } else {
+            self.harness_env(&meta).await
+        };
         // Claude Code owns a transcript-free side-question callback on its
         // running stream-json process. It never creates a session or sends an
         // ACP prompt, so the main turn and its queue stay untouched.
         if inline {
-            let (is_claude, _) =
-                with_inline_deadline(inline_deadline, self.harness_env(&meta)).await?;
             // Claude's native side-question callback only exists during an
             // active turn. An idle process uses the read-only emulation below.
             // The translator enforces its own active-turn check at dispatch,
@@ -165,8 +170,17 @@ impl Hub {
         }
         // Keep the fork/startup state machine off the request task's stack.
         // Native and emulated paths share a deadline, not one large future.
-        Box::pin(self.btw_side_session(session, question, model, client, opts, inline_deadline))
-            .await
+        Box::pin(self.btw_side_session(
+            session,
+            question,
+            model,
+            client,
+            opts,
+            inline_deadline,
+            is_claude,
+            claude_env,
+        ))
+        .await
     }
 
     async fn btw_side_session(
@@ -177,6 +191,8 @@ impl Hub {
         client: &str,
         opts: PromptOptions,
         inline_deadline: Option<tokio::time::Instant>,
+        is_claude: bool,
+        claude_env: std::collections::BTreeMap<String, String>,
     ) -> Result<Value, RpcError> {
         let inline = inline_deadline.is_some();
         let explicit = model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_owned);
@@ -205,6 +221,8 @@ impl Hub {
                 with_inline_creation(
                     self.clone(),
                     inline_deadline,
+                    is_claude,
+                    claude_env.clone(),
                     Box::pin({
                         let hub = self.clone();
                         let parent = session.clone();
@@ -251,6 +269,8 @@ impl Hub {
                 let side = match with_inline_creation(
                     self.clone(),
                     inline_deadline,
+                    is_claude,
+                    claude_env.clone(),
                     Box::pin({
                         let hub = self.clone();
                         let req = req.clone();
@@ -266,6 +286,8 @@ impl Hub {
                         with_inline_creation(
                             self.clone(),
                             inline_deadline,
+                            is_claude,
+                            claude_env.clone(),
                             Box::pin({
                                 let hub = self.clone();
                                 async move {
@@ -290,7 +312,7 @@ impl Hub {
         {
             Ok(settled) => settled,
             Err(e) => {
-                self.btw_discard(&side).await;
+                self.btw_cleanup(&side, is_claude, &claude_env).await;
                 return Err(e);
             }
         };
@@ -301,7 +323,7 @@ impl Hub {
                     match with_inline_deadline(inline_deadline, self.set_model(&side, &m)).await {
                         Ok(modeled) => modeled,
                         Err(e) => {
-                            self.btw_discard(&side).await;
+                            self.btw_cleanup(&side, is_claude, &claude_env).await;
                             return Err(e);
                         }
                     };
@@ -320,7 +342,7 @@ impl Hub {
         let read_only = match settled {
             Ok(read_only) => read_only,
             Err(e) => {
-                self.btw_discard(&side).await;
+                self.btw_cleanup(&side, is_claude, &claude_env).await;
                 return Err(e);
             }
         };
@@ -358,13 +380,13 @@ impl Hub {
                         }
                         Err(e) => RpcError::internal(e.to_string()),
                     };
-                    self.btw_discard(&side).await;
+                    self.btw_cleanup(&side, is_claude, &claude_env).await;
                     return Err(e);
                 }
                 Err(_) => {
                     run.abort();
                     let _ = run.await;
-                    self.btw_discard(&side).await;
+                    self.btw_cleanup(&side, is_claude, &claude_env).await;
                     return Err(RpcError::internal("the inline side question timed out"));
                 }
             }
@@ -398,9 +420,7 @@ impl Hub {
             };
             // An inline emulation is one-shot: its side session never remains
             // in the session list, whether the answer succeeded or failed.
-            if let Err(e) = self.kill(&side, true).await {
-                tracing::warn!(session = %side.id, "inline side question cleanup: {e}");
-            }
+            self.btw_cleanup(&side, is_claude, &claude_env).await;
             return answer.map(|(text, _)| json!({"text": text}));
         }
         Ok(json!({"sessionId": side.id, "model": model, "readOnly": read_only}))
@@ -434,6 +454,31 @@ impl Hub {
             .filter(|text| !text.trim().is_empty())
             .ok_or_else(|| RpcError::internal("the inline side question returned no text"))?;
         Ok(json!({"text": text}))
+    }
+
+    /// Purge the temporary acpmux fork and, for Claude forks, its separate
+    /// conversation file. Claude indexes those files independently of the
+    /// acpmux store, so deleting only the session log leaves a ghost chat.
+    async fn btw_cleanup(
+        &self,
+        side: &Arc<Session>,
+        is_claude: bool,
+        claude_env: &std::collections::BTreeMap<String, String>,
+    ) {
+        let agent_sid = side.meta().agent_session_id;
+        if let Err(e) = self.kill(side, true).await {
+            tracing::warn!(session = %side.id, "inline side question cleanup: {e}");
+        }
+        if is_claude
+            && let Some(sid) = agent_sid.filter(|s| crate::adopt::is_bare_id(s))
+            && let Some(file) = crate::adopt::find_claude(
+                &self.harness_homes().with_env(&[claude_env]).claude,
+                &sid,
+            )
+            && let Err(e) = std::fs::remove_file(&file)
+        {
+            tracing::warn!(session = %side.id, "inline side question transcript: {e}");
+        }
     }
 
     /// The answer chunks written by a one-shot fallback side session. The

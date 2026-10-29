@@ -55,6 +55,24 @@ fn side_of(hub: &Arc<Hub>, id: &str) -> Option<String> {
     hub.resolve(id).unwrap().meta().tags.get("side").map(|t| t.value.clone())
 }
 
+fn claude_transcript_files(
+    root: &std::path::Path,
+) -> std::collections::BTreeSet<std::path::PathBuf> {
+    let mut files = std::collections::BTreeSet::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "jsonl") {
+                files.insert(path);
+            }
+        }
+    }
+    files
+}
+
 /// The session's current mode, as it reports it.
 fn mode_of(hub: &Arc<Hub>, id: &str) -> Option<String> {
     let modes = hub.resolve(id).unwrap().meta().modes;
@@ -246,6 +264,7 @@ async fn idle_claude_inline_btw_uses_the_one_shot_fallback() {
     let id = new_chat(&mut c).await;
     c.request(method::SESSION_PROMPT, prompt(&id, "finished context")).await.unwrap();
     let before = prompts(&hub, &id);
+    let transcripts_before = claude_transcript_files(&claude);
 
     // The Claude process is alive, but no turn callback is installed while
     // the chat is idle. Inline must therefore emulate the answer in a
@@ -258,6 +277,11 @@ async fn idle_claude_inline_btw_uses_the_one_shot_fallback() {
     assert_eq!(history["prompts"], json!(["finished context"]));
     assert_eq!(prompts(&hub, &id), before, "idle inline never prompts the main chat");
     assert_eq!(hub.sessions().len(), 1, "the one-shot side session is discarded");
+    assert_eq!(
+        claude_transcript_files(&claude),
+        transcripts_before,
+        "inline fork transcript is purged"
+    );
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
