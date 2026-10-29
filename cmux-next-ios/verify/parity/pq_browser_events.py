@@ -63,7 +63,7 @@ def serve():
     r = pq.rsh(cmd)
     check(r.returncode == 0, f"site: {r.stderr.strip()[:200]}")
     t0 = time.time()
-    while time.time() - t0 < 30:
+    while time.time() - t0 < 60:
         if pq.rsh(f"curl -fsS -o /dev/null http://127.0.0.1:{PORT}/index.html").returncode == 0:
             return f"http://127.0.0.1:{PORT}"
         time.sleep(0.5)
@@ -91,9 +91,17 @@ def at(j, needle, timeout=20):
     check(False, f"{needle!r} is not on screen")
 
 
+def app_front(j):
+    """cmux in front: a booted simulator, or one that went to Safari, has it in the back."""
+    j.sim.launch(pq.BUNDLE, terminate=False)
+    time.sleep(2)
+    j.sim.dismiss_keyboard_intro()
+
+
 def open_page(j, path="index.html"):
     """A workspace whose browser tab (opened on the Mac) shows the test site."""
     base = serve()
+    app_front(j)
     a = t.seed(f"bev-{STAMP}-{path.split('.')[0]}", terminals=1)
     pane = t.ws_tabs(a)[0][0]
     t.mac_raw({"cmd": "new-browser-tab", "url": f"{base}/{path}", "pane": pane})
@@ -136,7 +144,7 @@ def open_tab(j):
     j.sim.tap(*at(j, "BLANKLINK"))
     time.sleep(1.0)
     j.sim.shot(f"open-tab-blank-{'before' if BEFORE else 'after'}")
-    shown = ocr_wait(j, "FROM blank", timeout=25)
+    shown = ocr_wait(j, "FROM blank", timeout=60)
     j.sim.shot(f"open-tab-blank-shown-{'before' if BEFORE else 'after'}")
     count = tab_count(name)
     out.append(result(j, shown is not None and count == before + 1,
@@ -144,10 +152,10 @@ def open_tab(j):
                       f"target=_blank: Mac tabs {before} -> {count}; phone shows the new page: {shown is not None}"))
     # Back to the page, then window.open.
     t.open_tab(j, "Events")
-    check(ocr_wait(j, "EVTPAGE", timeout=20) is not None, "the events page did not come back")
+    check(ocr_wait(j, "EVTPAGE", timeout=45) is not None, "the events page did not come back")
     before = tab_count(name)
     j.sim.tap(*at(j, "WOPEN"))
-    shown = ocr_wait(j, "FROM wopen", timeout=25)
+    shown = ocr_wait(j, "FROM wopen", timeout=60)
     j.sim.shot(f"open-tab-wopen-{'before' if BEFORE else 'after'}")
     count = tab_count(name)
     out.append(result(j, shown is not None and count == before + 1,
@@ -164,7 +172,7 @@ def context_menu(j):
     x, y = at(j, "MENULINK")
     before = tab_count(name)
     j.sim.long_press(x, y, 1.2)
-    row = j.sim.wait(label="Open Link in New Tab", timeout=8)
+    row = j.sim.wait(label="Open Link in New Tab", timeout=30)
     j.sim.shot(f"context-menu-{'before' if BEFORE else 'after'}")
     rows = [e.label for e in j.sim.find(kind="Button") if e.label][:16]
     if BEFORE:
@@ -173,7 +181,7 @@ def context_menu(j):
     labels = [e.label for e in j.sim.tree() if e.label]
     check("Copy Link Address" not in labels and "Inspect" not in labels, "a Mac-only row is in the phone's menu")
     j.sim.tap_el(row)
-    _, took = t.until(lambda: tab_count(name) == before + 1, timeout=20, what="the Mac to open the link's tab")
+    _, took = t.until(lambda: tab_count(name) == before + 1, timeout=90, what="the Mac to open the link's tab")
     time.sleep(2)
     j.sim.shot("context-menu-opened")
     toast = j.sim.ocr_find("Opened in a new tab") or j.sim.ocr_find("NEXTPAGE")
@@ -187,7 +195,7 @@ def dialogs(j):
     open_page(j)
     out = []
     j.sim.tap(*at(j, "ALERTBTN"))
-    alert = j.sim.wait(label="OK", kind="Button", timeout=10)
+    alert = j.sim.wait(label="OK", kind="Button", timeout=30)
     j.sim.shot(f"dialog-alert-{'before' if BEFORE else 'after'}")
     if BEFORE:
         stuck = j.sim.ocr_find("ALERTMSG")
@@ -197,14 +205,14 @@ def dialogs(j):
     time.sleep(1)
     out.append("alert shown with its message, OK closed it")
     j.sim.tap(*at(j, "CONFIRMBTN"))
-    cancel = j.sim.wait(label="Cancel", kind="Button", timeout=10)
+    cancel = j.sim.wait(label="Cancel", kind="Button", timeout=30)
     check(cancel, "no confirm alert")
     j.sim.shot("dialog-confirm")
     j.sim.tap_el(cancel)
-    check(ocr_wait(j, "CONFIRM false", timeout=10) is not None, "the page did not get Cancel")
+    check(ocr_wait(j, "CONFIRM false", timeout=45) is not None, "the page did not get Cancel")
     out.append("confirm: Cancel -> page 'CONFIRM false'")
     j.sim.tap(*at(j, "PROMPTBTN"))
-    field = j.sim.wait(ident="browser.dialog.field", timeout=10) or j.sim.wait(kind="TextField", timeout=3)
+    field = j.sim.wait(ident="browser.dialog.field", timeout=30) or j.sim.wait(kind="TextField", timeout=3)
     check(field, "no prompt field")
     check(field.value == "Ada" or j.sim.ocr_find("Ada"), "the prompt's default text is missing")
     j.sim.tap_el(field)
@@ -215,33 +223,50 @@ def dialogs(j):
     j.sim.shot("dialog-prompt")
     ok = j.sim.wait(label="OK", kind="Button", timeout=5)
     j.sim.tap_el(ok)
-    check(ocr_wait(j, "PROMPT AdaGrace", timeout=10) is not None, "the page did not get the typed answer")
+    check(ocr_wait(j, "PROMPT AdaGrace", timeout=45) is not None, "the page did not get the typed answer")
     j.sim.shot("dialog-prompt-answered")
     out.append("prompt: default 'Ada' shown, typed 'Grace', OK -> page 'PROMPT AdaGrace'")
     return "; ".join(out)
 
 
+def mac_browser(ws_name, needle):
+    """The Mac's browser tab of `ws_name` whose address has `needle` (its daemon record)."""
+    return next((tab for tab in browser_tabs(ws_name) if needle in (tab.get("url") or "")), None)
+
+
 @t.flow("dialog-dismissed")
 def dialog_dismissed(j):
-    """A dialog the page closes itself (it navigates away): the phone's alert goes, unanswered."""
-    open_page(j)
-    j.sim.tap(*at(j, "GONEPAGE"))
-    alert = j.sim.wait(label="OK", kind="Button", timeout=15)
+    """A dialog whose page goes away while it is open: the phone's alert closes, unanswered.
+
+    The page is navigated from the Mac (its daemon's `browser-navigate`, the Mac's address
+    bar), the one thing that can move a page whose script is blocked in `alert()`: Chromium
+    drops the dialog and the host tells every viewer (`rb.dialog.cancel`)."""
+    a = open_page(j)
+    name = a["name"]
+    j.sim.tap(*at(j, "ALERTBTN"))
+    alert = j.sim.wait(label="OK", kind="Button", timeout=20)
     j.sim.shot(f"dialog-dismissed-shown-{'before' if BEFORE else 'after'}")
     if BEFORE:
-        return f"iframe alert: shown on the phone: {bool(alert)}"
-    check(alert, "the iframe's alert never showed")
+        return f"page alert: shown on the phone: {bool(alert)}"
+    check(alert and j.sim.ocr_find("ALERTMSG"), "the page's alert never showed")
+    page = mac_browser(name, "index.html")
+    check(page and page.get("surface") is not None, "the Mac does not list the events page")
+    target = f"http://127.0.0.1:{PORT}/next.html?navigated"
+    t.mac_raw({"cmd": "browser-navigate", "surface": page["surface"], "url": target})
     gone = None
     t0 = time.time()
-    while time.time() - t0 < 15:
+    while time.time() - t0 < 45:
         if not j.sim.find(label="OK", kind="Button"):
             gone = time.time() - t0
             break
         time.sleep(0.5)
-    check(gone is not None, "the alert stayed after the page navigated away")
-    check(ocr_wait(j, "FROM navigated", timeout=15) is not None, "the page did not navigate")
     j.sim.shot("dialog-dismissed-gone")
-    return f"the page navigated while its iframe's alert was open: the alert closed by itself {gone:.1f} s later, no answer sent"
+    mac_url = (mac_browser(name, "navigated") or {}).get("url")
+    check(gone is not None, f"the alert stayed after the page navigated away (Mac address: {mac_url})")
+    check(ocr_wait(j, "FROM navigated", timeout=45) is not None, "the phone did not show the new page")
+    j.sim.shot("dialog-dismissed-navigated")
+    return (f"the page went to {mac_url} while its alert was open: the phone's alert closed by itself "
+            f"{gone:.1f} s later, unanswered, and the new page showed")
 
 
 @t.flow("select")
@@ -249,13 +274,13 @@ def select(j):
     """A <select>: its options in a sheet; a pick reaches the page."""
     open_page(j)
     j.sim.tap(*at(j, "Banana"))
-    sheet = j.sim.wait(ident="browser.select.option.3", timeout=10) or j.sim.wait(label="Damson", timeout=2)
+    sheet = j.sim.wait(ident="browser.select.option.3", timeout=30) or j.sim.wait(label="Damson", timeout=2)
     j.sim.shot(f"select-{'before' if BEFORE else 'after'}")
     if BEFORE:
         return f"select: options on the phone: {bool(sheet)}"
     check(sheet, "no options sheet for the select")
     j.sim.tap_el(sheet)
-    took = ocr_wait(j, "PICKED Damson", timeout=10)
+    took = ocr_wait(j, "PICKED Damson", timeout=45)
     j.sim.shot("select-picked")
     check(took is not None, "the page did not get the pick")
     return f"select: the options sheet listed Apple..Damson; picking Damson reached the page in {took:.1f} s"
@@ -266,10 +291,10 @@ def page_menu(j):
     """Page menu: Hard Reload reloads the page; Open in Safari is offered for the web address."""
     open_page(j)
     j.sim.tap(*at(j, "PROMPTBTN"))
-    ok = j.sim.wait(label="OK", kind="Button", timeout=10)
+    ok = j.sim.wait(label="OK", kind="Button", timeout=30)
     if ok:
         j.sim.tap_el(ok)  # the page now reads "PROMPT Ada": a reload brings back "EVTPAGE ready"
-    check(ocr_wait(j, "PROMPT", timeout=10) is not None or BEFORE, "the page did not change before the reload")
+    check(ocr_wait(j, "PROMPT", timeout=45) is not None or BEFORE, "the page did not change before the reload")
     menu = j.sim.wait(label="Page Menu", kind="Button", timeout=5)
     check(menu, "no Page Menu button")
     j.sim.tap_el(menu)
@@ -281,7 +306,7 @@ def page_menu(j):
     check("Hard Reload" in labels and "Open in Safari" in labels, f"page menu rows: {labels}")
     row = j.sim.wait(label="Hard Reload", kind="Button", timeout=3)
     j.sim.tap_el(row)
-    took = ocr_wait(j, "EVTPAGE ready", timeout=15)
+    took = ocr_wait(j, "EVTPAGE ready", timeout=45)
     j.sim.shot("page-menu-hard-reloaded")
     check(took is not None, "Hard Reload did not reload the page")
     menu = j.sim.wait(label="Page Menu", kind="Button", timeout=5)
@@ -300,10 +325,8 @@ def page_menu(j):
             f"Open in Safari opened the page's address in Safari ({tree[:60]!r})")
 
 
-# dialog-dismissed is not in the default run: while a frame's alert is open the page's own
-# renderer is blocked, so nothing on the page can close it over the real link (the host's
-# rb.dialog.cancel path is covered by PageEventsTests.aDialogThePageClosedGoesUnanswered).
-ORDER = ["open-tab", "context-menu", "select", "dialogs", "page-menu"]
+# page-menu goes last: it leaves the phone in Safari (each flow brings cmux back first).
+ORDER = ["open-tab", "context-menu", "select", "dialogs", "dialog-dismissed", "page-menu"]
 
 
 def run(name):

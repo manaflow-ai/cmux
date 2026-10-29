@@ -416,9 +416,12 @@ public final class StreamedBrowserModel: BrowserTabState {
             guard let token = (json["token"] as? NSNumber)?.uint64Value,
                   let dialog = (json["dialog"] as? [String: Any]).flatMap(RemoteBrowserDialog.init(json:)) else { return }
             // A new dialog replaces one still open (the host cancelled it).
+            log.notice("browser \(self.tab, privacy: .public): dialog \(token) \(dialog.kind.rawValue, privacy: .public)")
             self.dialog = OpenDialog(token: token, dialog: dialog)
         case "rb.dialog.cancel":
-            if let token = (json["token"] as? NSNumber)?.uint64Value, dialog?.token == token { dialog = nil }
+            guard let token = (json["token"] as? NSNumber)?.uint64Value else { return }
+            log.notice("browser \(self.tab, privacy: .public): dialog \(token) closed by the page (open: \(self.dialog?.token ?? 0))")
+            if dialog?.token == token { dialog = nil }
         case "rb.open_tab":
             guard let request = RemoteBrowserOpenTab(json: json) else { return }
             openRequestedTab(request, from: sink)
@@ -710,15 +713,19 @@ public final class StreamedBrowserModel: BrowserTabState {
             open = context
             contextMenu = nil
         } else {
+            log.notice("browser \(self.tab, privacy: .public): menu \(token) already closed; \(String(describing: choice), privacy: .public) not sent")
             return
         }
-        send(wire.menuResult(token: token, choice: open.menu.accepts(choice) ? choice : .cancel))
+        let answer = open.menu.accepts(choice) ? choice : .cancel
+        log.notice("browser \(self.tab, privacy: .public): menu \(token) answer \(String(describing: answer), privacy: .public)")
+        send(wire.menuResult(token: token, choice: answer))
     }
 
     /// The person answered the dialog `token` (`text`: a prompt's answer).
     public func answerDialog(_ token: UInt64, accept: Bool, text: String? = nil) {
         guard let open = dialog, open.token == token else { return }
         dialog = nil
+        log.notice("browser \(self.tab, privacy: .public): dialog \(token) answer accept=\(accept)")
         send(wire.dialogResult(token: token, accept: accept, text: accept && open.dialog.kind == .prompt ? (text ?? "") : nil))
     }
 
@@ -742,6 +749,7 @@ public final class StreamedBrowserModel: BrowserTabState {
         Task { [weak self] in
             let tab = await openTab(request)
             guard let self, self.sink === sink else { return }
+            log.notice("browser \(self.tab, privacy: .public): open_tab \(request.request) -> \(tab ?? "refused", privacy: .public)")
             send(wire.openTabResult(request: request.request, tab: tab, refused: tab == nil ? "refused" : nil))
         }
     }
