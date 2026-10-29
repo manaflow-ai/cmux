@@ -150,6 +150,58 @@ test('very tall images bound both decoder dimensions', async () => {
   assert.equal(h.decoded[0].resizeHeight, 1024);
 });
 
+const eventCode = page.slice(page.indexOf('  function applyEventInner('), page.indexOf('  const pendingPermission'));
+function eventHarness(options) {
+  const h = harness(options);
+  vm.runInContext(eventCode, h.context);
+  h.event = (kind, msg) => { h.context.ev = { dir: 'mux', kind, msg, at: Date.now() }; h.run("applyEventInner(state.transcripts.get('peer/session-1'), ev)"); };
+  h.rows = () => h.run("state.transcripts.get('peer/session-1').items.filter(x => x.type === 'user')");
+  h.run("state.transcripts.set('peer/session-1', newTranscript())");
+  return h;
+}
+
+test('sending works where crypto.randomUUID is missing (plain HTTP origins)', async () => {
+  const h = harness();
+  h.context.crypto = { getRandomValues: (a) => { for (let i = 0; i < a.length; i++) a[i] = (i * 37 + 11) & 255; return a; } };
+  h.input.value = 'hello';
+  await h.run('send(false)');
+  const prompt = h.calls.find(c => c.method === 'session/prompt');
+  assert.ok(prompt, 'the prompt never reached the server');
+  assert.match(prompt.params._meta.acpmux.promptId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(h.run('sendingPrompt'), false, 'the composer stays locked');
+});
+
+test('a queued event before acceptance leaves one row, which the prompt start replaces', async () => {
+  const h = eventHarness();
+  h.run("state.transcripts.get('peer/session-1').status = 'running'");
+  h.onPrompt(params => {
+    h.event('queued', { text: 'keep this draft', promptId: params._meta.acpmux.promptId });
+    h.context.acceptedId = params._meta.acpmux.promptId;
+    h.run('promptAccepts.get(acceptedId)()');
+  });
+  await h.run('send(false)');
+  assert.equal(h.rows().length, 1, 'acceptance added a second row');
+  h.event('user_message', { text: 'keep this draft', promptId: h.context.acceptedId });
+  const rows = h.rows();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].queued, undefined, 'a row stays queued forever');
+});
+
+test('a user_message before acceptance keeps the submitted image previews', async () => {
+  const h = eventHarness();
+  h.context.file = file(Buffer.from('image'));
+  await h.run('readImage(file).then(image => promptImages.push(image))');
+  h.onPrompt(params => {
+    h.event('user_message', { text: 'keep this draft', promptId: params._meta.acpmux.promptId });
+    h.context.acceptedId = params._meta.acpmux.promptId;
+    h.run('promptAccepts.get(acceptedId)()');
+  });
+  await h.run('send(false)');
+  const rows = h.rows();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].images?.length, 1, 'the accepted row lost its image previews');
+});
+
 test('a later upload failure cleans every earlier completed upload and retains all originals', async () => {
   const h = harness();
   h.context.files = [file(Buffer.from('first')), file(Buffer.from('second'))];
