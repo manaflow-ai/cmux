@@ -70,6 +70,10 @@ schema's capture rules. Every checkpoint of a case is canonicalized together by 
 (the session's `engine`) canonicalizes without the tabs' engine (normalize.Context.drop ENGINE_DROP), so no pane
 order or id label depends on it, and gives each checkpoint the engines its raw tabs showed (`engines`).
 
+Journals: at the end of a case on an app that still answers, the app's input journal (`debug.journal`, the whole
+ring) goes to `<out>/journals/<suite>/<case>.jsonl`, a `cmux-input-journal-v1` header line and one entry per line,
+for oracle-replay (OracleReplay, p15-oracle-104); tests/oracle/corpus/journals/ keeps the ones a push replays.
+
 Trace (`run-case --trace DIR`, `trace` in the session context): each case result carries its invariants.py trace,
 the raw checkpoints plus the side channels of invariants I11-I15 (p15-oracle-217). Per step: `debug.blocking`,
 `debug.hangs` (`limit` 1) and `debug.action_budget` (`limit` 1) just before the step acts, the same three once it
@@ -138,6 +142,10 @@ DAEMON = "daemon"
 # The app's control method names (CmuxNextControl OracleControl, OracleSettleControl, OracleRecorderControl).
 SNAPSHOT, SETTLE, WAIT_FOR = "debug.oracle.snapshot", "debug.oracle.settle", "debug.oracle.wait_for"
 RECORDER, TURNS = "debug.oracle.recorder", "debug.oracle.turns"
+# The input journal (input-spec.md section 3) each case saves for oracle-replay (p15-oracle-104): the whole ring
+# (InputJournal.defaultCapacity is 4,096), so replay starts from the windows' checkpoints and the terminals' starts.
+JOURNAL, JOURNAL_LAST = "debug.journal", 1 << 16
+JOURNAL_SCHEMA = "cmux-input-journal-v1"
 # I11-I13's readings per step (sideChannels): the newest hang record and action run before the step are the
 # cursors of the after readings, which ask for at most these many of the newer ones (each hang record is
 # symbolicated when read).
@@ -416,6 +424,18 @@ def action_target(target: Mapping[str, Any], step: str) -> Optional[str]:
     if not isinstance(value, str):
         raise CaseError("Crash", f"target.{kind} is {value!r}, not a string", step)
     return None if value == CURRENT else f"{kind}:{value}"
+
+
+def integral(value: Any) -> Any:
+    """`value` with every whole float as an int: a journal's seq and timestamps are UInt64 fields, which Swift's
+    decoder reads only from integer text."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: integral(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [integral(item) for item in value]
+    return value
 
 
 def typed_error(namespace: str, error: Any) -> str:
@@ -814,6 +834,8 @@ class CaseRun:
         if status in ("Crash", "Timeout") or self.dirty or not self.app.alive():
             # A crash or a stuck barrier leaves state the next case must not inherit (task 189 adds the reset check).
             result["session_dirty"] = True
+        if "session_dirty" not in result:
+            self.save_journal(result)
         if self.unchecked_receipts:
             notes = ", ".join(f"{step} {kind}" for step, kind in self.unchecked_receipts.items())
             result["message"] = "; ".join(filter(None, [message, f"receipt kind not compared (the app reply has no "
@@ -829,6 +851,31 @@ class CaseRun:
             result["trace"] = app_trace(self.case_id, self.case.get("steps") or (), self.state.captures, self.side,
                                         (self.resources[0], self.resources[1]), self.recorder_armed)
         return result
+
+    def save_journal(self, result: Dict[str, Any]) -> None:
+        """The app's input journal at the end of the case, as `<out>/journals/<case>.jsonl` (a header line, then one
+        entry per line) for oracle-replay. Only on an app that still answers (a Crash or Timeout dirtied the
+        session); the journal is evidence beside the case, so one that cannot be read or written is named in
+        `journal_error` and never changes the case's result."""
+        try:
+            reply = self.app.request(JOURNAL, {"last": JOURNAL_LAST}, REQUEST_S * self.scale)
+        except (socket.timeout, AppGone) as error:
+            result["journal_error"] = f"{JOURNAL}: {error!r}"
+            return
+        body = reply.get("result") if reply.get("ok") is True else None
+        if not isinstance(body, dict) or not isinstance(body.get("entries"), list):
+            result["journal_error"] = f"{JOURNAL} refused: {json.dumps(reply.get('error'))[:300]}"
+            return
+        header = {"schema": JOURNAL_SCHEMA, "source": self.case_id, "sha": self.session.sha, "stats": body.get("stats")}
+        path = self.session.journals / f"{self.case_id}.jsonl"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lines = [json.dumps(integral(value), sort_keys=True) for value in [header, *body["entries"]]]
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except OSError as error:
+            result["journal_error"] = f"{path}: {error}"
+            return
+        result["journal"] = str(path)
 
     def switch_hits(self, step: str) -> Optional[Dict[str, Dict[str, int]]]:
         try:
@@ -1395,9 +1442,12 @@ class AppSession:
         self.paths = OraclePaths(Path(tempfile.mkdtemp(prefix="a", dir=str(root_base))))
         self.paths.home.mkdir()
         # The app log stays after close (the session root goes): a failed launch's report names it.
-        out = Path(session_ctx.get("out_dir") or root_base / "logs") / "app" / self.paths.root.name
+        logs = Path(session_ctx.get("out_dir") or root_base / "logs")
+        out = logs / "app" / self.paths.root.name
         out.mkdir(parents=True, exist_ok=True)
         self.out = out
+        # Each case's input journal (CaseRun.save_journal), outside the session root so it outlives the launch.
+        self.journals = logs / "journals"
         self.app = (make_app or BenchAppPort)(app, out, self.environment())
         self.launched: Optional[LaunchSpec] = None
         self.armable: Tuple[str, ...] = ()
