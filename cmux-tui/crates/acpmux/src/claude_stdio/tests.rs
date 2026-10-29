@@ -209,6 +209,35 @@ async fn a_subagent_result_does_not_clear_main_compaction() {
     assert!(t.is_compacting(), "a subagent result cleared the main compaction flag");
 }
 
+#[tokio::test]
+async fn a_cancelled_compaction_result_cannot_end_the_next_echoed_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type": "system", "subtype": "status", "status": "compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId": "acp-1"}))).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    t.inbound(&lines[0]).await;
+    t.inbound(&json!({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "manual"}})).await;
+    t.inbound(&json!({"type": "user", "isSynthetic": true, "message": {"role": "user", "content": "old summary"}})).await;
+    let old = t.inbound(&json!({"type": "result", "subtype": "success", "num_turns": 0, "duration_api_ms": 0, "result": ""})).await;
+    assert!(old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(1))));
+    assert!(
+        !old.iter().any(|m| matches!(m, Message::Response { id, .. } if id == &json!(2))),
+        "old compaction answered the new prompt: {old:?}"
+    );
+    t.inbound(&json!({"type": "assistant", "message": {"id": "new-message", "content": [{"type": "text", "text": "new reply"}]}})).await;
+    let new =
+        t.inbound(&json!({"type": "result", "subtype": "success", "result": "new reply"})).await;
+    assert!(new.iter().any(|m| matches!(m, Message::Response { id, result: Some(result), .. } if id == &json!(2) && result["stopReason"] == "end_turn")), "{new:?}");
+}
+
 /// A `/compact` that fails: the compacting status, then a status clearing it
 /// with a failed `compact_result`, and the same zero-turn success result. The
 /// failed status is the turn's output, so the result ends the prompt rather

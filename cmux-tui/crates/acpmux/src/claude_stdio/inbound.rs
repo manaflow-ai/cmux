@@ -23,8 +23,7 @@ impl Translator {
                     self.compacting.store(false, Ordering::SeqCst);
                 }
             }
-        } else if main_line
-            && ((kind == "system" && sub == "compact_boundary") || kind == "result")
+        } else if main_line && ((kind == "system" && sub == "compact_boundary") || kind == "result")
         {
             self.compacting.store(false, Ordering::SeqCst);
         }
