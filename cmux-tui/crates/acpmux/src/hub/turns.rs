@@ -749,9 +749,13 @@ impl Hub {
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
         // Under the append lock (`change_logged`, logging nothing): a read mark being logged
         // meanwhile cannot land after this, so a replay never puts the chat back to read over it.
+        // `shown` is read again under the meta lock: a client that attaches meanwhile either
+        // makes the turn skip the mark or finds it set and clears it (`seen.rs`).
         if !self.shown(session) {
             self.change_logged(session, "status", |m| {
-                m.unread = true;
+                if !self.shown(session) {
+                    m.unread = true;
+                }
                 None
             });
         }

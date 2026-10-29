@@ -758,8 +758,11 @@ impl Hub {
         self.catch_up_locked(session);
     }
 
+    /// Every caller holds the session's append lock. `caught_up` is set only once the tail is
+    /// replayed: the read-chat fast path (`seen.rs`) reads it without the lock and must never
+    /// see a session as caught up while the replay is still to come.
     fn catch_up_locked(&self, session: &Session) {
-        if session.caught_up.swap(true, Ordering::SeqCst) {
+        if session.caught_up.load(Ordering::SeqCst) {
             return;
         }
         let last_seq = session.meta.lock_or_recover().last_seq;
@@ -782,6 +785,7 @@ impl Hub {
             meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
+        session.caught_up.store(true, Ordering::SeqCst);
     }
 
     /// Runs `work` for each session on up to 8 threads (sessions are independent).
