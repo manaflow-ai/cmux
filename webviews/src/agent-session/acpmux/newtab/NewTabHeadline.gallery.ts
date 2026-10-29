@@ -59,6 +59,9 @@ const openMachine = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]') !== null);
 };
 const pickRemoteMachine = async (ctx: PlayContext) => {
+  const stable = [".nt-headline", ".nt-headline-text", ".nt-headline-choose", ".nt-composer"];
+  const rects = () => stable.map((selector) => ctx.document.querySelector(selector)?.getBoundingClientRect().toJSON());
+  const before = JSON.stringify(rects());
   await openMachine(ctx);
   await ctx.click({ role: "option", name: /^devbox/ });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu") === null);
@@ -68,6 +71,7 @@ const pickRemoteMachine = async (ctx: PlayContext) => {
         ?.getAttribute("aria-label")
         ?.includes("devbox") ?? false,
   );
+  if (JSON.stringify(rects()) !== before) throw new Error("Machine selection moved the headline or composer");
 };
 /// Picks `name` from the headline's picker, as a click on the project's name and then on its row.
 const pick = async (ctx: PlayContext, name: string) => {
@@ -150,6 +154,13 @@ export default agentPaneEntry({
       note: "Pick devbox from the machine picker: the no-project headline scopes work to devbox, whose session supplies the /home/dev/api project.",
       ready: machinePage(),
       snapshot: machineSnapshot(),
+      checks: {
+        layoutShiftMax: {
+          value: 0.0001,
+          reason:
+            "Changing studio to devbox resizes the invisible button hit-area ::before (Chromium measured 0.0000875; base 0.0000433). The play asserts unchanged headline, text, project chooser and composer rectangles.",
+        },
+      },
       play: pickRemoteMachine,
     },
   },
