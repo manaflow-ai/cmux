@@ -807,6 +807,18 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
+			<string>While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.</string>
+			<key>pfm_name</key>
+			<string>computerUse.livePreview</string>
+			<key>pfm_title</key>
+			<string>Live Preview in Chat</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
 			<string>Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits.</string>
 			<key>pfm_name</key>
 			<string>freeModel.enabled</string>
@@ -1853,6 +1865,16 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Accent</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.</string>
+			<key>pfm_name</key>
+			<string>appearance.highlightColor</string>
+			<key>pfm_title</key>
+			<string>Highlight Color</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
