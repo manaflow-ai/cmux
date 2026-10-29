@@ -6,7 +6,13 @@ import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import {
+  attachmentForTransport,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
@@ -680,7 +686,7 @@ export function Composer({
         field.current?.focus();
       },
       wakeState: () => ({
-        attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
+        attachments: attachmentsRef.current.filter((chip) => !chip.shellRun).map(attachmentForTransport),
         shell: shellRef.current.shell,
         shellText: shellRef.current.shellText,
       }),
@@ -1048,7 +1054,7 @@ export function Composer({
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
     unsentDraft.current?.flush();
-    const sent = attachments;
+    const sent = attachments.map(attachmentForTransport);
     const taken = onSend(prompt, sent, steer);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";

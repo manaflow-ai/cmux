@@ -47,6 +47,13 @@ export type AttachmentError = {
 /// A refusal with the file it refuses, so a caller can send that file another way (a chat's upload).
 export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
 
+/// Draft, wake and prompt payloads are JSON/Codable. A live video preview is page-local bytes and
+/// must never cross that boundary; the composer keeps it in its live chip until the chip is sent.
+export function attachmentForTransport(attachment: ComposerAttachment): ComposerAttachment {
+  const { preview: _preview, ...transport } = attachment;
+  return transport;
+}
+
 /// A recording stays a resource link for the agent, while its original bytes can draw a local
 /// preview even when the path is outside the session roots.
 export function isVideoFile(file: Pick<File, "name" | "type">): boolean {

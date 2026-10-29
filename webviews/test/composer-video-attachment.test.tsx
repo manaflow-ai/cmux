@@ -108,6 +108,7 @@ try {
     expect(isVideoAttachment(linkAttachment("/tmp/clip.m4v", false))).toBe(true);
     expect(isVideoAttachment(linkAttachment("/tmp/build.zip", false))).toBe(false);
     expect(isVideoAttachment(linkAttachment("/tmp/movies.mov", true))).toBe(true);
+    expect(isVideoAttachment({ ...linkAttachment("/tmp/movies.webm", false), mimeType: "video/webm" })).toBe(true);
     expect(isVideoAttachment({ ...video(), kind: "image" })).toBe(false);
   });
 
@@ -150,10 +151,11 @@ try {
     expect(calls.filter((call) => call.method === "video.info").length).toBe(1);
   });
 
-  test("a chat's kept draft never carries a video's poster and frames: they are read again", () => {
-    const read = { ...video(), video: INFO };
+  test("draft persistence strips page-local video preview bytes", () => {
+    const preview = new Blob([new Uint8Array([0, 1, 2])], { type: "video/quicktime" });
+    const read = { ...video(), preview, video: INFO };
     expect(keptChips([read])).toEqual([video()]);
-    expect(keptChips([video()])).toEqual([video()]);
+    expect(keptChips([{ ...video(), preview }])).toEqual([video()]);
   });
 
   test("a video the host cannot read stays a file chip and holds nothing", async () => {

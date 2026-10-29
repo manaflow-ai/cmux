@@ -29,9 +29,14 @@ const MAX_FRAMES = 8;
 export const VIDEO_INFO_DEADLINE_MS = 5_000;
 
 /// Whether `attachment` is a video that goes as its path: a link chip (a dropped, pasted or chosen
-/// file, or a saved copy) whose name is a movie's. The + menu's chooser gives no type, so the name decides.
+/// file, or a saved copy) whose name or MIME type is a movie's. The + menu's chooser gives no type,
+/// so the name decides there.
 export function isVideoAttachment(attachment: ComposerAttachment): attachment is ComposerAttachment & { path: string } {
-  return attachment.kind === "link" && typeof attachment.path === "string" && VIDEO_PATH.test(attachment.path);
+  return (
+    attachment.kind === "link" &&
+    typeof attachment.path === "string" &&
+    (VIDEO_PATH.test(attachment.path) || attachment.mimeType.startsWith("video/"))
+  );
 }
 
 const positive = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value > 0;

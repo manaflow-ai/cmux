@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ComposerAttachment } from "../attachments";
+import { attachmentForTransport, type ComposerAttachment } from "../attachments";
 import { holdWebSwap } from "../../../pages/shared/webSwap";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening
@@ -22,8 +22,9 @@ export const KEPT_ATTACHMENTS_SETTLE_MS = 300;
 export function keptChips(attachments: readonly ComposerAttachment[]): ComposerAttachment[] {
   return attachments.flatMap((chip) => {
     if (chip.shellRun) return [];
-    if (!chip.video) return [chip];
-    const { video: _video, ...kept } = chip;
+    const transport = attachmentForTransport(chip);
+    if (!chip.video) return [transport];
+    const { video: _video, ...kept } = transport;
     return [kept];
   });
 }
