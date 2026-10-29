@@ -405,15 +405,20 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
 }
 
 export async function postAndSchedule(b: ChiefBrainDO, id: string): Promise<void> {
-  const next = await liveOf(b.doCtx).after(async () => undefined).then(() => b.post(id)) // the final delta and the run end reach members before the reply
+  // The admission re-check does not depend on the live frames: it runs while they drain, not after (one
+  // settings round trip off every reply). A child reports through childReport, which never reads it.
+  const cfg = b.config()
+  const admission = !b.childOf() && cfg.agent && cfg.owner ? b.admitted(cfg.agent, cfg.owner, false).catch((): Admission => ({ ok: false, reason: "owner.unreachable" })) : undefined
+  const next = await liveOf(b.doCtx).after(async () => undefined).then(() => b.post(id, admission)) // the final delta and the run end reach members before the reply
   if (next !== null) await b.schedule(`post:${id}`, "post", next)
 }
 
 /**
  * Posts the run's reply as the chief. Returns when to try again (the loop guard's agent_rate, or no
- * answer), or null when done; done acks the wakes.
+ * answer), or null when done; done acks the wakes. `admission`: the settings re-check already under way
+ * (postAndSchedule starts it beside the live drain); a retry asks again.
  */
-export async function post(b: ChiefBrainDO, id: string): Promise<number | null> {
+export async function post(b: ChiefBrainDO, id: string, admission?: Promise<Admission>): Promise<number | null> {
   if (b.posting.has(id)) return null
   b.posting.add(id)
   try {
@@ -422,7 +427,7 @@ export async function post(b: ChiefBrainDO, id: string): Promise<number | null> 
     const cfg = b.config()
     if (!t || t.post !== "pending" || !t.reply || !cfg.agent || !cfg.owner) return null
     // The chief may have been archived or placed on a server since the turn began.
-    const a = await b.admitted(cfg.agent, cfg.owner, false).catch((): Admission => ({ ok: false, reason: "owner.unreachable" }))
+    const a = await (admission ?? b.admitted(cfg.agent, cfg.owner, false)).catch((): Admission => ({ ok: false, reason: "owner.unreachable" }))
     const steps = Number(b.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM cb_step WHERE turn = ?`, id).one().n)
     // The ledger replays a refusal under the same key, so a refused try's retry needs a new key (the
     // key is also the client message id); an unknown outcome (no answer) retries under the same key.

@@ -57,6 +57,7 @@ public final class SettingsApplier {
         if design.homeChannelsEnabled != snapshot.homeChannelsEnabled { design.homeChannelsEnabled = snapshot.homeChannelsEnabled }
         let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyleSetting.theme
         if design.homeChiefBubblesThemed != chiefBubblesThemed { design.homeChiefBubblesThemed = chiefBubblesThemed }
+        if design.homeBubbleColors != snapshot.homeBubbleColors { design.homeBubbleColors = snapshot.homeBubbleColors }
         if design.homeChiefPetEnabled != snapshot.homeChiefPetEnabled { design.homeChiefPetEnabled = snapshot.homeChiefPetEnabled }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.tabOverflow != snapshot.tabOverflow { design.tabOverflow = snapshot.tabOverflow }
@@ -116,21 +117,46 @@ public final class SettingsApplier {
                 continue
             }
             let id = registry.canonicalID(for: requested)
-            switch binding {
-            case .unbound:
-                setOverride(nil, for: id)
-            case .stroke(let stroke):
-                setOverride(Self.shortcut(for: stroke), for: id)
-            case .chord(let first, let second):
-                // Only Command and Control chords reach the key router.
-                guard first.command || first.control else {
-                    diagnostics.append(SettingsDiagnostic(kind: .unsupportedChord, path: path,
-                                                          message: "the first key of a chord needs cmd or ctrl; the default shortcut stays"))
+            var keys: [[Shortcut]] = []
+            for key in binding.keys {
+                switch key {
+                case .stroke(let stroke):
+                    keys.append([Self.shortcut(for: stroke)])
+                case .chord(let first, let second):
+                    // Only Command and Control chords reach the key router.
+                    guard first.command || first.control else {
+                        diagnostics.append(SettingsDiagnostic(kind: .unsupportedChord, path: path,
+                                                              message: binding.keys.count > 1
+                                                                  ? "the first key of a chord needs cmd or ctrl; this key is skipped"
+                                                                  : "the first key of a chord needs cmd or ctrl; the default shortcut stays"))
+                        continue
+                    }
+                    keys.append([Self.shortcut(for: first), Self.shortcut(for: second)])
+                case .unbound, .alternates:
                     continue
                 }
-                let chord = ShortcutChord(Self.shortcut(for: first), Self.shortcut(for: second))
-                if registry.chordOverrides[id] != chord { registry.setChordOverride(chord, for: id) }
             }
+            // A numbered family (`⌘1…9`) is named by one key.
+            if keys.count > 1, registry.descriptor(for: id)?.shortcutFamily != nil {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path,
+                                                      message: "a numbered family takes one key; only the first is used"))
+                keys = [keys[0]]
+            }
+            if binding.keys.isEmpty {
+                setOverride(nil, for: id)
+            } else if let primary = keys.first {
+                if primary.count == 1 {
+                    setOverride(primary[0], for: id)
+                } else {
+                    let chord = ShortcutChord(primary[0], primary[1])
+                    if registry.chordOverrides[id] != chord { registry.setChordOverride(chord, for: id) }
+                }
+            } else {
+                continue
+            }
+            // `{"any": [...]}`: the keys after the first run the action too.
+            let alternates = Array(keys.dropFirst())
+            if registry.alternateShortcuts[id] ?? [] != alternates { registry.setAlternateShortcuts(alternates, for: id) }
             applied.insert(id)
         }
         // `tabs.swapCmdTAndCmdN`: Cmd-T is New Workspace and Cmd-N New Tab, unless the user
@@ -183,7 +209,7 @@ public final class SettingsApplier {
     }
 
     private func setOverride(_ shortcut: Shortcut?, for id: ActionID) {
-        if let current = registry.shortcutOverrides[id], current == shortcut { return }
+        if let current = registry.shortcutOverrides[id], current == shortcut, registry.alternateShortcuts[id] == nil { return }
         registry.setShortcutOverride(shortcut, for: id)
     }
 
@@ -211,12 +237,12 @@ public final class SettingsApplier {
     /// One diagnostic per group of actions that claim the same shortcut in
     /// the same context.
     public static func conflictDiagnostics(in registry: ActionRegistry) -> [SettingsDiagnostic] {
-        registry.shortcutConflicts().map { group in
-            let shortcut = registry.shortcutDisplay(for: group[0]) ?? ""
+        registry.shortcutConflictGroups().map { group in
+            let shortcut = registry.shortcutDisplay(group.shortcut, for: group.ids[0])
             return SettingsDiagnostic(
                 kind: .shortcutConflict,
-                path: group.map { "shortcuts.bindings.\($0.rawValue)" }.joined(separator: ", "),
-                message: "\(shortcut) is bound to \(group.map(\.rawValue).joined(separator: ", "))"
+                path: group.ids.map { "shortcuts.bindings.\($0.rawValue)" }.joined(separator: ", "),
+                message: "\(shortcut) is bound to \(group.ids.map(\.rawValue).joined(separator: ", "))"
             )
         }
     }

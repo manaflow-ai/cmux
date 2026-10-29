@@ -191,9 +191,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Allow { session, option } => answer_permission(&session, option, true).await,
-        Command::Deny { session } => answer_permission(&session, None, false).await,
-        Command::Answer { session, answer } => answer_question(&session, &answer).await,
+        Command::Allow { session, option } => {
+            answer_permission(&session, option, true, json_out).await
+        }
+        Command::Deny { session } => answer_permission(&session, None, false, json_out).await,
+        Command::Answer { session, answer } => answer_question(&session, &answer, json_out).await,
         Command::Export { session, dest } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -359,6 +361,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         v.get("pid").and_then(Value::as_u64).unwrap_or(0),
                         age(v.get("startedAt").and_then(Value::as_u64).unwrap_or(0))
                     );
+                    for stuck in v["stuckSessions"].as_array().into_iter().flatten() {
+                        println!(
+                            "stuck: {} ({}) since {}: {}",
+                            stuck["name"].as_str().unwrap_or(""),
+                            stuck["stuckReason"].as_str().unwrap_or(""),
+                            stuck["stuckSince"],
+                            stuck["stuckError"].as_str().unwrap_or("")
+                        );
+                    }
                     println!("socket:   {}", v.get("socket").and_then(Value::as_str).unwrap_or(""));
                     println!("home:     {}", v.get("home").and_then(Value::as_str).unwrap_or(""));
                     println!(
@@ -416,6 +427,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Shutdown { end_agents, .. } => {
             crate::cli::shutdown::run(end_agents, json_out).await
         }
+        Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
         Command::Config { show_token } => {
             let path = Config::path();
             if json_out {
@@ -664,6 +676,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         harnesses,
                         remote_binary,
                         reverse,
+                        lends_github: false,
                     };
                     return crate::cli::host_enroll::run(client, plan, fix, json_out).await;
                 }
