@@ -7,6 +7,7 @@
   padding-bottom: 4px;
 }
 .acpmux-chat-inspector-context__total {
+  font-variant-numeric: tabular-nums;
   display: flex;
   align-items: baseline;
   gap: 8px;

@@ -4,6 +4,7 @@
 // acpmux says so. Without that, "Needs reconnect" is plain text: nothing here looks clickable that
 // is not.
 import { useState } from "react";
+import { StableLabel } from "../../../ui/StableLabel";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -81,7 +82,14 @@ export function ReconnectButton({
         );
       }}
     >
-      {label}
+      <StableLabel
+        label={label}
+        alternatives={[
+          t("chatInspector.connectors.reconnectAction"),
+          t("chatInspector.connectors.reconnecting"),
+          t("chatInspector.connectors.retry"),
+        ]}
+      />
     </button>
   );
 }

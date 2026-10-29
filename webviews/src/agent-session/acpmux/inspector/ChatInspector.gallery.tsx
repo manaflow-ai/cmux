@@ -566,6 +566,7 @@ export default componentEntry<Props>({
   height: 900,
   widths: { narrow: 320, normal: 420 },
   covers: [
+    "ui/StableLabel.tsx",
     "agent-session/acpmux/inspector/ChatInspector.tsx",
     "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
@@ -693,8 +694,18 @@ export default componentEntry<Props>({
         onReconnectMcp: () => new Promise(() => undefined),
       },
       play: async (ctx) => {
+        const save = ctx.find({ selector: '[data-section="environment"] button.acpmux-chat-inspector-link' });
+        const reconnect = ctx.find({ selector: '[data-section="connectors"] button.acpmux-chat-inspector-link' });
+        const widths = [save, reconnect].map((button) => button.getBoundingClientRect().width);
         await ctx.click({ selector: '[data-section="environment"] button.acpmux-chat-inspector-link' });
+        await ctx.waitFor(() => save.hasAttribute("disabled"));
         await ctx.click({ selector: '[data-section="connectors"] button.acpmux-chat-inspector-link' });
+        await ctx.waitFor(() => reconnect.hasAttribute("disabled"));
+        [save, reconnect].forEach((button, index) => {
+          if (Math.abs(button.getBoundingClientRect().width - widths[index]!) > 0.5) {
+            throw new Error("Session Info action changed width with its label");
+          }
+        });
       },
     },
     "context-connectors-open": {

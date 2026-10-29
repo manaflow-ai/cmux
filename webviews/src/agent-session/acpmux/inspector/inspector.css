@@ -944,6 +944,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   background: none;
   color: var(--agent-muted);
   font: inherit;
+  font-variant-numeric: tabular-nums;
   font-size: var(--text-detail);
   text-align: left;
   appearance: none;

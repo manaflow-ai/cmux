@@ -7,6 +7,7 @@
 // the Files tree beside the chat, the repository and the branch are links to GitHub, which the pane
 // opens in the browser as it opens a reply's link.
 import { useState, type ReactNode } from "react";
+import { StableLabel } from "../../../ui/StableLabel";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -170,7 +171,10 @@ export function EnvironmentSection({
             disabled={saved}
             onClick={save}
           >
-            {t(saved ? "artifact.saved" : "chatInspector.environment.save")}
+            <StableLabel
+              label={t(saved ? "artifact.saved" : "chatInspector.environment.save")}
+              alternatives={[t("chatInspector.environment.save"), t("artifact.saved")]}
+            />
           </button>
         )}
       </li>
