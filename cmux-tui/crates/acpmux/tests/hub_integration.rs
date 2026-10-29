@@ -45,6 +45,8 @@ mod permission_display;
 mod permission_groups;
 #[path = "hub_integration/presence.rs"]
 mod presence;
+#[path = "hub_integration/prompt_class.rs"]
+mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[path = "hub_integration/prompt_ledger.rs"]
@@ -83,6 +85,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stuck_liveness.rs"]
+mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]
 mod subagent_retry;
 #[path = "hub_integration/surfaces.rs"]
@@ -1580,6 +1584,8 @@ mod preset_args;
 mod bg_tasks;
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
+#[path = "hub_integration/failover_unstartable.rs"]
+mod failover_unstartable;
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
 #[path = "hub_integration/quit_spawn.rs"]

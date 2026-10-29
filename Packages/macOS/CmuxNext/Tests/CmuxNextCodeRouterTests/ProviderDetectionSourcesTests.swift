@@ -93,6 +93,61 @@ struct ProviderDetectionSourcesTests {
         #expect(Self.detector(files: [Self.codexConfig: config]).detectCodex().status == .signedIn)
     }
 
+    @Test(arguments: ["short", "contains\nnewline"])
+    func malformedAPIKeyIsUnknownBeforeTheFirstPrompt(key: String) {
+        let detection = Self.detector(env: ["OPENAI_API_KEY": key]).detectLocal(.openAI)
+        #expect(detection.status == .unknown)
+        #expect(detection.sources == [.environment("OPENAI_API_KEY")])
+    }
+
+    /// Gemini reads `GEMINI_API_KEY` before `GOOGLE_API_KEY`: only the key that would be sent is judged.
+    @Test func aMalformedGeminiAliasDoesNotHideAValidPrimaryKey() {
+        let valid = "AIzaSyA-valid-gemini-key-0123456789"
+        let both = Self.detector(env: ["GEMINI_API_KEY": valid, "GOOGLE_API_KEY": "short"]).detectLocal(.gemini)
+        #expect(both.status == .signedIn)
+        #expect(both.sources == [.environment("GEMINI_API_KEY"), .environment("GOOGLE_API_KEY")])
+        let primaryBad = Self.detector(env: ["GEMINI_API_KEY": "short", "GOOGLE_API_KEY": valid]).detectLocal(.gemini)
+        #expect(primaryBad.status == .unknown)
+        let aliasOnly = Self.detector(env: ["GOOGLE_API_KEY": valid]).detectLocal(.gemini)
+        #expect(aliasOnly.status == .signedIn)
+    }
+
+    struct NoSavedKeys: ProviderKeyStoring {
+        func savedProviders() -> Set<AIProvider> { [] }
+        func save(_ key: String, for provider: AIProvider) throws {}
+        func key(for provider: AIProvider) throws -> String? { nil }
+        func delete(for provider: AIProvider) throws {}
+    }
+
+    /// Accounts shows an API key as signed in exactly when Connect would accept it, so a key
+    /// never reads ready and then fails `invalidFormat` on the first Connect.
+    struct KeyCase: Sendable, CustomTestStringConvertible {
+        let provider: AIProvider, name: String, key: String, accepted: Bool
+        var testDescription: String { "\(name) \(accepted ? "accepted" : "refused")" }
+    }
+
+    @Test(arguments: [
+        KeyCase(provider: .anthropic, name: "ANTHROPIC_API_KEY", key: "abcdefghijklmnopqrstuvwxyz0123", accepted: false),
+        KeyCase(provider: .anthropic, name: "ANTHROPIC_API_KEY", key: "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz", accepted: false),
+        KeyCase(provider: .anthropic, name: "ANTHROPIC_API_KEY", key: "sk-ant-api03-abcdefghijklmnopqrstuvwxyz", accepted: true),
+        KeyCase(provider: .openAI, name: "OPENAI_API_KEY", key: "short", accepted: false),
+        KeyCase(provider: .openAI, name: "OPENAI_API_KEY", key: "sk-proj-abcdefghijklmnopqrstuvwxyz", accepted: true),
+        KeyCase(provider: .openRouter, name: "OPENROUTER_API_KEY", key: "sk-or-v1-abcdefghijklmnopqrstuvwxyz", accepted: true),
+    ])
+    func detectionAgreesWithConnectOnKeyFormat(_ c: KeyCase) {
+        let detector = Self.detector(env: [c.name: c.key])
+        #expect(detector.detectLocal(c.provider).status == (c.accepted ? .signedIn : .unknown))
+        let resolver = CredentialResolver(environment: detector.environment, keys: NoSavedKeys())
+        let connects = (try? resolver.credential(for: c.provider, pasted: nil)) != nil
+        #expect(connects == c.accepted)
+    }
+
+    @Test func emptyAPIKeyUsesMissingStateBecauseConnectIgnoresIt() {
+        let detection = Self.detector(env: ["OPENAI_API_KEY": ""]).detectLocal(.openAI)
+        #expect(detection.status == .missing)
+        #expect(detection.sources.isEmpty)
+    }
+
     @Test(arguments: [
         "model = \"gpt-5\"",
         "model_provider = \"openai\"",
