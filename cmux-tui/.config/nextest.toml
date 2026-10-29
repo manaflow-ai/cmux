@@ -120,3 +120,9 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(acpmux::perf_ops)'
 success-output = "final"
+
+# The browser host's owner test prints what an idle host costs while its app
+# runs ("owner_liveness: idle cmux-browser-host RSS"; tests/cli.rs).
+[[profile.ci.overrides]]
+filter = 'test(=owner_liveness_a_host_follows_its_fake_provider_app_and_stops_after_it_is_gone)'
+success-output = "final"
