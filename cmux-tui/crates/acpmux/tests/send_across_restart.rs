@@ -195,8 +195,10 @@ fn a_lock_the_daemon_cannot_open_fails_at_once_instead_of_waiting_for_a_handover
 fn cli_daemon_restart_reattaches_an_active_turn() {
     let dir = scratch("cli-restart");
     let _shutdown = Shutdown(&dir);
-    let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake", "ticking:20:100"]);
+    let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake"]);
     assert!(made.status.success(), "start: {}", text(&made));
+    let prompted = cli(&dir, &["send", "lane", "ticking:20:100"]);
+    assert!(prompted.status.success(), "prompt: {}", text(&prompted));
     let live = cli(&dir, &["--json", "daemon", "status"]);
     assert!(
         live.status.success(),
