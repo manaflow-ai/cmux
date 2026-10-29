@@ -27,7 +27,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 90
+    timeout-minutes: 240
     defaults:
       run:
         shell: bash
@@ -120,9 +120,19 @@ jobs:
             printf '%s\n' "$client_commit" > "$RUNNER_TEMP/cc-island-icons/logs/cmux-tui-commit.txt"
           } 2>&1 | tee "$RUNNER_TEMP/cc-island-icons/logs/cmux-tui.log"
 
+      - name: Restore fork-local native build cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/cc-island-derived-data
+            ${{ runner.temp }}/cc-island-source-packages
+          key: cc-island-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version', 'cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ github.run_id }}
+          restore-keys: |
+            cc-island-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version', 'cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+
       - name: Build tagged Debug app and bundled CLI without launching
         id: build
-        timeout-minutes: 60
+        timeout-minutes: 180
         env:
           CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
           CMUX_SOURCE_PACKAGES_DIR: ${{ runner.temp }}/cc-island-source-packages
@@ -229,6 +239,15 @@ jobs:
           retention-days: 7
           compression-level: 0
           if-no-files-found: error
+
+      - name: Preserve native build cache after a compile attempt
+        if: ${{ !cancelled() && steps.build.outcome != 'skipped' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/cc-island-derived-data
+            ${{ runner.temp }}/cc-island-source-packages
+          key: cc-island-native-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version', 'cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ github.run_id }}
 
       - name: Upload build and focused-test logs on success or failure
         if: ${{ always() }}
