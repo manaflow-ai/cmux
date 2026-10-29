@@ -850,10 +850,9 @@ extension LiveCoordinator {
         for session in sessions.values {
             guard let target = session.link.target,
                   let line = session.link.phase.statusLine(macName: target.name, media: session.link.media) else { continue }
-            var parts = [line]
-            if session.link.phase.isConnected, let chatsError = session.chatsError { parts.append("Chats: \(chatsError)") }
-            if session.outdated { parts.append("Update cmux on this Mac") }
-            status[target.macID] = parts.joined(separator: " · ")
+            // Keep the section header actionable and calm. Raw acpmux/daemon
+            // failures belong in diagnostics, never in the normal status line.
+            status[target.macID] = line
         }
         return status
     }
@@ -889,7 +888,7 @@ extension LiveCoordinator {
         case .connecting(let transport, let attempt):
             // Blips heal silently: the reconnecting banner waits 1.5 s.
             if attempt == 1, !everConnected {
-                banner = .connecting(to: "\(name) over \(transport.displayName)")
+                banner = .connecting(to: name)
             } else if banner == nil || banner == .connected {
                 bannerTask = Task { [weak self, clock] in
                     do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
@@ -920,8 +919,10 @@ extension LiveCoordinator {
                                           relayAvailable: Bool?) -> ConnectionBannerState {
         if reason == LinkController.reason(LinkError(code: "offline", message: "")) { return .macOffline(macName) }
         if wasConnected, attempt <= reconnectingAttempts { return .reconnecting(to: macName) }
-        let relay = relayAvailable == false ? ". Relay (TURN) unavailable" : ""
-        return .failed("Can't reach \(macName) over \(transport.displayName)\(relay)")
+        if relayAvailable == false {
+            return .failed("Offline · Retry")
+        }
+        return .failed("Offline · Retry")
     }
 }
 

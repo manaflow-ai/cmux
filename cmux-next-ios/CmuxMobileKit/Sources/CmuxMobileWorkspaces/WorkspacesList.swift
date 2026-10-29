@@ -953,11 +953,11 @@ public struct WorkspacesList: View {
                 message: "\(RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
             )
             .accessibilityIdentifier("workspaces.empty.offline")
-        case .failed(let reason):
+        case .failed:
             EmptyState(
                 symbol: "bolt.horizontal.circle",
                 title: "Can't connect to \(displayName(mac))",
-                message: "\(displayName(mac)) is online, but this iPhone can't reach it: \(reason).",
+                message: "\(displayName(mac)) is online, but this iPhone can't reach it.",
                 primaryTitle: reconnect == nil ? nil : "Retry",
                 primary: reconnect.map { reconnect in { reconnect(mac.id) } }
             )

@@ -17,14 +17,14 @@ import Testing
         var machine = LinkMachine(transport: .wireGuard, relayOnly: true)
         _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
         _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .direct))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard direct")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turn, rttMillis: 40))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN) · 40 ms")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
         // UDP blocked: TURN reached over TLS. (There is no WebSocket relay any more.)
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turnTLS, rttMillis: nil))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 40 ms")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .noPath, rttMillis: nil))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
     }
 }
 
@@ -36,17 +36,17 @@ import Testing
         _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
         _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .direct))
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .direct, rttMillis: 14))
-        #expect(machine.phase.statusLine(macName: "Studio", media: machine.media) == "Connected · WireGuard direct · 14 ms")
+        #expect(machine.phase.statusLine(macName: "Studio", media: machine.media) == "Connected")
         _ = machine.handle(.mediaUpdated(generation: machine.generation, .up(.turn, rttMillis: 16)))
         #expect(machine.phase.statusLine(macName: "Studio", media: machine.media)
-            == "Connected · WireGuard direct · video WebRTC (TURN) · 14 ms")
+            == "Connected")
         _ = machine.handle(.mediaUpdated(generation: machine.generation, .up(.direct, rttMillis: 9)))
         #expect(machine.phase.statusLine(macName: "Studio", media: machine.media)
-            == "Connected · WireGuard direct · video WebRTC (direct) · 14 ms")
+            == "Connected")
         // The session failed: video rides the tunnel.
         _ = machine.handle(.mediaUpdated(generation: machine.generation, .failed(reason: "ICE failed")))
         #expect(machine.phase.statusLine(macName: "Studio", media: machine.media)
-            == "Connected · WireGuard direct · video in the tunnel · 14 ms")
+            == "Connected")
     }
 
     @Test func aStaleLinksMediaIsIgnoredAndARedialForgetsIt() {
@@ -89,18 +89,18 @@ import Testing
         let banner = LiveCoordinator.waitingBanner(
             macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: late, wasConnected: true,
             relayAvailable: false)
-        #expect(banner == .failed("Can't reach Studio over WireGuard. Relay (TURN) unavailable"))
+        #expect(banner == .failed("Offline · Retry"))
     }
 
     @Test func aMacNeverReachedIsAFailure() {
         let banner = LiveCoordinator.waitingBanner(
             macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: 2, wasConnected: false,
             relayAvailable: true)
-        #expect(banner == .failed("Can't reach Studio over WireGuard"))
+        #expect(banner == .failed("Offline · Retry"))
         let noRelay = LiveCoordinator.waitingBanner(
             macName: "Studio", transport: .webRTC, reason: timedOut, attempt: 2, wasConnected: false,
             relayAvailable: false)
-        #expect(noRelay == .failed("Can't reach Studio over WebRTC. Relay (TURN) unavailable"))
+        #expect(noRelay == .failed("Offline · Retry"))
     }
 
     @Test func anOfflineMacIsOfflineEitherWay() {

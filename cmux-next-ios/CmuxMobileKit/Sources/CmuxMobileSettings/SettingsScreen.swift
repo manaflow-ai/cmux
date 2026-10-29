@@ -70,9 +70,6 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     }
                 }
                 Section {
-                    NavigationLink(value: SettingsRoute.transport) {
-                        SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
-                    }
                     NavigationLink(value: SettingsRoute.devices) {
                         SettingsLabel("Devices", symbol: "laptopcomputer.and.iphone", value: devicesValue)
                     }
@@ -115,6 +112,13 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     Text("Privacy & notifications").cmuxMobileTextColumn()
                 } footer: {
                     Text("Require Face ID or passcode to open cmux on this device.").cmuxMobileTextColumn()
+                }
+                Section {
+                    NavigationLink(value: SettingsRoute.transport) {
+                        SettingsLabel("Transport", symbol: "antenna.radiowaves.left.and.right", value: transportValue)
+                    }
+                } header: {
+                    Text("Advanced").cmuxMobileTextColumn()
                 }
                 #if DEBUG
                 DeveloperSection(auth: auth)
