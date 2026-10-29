@@ -516,7 +516,10 @@ impl Hub {
             let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
                 continue;
             };
-            let settles = matches!(notice, PeerNotice::Connected | PeerNotice::Disconnected(_));
+            let settles = matches!(
+                notice,
+                PeerNotice::Connected | PeerNotice::Disconnected(_) | PeerNotice::Restarting
+            );
             self.apply_peer_notice(&peer, generation, notice);
             if settles {
                 current.mark_settled();
@@ -541,6 +544,18 @@ impl Hub {
         {
             match notice {
                 PeerNotice::Connected => tracing::info!(peer = %peer, "peer ready"),
+                PeerNotice::Restarting => {
+                    // A planned restart never enters the disconnect/flap-grace path. Keep
+                    // every row unchanged, but retire the old link's purge tombstones.
+                    let _rows = self.remote_sessions.lock().unwrap();
+                    if !self.is_current(&peer, generation) {
+                        return;
+                    }
+                    self.with_tombstones(&peer, generation, |t| t.link_ended());
+                    drop(_rows);
+                    self.peer_snapshots.flush(Some(&peer));
+                    tracing::info!(peer = %peer, "peer restarting");
+                }
                 PeerNotice::Disconnected(e) => {
                     let link = self.peer(&peer).map(|p| p.link()).unwrap_or_default();
                     // One line per drop, not per failed attempt while it is down.
@@ -1308,5 +1323,43 @@ mod tests {
         assert_eq!(some["y"]["peer"], "other", "the newer of two peer rows");
         assert!(some["solo"].get("peer").is_none(), "{:?}", some["solo"]);
         assert_eq!(some.len(), 3, "{some:?}");
+    }
+}
+
+#[cfg(test)]
+mod restart_notice_tests {
+    use super::*;
+    use crate::peer::{Peer, PeerNotice};
+
+    #[tokio::test(start_paused = true)]
+    async fn restart_settles_without_stale_rows_or_delayed_flap_notices() {
+        let mut config = Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let peer = Peer::new("remote", "ws://127.0.0.1:1", None, None, hub.peer_notices.clone());
+        hub.peers.lock().unwrap().insert(peer.name.clone(), peer.clone());
+        let rows = vec![
+            json!({"sessionId":"live", "name":"live", "status":"ready"}),
+            json!({"sessionId":"done", "name":"done", "status":"closed"}),
+        ];
+        hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Sessions(rows.clone()));
+        let before = hub.remote_sessions();
+        assert_eq!(before.len(), 2);
+        let mut events = hub.events.subscribe();
+        let mut settled = peer.settled();
+        hub.peer_notices
+            .send((peer.name.clone(), peer.generation, PeerNotice::Restarting))
+            .await
+            .unwrap();
+        settled.changed().await.unwrap();
+        tokio::time::advance(std::time::Duration::from_secs(11)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(hub.remote_sessions(), before);
+        assert!(events.try_recv().is_err(), "restart never schedules a flap deadline");
+        hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Sessions(rows));
+        hub.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Connected);
+        assert!(events.try_recv().is_err(), "unchanged reconnect rows do not flap");
     }
 }
