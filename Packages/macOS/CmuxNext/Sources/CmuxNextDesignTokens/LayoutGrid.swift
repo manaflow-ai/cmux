@@ -53,9 +53,9 @@ public nonisolated struct LayoutGrid: Sendable {
     public static let sidebarTextComfortable: CGFloat = 44
     public static let sidebarDepthIndent: CGFloat = 16
     public static let sidebarTrailCenter: CGFloat = 24
-    public static let sidebarTrailCenterComfortable: CGFloat = 26
+    public static let sidebarTrailCenterComfortable: CGFloat = 24
     public static let sidebarSecondMarkPitch: CGFloat = 20
-    public static let sidebarSecondMarkPitchComfortable: CGFloat = 24
+    public static let sidebarSecondMarkPitchComfortable: CGFloat = 20
     public static let transcriptIconBox: CGFloat = 16
     public static let transcriptTextGap: CGFloat = 24
     public static let gapBlock: CGFloat = 24
