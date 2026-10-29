@@ -106,7 +106,10 @@ export default componentEntry<Props>({
   height: 520,
   widths: { narrow: 420, normal: 640, wide: 900 },
   anchors: [{ selector: "[data-shell-step] .cv-tools > :first-child" }],
-  covers: ["agent-session/acpmux/conversation/ShellBlock.tsx", "agent-session/acpmux/conversation/shellHighlight.ts"],
+  covers: [
+    "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
+    "agent-session/acpmux/conversation/ShellBlock.tsx#ShellCommand",
+  ],
   styles: () => import("./ShellStepBody.gallery.css"),
   load: async () => ShellStepBodyGallery,
   keywords: ["shell", "command", "highlight", "syntax", "output", "scroll", "step"],

@@ -261,7 +261,7 @@ function word(src: string, at: number, out: ShellToken[], commandAt: boolean): {
   // The role of the word's plain text: a command, a keyword, a flag, a number, or none.
   let role: ShellRole | undefined;
   let from = at;
-  if (commandAt && /^-/.test(text)) {
+  if (commandAt && text.startsWith("-")) {
     role = "flag";
     keepsCommand = true;
   } else if (commandAt) {

@@ -161,7 +161,7 @@ test("past its highlighted head, a long command draws plain", () => {
 
 test("the command draws in its colors, one Find run, its prompt skipped", async () => {
   await act(async () =>
-    root!.render(<ShellBlock command={`cd ~/wt/lane && rg -n "todo" src`} output="src/a.ts:1:todo\n" />),
+    root!.render(<ShellBlock command={`cd ~/wt/lane && rg -n "todo" src`} output={"src/a.ts:1:todo\n"} />),
   );
   const block = container.querySelector(".cv-shell__command")!;
   expect(block.textContent).toBe(`$ rg -n "todo" src`);
@@ -179,7 +179,7 @@ test("streaming output tokenizes the command once, and a sibling step's not at a
   const view = (n: number) => (
     <>
       <ShellBlock command={`bun test --watch | tee "$LOG"`} output={lines(n)} live />
-      <ShellBlock command="git status --short" output=" M a.ts\n" />
+      <ShellBlock command="git status --short" output={" M a.ts\n"} />
     </>
   );
   await act(async () => root!.render(view(1)));
@@ -192,7 +192,7 @@ test("streaming output tokenizes the command once, and a sibling step's not at a
     root!.render(
       <>
         <ShellBlock command="bun test" output={lines(60)} />
-        <ShellBlock command="git status --short" output=" M a.ts\n" />
+        <ShellBlock command="git status --short" output={" M a.ts\n"} />
       </>,
     ),
   );

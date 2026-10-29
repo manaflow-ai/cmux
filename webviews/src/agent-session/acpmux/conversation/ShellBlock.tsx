@@ -100,11 +100,11 @@ export function ShellBlock({
             …
           </span>
         )}
-        {Boolean(shown.shown) && (
+        {shown.shown ? (
           <span className="cv-shell__output">
             <Lines text={shown.shown} />
           </span>
-        )}
+        ) : null}
       </pre>
       <PreviewMore preview={preview} />
       {!preview.long && <OutputMore output={shown} />}
