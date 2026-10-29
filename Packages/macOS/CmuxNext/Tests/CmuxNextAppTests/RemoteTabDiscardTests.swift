@@ -329,6 +329,31 @@ import Testing
         #expect(woken.record.machine == "m1")
     }
 
+    /// A session-local tab (no daemon record: a remote workspace whose cmux-tui serves no browser tabs) opened on a
+    /// machine holds a machine page with no tab model. Released while hidden, it must wake as `browser(for:url:)` builds
+    /// such a page, not stay a placeholder whose every show fails.
+    @Test func aReleasedSessionLocalMachineTabWakes() async throws {
+        let rig = PageBrowserTabDiscardTests.Rig(path: .pressure)
+        defer { rig.close() }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-machine-wake-\(UUID().uuidString.prefix(8))")
+        rig.services.machines.add(CloudMoveTests.machine(rig.services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root))
+        let typed = try #require(URL(string: "https://example.com/typed"))
+        let record = MachineBrowserRecord(machine: "vm-move", initialURL: typed)
+        let key = "session-local-\(UUID().uuidString.prefix(8))"
+        let page = try #require(MachineBrowserPages(cache: rig.services.cache).page(key: key, url: record.url, profile: .default),
+                                "no machine page for a registered machine")
+        #expect(rig.services.cache.tabModel(key) == nil, "the tab has a record")
+        rig.services.cache.install(page, for: key)
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        rig.hide(key)
+        try await rig.until("the hidden session-local machine tab was released") { rig.isHibernated(key) }
+
+        rig.services.cache.present(key, by: rig.pane, presence: .visible)
+        try await rig.until("the session-local machine tab woke") { !rig.isHibernated(key) }
+        let woken = try #require(rig.services.cache.browsers[key]?.tab as? MachineBrowserPageTab, "the wake made no machine page")
+        #expect(woken.queuedURL == typed)
+    }
+
     @Test func aMachinesBrowserThatFailsToStartDropsTheLastFrame() throws {
         let page = Self.machinePage()
         page.phase = .starting("m1")
