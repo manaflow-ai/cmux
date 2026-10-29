@@ -396,6 +396,22 @@ fn failed_reconnect_keeps_the_generated_prompt_recovery_identity() {
 }
 
 #[test]
+fn agent_error_named_like_daemon_close_is_not_replayed() {
+    let dir = scratch("agent-close-wording");
+    let _shutdown = Shutdown(&dir);
+    let marker = dir.join("agent-attempts");
+    let mut cmd = cli_command(&dir, &["run", "-q", "-n", "lane", "agent-daemon-closed-error"]);
+    cmd.env("FAKE_AGENT_DAEMON_CLOSED_MARKER", &marker)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let out = cmd.output().unwrap();
+    assert!(!out.status.success(), "agent RPC failure was replayed: {}", text(&out));
+    assert_eq!(fs::read_to_string(&marker).unwrap().lines().count(), 1);
+    let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap_or_default();
+    assert_eq!(error["error"]["detail"], "agent_error", "{}", text(&out));
+}
+
+#[test]
 fn cli_daemon_restart_preserves_bound_listener_with_saved_token() {
     let dir = scratch("cli-listener");
     let _daemon = start_custom_daemon(&dir, &[]);
