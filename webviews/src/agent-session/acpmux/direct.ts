@@ -2766,6 +2766,7 @@ export class AcpmuxDirectClient {
     before?: number;
     after?: number;
   }): Promise<unknown> {
+    // l10n-allow: internal selection race; the transcript surface renders its own localized state.
     if (params.sessionId !== this.selectedSessionId) return Promise.reject(new Error("Session changed"));
     return this.request("_acpmux/subagent_transcript", params, 15_000);
   }

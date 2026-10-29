@@ -5020,6 +5020,7 @@ function AcpmuxPane() {
   );
   const readWorkflowAgent = useCallback(
     (request: WorkflowDetailRequest & { before?: number; after?: number }) =>
+      // l10n-allow: internal transport error; the transcript surface renders its own localized state.
       directClient.current?.readWorkflowAgent(request) ?? Promise.reject(new Error("Not connected")),
     [],
   );

@@ -37,6 +37,7 @@ function pageOf(value: unknown): Page {
     page.start > page.end ||
     page.end > page.lines
   )
+    // l10n-allow: internal transcript protocol invariant; never shown to users.
     throw new Error("Invalid transcript page");
   return { ...page, offset: 0 };
 }
@@ -120,6 +121,7 @@ export class WorkflowTranscript {
       if (this.stopped) return;
       this.pages = [page];
     } else if (older) {
+      // l10n-allow: internal transcript cursor invariant; never shown to users.
       if (page.end !== this.pages[0]!.start || page.start >= page.end) throw new Error("Transcript cursor changed");
       page.offset = this.pages[0]!.offset - page.updates.length;
       this.pages = [page, ...this.pages];
@@ -146,6 +148,7 @@ export class WorkflowTranscript {
           break;
         }
         if (page.start !== previous.end || page.end <= previous.end)
+          // l10n-allow: internal transcript cursor invariant; never shown to users.
           throw new Error("Transcript cursor did not advance");
         page.offset = previous.offset + previous.updates.length;
         next.push(page);
