@@ -1046,12 +1046,15 @@ EOF
 }
 
 check_no_github_hosted_runners() {
-  # Nightly workflows (*nightly*.yml, *notarization*.yml) may still name these
-  # GitHub-hosted macOS and Windows images (tests/test_ci_no_github_hosted_macos.py
-  # holds macOS on its own). Hosted Ubuntu is no longer exempt there: nightly
-  # Linux jobs take Blacksmith like every other Linux job (Leo, 2026-10-27:
-  # "just put it on blacksmith / 16vcpu blacksmiths do exist").
-  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may still name the
+  # GitHub-hosted Windows image (cmux-tui-nightly.yml's Windows package leg).
+  # Hosted macOS is not exempt there any more: nightly Mac jobs take an owned
+  # Mac, then Blacksmith (tests/test_ci_nightly_off_blacksmith.py; Leo,
+  # 2026-10-27: "THE GITHUB HOSTED MACS / ARE THE SLOWEST THINGS"). Until
+  # 2026-10-28 macos-15/26 were stripped here, so nightly-next-train.yml's
+  # `vars.NIGHTLY_NEXT_TRAIN_RUNNER || 'macos-26'` passed this guard. Hosted
+  # Ubuntu is not exempt either (Leo, 2026-10-27: "just put it on blacksmith").
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
@@ -1168,8 +1171,8 @@ PY
       file="${line%%:*}"
       content="${line#*:*:}"
       [[ "$content" =~ ^[[:space:]]*# ]] && continue
-      # Nightly workflows may name hosted macOS and Windows images (above);
-      # their Linux jobs take Blacksmith.
+      # Nightly workflows may name the hosted Windows image (above); their
+      # Linux and macOS jobs take Blacksmith or an owned Mac.
       if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
         content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
       fi
@@ -1258,10 +1261,11 @@ YAML
 }
 
 check_no_self_hosted_fleet_runners() {
-  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
-  # GitHub-hosted images: they never route to Blacksmith (user decision
-  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
-  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name the hosted
+  # Windows image. The 2026-10-19 "nightlies never route to Blacksmith" rule
+  # that exempted hosted Ubuntu and macOS here is gone: nightlies take an owned
+  # Mac, then Blacksmith (tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # Required jobs route through repository variables. Forbid hardcoded fleet
   # labels so paid-provider fallback remains a configuration change and a
   # physical host label cannot bypass the routing rules. tart-* labels (the
@@ -2056,9 +2060,10 @@ check_background_macos_lane() {
     file="${line%%:*}"
     content="${line#*:*:}"
     rel="$(basename "$file")"
-    # Nightly workflows never run on Blacksmith (tests/test_ci_nightly_off_blacksmith.py):
-    # their hosted macos-15/26 jobs are the intended ephemeral route.
-    [[ "$rel" == *nightly*.yml || "$rel" == *notarization*.yml ]] && continue
+    # Nightly workflows are checked like every other: their Mac jobs take an
+    # owned Mac, then Blacksmith (tests/test_ci_nightly_off_blacksmith.py). They
+    # were skipped here until 2026-10-28, under the retired "nightlies never run
+    # on Blacksmith" rule.
     printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
     allowed=0
     for exception in ${hosted_exceptions[@]+"${hosted_exceptions[@]}"}; do

@@ -2,6 +2,7 @@
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileBrowserStream
+import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
@@ -141,6 +142,15 @@ final class ShellModel {
         }
     }
 
+    /// Shows `workspace` in place of the one on screen (the Chats list's Open in New Workspace).
+    /// The destination keeps its screen state at the same place in the path, so the path is
+    /// emptied first and the workspace pushed on the next turn, as `openTerminal` does.
+    func show(workspace: Workspace) {
+        tab = .workspaces
+        workspacesPath = []
+        Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
+    }
+
     /// A terminal agent's Feed event: its workspace on Workspaces, at that
     /// terminal tab (as a tap on the workspace row with that tab does).
     func openTerminal(_ item: FeedItem) {
@@ -199,6 +209,14 @@ final class ShellModel {
                 guard let backend, !macs.isEmpty else { throw WorkspaceCreationError("Not connected to a Mac") }
                 for macID in macs { try await backend.clearAllNotifications(on: macID) }
             }
+            FeedRouting.shared.markAllNotificationsRead = { [weak live, weak backend] in
+                // Each linked Mac reads its own unread tabs, as its Mark All Notifications as Read.
+                let macs = (live?.linkedMacIDs ?? []).filter { backend?.canClearNotifications(on: $0) == true }
+                guard let backend, !macs.isEmpty else { return 0 }
+                var read = 0
+                for macID in macs { read += try await backend.markAllNotificationsRead(on: macID) }
+                return read
+            }
             // A Feed reply to a terminal agent goes to its own Mac's link, into that terminal.
             FeedRouting.shared.replyToTerminal = { [weak live] item, text in
                 guard let feed = live?.terminalFeed(macID: item.macID) else { return "Not connected to that Mac." }
@@ -211,6 +229,7 @@ final class ShellModel {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
             FeedRouting.shared.clearAllNotifications = nil
+            FeedRouting.shared.markAllNotificationsRead = nil
             FeedRouting.shared.replyToTerminal = nil
             terminalTabs.sessionProvider = nil
             terminalTabs.showConnectedDevices = nil
@@ -259,6 +278,11 @@ final class ShellModel {
 
     /// Whether the route's chat is on screen now (its notification shows no banner).
     func isShowing(_ route: NotificationRoute) -> Bool {
+        // Chief lives on Home: its conversation on screen there shows the message itself.
+        if route.kind == "chief" {
+            guard UIApplication.shared.applicationState == .active, tab == .home, let id = route.conversationID else { return false }
+            return ChiefSession.conversationOnScreen == id
+        }
         guard UIApplication.shared.applicationState == .active, tab == .feed, let shown = feedPath.last,
               let destination = live?.destination(sessionID: route.sessionID, workspaceID: route.workspaceID, tabID: route.tabID) else { return false }
         return destination == shown

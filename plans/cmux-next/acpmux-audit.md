@@ -119,3 +119,15 @@ Landed 16a6e86a783..f1e15ab50ab (Lawrence 2026-10-26, "warm it up while the pers
   about 20 minutes twice (steps 741faa1f55b79c53e3f0fb01, 86de6fc13bfbbde592007912).
 - Base debt seen: `_acpmux/typing` is in Swift `knownParams` but not in
   `cmux-agent-pane-policy/policy.json`.
+
+## Notice to PL-acpmux: JSON writes use cmux-json JsonSet (2026-10-29)
+
+Landed f6dd9d4d2afc..2ab17f8e245d (panic-free JSON writes; lint (linux) green, run 40937358124).
+- New leaf crate `cmux-tui/crates/cmux-json`: `JsonSet::set(key, Value) -> bool`, `set_path`,
+  `object_mut`. A null value becomes an object; any other non-object stays unchanged and `set`
+  returns `false`. `no_panic::JsonExt` is now `pub use cmux_json::JsonSet as JsonExt`.
+- 362 acpmux `v["key"] = x` writes moved to `v.set("key", x)` (`set_path` for nested keys);
+  also `hub/fallback_start.rs` (failover note) and `session_scope.rs` (`without_swap` uses
+  `pair.get(1)`; its test passes the systemctl path by value).
+- The panic ratchet has no slack: acpmux `indexing_slicing` 1021 -> 697. A new `v["k"] = x` or
+  slice index turns lint (linux) red. Use `v.set("k", x)` or `get_mut` in new code.

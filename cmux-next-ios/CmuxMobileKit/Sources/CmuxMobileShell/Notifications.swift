@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAgentChat
+import CmuxMobileChief
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
@@ -181,6 +182,16 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // Only Sendable values cross to the main actor.
         let content = response.notification.request.content
         let userInfo = content.userInfo
+        // The app's own Chief alert (ChiefAlerts): it carries no `cmuxMobile`
+        // payload, so the trust gate refused it and the tap opened nothing.
+        if let route = ChiefAlerts.route(userInfo: userInfo, actionIdentifier: response.actionIdentifier) {
+            let kind = route.kind, mac = route.mac, conversation = route.conversationID
+            Task { @MainActor in
+                NotificationRouter.shared.set(NotificationRoute(kind: kind, mac: mac, conversationID: conversation))
+                completionHandler()
+            }
+            return
+        }
         let shown = PushTrustGate.Shown(title: content.title, subtitle: content.subtitle, body: content.body,
                                         category: content.categoryIdentifier)
         // Only the app's own (local) notifications may carry a retry (review H1).

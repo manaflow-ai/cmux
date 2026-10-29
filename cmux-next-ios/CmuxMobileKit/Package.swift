@@ -75,6 +75,7 @@ let package = Package(
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileDiff", "CmuxMobileArtifacts", "CmuxMobileTransport",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+            .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
         ]),
         .target(name: "CmuxMobileFeed", dependencies: [
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileAgentChat",
@@ -102,6 +103,7 @@ let package = Package(
         .target(name: "CmuxMobileWorkspaces", dependencies: [
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileBrowserStream",
             .product(name: "CmuxTabsKit", package: "CmuxTabsKit"),
+            .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
         ]),
         // Home: the Messages-style conversation list and the Chief chat over CmuxConversation.
         .target(name: "CmuxMobileChief", dependencies: [
@@ -110,6 +112,7 @@ let package = Package(
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
+            .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
         ]),
         // Live data: device registry, presence, the Mac link state machine, the
         // daemon tree, acpmux chats, Feed events and Chief over the link.
@@ -158,6 +161,7 @@ let package = Package(
                 "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTransport", "CmuxMobileWorkspaces", "CmuxMobileChief", "CmuxMobileLive", "CmuxMobileTerminal",
                 "CmuxMobileBrowserStream", "CmuxMobileNotifications", "CmuxMobileVoice", "CmuxMobileRealtime",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             ]
         ),
         .testTarget(name: "CmuxMobileRealtimeTests", dependencies: ["CmuxMobileRealtime"]),

@@ -19,8 +19,10 @@
 //!   leaves the queue with a `dequeued` record naming the turn (`joinedTurnId`), and its
 //!   `session/prompt` answers with that turn's answer (`joined_reply`). When that turn fails,
 //!   the joined messages go back to the head of the queue, held, once (`requeue_joined`):
-//!   none is lost to a turn the agent may never have read. A reply in place to any of them
-//!   finds it in that turn's provenance (`withdraw.rs` `app_reply_fits`).
+//!   none is lost to a turn the agent may never have read. A turn that never reached its agent
+//!   (its agent could not start, or it was refused) holds nothing: they go back unheld and each
+//!   gets its own try. A reply in place to any of them finds it in that turn's provenance
+//!   (`withdraw.rs` `app_reply_fits`).
 //!
 //! A failed turn holds the prompts behind it (`queue.rs` `pause_queue`): the person's wait for
 //! the person to resume them, since they were written for a turn that went well. Agent messages
@@ -46,6 +48,7 @@
 
 use super::queue::{Answer, PromptRun, QueuedPrompt};
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 /// Text one turn of agent messages takes at most (the first message always goes in whole).
@@ -136,7 +139,7 @@ pub(super) fn digest_provenance(parts: &[Part]) -> Value {
         .map(|part| {
             let mut m = json!({"promptId": part.prompt_id, "from": part.sender});
             if let Some(p) = &part.run.provenance {
-                m["provenance"] = p.clone();
+                m.set("provenance", p.clone());
             }
             m
         })
@@ -322,11 +325,19 @@ impl Hub {
     }
 
     /// After a turn of agent messages failed: the messages that joined it go back to the head of
-    /// the queue, held, in order, so none is lost to a turn the agent may never have read. Their
-    /// waiting tasks wait again (`queue_slot`); the chat's next completed turn or the retry wait
-    /// releases them (`release_held_agent_messages`, `retry_held_agent_messages`). An agent that
-    /// read them before failing may read them twice.
-    pub(super) fn requeue_joined(self: &Arc<Self>, session: &Arc<Session>, digest: &DigestTurn) {
+    /// the queue, in order, so none is lost to a turn the agent may never have read. Their
+    /// waiting tasks wait again (`queue_slot`). After a turn whose prompt reached its agent
+    /// (`hold`) they are held: the chat's next completed turn or the retry wait releases them
+    /// (`release_held_agent_messages`, `retry_held_agent_messages`). After a turn that never
+    /// reached it (its agent could not start, or it was refused) they are not: like the prompts
+    /// behind it, each gets its own try. An agent that read them before failing may read them
+    /// twice.
+    pub(super) fn requeue_joined(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        digest: &DigestTurn,
+        hold: bool,
+    ) {
         let mut taken =
             std::mem::take(&mut *digest.taken.lock().unwrap_or_else(|e| e.into_inner()));
         // Once: a message that fails every turn it is in must not hold the queue again and again.
@@ -340,7 +351,7 @@ impl Hub {
             for (i, mut q) in taken.iter().cloned().enumerate() {
                 *q.joined.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 (q.held, q.steer, q.sent_now, q.restored, q.resume, q.requeued) =
-                    (true, false, false, false, false, true);
+                    (hold, false, false, false, false, true);
                 queue.insert(i, q);
                 session.queued.fetch_add(1, Ordering::SeqCst);
             }
@@ -352,20 +363,24 @@ impl Hub {
             let text = prompt_text(&q.run.blocks);
             let mut queued = json!({"text": text, "client": q.client, "position": position, "promptId": q.prompt_id, "turnId": q.turn_id, "prompt": q.run.blocks, "control": q.run.control.as_str(), "trustGate": q.run.trust_gate, "requeued": true});
             if let Some(agent) = &q.run.agent {
-                queued["fromAgent"] = json!(agent);
+                queued.set("fromAgent", json!(agent));
             }
             let images = super::prompt_images::keep(&q.run.blocks);
             if !images.is_empty() {
-                queued["images"] = Value::Array(images);
+                queued.set("images", Value::Array(images));
             }
             super::session::mark_pasted(&mut queued, &q.run.blocks);
             let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
             self.append(session, "mux", "queued", queued);
         }
-        self.append(session, "mux", "queue_paused", json!({"held": ids, "requeued": true}));
+        if hold {
+            self.append(session, "mux", "queue_paused", json!({"held": ids, "requeued": true}));
+        }
         self.append(session, "mux", "queue_order", json!({"order": order}));
         session.queue_moved.notify_waiters();
-        self.retry_held_agent_messages(session);
+        if hold {
+            self.retry_held_agent_messages(session);
+        }
     }
 }
 
