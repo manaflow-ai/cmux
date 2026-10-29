@@ -323,13 +323,17 @@ mod census_tests {
             .arg("30")
             .spawn()
             .unwrap();
-        let got = super::identity(child.id());
+        let (exe, argv) = (super::exe(child.id()), super::argv(child.id()));
+        #[cfg(target_os = "linux")]
+        let why = std::fs::read_link(format!("/proc/{}/exe", child.id()));
+        #[cfg(not(target_os = "linux"))]
+        let why: std::io::Result<()> = Ok(());
         let _ = child.kill();
         let _ = child.wait();
-        let got = got.unwrap();
-        assert_eq!(got.argv, ["/opt/fake-server", "30"]);
+        assert_eq!(argv.unwrap(), ["/opt/fake-server", "30"]);
+        let exe = exe.unwrap_or_else(|| panic!("exe not read: {why:?}"));
         let real = std::fs::canonicalize("/bin/sleep").unwrap();
-        assert_eq!(std::fs::canonicalize(&got.exe).unwrap(), real);
+        assert_eq!(std::fs::canonicalize(&exe).unwrap(), real);
     }
 
     #[test]

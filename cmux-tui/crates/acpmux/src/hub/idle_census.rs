@@ -36,11 +36,14 @@ use std::path::{Path, PathBuf};
 
 /// One configured MCP server: its command and args, word by word.
 /// `resolved`: for a command given by name, the program the harness's `PATH` runs for it.
+/// `interpreter`: for a script, the interpreter its `#!` line runs (`#!/usr/bin/env node`: the
+/// `node` the harness's `PATH` runs).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Sidecar {
     command: String,
     args: Vec<String>,
     resolved: Option<String>,
+    interpreter: Option<String>,
 }
 
 /// The most the idle pass waits for the configs to be read, or for `ps`.
@@ -164,13 +167,36 @@ impl ChildAgent {
     }
 }
 
-/// `servers` with each one given by name resolved on `path`, without repeats.
+/// `servers` with each one given by name resolved on `path`, and each script's interpreter,
+/// without repeats.
 fn resolved(mut servers: Vec<Sidecar>, path: &str) -> Vec<Sidecar> {
-    for s in servers.iter_mut().filter(|s| !s.command.contains('/')) {
-        s.resolved = first_on_path(&s.command, path);
+    for s in servers.iter_mut() {
+        if !s.command.contains('/') {
+            s.resolved = first_on_path(&s.command, path);
+        }
+        let program =
+            if s.command.contains('/') { Some(s.command.as_str()) } else { s.resolved.as_deref() };
+        s.interpreter = program.and_then(|p| shebang(Path::new(p), path));
     }
     servers.dedup();
     servers
+}
+
+/// The interpreter a script's `#!` line runs: its program, or for `#!/usr/bin/env [-S] NAME`
+/// the `NAME` that `path` runs. None for a file that is not a script or cannot be read.
+fn shebang(script: &Path, path: &str) -> Option<String> {
+    use std::io::Read;
+    let mut head = [0u8; 256];
+    let n = std::fs::File::open(script).ok()?.read(&mut head).ok()?;
+    let line = head[..n].strip_prefix(b"#!")?;
+    let line = std::str::from_utf8(&line[..line.iter().position(|b| *b == b'\n')?]).ok()?;
+    let mut words = line.split_whitespace();
+    let program = words.next()?;
+    if Path::new(program).file_name().is_some_and(|n| n == "env") {
+        let name = words.find(|w| !w.starts_with('-'))?;
+        return if name.contains('/') { Some(name.to_owned()) } else { first_on_path(name, path) };
+    }
+    Some(program.to_owned())
 }
 
 /// The servers in the configs a harness of `family` started as `launch` reads: Claude Code's
@@ -249,6 +275,7 @@ fn sidecar(command: &str, args: &[String]) -> Option<Sidecar> {
         command: command.to_owned(),
         args: args.to_vec(),
         resolved: None,
+        interpreter: None,
     })
 }
 
@@ -307,20 +334,18 @@ fn from_toml(text: &str) -> Vec<Sidecar> {
 /// Whether `who`, a process's executable and exact argv, is `s`: its argv's program is the
 /// server's command (as configured, or the program `PATH` runs for a command given by name) and
 /// its executable is that same file; or its argv's program is one of [`INTERPRETERS`] running the
-/// server's program as a script (a `#!` line: `node /usr/local/bin/npx`) and its executable is
-/// that interpreter. Then exactly the server's args. A server that is a bare interpreter with no
-/// args says nothing about what it runs, so it never matches.
+/// server's program as a script (a `#!` line: `node /usr/local/bin/npx`) and its executable is the
+/// interpreter that script's `#!` line runs. Then exactly the server's args. A server that is a
+/// bare interpreter with no args says nothing about what it runs, so it never matches.
 fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
-    let name = |w: &Path| w.file_name().map(|n| n.to_string_lossy().into_owned());
-    let interpreter_name = |n: Option<String>| {
-        n.is_some_and(|n| {
+    let interpreter = |w: &str| {
+        Path::new(w).file_name().map(|n| n.to_string_lossy().into_owned()).is_some_and(|n| {
             INTERPRETERS.iter().any(|i| {
                 n.strip_prefix(i)
                     .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '.'))
             })
         })
     };
-    let interpreter = |w: &str| interpreter_name(name(Path::new(w)));
     if s.args.is_empty() && interpreter(&s.command) {
         return false;
     }
@@ -339,16 +364,17 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
                 .flatten()
                 .any(is_exe)
     };
+    // A script: the executable must be the interpreter its `#!` line runs, not any file named
+    // like one.
+    let runs_script = |first: &str, second: &str| {
+        interpreter(first)
+            && second.contains('/')
+            && program(second)
+            && s.interpreter.as_deref().is_some_and(is_exe)
+    };
     let at = match who.argv.as_slice() {
         [first, ..] if runs_program(first) => 1,
-        [first, second, ..]
-            if interpreter(first)
-                && interpreter_name(name(&who.exe))
-                && second.contains('/')
-                && program(second) =>
-        {
-            2
-        }
+        [first, second, ..] if runs_script(first, second) => 2,
         _ => return false,
     };
     who.argv[at..] == s.args[..]
@@ -426,6 +452,7 @@ mod tests {
         })));
         assert_eq!(servers.len(), 3, "a server with no command spawns nothing");
         servers[1].resolved = Some("/usr/local/bin/npx".into());
+        servers[1].interpreter = Some("/usr/local/bin/node".into());
         let found = [
             under(
                 11,
@@ -439,7 +466,7 @@ mod tests {
         for same in [
             "npx -y @example/fetch",
             "/usr/local/bin/npx -y @example/fetch",
-            "/usr/bin/python3.12 /usr/local/bin/npx -y @example/fetch",
+            "/usr/local/bin/node /usr/local/bin/npx -y @example/fetch",
         ] {
             let found = [under(12, 10, same)];
             assert!(matches!(census(&found, &servers), Census::Clear), "{same}");
@@ -451,6 +478,8 @@ mod tests {
         );
         for other in [
             "node /usr/local/bin/npx -y @example/other",
+            // An interpreter, but not the one the script's `#!` line runs.
+            "/usr/bin/python3.12 /usr/local/bin/npx -y @example/fetch",
             "sh -c npx -y @example/fetch",
             "/tmp/other/cmux mcp serve --all-tools",
             "/Applications/cmux.app/Contents/Resources/bin/cmux mcp serve --all-tools --x",
@@ -538,6 +567,8 @@ mod tests {
             {"name": "two", "command": "srv", "args": ["foo bar"]},
         ])));
         assert_eq!(servers.len(), 3);
+        let mut servers = servers;
+        servers[2].resolved = Some("/usr/local/bin/srv".into());
         let argv: &[(u32, &[&str])] = &[
             (11, &[acpmux, "forum-mcp"]),
             (12, &["/opt/cua", "mcp", "--socket", socket]),
@@ -570,10 +601,11 @@ mod tests {
     /// server's program, or for a script an interpreter.
     #[test]
     fn a_rewritten_argv_does_not_make_a_server() {
-        let servers = from_json(Some(&json!({
+        let mut servers = from_json(Some(&json!({
             "cmux": {"command": "/opt/cmux/bin/cmux", "args": ["mcp", "serve"]},
             "fetch": {"command": "/opt/fetch/server.js", "args": ["--stdio"]},
         })));
+        servers[1].interpreter = Some("/usr/bin/node".into());
         let who = |exe: &str, argv: &[&str]| Identity {
             exe: exe.into(),
             argv: argv.iter().map(|w| w.to_string()).collect(),
@@ -585,11 +617,47 @@ mod tests {
             (who("/usr/bin/python3", &["/opt/cmux/bin/cmux", "mcp", "serve"]), false),
             // A script's argv, but the executable is no interpreter.
             (who("/opt/devserver", &["node", "/opt/fetch/server.js", "--stdio"]), false),
+            // A file named like an interpreter that is not the script's.
+            (who("/tmp/node", &["/tmp/node", "/opt/fetch/server.js", "--stdio"]), false),
         ];
         for (identity, server) in cases {
             let found = [under(11, 10, &identity.argv.join(" "))];
             let census = classify(&found, 10, &servers, |_| Some(identity.clone()));
             assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
         }
+    }
+
+    /// A script's interpreter is what its `#!` line runs: a program, or `env`'s name on `PATH`.
+    #[test]
+    fn a_scripts_interpreter_comes_from_its_shebang() {
+        let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));
+        let bin = root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let node = bin.join("node");
+        std::fs::write(&node, "").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = bin.to_string_lossy().into_owned();
+        let script = |name: &str, text: &str| {
+            let p = root.join(name);
+            std::fs::write(&p, text).unwrap();
+            p
+        };
+        let env = script("env.js", "#!/usr/bin/env node\nconsole.log(1)\n");
+        let split = script("split.js", "#!/usr/bin/env -S node --no-warnings\n");
+        let direct = script("direct.sh", "#!/bin/sh -e\necho\n");
+        let plain = script("plain.js", "console.log(1)\n");
+        let node = node.to_string_lossy().into_owned();
+        assert_eq!(shebang(&env, &path), Some(node.clone()));
+        assert_eq!(shebang(&split, &path), Some(node));
+        assert_eq!(shebang(&direct, &path), Some("/bin/sh".into()));
+        assert_eq!(shebang(&plain, &path), None);
+        assert_eq!(shebang(&root.join("missing"), &path), None);
+        let servers = resolved(vec![sidecar(&env.to_string_lossy(), &[]).unwrap()], &path);
+        assert_eq!(servers[0].interpreter, shebang(&env, &path));
+        let _ = std::fs::remove_dir_all(root);
     }
 }
