@@ -4067,6 +4067,19 @@ function resumeUntilRunning(
     } else {
       yield* requirePlanBudget(vm.billingPlanId, vm.userId, null);
     }
+    yield* resumeAndWaitRunning(providers, vm, providerVmId);
+  });
+}
+
+/** Resume at the provider and wait for running; a machine that never gets there is paused again. No budget gate. */
+function resumeAndWaitRunning(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, VmWorkflowError> {
+  return Effect.gen(function* () {
+    const resume = providers.resume;
+    if (!resume) return;
     const handle = yield* resume(vm.provider, providerVmId).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
     if (handle.status === "running") return;
     const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
@@ -4203,7 +4216,9 @@ function recordResumeUsageEvent(
  * again.
  * A provider that never got as far as pausing reads running and only the row
  * is written. This restores the state the cron interrupted, so it takes no
- * active-limit reservation.
+ * active-limit reservation and no plan gate. A Go machine gets its runtime
+ * budget back best effort first; when its allowance is used up, a paused
+ * machine stays paused and the pause is recorded as the idle pause.
  */
 export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, claimEpoch: number) {
   return Effect.gen(function* () {
@@ -4219,9 +4234,16 @@ export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, c
     if (state === null) {
       return yield* Effect.fail(new VmProviderOperationError({ provider: vm.provider, operation: `getStatus(${providerVmId})`, cause: new Error("idle pause read-back failed") }));
     }
-    // resumeUntilRunning gives a Go machine its budget back; a machine already running still has the zero the pause set.
-    if (state === "paused") yield* resumeUntilRunning(providers, vm, providerVmId);
-    else yield* restoreIdlePauseBudget(vm, providerVmId);
+    // The pause zeroed a Go machine's budget: give it back first, best effort (a failed read or write is
+    // logged and the recovery goes on). No plan gate: this undoes the cron's own pause, and a gate that
+    // fails here would leave the claim retrying forever. A used-up Go allowance keeps the machine paused.
+    const allowed = yield* restoreIdlePauseBudget(vm, providerVmId);
+    if (state === "paused" && !allowed) {
+      const kept = yield* recordIdlePauseAt(vm, providerVmId, epoch);
+      console.info("[VM] idle pause lost, but the Go allowance is used up: kept paused", JSON.stringify({ vmId: vm.id, recorded: kept }));
+      return kept ? "kept_paused" as const : "retry" as const;
+    }
+    if (state === "paused") yield* resumeAndWaitRunning(providers, vm, providerVmId);
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "running", expectIdleEpoch: epoch });
     if (recorded) {
       if (vm.status === "paused") yield* recordResumeUsageEvent(repo, vm, "idle_pause_lost");
@@ -4241,7 +4263,8 @@ export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, c
  * write lost to Off or activity): record running at a fence claimed on the
  * row as read, which also settles the cron's claim. A person's pause after
  * the cron's claim is left alone. False when a newer write moved the fence;
- * the claim stays and the next run tries again.
+ * the claim stays and the next run tries again. A person's Pause that lands
+ * after this claim wins the row, and the running machine is paused again.
  */
 export function repairRunningAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, claimEpoch: number) {
   return Effect.gen(function* () {
@@ -4251,8 +4274,14 @@ export function repairRunningAfterLostIdlePause(vm: CloudVmRow, providerVmId: st
     if (epoch === null) return false;
     yield* restoreIdlePauseBudget(vm, providerVmId);
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "running", expectIdleEpoch: epoch });
-    if (recorded && vm.status === "paused") yield* recordResumeUsageEvent(repo, vm, "idle_pause_lost");
-    return recorded;
+    if (recorded) {
+      if (vm.status === "paused") yield* recordResumeUsageEvent(repo, vm, "idle_pause_lost");
+      return true;
+    }
+    // A person's Pause since the claim won the row, but the machine still runs: pause it, as the compensation does.
+    const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
+    if (current && isPersonsPauseSince(current, epoch)) yield* bestEffortPause(yield* VmProviderGateway, current, providerVmId);
+    return false;
   });
 }
 
@@ -4261,13 +4290,15 @@ export function repairRunningAfterLostIdlePause(vm: CloudVmRow, providerVmId: st
  * pause, and Freestyle keeps an exhausted limit with automatic restart off.
  * Any recovery that leaves the machine running gives the remaining allowance
  * back first, through the same best-effort path as the re-pause race
- * (restoreGoRuntimeBudget). Other plans set no budget.
+ * (restoreGoRuntimeBudget): a failed usage read or budget write is logged
+ * and the recovery goes on. False only when the Go allowance is used up.
+ * Other plans set no budget.
  */
-export function restoreIdlePauseBudget(vm: CloudVmRow, providerVmId: string): Effect.Effect<void, never, VmProviderGateway> {
+export function restoreIdlePauseBudget(vm: CloudVmRow, providerVmId: string): Effect.Effect<boolean, never, VmProviderGateway> {
   return Effect.gen(function* () {
-    if (vm.billingPlanId !== "go") return;
+    if (vm.billingPlanId !== "go") return true;
     const providers = yield* VmProviderGateway;
-    yield* restoreGoRuntimeBudget(providers, vm, providerVmId);
+    return yield* restoreGoRuntimeBudget(providers, vm, providerVmId);
   });
 }
 
