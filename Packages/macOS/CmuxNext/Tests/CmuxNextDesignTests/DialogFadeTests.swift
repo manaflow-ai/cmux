@@ -30,6 +30,30 @@ import Testing
         }
     }
 
+    /// Alert polish (debug.dialog_strip): in about half the opens, base build included, the window
+    /// server showed the whole dialog and scrim for one frame before the fade began: attaching the
+    /// overlay panel displays and commits its layers at full opacity. When the panel attaches, the
+    /// card and scrim are already transparent.
+    @Test func theOverlayPanelAttachesWithTheDialogStillTransparent() throws {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        let host = WindowOverlayHost.host(for: window)
+        let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
+        var seen: [Float] = []
+        host.onPanelChange = { [weak host] in
+            guard let host, host.isPanelAttached, seen.isEmpty else { return }
+            let container = host.panel.container(for: .modal)
+            seen = ([dialog] + container.subviews.filter { $0 is OverlayScrimView }).map { $0.layer?.opacity ?? 1 }
+        }
+        defer { host.onPanelChange = nil }
+        let handle = host.present(dialog, options: OverlayOptions(kind: .dialog, isModal: true, dimsContent: true,
+                                                                  passesThroughClicks: false))
+        defer { handle.dismiss() }
+        #expect(!seen.isEmpty, "the panel never attached")
+        #expect(seen.allSatisfy { $0 == 0 }, "the panel attached with the dialog showing: \(seen)")
+    }
+
     /// Alert polish (2026-10-28, debug.dialog_strip): the card only faded, flat, while the palette
     /// grows in. It now grows from `Motion.panelOpenScale` about its center on the `appear` spring;
     /// under Reduce Motion it only fades (the scale applies at once).
