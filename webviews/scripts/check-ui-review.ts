@@ -531,13 +531,28 @@ export function findHardCodedAgentIcons(file: string, source: string): Finding[]
   return findings;
 }
 
+/** The numeric weight a declaration sets, or undefined when it is relative or unknown (bolder, var(), inherit). */
+function fontWeight(value: string): string | undefined {
+  const weight = value
+    .replace(/!important/i, "")
+    .trim()
+    .toLowerCase();
+  if (weight === "normal") return "400";
+  if (weight === "bold") return "700";
+  return /^\d{1,3}$/.test(weight) ? weight : undefined;
+}
+
 function cssRowGroups(file: string, source: string): Finding[] {
   const groups = new Map<string, Array<{ weight: string; offset: number }>>();
+  // Comments become spaces of the same length, so a commented-out rule is not read and offsets keep their lines.
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, " "));
   const block = /([^{}]+)\{([^{}]*)\}/g;
-  for (const match of source.matchAll(block)) {
+  for (const match of css.matchAll(block)) {
     const body = match[2] ?? "";
-    const weight = /(?:^|;)\s*font-weight\s*:\s*([^;}]*)/i.exec(body)?.[1]?.trim();
-    if (!weight || /^(?:inherit|normal)$/i.test(weight)) continue;
+    // The last declaration in a rule wins.
+    const declared = [...body.matchAll(/(?:^|;)\s*font-weight\s*:\s*([^;}]*)/gi)].at(-1)?.[1];
+    const weight = declared === undefined ? undefined : fontWeight(declared);
+    if (!weight) continue;
     const classes = [...(match[1] ?? "").matchAll(/\.([A-Za-z_][\w-]*)/g)].map((item) => item[1]!);
     const candidates = classes
       .map((name) => {
