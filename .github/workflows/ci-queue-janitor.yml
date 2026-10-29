@@ -237,6 +237,9 @@ jobs:
             NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
           MAX_REDISPATCH: ${{ vars.CI_JANITOR_MAX_REDISPATCH }}
+          # Each runner pool's live member and `_dead` (scripts/ci/runner_pools.py, cmux#27129): a job queued on a
+          # member a pool moved off is re-dispatched when its runs-on reads RUNNER_POOLS. Unset: nothing from it.
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
         run: python3 scripts/ci/queue_janitor.py
 
       # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on

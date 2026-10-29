@@ -3156,6 +3156,15 @@ def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only:
     return jobs_by_run, unread
 
 
+def runner_pool_declarations(workflows_dir: Path) -> dict[str, Any] | None:
+    """.github/runners.json `pools` beside the workflows the sweep reads (cmux#27129), or None before it exists."""
+    try:
+        pools = json.loads((workflows_dir.parent / "runners.json").read_text(encoding="utf-8")).get("pools")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return pools if isinstance(pools, dict) else None
+
+
 def read_linux_only_jobs(github: "GitHub", runs: Sequence[Mapping[str, Any]],
                          jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], linux_only: frozenset[str],
                          now: dt.datetime) -> tuple[dict[int, list[dict[str, Any]]], list[int]]:
@@ -3282,6 +3291,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             except RateLimited:
                 raise
             except RuntimeError as error:  # unread: never a candidate
+                partial_reads.append(f"the jobs of delivery run {run['id']}")
                 print(f"queue-janitor: jobs of delivery run {run['id']}: {error}", file=sys.stderr)
         superseded = superseded_candidates(runs, delivery_jobs)
         branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now))
@@ -3321,8 +3331,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     dead_inventory = {**jobs_by_run, **linux_jobs}
     # Fail closed: a run left unread may hold the only recent start on a label, so a partial read finds no dead
     # label and the pass cancels nothing (dead_labels.dead_labels_if_complete()).
-    dead = dead_labels.dead_labels_if_complete(runs, dead_inventory, now=now, evidence=evidence_jobs,
-                                               unread=partial_reads)
+    retired = dead_labels.retired_members(os.environ.get("RUNNER_POOLS"), runner_pool_declarations(args.workflows_dir))
+    dead = dead_labels.dead_labels_if_complete(
+        runs, dead_inventory, now=now, evidence=evidence_jobs, retired=retired,
+        unread=[*partial_reads, *(f"the jobs of run {run_id}" for run_id in sorted(unread))])
     snapshot: dict[str, Any] | None = None
     if args.pool_load:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run
@@ -3491,6 +3503,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         runner_values: dict[str, str] | None = runs_on_values.parse_values(
             os.environ.get(runs_on_values.RUNS_ON_VARIABLES_ENV) or "") or None
+        if runner_values is not None and (os.environ.get("RUNNER_POOLS") or "").strip():
+            runner_values["RUNNER_POOLS"] = str(os.environ["RUNNER_POOLS"])
     except ValueError as error:
         print(f"queue-janitor: dead-label re-dispatch: {error}", file=sys.stderr)
         runner_values = None
@@ -3506,7 +3520,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         save_owed(owed_reruns)  # carried as read, whatever happens below
     try:
         redispatch_decisions = dead_labels.plan(runs, dead_inventory, dead, values=runner_values, repo=args.repo,
-                                                workflow_text=github.workflow_file, exclude=acted,
+                                                workflow_text=github.workflow_file,
+                                                exclude=acted | {entry.get("run_id") for entry in owed_reruns or ()},
                                                 max_runs=max_redispatch)
         owed = owed_reruns
         if owed is not None and not args.dry_run:

@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import json
 import re
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -201,17 +202,75 @@ def run_reason(run: Mapping[str, Any]) -> str | None:
     return None
 
 
+# --- RUNNER_POOLS ---------------------------------------------------------------------------------------------
+# scripts/ci/runner_pools.py (cmux#27129) keeps RUNNER_POOLS pointed at each pool's live member, with `_dead`
+# (label -> when last seen dead), and declares the pools in .github/runners.json `pools` (each with `members`).
+# Moving a pool moves only jobs created after it: a job already queued on the member it left keeps that label. So a
+# label RUNNER_POOLS marks dead, or a declared member that is not its pool's current member, is retired, and a job
+# queued on it past DEAD_AFTER is a candidate (retired_labels()). It moves only when its runs-on reads RUNNER_POOLS
+# (rerun_route() evaluates fromJSON(vars.RUNNER_POOLS).<pool>); a literal label stays, as everywhere here.
+POOLS_DEAD_KEY = "_dead"
+
+
+def retired_members(raw: str | None, declared: Mapping[str, Any] | None) -> dict[str, str]:
+    """{retired label: the label its pool points at now} from RUNNER_POOLS (`raw`) and runners.json `pools`
+    (`declared`). Empty when RUNNER_POOLS is unset or unreadable."""
+    try:
+        live = json.loads(raw) if isinstance(raw, str) and raw.strip() else None
+    except ValueError:
+        return {}
+    if not isinstance(live, dict):
+        return {}
+    retired: dict[str, str] = {}
+    for name, spec in (declared or {}).items():
+        current = live.get(name)
+        listed = spec.get("members") if isinstance(spec, Mapping) else None
+        if str(name).startswith(("$", "_")) or not isinstance(current, str) or not isinstance(listed, list):
+            continue
+        for member in listed:
+            if isinstance(member, str) and member != current:
+                retired[member.lower()] = current.lower()
+    dead = live.get(POOLS_DEAD_KEY)
+    for label in dead if isinstance(dead, dict) else ():
+        if isinstance(label, str):
+            retired.setdefault(label.lower(), "")
+    return retired
+
+
+def retired_labels(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *,
+                   now: dt.datetime, retired: Mapping[str, str], after: dt.timedelta = DEAD_AFTER) -> list[DeadLabel]:
+    """Retired labels (retired_members()) with a job queued on them past `after`, as DeadLabels whose live member is
+    their pool's current one."""
+    waits: dict[str, list[dt.timedelta]] = {}
+    for run in runs:
+        run_jobs = list(jobs_by_run.get(run.get("id"), ()))
+        for job in run_jobs:
+            labels = label_key(job)
+            if len(labels) != 1 or not starved_labels.stuck(job) or next(iter(labels)) not in retired:
+                continue
+            wait = starved_labels.wait_start(job, run_jobs)
+            if wait is not None and not wait[1] and now - wait[0] >= after:
+                waits.setdefault(next(iter(labels)), []).append(now - wait[0])
+    return [DeadLabel(frozenset({label}), label_family(label) or "pool", max(ages), len(ages),
+                      tuple(x for x in (retired[label],) if x))
+            for label, ages in sorted(waits.items())]
+
+
 def dead_labels_if_complete(runs: Sequence[Mapping[str, Any]],
                             jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], *, now: dt.datetime,
                             evidence: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
-                            unread: Sequence[str] = ()) -> list[DeadLabel]:
-    """dead_labels(), or none at all when any listing of the sweep failed (`unread` names them): a run left unread
-    may hold the only recent start on a label, so a partial inventory never calls a label dead."""
+                            unread: Sequence[str] = (), retired: Mapping[str, str] | None = None) -> list[DeadLabel]:
+    """dead_labels() plus retired_labels(), or none at all when any listing of the sweep failed (`unread` names
+    them): a run left unread may hold the only recent start on a label, so a partial inventory never calls a label
+    dead."""
     if unread:
         print(f"dead-labels: {len(unread)} listing(s) failed this sweep ({'; '.join(unread)[:300]}); no label is "
               "judged dead and nothing is moved")
         return []
-    return dead_labels(runs, jobs_by_run, now=now, evidence=evidence)
+    found = dead_labels(runs, jobs_by_run, now=now, evidence=evidence)
+    seen = {item.labels for item in found}
+    return found + [item for item in retired_labels(runs, jobs_by_run, now=now, retired=retired or {})
+                    if item.labels not in seen]
 
 
 def protected_reason(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> str | None:
@@ -280,6 +339,16 @@ def evaluate(expression: str, values: Mapping[str, str], context: Mapping[str, s
         return literal.group(1).replace("''", "'")
     if text in ("true", "false"):
         return text == "true"
+    pooled = re.fullmatch(r"fromJSON\(\s*vars\.([A-Za-z0-9_]+)\s*\)\.([A-Za-z0-9_]+)", text)
+    if pooled:
+        raw = values.get(pooled.group(1))
+        try:
+            doc = json.loads(raw) if isinstance(raw, str) and raw.strip() else None
+        except ValueError:
+            doc = None
+        value = doc.get(pooled.group(2)) if isinstance(doc, dict) else None
+        # Unset or off-schema fails the workflow on GitHub; here it is unknown, so nothing moves.
+        return value if isinstance(value, str) else UNKNOWN
     variable = re.fullmatch(r"vars\.([A-Za-z0-9_]+)", text)
     if variable:
         return values[variable.group(1)] if variable.group(1) in values else UNKNOWN
@@ -512,8 +581,11 @@ def settle(github: Any, entry: Mapping[str, Any], *, now: float) -> tuple[bool, 
         old = now - float(entry.get("at") or 0) > OBLIGATION_ALARM_S
         return False, ("cancelled long ago and still not finished; look at it by hand" if old
                        else "its cancel is still finishing; the next sweep re-runs it"), old
-    if run.get("conclusion") != "cancelled":
-        return True, f"finished {run.get('conclusion') or 'with no conclusion'} on its own; nothing to re-run", False
+    conclusion = run.get("conclusion")
+    if not isinstance(conclusion, str) or not conclusion:
+        return False, "completed with no conclusion read; kept", True
+    if conclusion != "cancelled":
+        return True, f"finished {conclusion} on its own; nothing to re-run", False
     try:
         _rerun(github, run_id, bool(entry.get("whole")))
     except RuntimeError as error:
@@ -564,6 +636,9 @@ def redispatch(github: Any, decisions: Sequence[Redispatch], *, dry_run: bool,
     mine: list[dict[str, Any]] = []
     for decision in going:
         run_id = int(decision.run["id"])
+        if any(entry.get("run_id") == run_id for entry in obligations):
+            results[run_id] = "already owed a re-run; settled through that, never cancelled twice"
+            continue
         if len(obligations) >= cap:
             results[run_id] = f"not moved: {len(obligations)} re-runs are owed already, the cap of {cap}"
             continue
