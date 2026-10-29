@@ -46,6 +46,7 @@ const MAX_OMITTED_TOOL_IDS: usize = 64;
 #[derive(Default)]
 struct OmittedTools {
     ids: HashSet<[u8; 32]>,
+    overflow: HashSet<[u8; 32]>,
     // Overflow IDs beyond the bounded digest set. Keep only a count: retaining their
     // identities would make restart recovery's memory use proportional to journal size.
     unknown: usize,
@@ -59,10 +60,10 @@ impl OmittedTools {
         self.ids.len() + self.unknown
     }
     fn contains(&self, id: &[u8; 32]) -> bool {
-        self.ids.contains(id)
+        self.ids.contains(id) || self.overflow.contains(id)
     }
     fn remove(&mut self, id: &[u8; 32]) {
-        if self.ids.remove(id) {
+        if self.ids.remove(id) || self.overflow.remove(id) {
             self.retire(*id);
         } else if self.retired.contains(id) {
             return;
@@ -77,6 +78,8 @@ impl OmittedTools {
     fn insert(&mut self, id: [u8; 32]) {
         if self.ids.len() < MAX_OMITTED_TOOL_IDS {
             self.ids.insert(id);
+        } else if self.overflow.len() < MAX_OMITTED_TOOL_IDS {
+            self.overflow.insert(id);
         } else {
             self.unknown = self.unknown.saturating_add(1);
         }
@@ -96,7 +99,7 @@ struct UnfinishedTool {
 
 /// The fields useful to a person resuming a cut turn. Tool updates are JSON-RPC notifications,
 /// so the session update is nested under `params.update` in the journal record.
-fn tool_update(record: &EventRecord, own_session_id: Option<&str>) -> Option<&Value> {
+fn tool_update<'a>(record: &'a EventRecord, own_session_id: Option<&str>) -> Option<&'a Value> {
     let marked_subagent = record
         .msg
         .pointer("/params/_meta/acpmux/subagent")
@@ -197,12 +200,9 @@ impl serde::Serialize for MaskedInput<'_> {
 }
 
 fn sensitive_key(key: &str) -> bool {
-    // Match the credential classes used by secret_scan, case-insensitively, while
-    // keeping only a bounded normalized key in memory.
-    let bounded: String = key.chars().take(MAX_TOOL_FIELD_CHARS).collect();
-    let normalized: String =
-        bounded.chars().flat_map(char::to_lowercase).filter(char::is_alphanumeric).collect();
-    [
+    // Match the credential classes used by secret_scan, case-insensitively. Scan
+    // the whole key without retaining an attacker-sized key or building one.
+    let needles = [
         "apikey",
         "secret",
         "token",
@@ -214,9 +214,29 @@ fn sensitive_key(key: &str) -> bool {
         "authorization",
         "auth",
         "cookie",
-    ]
-    .iter()
-    .any(|needle| normalized.contains(needle))
+    ];
+    let mut window = VecDeque::with_capacity(16);
+    for ch in key.chars().flat_map(char::to_lowercase).filter(|c| c.is_alphanumeric()) {
+        window.push_back(ch);
+        if window.len() > 16 {
+            window.pop_front();
+        }
+        if needles.iter().any(|needle| {
+            needle.len() <= window.len()
+                && window
+                    .iter()
+                    .rev()
+                    .take(needle.len())
+                    .copied()
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .eq(needle.chars())
+        }) {
+            return true;
+        }
+    }
+    false
 }
 
 struct BoundedJsonWriter<'a> {
@@ -756,6 +776,11 @@ mod tests {
         assert!(!masked.contains("12345678"), "numeric password leaked: {masked}");
         assert!(!masked.contains("true"), "boolean token leaked: {masked}");
         assert!(masked.matches("[secret]").count() >= 3, "{masked}");
+        let masked = input_prefix(&json!({
+            "rawInput": {"apiKey": 12345678, "credentials": "let me in", "authorization": false}
+        }))
+        .unwrap();
+        assert!(!masked.contains("12345678") && !masked.contains("let me in"), "{masked}");
     }
 
     #[test]
