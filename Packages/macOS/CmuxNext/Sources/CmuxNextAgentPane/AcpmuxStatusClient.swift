@@ -64,8 +64,10 @@ nonisolated enum AcpmuxStatusClient {
     /// complete set use ``sessionPages`` so a large peer mirror never crosses
     /// the single-reply limit.
     @concurrent static func sessions(socketPath: String, deadline: Duration,
-                                     params: [String: any Sendable] = [:]) async throws -> ResultBox {
-        ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", params: params, deadline: deadline))
+                                     params: [String: any Sendable] = [:], requiredCapability: String? = nil) async throws -> ResultBox {
+        ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", params: params,
+                                 deadline: deadline, limit: params["limit"] == nil ? 1 << 20 : .max,
+                                 requiredCapability: requiredCapability))
     }
 
     /// Pages `_acpmux/sessions` with the daemon's keyset cursor. The page size
@@ -73,7 +75,7 @@ nonisolated enum AcpmuxStatusClient {
     /// single all-sessions size failure. The daemon's cursor defines the page
     /// scope while rows may still change between requests.
     @concurrent static func sessionPages(socketPath: String, params: [String: any Sendable] = [:],
-                                         pageSize: Int = 64,
+                                         pageSize: Int = 64, requiredCapability: String? = nil,
                                          deadline: Duration = .seconds(2)) async throws -> sending [[String: Any]] {
         var pageParams = params
         pageParams["limit"] = pageSize
@@ -86,7 +88,8 @@ nonisolated enum AcpmuxStatusClient {
             if let cursor { pageParams["cursor"] = cursor } else { pageParams.removeValue(forKey: "cursor") }
             let remaining = end - ContinuousClock.now
             guard remaining > .zero else { throw Failure.rpc("_acpmux/sessions deadline exceeded") }
-            let result = try await sessions(socketPath: socketPath, deadline: remaining, params: pageParams).value
+            let result = try await sessions(socketPath: socketPath, deadline: remaining, params: pageParams,
+                                            requiredCapability: requiredCapability).value
             guard let page = result["sessions"] as? [[String: Any]] else {
                 throw Failure.rpc("_acpmux/sessions returned no sessions page")
             }
@@ -202,12 +205,13 @@ nonisolated enum AcpmuxStatusClient {
     /// With `requiredFeature`, no operation is sent before that connection advertises it.
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
                      deadline: Duration, detailed: Bool = false, limit: Int = 1 << 20,
-                     requiredFeature: String? = nil) async throws -> [String: Any] {
+                     requiredFeature: String? = nil, requiredCapability: String? = nil) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
             ResultBox(try await exchange(method, params: params, transport: AcpmuxSocketTransport(connection: connection),
-                                         detailed: detailed, limit: limit, requiredFeature: requiredFeature))
+                                         detailed: detailed, limit: limit, requiredFeature: requiredFeature,
+                                         requiredCapability: requiredCapability))
         }
         return box.value
     }
@@ -225,7 +229,7 @@ nonisolated enum AcpmuxStatusClient {
     /// the handshake on this same transport before sending their request.
     static func exchange(_ method: String, params: [String: any Sendable], transport: any AcpmuxRPCTransport,
                          detailed: Bool = false, limit: Int = 1 << 20,
-                         requiredFeature: String? = nil) async throws -> [String: Any] {
+                         requiredFeature: String? = nil, requiredCapability: String? = nil) async throws -> [String: Any] {
         try await transport.start()
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -234,7 +238,7 @@ nonisolated enum AcpmuxStatusClient {
         let status: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": method, "params": params]
         let request = try JSONSerialization.data(withJSONObject: status) + Data([0x0A])
         var payload = try JSONSerialization.data(withJSONObject: initialize) + Data([0x0A])
-        if requiredFeature == nil { payload += request }
+        if requiredFeature == nil && requiredCapability == nil { payload += request }
         try await transport.send(payload)
         var initialized = false
         var buffer = Data()
@@ -247,11 +251,14 @@ nonisolated enum AcpmuxStatusClient {
                 guard line.count <= limit else { throw Failure.rpc("\(method) reply too large") }
                 let frame = Data(line)
                 buffer.removeSubrange(buffer.startIndex...newline)
-                if let requiredFeature, !initialized {
+                if (requiredFeature != nil || requiredCapability != nil), !initialized {
                     if let hello = try detailedReply(to: 1, in: frame) {
                         let meta = (hello["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
-                        guard (meta?["features"] as? [String])?.contains(requiredFeature) == true else {
+                        if let requiredFeature, (meta?["features"] as? [String])?.contains(requiredFeature) != true {
                             throw Failure.unsupportedFeature(requiredFeature)
+                        }
+                        if let requiredCapability, (meta?["capabilities"] as? [String])?.contains(requiredCapability) != true {
+                            throw Failure.unsupportedFeature(requiredCapability)
                         }
                         try Task.checkCancellation()
                         try await transport.send(request)

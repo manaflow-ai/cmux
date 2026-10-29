@@ -297,3 +297,7 @@ mod tests {
         assert!(refuse_watch_filters(&json!({"excludeStatus": ["closed"]})).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "session_pages_bench_tests.rs"]
+mod narrow_read_tests;

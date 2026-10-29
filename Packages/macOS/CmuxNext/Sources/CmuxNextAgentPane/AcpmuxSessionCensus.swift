@@ -80,20 +80,12 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
 public nonisolated struct AcpmuxQuit {
     public nonisolated init() {}
     @concurrent private static func activeSessions(socketPath: String, deadline: Duration) async throws -> sending [[String: Any]] {
-        // Page the daemon's session list once, then discard peer and closed
-        // rows. Querying each live status separately can miss a session that
-        // changes status between requests and drops idle Chief hosts. The
-        // daemon-side local/non-closed filter is owned by the session-list
-        // lane; pass it here when that protocol is available.
-        let filters: [String: any Sendable] = ["localOnly": true, "excludeStatus": ["closed"]]
-        // Keep capability discovery from consuming the census deadline. An
-        // older daemon cannot prove a complete local-only census; fail closed
-        // rather than risk omitting the Chief from keepSessions.
-        let supportsFilters = (try? await AcpmuxStatusClient.status(socketPath: socketPath, deadline: .milliseconds(250)))?.capabilities.contains("session-list-filters-v1") == true
-        guard supportsFilters else { throw AcpmuxStatusClient.Failure.unsupportedFeature("session-list-filters-v1") }
+        // Negotiate on the list connection: status also samples host pressure
+        // and disk, so it must not consume the quit census deadline.
         let rows = try await AcpmuxStatusClient.sessionPages(
             socketPath: socketPath,
-            params: supportsFilters ? filters : [:],
+            params: ["localOnly": true, "excludeStatus": ["closed"]],
+            requiredCapability: "session-list-filters-v1",
             deadline: deadline
         )
         return rows.filter {
