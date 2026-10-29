@@ -51,8 +51,9 @@ public actor BoundedDaemonEventBuffer {
     private var consumers: [(id: UUID, continuation: CheckedContinuation<Data?, Never>)] = []
     private var producer: CheckedContinuation<Void, Never>?
 
-    public init(capacity: Int = BoundedDaemonEventBuffer.defaultCapacity) {
+    public init(capacity: Int = BoundedDaemonEventBuffer.defaultCapacity, initiallyClosed: Bool = false) {
         self.capacity = max(1, capacity)
+        self.closed = initiallyClosed
     }
 
     /// Enqueues one complete event line. Returns `false` after `finish()`.
@@ -61,14 +62,7 @@ public actor BoundedDaemonEventBuffer {
     public func push(_ data: Data) async -> Bool {
         guard !data.isEmpty else { return !closed }
         while !closed && !Task.isCancelled && (queuedBytes + data.count > capacity) && !queue.isEmpty {
-            await withTaskCancellationHandler {
-                await withCheckedContinuation { continuation in
-                    if Task.isCancelled { continuation.resume() }
-                    else { producer = continuation }
-                }
-            } onCancel: {
-                Task { await self.cancelProducer() }
-            }
+            await waitForRoom(for: data.count)
         }
         guard !closed, !Task.isCancelled else { return false }
         if !consumers.isEmpty {
@@ -83,31 +77,84 @@ public actor BoundedDaemonEventBuffer {
     /// Returns the oldest event, waiting for the next one when needed.
     public func next() async -> Data? {
         guard !Task.isCancelled else { return nil }
-        if head < queue.count {
-            let data = queue[head]
-            queue[head] = Data()
-            head += 1
-            queuedBytes -= data.count
-            if head >= queue.count {
-                queue.removeAll(keepingCapacity: true)
-                head = 0
-            } else if head >= 64, head * 2 >= queue.count {
-                queue.removeFirst(head)
-                head = 0
-            }
-            resumeProducerIfRoom()
-            return data
-        }
+        if let data = takeQueuedEvent() { return data }
         if closed { return nil }
-        let id = UUID()
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                if Task.isCancelled { continuation.resume(returning: nil) }
-                else { consumers.append((id, continuation)) }
-            }
-        } onCancel: {
-            Task { await self.cancelConsumer(id) }
+        return await waitForEvent(id: UUID())
+    }
+
+    private func takeQueuedEvent() -> Data? {
+        guard head < queue.count else { return nil }
+        let data = queue[head]
+        queue[head] = Data()
+        head += 1
+        queuedBytes -= data.count
+        if head >= queue.count {
+            queue.removeAll(keepingCapacity: true)
+            head = 0
+        } else if head >= 64, head * 2 >= queue.count {
+            queue.removeFirst(head)
+            head = 0
         }
+        resumeProducerIfRoom()
+        return data
+    }
+
+    // Keep cancellation and continuation registration in separate functions.
+    // Swift's ClosureLifetimeFixup pass can hang on their nested closures.
+    private func waitForRoom(for byteCount: Int) async {
+        await withTaskCancellationHandler {
+            await suspendProducer(for: byteCount)
+        } onCancel: {
+            self.scheduleProducerCancellation()
+        }
+    }
+
+    private func suspendProducer(for byteCount: Int) async {
+        await withCheckedContinuation { continuation in
+            registerProducer(continuation, byteCount: byteCount)
+        }
+    }
+
+    private func registerProducer(_ continuation: CheckedContinuation<Void, Never>, byteCount: Int) {
+        if Task.isCancelled || closed || queue.isEmpty || queuedBytes + byteCount <= capacity {
+            continuation.resume()
+        } else {
+            producer = continuation
+        }
+    }
+
+    private nonisolated func scheduleProducerCancellation() {
+        Task { await self.cancelProducer() }
+    }
+
+    private func waitForEvent(id: UUID) async -> Data? {
+        await withTaskCancellationHandler {
+            await suspendConsumer(id: id)
+        } onCancel: {
+            self.scheduleConsumerCancellation(id)
+        }
+    }
+
+    private func suspendConsumer(id: UUID) async -> Data? {
+        await withCheckedContinuation { continuation in
+            registerConsumer(continuation, id: id)
+        }
+    }
+
+    private func registerConsumer(_ continuation: CheckedContinuation<Data?, Never>, id: UUID) {
+        if Task.isCancelled {
+            continuation.resume(returning: nil)
+        } else if let data = takeQueuedEvent() {
+            continuation.resume(returning: data)
+        } else if closed {
+            continuation.resume(returning: nil)
+        } else {
+            consumers.append((id, continuation))
+        }
+    }
+
+    private nonisolated func scheduleConsumerCancellation(_ id: UUID) {
+        Task { await self.cancelConsumer(id) }
     }
 
     /// Closes the stream and wakes any blocked producer or consumer.

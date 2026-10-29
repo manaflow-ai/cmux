@@ -216,6 +216,40 @@ describe("Stack webhook: queued syncs under the shared pace (cx-f5tk4)", { timeo
     for (const u of [u1, u2]) expect(await memberRow(teamIdOf(stackTeam), userIdFor(PROJECT, u))).toMatchObject({ role: "member" })
   })
 
+  it("a join that found the pace full retries within seconds, not a minute (prod 2026-10-29: 67 s to list a new team)", async () => {
+    const s = stackHttp(1000)
+    let open = false
+    const p = { take: async () => open, window: () => {}, taken: () => 0 }
+    const stackTeam = crypto.randomUUID()
+    const joiner = crypto.randomUUID()
+    s.teams.set(stackTeam, joiner)
+    await wire([stackTeam], s, p as unknown as ReturnType<typeof pace>)
+    const t0 = Date.now()
+    const r = await deliver("team_membership.created", { team_id: stackTeam, user_id: joiner })
+    expect(r).toMatchObject({ status: 200, body: { outcome: "queued" } })
+    // A full pace frees a token within its 60 s window; a person waits on this join, so it asks again soon.
+    const waits: Array<number> = []
+    let now = t0
+    for (let i = 0; i < 3; i++) {
+      const [row] = await pending(stackTeam)
+      expect(row!.fails).toBe(i + 1)
+      waits.push(row!.due_at - now)
+      now = row!.due_at
+      await step([stackTeam], s, p as unknown as ReturnType<typeof pace>, now)
+    }
+    // 5, 10, 20 s, each within ±20 % (plus the delivery's own time).
+    for (const [i, w] of waits.entries()) {
+      const want = 5_000 * 2 ** i
+      expect(w).toBeGreaterThanOrEqual(want * 0.8 - 1000)
+      expect(w).toBeLessThanOrEqual(want * 1.2 + 1000)
+    }
+    open = true
+    const [row] = await pending(stackTeam)
+    await step([stackTeam], s, p as unknown as ReturnType<typeof pace>, row!.due_at)
+    expect(await pending(stackTeam)).toEqual([])
+    expect(await memberRow(teamIdOf(stackTeam), userIdFor(PROJECT, joiner))).toMatchObject({ role: "member" })
+  })
+
   it("a sync that never gets a token is abandoned after 50 failures, logged with a stable message", async () => {
     const s = stackHttp(1000)
     const p = pace(0)

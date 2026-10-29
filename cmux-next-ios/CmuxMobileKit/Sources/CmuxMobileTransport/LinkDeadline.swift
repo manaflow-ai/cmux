@@ -10,77 +10,128 @@ public enum LinkDeadline {
         onCancel: @escaping @Sendable () async -> Void = {},
         onDiscard: @escaping @Sendable (Value) async -> Void = { _ in }
     ) async throws -> Value {
-        // Do not create an unstructured worker for an already-cancelled caller.
-        // `Task {}` does not inherit cancellation, so relying on the worker's
-        // first check alone leaves a small window where operation can start.
+        // Unstructured workers do not inherit a caller's cancellation.
         try Task.checkCancellation()
-        guard timeout > .zero else {
-            Task { await onCancel() }
+        let race = LinkDeadlineRace(timeout: timeout, timeoutError: timeoutError,
+                                    operation: operation, onCancel: onCancel, onDiscard: onDiscard)
+        if timeout <= .zero {
+            race.abandon(timeoutError)
             throw timeoutError
         }
-        let race = LinkDeadlineRace<Value>()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                race.install(continuation)
-                let work = Task {
-                    do {
-                        guard race.beginOperation() else { return }
-                        try Task.checkCancellation()
-                        let value = try await operation()
-                        if !race.finish(.success(value)) { Task { await onDiscard(value) } }
-                    } catch { race.finish(.failure(error)) }
-                }
-                let timer = Task {
-                    do { try await Task.sleep(for: timeout) } catch { return }
-                    if race.finish(.failure(timeoutError)) { Task { await onCancel() } }
-                }
-                race.install(work: work, timer: timer)
-            }
-        } onCancel: {
-            if race.finish(.failure(CancellationError())) { Task { await onCancel() } }
-        }
+        return try await race.value()
     }
 }
 
-private final class LinkDeadlineRace<Value: Sendable>: @unchecked Sendable { // crash-allow: lock-guarded state
+private final class LinkDeadlineRace<Value: Sendable>: @unchecked Sendable { // crash-allow: immutable callbacks and lock-guarded state
+    private let timeout: Duration
+    private let timeoutError: LinkError
+    private let operation: @Sendable () async throws -> Value
+    private let onCancel: @Sendable () async -> Void
+    private let onDiscard: @Sendable (Value) async -> Void
     private let lock = NSLock()
     private var result: Result<Value, any Error>?
     private var continuation: CheckedContinuation<Value, any Error>?
     private var tasks: [Task<Void, Never>] = []
 
-    func install(_ continuation: CheckedContinuation<Value, any Error>) {
-        let result: Result<Value, any Error>? = lock.withLock {
-            if let result { return result }
-            self.continuation = continuation
-            return nil
-        }
-        if let result { continuation.resume(with: result) }
+    init(timeout: Duration, timeoutError: LinkError,
+         operation: @escaping @Sendable () async throws -> Value,
+         onCancel: @escaping @Sendable () async -> Void,
+         onDiscard: @escaping @Sendable (Value) async -> Void) {
+        self.timeout = timeout
+        self.timeoutError = timeoutError
+        self.operation = operation
+        self.onCancel = onCancel
+        self.onDiscard = onDiscard
     }
 
-    func install(work: Task<Void, Never>, timer: Task<Void, Never>) {
-        let finished = lock.withLock {
-            guard result == nil else { return true }
-            tasks = [work, timer]
-            return false
+    // Keep cancellation, continuation registration and task creation in separate
+    // methods to keep the generic closure tree small during compilation.
+    func value() async throws -> Value {
+        try await withTaskCancellationHandler {
+            try await wait()
+        } onCancel: {
+            self.cancel()
         }
+    }
+
+    private func wait() async throws -> Value {
+        try await withCheckedThrowingContinuation(start)
+    }
+
+    private func start(_ continuation: CheckedContinuation<Value, any Error>) {
+        lock.lock()
+        if let result {
+            lock.unlock()
+            continuation.resume(with: result)
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+
+        let work = Task { await self.execute() }
+        let timer = Task { await self.expire() }
+        install(work: work, timer: timer)
+    }
+
+    private func execute() async {
+        // Cancellation can win before start has installed the task handles.
+        guard isActive() else { return }
+        do {
+            try Task.checkCancellation()
+            let value = try await operation()
+            if !finish(.success(value)) { discard(value) }
+        } catch { finish(.failure(error)) }
+    }
+
+    private func expire() async {
+        do { try await Task.sleep(for: timeout) } catch { return }
+        abandon(timeoutError)
+    }
+
+    private func cancel() {
+        abandon(CancellationError())
+    }
+
+    func abandon(_ error: any Error) {
+        if finish(.failure(error)) { cleanup() }
+    }
+
+    // Fresh tasks run cleanup even when the winning timer or worker was cancelled.
+    private func cleanup() {
+        Task { await self.onCancel() }
+    }
+
+    private func discard(_ value: Value) {
+        Task { await self.onDiscard(value) }
+    }
+
+    private func isActive() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return result == nil
+    }
+
+    private func install(work: Task<Void, Never>, timer: Task<Void, Never>) {
+        lock.lock()
+        let finished = result != nil
+        if !finished { tasks = [work, timer] }
+        lock.unlock()
         if finished { work.cancel(); timer.cancel() }
     }
 
-    /// Claims the operation slot only while the race is still active. This
-    /// closes the gap between creating the worker and installing its handle.
-    func beginOperation() -> Bool {
-        lock.withLock { result == nil }
-    }
-
     @discardableResult
-    func finish(_ result: Result<Value, any Error>) -> Bool {
-        let settled = lock.withLock { () -> (CheckedContinuation<Value, any Error>?, [Task<Void, Never>])? in
-            guard self.result == nil else { return nil }
-            self.result = result
-            defer { continuation = nil; tasks = [] }
-            return (continuation, tasks)
+    private func finish(_ result: Result<Value, any Error>) -> Bool {
+        lock.lock()
+        guard self.result == nil else {
+            lock.unlock()
+            return false
         }
-        guard let (continuation, tasks) = settled else { return false }
+        self.result = result
+        let continuation = self.continuation
+        let tasks = self.tasks
+        self.continuation = nil
+        self.tasks = []
+        lock.unlock()
         for task in tasks { task.cancel() }
         continuation?.resume(with: result)
         return true

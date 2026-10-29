@@ -9,6 +9,7 @@ use crate::peer_link::{
     Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE, write_deadline,
 };
 use crate::rpc::{Message, RpcError, method};
+use cmux_json::JsonSet as _;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -24,6 +25,10 @@ mod health;
 #[cfg(test)]
 #[path = "peer_state_tests.rs"]
 mod state_tests;
+
+#[cfg(test)]
+#[path = "peer_restart_tests.rs"]
+mod restart_tests;
 
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -53,6 +58,8 @@ pub fn hidden_attach(id: &str) -> Value {
 pub enum PeerNotice {
     Connected,
     Disconnected(String),
+    /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
+    Restarting,
     /// Full session list from `_acpmux/watch` or a single `session_changed`.
     Sessions(Vec<Value>),
     SessionChanged {
@@ -79,6 +86,13 @@ enum BackoffWait {
     Stopped,
 }
 
+/// A deliberate restart is not a transport failure and does not advance retry backoff.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinkEnd {
+    Stopped,
+    Restarting,
+}
+
 pub struct Peer {
     pub name: String,
     /// Unique per `Peer` instance; a replacement under the same name gets a
@@ -90,6 +104,7 @@ pub struct Peer {
     peer_token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
+    wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
     /// Outbound frames, each tagged with the link epoch it was admitted on:
     /// `serve` drops one whose link is gone, so it never goes out on the next,
     /// and `fail_link_requests` fails the request it carries as not sent.
@@ -133,6 +148,9 @@ pub struct Peer {
     /// Wakes this peer's running GitHub actions when lending ends (`githubBroker` off, the link
     /// ended, the peer stopped), so they stop then rather than run on.
     github_revoked: tokio::sync::Notify,
+    /// The cmux sign-in the app lent this daemon, for an App token when `gh` has no keyring
+    /// login (`github_app_token.rs`); set once by the hub.
+    github_app: std::sync::OnceLock<Arc<crate::github_app_token::AppLease>>,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
     /// It lists `filePutChunks` (`hub/file_uploads.rs`).
@@ -204,6 +222,7 @@ impl Peer {
             token,
             peer_token,
             tunnel: Mutex::new(None),
+            wireguard: std::sync::OnceLock::new(),
             out,
             out_rx: Mutex::new(Some(out_rx)),
             next_id: AtomicI64::new(1),
@@ -221,6 +240,7 @@ impl Peer {
             github_slots: crate::github_broker::owner_slots(name),
             github_link: AtomicU64::new(0),
             github_revoked: tokio::sync::Notify::new(),
+            github_app: std::sync::OnceLock::new(),
             file_put: AtomicBool::new(false),
             file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
@@ -247,6 +267,14 @@ impl Peer {
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
         })
+    }
+
+    pub(crate) fn set_wireguard(
+        &self,
+        transport: Arc<crate::wireguard::Transport>,
+        address: std::net::SocketAddr,
+    ) {
+        let _ = self.wireguard.set((transport, address));
     }
 
     pub fn link(&self) -> Link {
@@ -525,6 +553,11 @@ impl Peer {
         self.github_broker.load(Ordering::SeqCst) && lends_over(&self.url)
     }
 
+    /// The hub's lent cmux sign-in (`github_app_token.rs`).
+    pub fn set_github_app(&self, app: Arc<crate::github_app_token::AppLease>) {
+        let _ = self.github_app.set(app);
+    }
+
     /// Whether the link `link` (the epoch it was read on) takes a GitHub action now: lent, the
     /// peer not stopped, `link` still the live one, and its handshake finished with the peer
     /// serving this daemon as a peer (not Web), so nothing sent before or around it is.
@@ -561,8 +594,9 @@ impl Peer {
             if !me.github_ready(epoch) {
                 return;
             }
+            let app = me.github_app.get().map(Arc::as_ref);
             let reply = tokio::select! {
-                reply = crate::github_broker::serve_owner(&me.name, params) => reply,
+                reply = crate::github_broker::serve_owner(&me.name, params, app) => reply,
                 () = &mut revoked => {
                     let Err(e) = crate::github_broker::admit_owner(&me.name, false, &me.github_slots) else {
                         return;
@@ -806,28 +840,18 @@ impl Peer {
         };
         while !self.stop.load(Ordering::SeqCst) {
             let outcome = self.connect_once(&mut out_rx).await;
-            // Before the link goes down, so the state note of the drop names why.
-            if let Err(e) = &outcome {
-                *self.last_error.lock_or_recover() = Some(e.clone());
-            }
-            // The epoch moves first: a handshake that marks the link ready checks it after,
-            // so `connected` never stays true for a link that is gone.
-            self.link_ended();
-            self.open.store(false, Ordering::SeqCst);
-            self.connected.store(false, Ordering::SeqCst);
-            // A link that held a while starts over; one that flaps (up, then
-            // reset seconds later) keeps backing off, so a loaded host is
-            // not hit with a reconnect every second.
-            if self.with_link(|l| l.down(crate::store::now_ms(), self.timings.stable_after)) {
-                backoff.reset();
-            }
-            if let Err(e) = outcome {
-                let notice = PeerNotice::Disconnected(e);
+            let restarting = matches!(&outcome, Ok(LinkEnd::Restarting));
+            if let Some(notice) = self.finish_link(outcome, &mut backoff) {
                 let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
             }
             self.fail_link_requests(&mut out_rx).await;
             if self.stop.load(Ordering::SeqCst) {
                 break;
+            }
+            // One immediate attempt for this Close 1012. If that attempt fails, it follows
+            // the unchanged real-failure backoff; restarting is not a persistent retry mode.
+            if restarting {
+                continue;
             }
             let delay = backoff.next(crate::peer_link::jitter());
             match self.wait_backoff(delay).await {
@@ -864,6 +888,29 @@ impl Peer {
         }
     }
 
+    /// Publish the link ending before settling requests. Restart neither increments failed
+    /// attempts nor resets/draws from backoff, even when the previous link was stable.
+    fn finish_link(
+        &self,
+        outcome: Result<LinkEnd, String>,
+        backoff: &mut Backoff,
+    ) -> Option<PeerNotice> {
+        *self.last_error.lock_or_recover() = outcome.as_ref().err().cloned();
+        // The epoch moves first: a finishing handshake cannot leave a dead link ready.
+        self.link_ended();
+        self.open.store(false, Ordering::SeqCst);
+        self.connected.store(false, Ordering::SeqCst);
+        if matches!(&outcome, Ok(LinkEnd::Restarting)) {
+            self.with_link(|l| l.restarting(crate::store::now_ms()));
+            return Some(PeerNotice::Restarting);
+        }
+        // A genuinely stable link starts failure backoff over; a flapping one does not.
+        if self.with_link(|l| l.down(crate::store::now_ms(), self.timings.stable_after)) {
+            backoff.reset();
+        }
+        outcome.err().map(PeerNotice::Disconnected)
+    }
+
     /// The link ended. A request that never went out on it (still queued, or waiting for room
     /// in the queue) fails as not sent (`peer_unreachable`, retryable), and its frame is dropped,
     /// never sent on the next link. One that went out fails as `peer_disconnected`: the peer
@@ -888,9 +935,54 @@ impl Peer {
     async fn connect_once(
         self: &Arc<Self>,
         out_rx: &mut mpsc::Receiver<Outbound>,
-    ) -> Result<(), String> {
+    ) -> Result<LinkEnd, String> {
+        // An SSH peer may source this launch's application credentials over
+        // SSH. Resolve them before WG too, or a remote-origin handshake can
+        // reread a newer peer token and reconnect forever with the old one.
+        let ssh_tokens = if self.wireguard.get().is_some() && self.ssh_parts().is_some() {
+            Some(self.remote_tokens_settled().await?)
+        } else {
+            None
+        };
+        let credentials = ssh_tokens
+            .as_ref()
+            .map(|(token, peer)| (token.as_str(), peer.as_deref()))
+            .or_else(|| self.token.as_deref().map(|token| (token, self.peer_token.as_deref())));
+        if let Some((transport, address)) = self.wireguard.get()
+            && let Some((token, peer_token)) = credentials
+        {
+            let req = self.ws_request(
+                &format!("ws://localhost:{}", address.port()),
+                Some(token),
+                peer_token,
+            )?;
+            let opening = async {
+                let stream = transport.connect(*address).await.map_err(|e| e.to_string())?;
+                tokio_tungstenite::client_async_with_config(
+                    req,
+                    stream,
+                    Some(crate::server::ws_config()),
+                )
+                .await
+                .map_err(|e| e.to_string())
+            };
+            let opened = tokio::select! {
+                biased;
+                _ = self.stop_signal.notified() => return Err("peer stopped".to_owned()),
+                result = tokio::time::timeout(self.timings.connect, opening) => result,
+            };
+            if let Ok(Ok((ws, _))) = opened {
+                *self.presented.lock().unwrap_or_else(|e| e.into_inner()) =
+                    peer_token.map(str::to_owned);
+                return self.serve(ws, out_rx).await;
+            }
+            tracing::debug!(peer = %self.name, "WireGuard unavailable; trying the configured peer route");
+        }
         if self.ssh_parts().is_some() {
-            let (token, peer_token) = self.remote_tokens_settled().await?;
+            let (token, peer_token) = match ssh_tokens {
+                Some(tokens) => tokens,
+                None => self.remote_tokens_settled().await?,
+            };
             *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = peer_token.clone();
             let (stream, remote_port) = self.open_tunnel().await?;
             let req = self.ws_request(
@@ -964,7 +1056,7 @@ impl Peer {
         self: &Arc<Self>,
         ws: tokio_tungstenite::WebSocketStream<S>,
         out_rx: &mut mpsc::Receiver<Outbound>,
-    ) -> Result<(), String>
+    ) -> Result<LinkEnd, String>
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
@@ -986,7 +1078,7 @@ impl Peer {
             let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}});
             // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
             if me.github_broker() {
-                hello["_meta"] = json!({"acpmux": {"githubBroker": true}});
+                hello.set("_meta", json!({"acpmux": {"githubBroker": true}}));
             }
             let init = me.link_request_on(method::INITIALIZE, hello, Some(link)).await?;
             let v = init
@@ -1035,7 +1127,12 @@ impl Peer {
             let auth = lists(crate::hub::session_auth::FEATURE);
             me.session_auth.store(auth, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
-            me.link_request_on(method::MUX_WATCH, json!({"enabled": true}), Some(link)).await?;
+            me.link_request_on(
+                method::MUX_WATCH,
+                json!({"enabled": true, "withTools": true}),
+                Some(link),
+            )
+            .await?;
             // Connected only now, and ready with it, so its state note follows `connected`.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
@@ -1108,10 +1205,10 @@ impl Peer {
         }
         let result = loop {
             if self.stop.load(Ordering::SeqCst) {
-                break Ok(());
+                break Ok(LinkEnd::Stopped);
             }
             tokio::select! {
-                _ = self.stop_signal.notified() => break Ok(()),
+                _ = self.stop_signal.notified() => break Ok(LinkEnd::Stopped),
                 _ = wake_check.tick() => check_wake!(),
                 _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
                     break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
@@ -1154,7 +1251,10 @@ impl Peer {
                     self.with_link(|l| l.heard(crate::store::now_ms()));
                     let text = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),
-                        tokio_tungstenite::tungstenite::Message::Close(_) => break Err("peer closed the connection".to_owned()),
+                        Frame::Close(Some(close)) if close.code == tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Restart => {
+                            break Ok(LinkEnd::Restarting);
+                        }
+                        Frame::Close(_) => break Err("peer closed the connection".to_owned()),
                         _ => continue,
                     };
                     let Ok(msg) = Message::parse(&text) else { continue };
@@ -1177,7 +1277,7 @@ impl Peer {
                             if let (true, Ok(list)) = (watch, &reply) {
                                 let notice = PeerNotice::Sessions(watch_sessions(list));
                                 if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
-                                    break Ok(());
+                                    break Ok(LinkEnd::Stopped);
                                 }
                             }
                             let _ = tx.send(reply);
@@ -1203,7 +1303,7 @@ impl Peer {
                                 PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
-                                break Ok(());
+                                break Ok(LinkEnd::Stopped);
                             }
                         }
                         Message::Request { id, method: m, params } if m == method::MUX_GITHUB_ACTION => {
@@ -1238,7 +1338,7 @@ impl Peer {
                     }
                 }
                 line = out_rx.recv() => {
-                    let Some(Outbound { epoch, key, line }) = line else { break Ok(()) };
+                    let Some(Outbound { epoch, key, line }) = line else { break Ok(LinkEnd::Stopped) };
                     // Admitted on a link that went down: its caller was failed
                     // with that link, so it never goes out on this one.
                     if epoch != self.link_epoch() {

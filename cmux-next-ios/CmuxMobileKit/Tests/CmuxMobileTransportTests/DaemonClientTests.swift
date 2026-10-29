@@ -3,6 +3,33 @@ import Testing
 @testable import CmuxMobileTransport
 
 @Suite struct DaemonClientTests {
+    @Test func orderedRepliesKeepEventPositionsAndMissingRepliesExpire() async throws {
+        let link = MockMacLink { _, bytes in
+            var result = [Data]()
+            for line in bytes.split(separator: 0x0A) {
+                let object = try! JSONSerialization.jsonObject(with: Data(line)) as! [String: Any]
+                guard object["cmd"] as? String != "drop" else { continue }
+                result.append(Data("{\"event\":\"tree.changed\"}\n".utf8))
+                result.append(Data("{\"id\":\"\(object["id"]!)\",\"ok\":true}\n".utf8))
+            }
+            return result
+        }
+        let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]), orderedEvents: true)
+        let replies = await client.requestsOrdered([("drop", [:]), ("ping", [:])], deadline: .milliseconds(20))
+        if case .failure(let error) = replies[0] {
+            #expect((error as? LinkError)?.code == DaemonClient.replyTimeout)
+        } else { Issue.record("Missing ordered reply succeeded") }
+        let reply = try replies[1].get()
+        var events = client.orderedEvents.makeAsyncIterator()
+        let event = await events.next()
+        #expect(event?.sequence == 1)
+        #expect(reply.sequence == 2)
+        #expect(await client.receivedPosition == 2)
+        var unused = client.events.makeAsyncIterator()
+        #expect(await unused.next() == nil)
+        await client.close()
+    }
+
     @Test func unsolicitedEventsApplyByteBackpressureWithoutDroppingOrder() async throws {
         let buffer = BoundedDaemonEventBuffer(capacity: 4)
         #expect(await buffer.push(Data("one".utf8)))
