@@ -155,7 +155,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           // between the absolutely positioned rail and its portaled card when the host is flattened
           // with `display: contents` (the card trails the rail by a pixel during resize).
           const menuHost = page.locator(".acpmux-minimap > .ui-context-menu-host");
-          await menuHost.waitFor();
+          await menuHost.waitFor({ state: "attached" });
           expect(await menuHost.evaluate((node) => getComputedStyle(node).display)).not.toBe("contents");
           // Keep this same preview open while the Inspector changes independently of pointer/focus.
           await card.locator(".acpmux-minimap__bookmark").focus();
