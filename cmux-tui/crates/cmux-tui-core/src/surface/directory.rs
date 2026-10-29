@@ -253,7 +253,7 @@ impl Surface {
         // R3 (Debug): a registry publication never runs on a thread that
         // disallows blocking (an output thread), on any path and at any load.
         debug_assert!(
-            !cmux_threads::is_blocking_disallowed(),
+            !cmux_threads::blocking::is_blocking_disallowed(),
             "terminal {} published its registry state on a thread that disallows blocking",
             self.id,
         );

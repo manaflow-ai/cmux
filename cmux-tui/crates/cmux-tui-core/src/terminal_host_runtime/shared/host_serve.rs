@@ -526,8 +526,13 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         }
     });
     host.remove_client(client);
-    // The client's control sequence ends with the client (its end of
-    // stream, a refused frame or a close); this loop waits for it.
+    // The output loop ended (Exit, a fenced detach drained, a write error or
+    // the client's end): nothing more can reach this client, so the owner
+    // ends it. The socket shuts both ways, client-input reads its end, the
+    // control sequence runs what it holds and stops, and this loop joins it,
+    // so the client's stream count drops here, as when this loop returned
+    // at once.
+    tap.close();
     control.join();
     Ok(())
 }
@@ -571,19 +576,6 @@ impl ClientFrames {
                 && frame.kind == MessageKind::Input
                 && frame.request_id == 0);
         frame.version == self.selected_version && flags_valid && frame.sequence == 0
-    }
-
-    /// Whether `frame`'s handler waits for the host's parser.
-    fn waits_for_parser(frame: &Frame) -> bool {
-        matches!(
-            frame.kind,
-            MessageKind::ViewerSize
-                | MessageKind::ReleaseViewer
-                | MessageKind::SetDefaults
-                | MessageKind::SetCellPixelSize
-                | MessageKind::SetKittyGraphicsLimits
-                | MessageKind::ClearHistory
-        )
     }
 
     fn handle(&self, frame: Frame) -> FrameStep {
@@ -998,7 +990,7 @@ fn run_control(frames: &Arc<ClientFrames>, lane: &ControlLane) {
         // R3 (Debug): a client's frames never run on a thread that
         // disallows blocking (client-input), at any load.
         debug_assert!(
-            !cmux_threads::is_blocking_disallowed(),
+            !cmux_threads::blocking::is_blocking_disallowed(),
             "a terminal-host client frame ran on a thread that disallows blocking"
         );
         match frames.handle(frame) {

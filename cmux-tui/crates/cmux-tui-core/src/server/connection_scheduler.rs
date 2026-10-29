@@ -729,7 +729,7 @@ impl ConnectionSurfaceScheduler {
         // disallows blocking (a reader, the person's IO loop, a control
         // worker), on any path and at any load.
         debug_assert!(
-            !cmux_threads::is_blocking_disallowed(),
+            !cmux_threads::blocking::is_blocking_disallowed(),
             "a connection's request ran on '{}', which disallows blocking",
             std::thread::current().name().unwrap_or("<unnamed>"),
         );
