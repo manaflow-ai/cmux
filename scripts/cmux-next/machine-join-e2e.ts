@@ -127,6 +127,59 @@ export function refusal(opts: Options): string | undefined {
 }
 
 const count = (text: string, needle: string) => text.split(needle).length - 1
+
+export interface TarEntry {
+  /** The path as archived (`./.acpmux/…`), with a GNU long name applied. */
+  name: string
+  /** `0` a regular file, `5` a directory, `2` a symlink, … */
+  type: string
+  /** A symlink's target. */
+  link: string
+  body: string
+}
+
+/** The entries of a GNU or ustar archive (bytes as latin1). Throws on a truncated or malformed one. */
+export function tarEntries(data: string): TarEntry[] {
+  const out: TarEntry[] = []
+  const field = (h: string, from: number, to: number) => h.slice(from, to).split("\0")[0]!
+  let longName: string | null = null
+  let longLink: string | null = null
+  for (let off = 0; ; ) {
+    if (off + 512 > data.length) throw new Error("archive truncated")
+    const h = data.slice(off, off + 512)
+    if (/^\0*$/.test(h)) return out
+    const sizeText = field(h, 124, 136).trim()
+    if (!/^[0-7]+$/.test(sizeText)) throw new Error("archive header malformed")
+    const size = parseInt(sizeText, 8)
+    if (off + 512 + size > data.length) throw new Error("archive truncated")
+    const body = data.slice(off + 512, off + 512 + size)
+    off += 512 + Math.ceil(size / 512) * 512
+    const type = h[156] === "\0" ? "0" : h[156]!
+    if (type === "L") {
+      longName = body.split("\0")[0]!
+      continue
+    }
+    if (type === "K") {
+      longLink = body.split("\0")[0]!
+      continue
+    }
+    if (type === "x" || type === "g") throw new Error("pax archives are not read here")
+    const prefix = h.slice(257, 262) === "ustar" ? field(h, 345, 500) : ""
+    const name = longName ?? (prefix ? `${prefix}/${field(h, 0, 100)}` : field(h, 0, 100))
+    out.push({ name, type, link: longLink ?? field(h, 157, 257), body })
+    longName = null
+    longLink = null
+  }
+}
+
+/** A heartbeat time as epoch ms: a number (seconds below 1e11, else ms), a digit string the same way, or RFC 3339. */
+export const heartbeatMs = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d{1,16}$/.test(v) ? Number(v) : null
+  if (n !== null) return Number.isFinite(n) && n > 0 ? (n < 100_000_000_000 ? n * 1000 : n) : null
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}T/.test(v)) return null
+  const t = Date.parse(v)
+  return Number.isFinite(t) ? t : null
+}
 /** A workflow command's data, escaped as the runner reads it back. */
 export const escapeData = (value: string) => value.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")
 const JWT = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\./g
@@ -295,6 +348,8 @@ export async function runE2E(
   let stack: { access: string; refresh: string } | undefined
   let user: string | undefined
   let install: string | undefined
+  // The sign-in, install and token stage while it runs; cleanup waits for it before undoing it.
+  let authing: Promise<void> | undefined
   let keys: CryptoKeyPair | undefined
   let access: { token: string; expiresAt: number } | undefined
   let token: string | undefined
@@ -450,6 +505,7 @@ export async function runE2E(
         }
       }
       if (evidence.joinTokenId && joinStarted && !machineRevoked && !evidence.machineId) say("no machine was listed for this join token; nothing to revoke")
+      if (authing) await settle(authing, 1_000, 20_000)
       if (install && stack) {
         await op("install.revoke", { install }).then(
           () => say("revoked the run's cmux install"),
@@ -491,25 +547,34 @@ export async function runE2E(
     hold(email)
     hold(password)
 
-    // 1. Stack sign-in (development project), cmux user, a throwaway install and its access token.
-    const signIn = await call(`${STACK_API}/auth/password/sign-in`, { method: "POST", headers: stackHeaders(), body: { email, password } })
-    for (const key of ["access_token", "refresh_token"]) if (typeof signIn.json?.[key] === "string") hold(signIn.json[key])
-    if (signIn.status !== 200 || typeof signIn.json?.access_token !== "string") throw refusedBy("stack sign-in", signIn)
-    stack = { access: signIn.json.access_token, refresh: String(signIn.json.refresh_token ?? "") }
-    say("signed in to the development stack project")
-    user = String((await op("user.ensure", {}))?.id ?? "")
-    keys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"])) as CryptoKeyPair
-    const jwk = (await crypto.subtle.exportKey("jwk", keys.publicKey)) as JsonWebKey
-    install = String(
-      (await op("install.register", {
-        public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y },
-        kind: "cli",
-        name: `machine-join-e2e ${opts.runId}`.slice(0, 80),
-        device_name: "machine-join-e2e runner",
-        platform: "linux"
-      }))?.id ?? ""
-    )
-    await accessToken()
+    // 1. Stack sign-in (development project), cmux user, a throwaway install and its access token. Cleanup
+    // waits for this (bounded) before it revokes the install and signs out, so a late answer is still undone;
+    // after each stage the flow stops if cleanup has begun.
+    authing = (async () => {
+      const signIn = await call(`${STACK_API}/auth/password/sign-in`, { method: "POST", headers: stackHeaders(), body: { email, password } })
+      for (const key of ["access_token", "refresh_token"]) if (typeof signIn.json?.[key] === "string") hold(signIn.json[key])
+      if (signIn.status !== 200 || typeof signIn.json?.access_token !== "string") throw refusedBy("stack sign-in", signIn)
+      stack = { access: signIn.json.access_token, refresh: String(signIn.json.refresh_token ?? "") }
+      say("signed in to the development stack project")
+      live()
+      user = String((await op("user.ensure", {}))?.id ?? "")
+      live()
+      keys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"])) as CryptoKeyPair
+      const jwk = (await crypto.subtle.exportKey("jwk", keys.publicKey)) as JsonWebKey
+      live()
+      install = String(
+        (await op("install.register", {
+          public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y },
+          kind: "cli",
+          name: `machine-join-e2e ${opts.runId}`.slice(0, 80),
+          device_name: "machine-join-e2e runner",
+          platform: "linux"
+        }))?.id ?? ""
+      )
+      live()
+      await accessToken()
+    })()
+    await authing
     say("cmux-api-development access token ready")
     await sweepStale()
 
@@ -568,16 +633,20 @@ export async function runE2E(
 
     // 4. Daemon in the foreground until a heartbeat under the limit.
     live()
+    const daemonStartedAt = deps.now()
     daemon = deps.start(asUser(["daemon", "run"]), { env: childEnv })
     const deadline = deps.now() + HEARTBEAT_LIMIT_S * 1000
     let s: any = pre
+    let strangeBeat = false
     for (;;) {
       s = await status()
-      const beat = Number(s.lastHeartbeat)
-      if (Number.isFinite(beat) && beat > 0) {
+      // acpmux records ms since the epoch on this machine's clock (a string): a beat counts only when it
+      // falls in this daemon's run (1 s of slack before its start, none beyond 5 s in the future).
+      const beat = typeof s.lastHeartbeat === "string" && /^\d{1,16}$/.test(s.lastHeartbeat) ? Number(s.lastHeartbeat) : NaN
+      if (Number.isFinite(beat) && beat >= daemonStartedAt - 1_000 && beat <= deps.now() + 5_000) {
         evidence.status.heartbeatAgeSeconds = Math.max(0, Math.round((deps.now() - beat) / 1000))
         if (evidence.status.heartbeatAgeSeconds < HEARTBEAT_LIMIT_S) break
-      }
+      } else if (s.lastHeartbeat !== null && s.lastHeartbeat !== undefined) strangeBeat = true
       if (deps.now() >= deadline) break
       await within(new Promise(() => undefined), 3_000, false)
     }
@@ -590,13 +659,18 @@ export async function runE2E(
     expect(!evidence.status.joinIncomplete, "status: join incomplete")
     expect(!evidence.status.revoked, "status: revoked before the revoke")
     expect(evidence.status.hubReachable, "status: hub unreachable")
-    expect(evidence.status.heartbeatAgeSeconds !== null && evidence.status.heartbeatAgeSeconds < HEARTBEAT_LIMIT_S, `no heartbeat within ${HEARTBEAT_LIMIT_S} s`)
+    expect(evidence.status.heartbeatAgeSeconds !== null && evidence.status.heartbeatAgeSeconds < HEARTBEAT_LIMIT_S, `no heartbeat within ${HEARTBEAT_LIMIT_S} s${strangeBeat ? " (status showed a heartbeat time outside the daemon's run)" : ""}`)
     expect(s.machineId === evidence.machineId, "status: machine differs from the join's")
     expect(evidence.consent.screen === "none" && evidence.consent.control === "none", "consent is not none for both screen and control")
 
-    // 5. The platform's list, by join token id.
+    // 5. The platform's list, by join token id. Its heartbeat (RFC 3339, or epoch s or ms) must fall in the
+    // daemon's run, with a minute's slack for the platform's clock.
+    const listedBeatFresh = (v: unknown) => {
+      const t = heartbeatMs(v)
+      return t !== null && t >= daemonStartedAt - 60_000 && t <= deps.now() + 60_000
+    }
     const row = await listEntry()
-    if (row) evidence.list = { machineId: safeId(row.machineId), label: safeId(row.label), revoked: row.revoked === true, lastHeartbeatPresent: typeof row.lastHeartbeat === "string" && row.lastHeartbeat !== "" }
+    if (row) evidence.list = { machineId: safeId(row.machineId), label: safeId(row.label), revoked: row.revoked === true, lastHeartbeatPresent: listedBeatFresh(row.lastHeartbeat) }
     expect(evidence.list?.machineId === evidence.machineId, "list: no entry for this join token")
     expect(evidence.list?.revoked === false, "list: revoked before the revoke")
     expect(evidence.list?.lastHeartbeatPresent === true, "list: no heartbeat")
@@ -623,21 +697,25 @@ export async function runE2E(
   // 8. Secret scan: the disposable home (the credential file holds exactly its one credential),
   // everything this step printed and every acpmux process's output.
   try {
-    // Incomplete is a failure: the listing and every read must succeed.
-    const listing = await deps.run(asUserTool(["find", opts.home, "-xdev", "-type", "f", "-print0"]), { env: childEnv, timeoutMs: 30_000 })
-    if (listing.code !== 0) throw new Error("find failed")
+    // One process with a fixed argv archives the whole home (names, link targets and contents), so no
+    // file name ever reaches an argv. Incomplete is a failure: tar must read everything and exit 0.
+    const archive = await deps.run(asUserTool(["tar", "-C", opts.home, "--one-file-system", "--format=gnu", "-cf", "-", "."]), { env: childEnv, timeoutMs: 30_000 })
+    if (archive.code !== 0) throw new Error("tar failed")
     let cmj = 0
     let cmm = 0
-    for (const path of listing.stdout.split("\0").filter(Boolean)) {
-      const read = await deps.run(asUserTool(["cat", "--", path]), { env: childEnv, timeoutMs: 10_000 })
-      if (read.code !== 0) throw new Error("read failed")
-      const text = read.stdout
-      cmj += count(text, "cmj_")
-      if (path === credentialPath) evidence.secretScan.home.credentialFileCmm = count(text, "cmm_")
-      else cmm += count(text, "cmm_")
+    let held = 0
+    const credentialEntry = `./${credentialFile.slice(opts.home.length + 1)}`
+    for (const entry of tarEntries(archive.stdout)) {
+      const meta = `${entry.name}\n${entry.link}`
+      cmj += count(meta, "cmj_") + count(entry.body, "cmj_")
+      cmm += count(meta, "cmm_")
+      if (entry.name === credentialEntry && credentialPath) evidence.secretScan.home.credentialFileCmm = count(entry.body, "cmm_")
+      else cmm += count(entry.body, "cmm_")
+      for (const v of secrets) if (v.length >= 8 && !v.startsWith("cmm_") && (meta.includes(v) || entry.body.includes(v))) held += 1
     }
     evidence.secretScan.home.cmj = cmj
     evidence.secretScan.home.cmm = cmm
+    if (held > 0) problems.push("the home holds a value of this run's sign-in or tokens")
   } catch {
     evidence.secretScan.home.cmj = null
     evidence.secretScan.home.cmm = null

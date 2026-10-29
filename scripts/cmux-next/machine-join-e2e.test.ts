@@ -10,9 +10,11 @@ import {
   type Options,
   evidenceLeaks,
   redact,
+  heartbeatMs,
   refusal,
   runE2E,
-  safeId
+  safeId,
+  tarEntries
 } from "./machine-join-e2e.ts"
 
 // Fake values shaped like the real ones; none is a real credential.
@@ -86,6 +88,29 @@ interface Knobs {
   joinLingersMs?: number
   /** A held join ignores the user's kills (a launcher not yet that user); only its own signal stops it. */
   launcherOnly?: boolean
+  /** Runs as each cmux-api op arrives, before its answer. */
+  onOp?: (op: string) => void
+  /** How status shows a heartbeat at `ms` (default: the ms as a string, as acpmux does). */
+  heartbeatValue?: (ms: number) => unknown
+  /** How the platform's list shows a heartbeat at `ms` (default: RFC 3339). */
+  listHeartbeat?: (ms: number) => unknown
+}
+
+/** A GNU tar archive of `files` (path -> text) relative to HOME, as `tar -C HOME -cf - .` writes it. */
+function tarOf(files: Record<string, string>): string {
+  const block = (text: string) => text + "\0".repeat((512 - (text.length % 512)) % 512)
+  const header = (name: string, size: number, type: string) => {
+    const pad = (text: string, n: number) => (text + "\0".repeat(n)).slice(0, n)
+    const h = pad(name, 100) + pad("0000644", 8) + pad("0001750", 8) + pad("0001750", 8) + pad(size.toString(8).padStart(11, "0"), 12) + pad("15000000000", 12) + "        " + type
+    return pad(h + pad("", 100) + "ustar  \0", 512)
+  }
+  let out = header("./", 0, "5")
+  for (const [path, text] of Object.entries(files)) {
+    const name = `./${path.slice(HOME.length + 1)}`
+    if (name.length > 100) out += header("././@LongLink", name.length + 1, "L") + block(`${name}\0`)
+    out += header(name.slice(0, 100), text.length, "0") + block(text)
+  }
+  return out + "\0".repeat(1024)
 }
 
 /** One fake world: the stack, cmux-api, the platform, sudo and acpmux. Records every call. */
@@ -165,6 +190,7 @@ function world(k: Knobs = {}) {
     if (url.endsWith("/auth/sessions/current")) return json(200, {})
     if (url === `${DEV_API}/v1/ops`) {
       if (headers.authorization !== `Bearer ${STACK_ACCESS}`) return json(401, { code: "auth.unauthorized" })
+      k.onOp?.(parsed.op)
       const value = parsed.op === "user.ensure" ? { id: "user_1" } : parsed.op === "install.register" ? { id: "inst_1" } : { id: "inst_1", revoked: true }
       return json(200, { ok: true, value })
     }
@@ -196,7 +222,7 @@ function world(k: Knobs = {}) {
       }
       listReads += 1
       const visible = (joined || redeemed) && (redeemed ? listReads > (k.listVisibleAfter ?? 0) : true)
-      const ours = visible ? [{ machineId: "m_1", joinTokenId: "jt_1", teamId: "team_1", label: "ci-join-1", mintedBy: "user_1", createdAt: new Date(clock).toISOString(), lastHeartbeat: lastHeartbeat ? "2026-10-29T12:01:00Z" : null, revoked }] : []
+      const ours = visible ? [{ machineId: "m_1", joinTokenId: "jt_1", teamId: "team_1", label: "ci-join-1", mintedBy: "user_1", createdAt: new Date(clock).toISOString(), lastHeartbeat: lastHeartbeat ? (k.listHeartbeat ?? ((ms: number) => new Date(ms).toISOString()))(lastHeartbeat) : null, revoked }] : []
       const others = (k.others ?? []).map((m) => ({ ...m, revoked: m.revoked === true || revokedIds.includes(String(m.machineId)) }))
       return json(200, { machines: [...others, ...ours] })
     }
@@ -231,7 +257,7 @@ function world(k: Knobs = {}) {
         teamId: joined ? "team_1" : "",
         hubOrigin: DEV_PLATFORM,
         hubReachable: joined,
-        lastHeartbeat: lastHeartbeat === null ? null : String(lastHeartbeat),
+        lastHeartbeat: lastHeartbeat === null ? null : (k.heartbeatValue ?? String)(lastHeartbeat),
         revoked,
         consent: { screen: "none", control: "none" },
         credentialPath: k.statusCredentialPath ?? CRED_PATH,
@@ -284,7 +310,11 @@ function world(k: Knobs = {}) {
         return { code: 0, stdout: files[cmd[2]!] ?? "", stderr: "" }
       }
       if (cmd[0] === "stat") return { code: 0, stdout: `${k.credentialStat ?? `regular file|${opts.user}|600`}\n`, stderr: "" }
-      if (cmd[0] === "find") return { code: 0, stdout: Object.keys(files).map((f) => `${f}\0`).join(""), stderr: "" }
+      if (cmd[0] === "tar") {
+        if (k.catFails) return { code: 2, stdout: "", stderr: "tar: ./.acpmux/config.json: Cannot open: Permission denied" }
+        const home = Object.fromEntries(Object.entries(files).filter(([path]) => path.startsWith(`${HOME}/`)))
+        return { code: 0, stdout: tarOf(home), stderr: "" }
+      }
       return { code: 1, stdout: "", stderr: "" }
     },
     start: (argv, o) => {
@@ -826,6 +856,25 @@ describe("cancellation, the sweep, masking and the scan", () => {
     expect(w.evidenceText()).not.toContain("line2")
   })
 
+  test("a file named after a credential fails the scan, and no file name reaches an argv", async () => {
+    const w = world({ homeFiles: { [`${HOME}/.acpmux/${CREDENTIAL}`]: "" } })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.secretScan.home.cmm).toBe(1)
+    expect(e.reason).toContain("the home holds a credential outside the credential file")
+    // The scan is one tar with a fixed argv; no run names a file under the home but the credential file.
+    for (const r of w.runs) for (const a of r.argv) if (a.startsWith(`${HOME}/`)) expect(a).toBe(CRED_PATH)
+    assertNoSecretEscaped(w)
+  })
+
+  test("a sign-in or token value left in the home fails the run", async () => {
+    const w = world({ homeFiles: { [`${HOME}/.acpmux/cache.json`]: `{"t":"${ACCESS}"}` } })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("the home holds a value of this run's sign-in or tokens")
+    assertNoSecretEscaped(w)
+  })
+
   test("an incomplete home scan fails the run", async () => {
     const w = world({ catFails: true, homeFiles: { [`${HOME}/.acpmux/config.json`]: "{}" } })
     const e = await runE2E(opts, env, w.deps)
@@ -836,7 +885,88 @@ describe("cancellation, the sweep, masking and the scan", () => {
   })
 })
 
+describe("heartbeats", () => {
+  test("a status heartbeat in the future does not count", async () => {
+    const w = world({ heartbeatValue: (ms) => String(ms + 600_000) })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("no heartbeat within 90 s (status showed a heartbeat time outside the daemon's run)")
+    expect(e.status.heartbeatAgeSeconds).toBeNull()
+    assertNoSecretEscaped(w)
+  })
+
+  test("a status heartbeat in microseconds does not count", async () => {
+    const w = world({ heartbeatValue: (ms) => String(ms * 1000) })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("no heartbeat within 90 s")
+    assertNoSecretEscaped(w)
+  })
+
+  test("a listed heartbeat from before the daemon started does not count", async () => {
+    const w = world({ listHeartbeat: () => "2026-10-01T00:00:00Z" })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("list: no heartbeat")
+    assertNoSecretEscaped(w)
+  })
+
+  test("a listed heartbeat in epoch seconds or ms counts", async () => {
+    for (const listHeartbeat of [(ms: number) => Math.floor(ms / 1000), (ms: number) => ms, (ms: number) => String(ms)]) {
+      const w = world({ listHeartbeat })
+      const e = await runE2E(opts, env, w.deps)
+      expect(e.result).toBe("pass")
+    }
+  })
+
+  test("heartbeatMs reads seconds, ms and RFC 3339, and nothing else", () => {
+    expect(heartbeatMs(1_793_275_200)).toBe(1_793_275_200_000)
+    expect(heartbeatMs(1_793_275_200_000)).toBe(1_793_275_200_000)
+    expect(heartbeatMs("1793275200000")).toBe(1_793_275_200_000)
+    expect(heartbeatMs("2026-10-29T12:00:00Z")).toBe(Date.parse("2026-10-29T12:00:00Z"))
+    for (const bad of [null, undefined, "", "soon", "12:00", -5, 0, Number.NaN, {}]) expect(heartbeatMs(bad)).toBeNull()
+  })
+})
+
+describe("cancellation during sign-in", () => {
+  test("a cancel during user.ensure stops before the key and the install, and signs out", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    let cancelled: Promise<void> | undefined
+    const w = world({ onOp: (op) => void (op === "user.ensure" && (cancelled = cancel!())) })
+    const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    await cancelled
+    const ops = w.calls.filter((c) => c.url === `${DEV_API}/v1/ops`).map((c) => JSON.parse(c.body).op)
+    expect(ops).toEqual(["user.ensure"])
+    expect(w.calls.some((c) => c.method === "DELETE" && c.url.endsWith("/auth/sessions/current"))).toBe(true)
+    expect(e.result).toBe("fail")
+    assertNoSecretEscaped(w)
+  })
+
+  test("an install registered while cleanup has begun is still revoked", async () => {
+    let cancel: (() => Promise<void>) | undefined
+    let cancelled: Promise<void> | undefined
+    const w = world({ onOp: (op) => void (op === "install.register" && (cancelled = cancel!())) })
+    const e = await runE2E(opts, env, w.deps, (c) => (cancel = c))
+    await cancelled
+    const ops = w.calls.filter((c) => c.url === `${DEV_API}/v1/ops`).map((c) => JSON.parse(c.body).op)
+    expect(ops).toEqual(["user.ensure", "install.register", "install.revoke"])
+    expect(w.calls.filter((c) => c.url.includes("/v1/machines/")).length).toBe(0)
+    expect(e.result).toBe("fail")
+    assertNoSecretEscaped(w)
+  })
+})
+
 describe("redaction helpers", () => {
+  test("tarEntries reads names, GNU long names, link targets and bodies, and refuses a truncated archive", () => {
+    const long = `${HOME}/.acpmux/${"d".repeat(120)}/file`
+    const archive = tarOf({ [`${HOME}/a.txt`]: "hello", [long]: "x".repeat(600) })
+    const entries = tarEntries(archive)
+    expect(entries.map((e) => e.name)).toEqual(["./", "./a.txt", `./${long.slice(HOME.length + 1)}`])
+    expect(entries[1]!.body).toBe("hello")
+    expect(entries[2]!.body.length).toBe(600)
+    expect(() => tarEntries(archive.slice(0, 700))).toThrow()
+  })
+
   test("safeId keeps plain ids and refuses token shapes, paths and control characters", () => {
     for (const ok of ["m_1", "jt_1", "team_1", "ci-join-123", "01J9ZK-abc.def"]) expect(safeId(ok)).toBe(ok)
     for (const bad of ["::stop-commands::pause", "a:b", `cmm_${"A".repeat(20)}`, "x-cmj_abc", "eyJhbGciOi", "Bearer", "a/b", "../x", "a\nb", "a b", "", "x".repeat(129), 7, null, undefined, {}])
