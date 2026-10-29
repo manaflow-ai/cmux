@@ -8,7 +8,7 @@ import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import { useEffect, type ReactNode } from "react";
 import { CommandRow } from "./CommandRow";
-import { McpCallRows } from "./McpCallRows";
+import { McpCallDetails, McpCallRows } from "./McpCallRows";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
@@ -73,9 +73,17 @@ function ToolRowColumnGallery({ look, mode }: Props) {
           <ToolRow item={rows.edit} />
           <ToolGroupRow kind="commands" items={rows.commands} disclosureKey="gallery:commands" folded />
           <CommandRow item={rows.commands[0]!} />
-          <div data-mcp>
-            <McpCallRows items={[rows.mcp]} disclosureKey="gallery:mcp" />
-          </div>
+          <McpCallRows items={[rows.mcp]} disclosureKey="gallery:mcp" />
+          {/* The call's opened details, drawn at once (no fold to wait on), so the still shows the
+              response box's bottom edge. */}
+          <McpCallDetails
+            id="gallery-mcp"
+            call={{ server: "hub", tool: "read_chat", args: { chat: "msg-fold" } }}
+            raw="mcp__hub__read_chat"
+            output={response}
+            strip={false}
+            reveal={0}
+          />
         </Column>
       </main>
     </TranscriptDisclosureProvider>
@@ -85,8 +93,6 @@ function ToolRowColumnGallery({ look, mode }: Props) {
 const variant = (look: Look, mode: Props["mode"], note: string): ComponentVariant<Props> => ({
   note: `${note} ${mode === "dark" ? "Dark" : "Light"} theme.`,
   props: { look, mode },
-  // The MCP call opens, so its response shows its bottom edge.
-  play: async (ctx) => ctx.click({ selector: "[data-mcp] button.cv-tool" }),
 });
 
 export default componentEntry<Props>({
