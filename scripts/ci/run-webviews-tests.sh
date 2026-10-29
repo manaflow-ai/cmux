@@ -300,13 +300,20 @@ while IFS= read -r -d '' file; do
 done < "$results/serial"
 # The rest copy their config's warm cache and run at once; a config no file warmed has no
 # trustworthy cache, so its files run one at a time, each on a cold cache of its own.
+# A file that loads the machine itself declares `// cmux-web-test-alone` (first 20 lines) and runs
+# after the others, alone, on its config's cache: agent-pane-attach-huge-files (2 GB uploads,
+# about 6 minutes) beside three composer files made them time out and its own typing read 85 ms
+# (run 40732464791); alone, as its config's warming file, it passed (run 40721887225).
 : > "$results/dev-warm"
 : > "$results/dev-cold"
+: > "$results/dev-alone"
 index=0
 while IFS= read -r -d '' config && IFS= read -r -d '' file; do
   index=$((index + 1))
   seed="$(sed -n "s/^$config //p" "$results/warmed")"
-  if [ -n "$seed" ]; then
+  if head -n 20 "$file" 2> /dev/null | grep -qx '// cmux-web-test-alone'; then
+    printf '%s\0%s\0%s\0' "$file" "$vite/$index" "${seed:-$vite/none}" >> "$results/dev-alone"
+  elif [ -n "$seed" ]; then
     printf '%s\0%s\0%s\0' "$file" "$vite/$index" "$seed" >> "$results/dev-warm"
   else
     printf '%s\0%s\0%s\0' "$file" "$vite/$index" "$vite/none" >> "$results/dev-cold"
@@ -318,6 +325,9 @@ if [ -s "$results/dev-warm" ]; then
 fi
 if [ -s "$results/dev-cold" ]; then
   xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-cold"
+fi
+if [ -s "$results/dev-alone" ]; then
+  xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-alone"
 fi
 
 # Retry failed files once, alone, so a file that only lost a race for the CPU

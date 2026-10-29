@@ -4923,9 +4923,9 @@
     {
       "cli" : "offered",
       "cli_name" : "space new-window",
-      "context_menu" : "offered",
+      "context_menu" : "minimalMenu",
       "context_menus" : [
-        "space"
+
       ],
       "default_aliases" : [
 
@@ -4946,6 +4946,62 @@
       "palette_suggested" : null,
       "title" : "New Window in Space…",
       "title_key" : "action.space.newWindow",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "space new-incognito",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "space.newIncognito",
+      "main_menu" : "window",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Incognito Space",
+      "title_key" : "action.space.newIncognito",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "space open-in-new-window",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "space"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "space.openInNewWindow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Space in New Window",
+      "title_key" : "action.space.openInNewWindow",
       "title_table" : "ProfileActions"
     },
     {
@@ -5033,7 +5089,7 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "familyMember",
+      "cli" : "offered",
       "cli_name" : "space color-grey",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5046,7 +5102,7 @@
       "default_shortcut" : null,
       "id" : "space.color.grey",
       "main_menu" : null,
-      "mcp" : "familyMember",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5061,7 +5117,7 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "familyMember",
+      "cli" : "offered",
       "cli_name" : "space color-blue",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5074,7 +5130,7 @@
       "default_shortcut" : null,
       "id" : "space.color.blue",
       "main_menu" : null,
-      "mcp" : "familyMember",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5089,7 +5145,7 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "familyMember",
+      "cli" : "offered",
       "cli_name" : "space color-red",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5102,7 +5158,7 @@
       "default_shortcut" : null,
       "id" : "space.color.red",
       "main_menu" : null,
-      "mcp" : "familyMember",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5117,7 +5173,7 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "familyMember",
+      "cli" : "offered",
       "cli_name" : "space color-yellow",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5130,7 +5186,7 @@
       "default_shortcut" : null,
       "id" : "space.color.yellow",
       "main_menu" : null,
-      "mcp" : "familyMember",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5145,7 +5201,7 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "familyMember",
+      "cli" : "offered",
       "cli_name" : "space color-green",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5158,7 +5214,7 @@
       "default_shortcut" : null,
       "id" : "space.color.green",
       "main_menu" : null,
-      "mcp" : "familyMember",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5173,7 +5229,7 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "familyMember",
+      "cli" : "offered",
       "cli_name" : "space color-pink",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5186,7 +5242,7 @@
       "default_shortcut" : null,
       "id" : "space.color.pink",
       "main_menu" : null,
-      "mcp" : "familyMember",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5201,7 +5257,7 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "familyMember",
+      "cli" : "offered",
       "cli_name" : "space color-purple",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5214,7 +5270,7 @@
       "default_shortcut" : null,
       "id" : "space.color.purple",
       "main_menu" : null,
-      "mcp" : "familyMember",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5229,7 +5285,7 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "familyMember",
+      "cli" : "offered",
       "cli_name" : "space color-cyan",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5242,7 +5298,7 @@
       "default_shortcut" : null,
       "id" : "space.color.cyan",
       "main_menu" : null,
-      "mcp" : "familyMember",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5257,7 +5313,7 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "familyMember",
+      "cli" : "offered",
       "cli_name" : "space color-orange",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5270,7 +5326,7 @@
       "default_shortcut" : null,
       "id" : "space.color.orange",
       "main_menu" : null,
-      "mcp" : "familyMember",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5621,26 +5677,38 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "focusMove",
+      "cli" : "offered",
       "cli_name" : "space next",
       "context_menu" : "focusMove",
       "context_menus" : [
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "]",
+              "modifiers" : [
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "!codeEditorFocused"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "]",
+        "key" : "",
         "modifiers" : [
+          "ctrl",
           "opt",
           "cmd"
         ]
       },
       "id" : "space.next",
       "main_menu" : "window",
-      "mcp" : "focusMove",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5655,26 +5723,38 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "focusMove",
+      "cli" : "offered",
       "cli_name" : "space previous",
       "context_menu" : "focusMove",
       "context_menus" : [
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "[",
+              "modifiers" : [
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "!codeEditorFocused"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "[",
+        "key" : "",
         "modifiers" : [
+          "ctrl",
           "opt",
           "cmd"
         ]
       },
       "id" : "space.previous",
       "main_menu" : "window",
-      "mcp" : "focusMove",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -5689,14 +5769,130 @@
       "title_table" : "ProfileActions"
     },
     {
-      "cli" : "focusMove",
+      "cli" : "offered",
       "cli_name" : "space select-1-9",
       "context_menu" : "focusMove",
       "context_menus" : [
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "1",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "2",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "3",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "4",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "5",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "6",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "7",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "8",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        },
+        {
+          "keys" : [
+            {
+              "key" : "9",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5709,7 +5905,7 @@
       },
       "id" : "space.selectByNumber",
       "main_menu" : "window",
-      "mcp" : "focusMove",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.workspace",
@@ -32922,9 +33118,9 @@
       "title_table" : "MusicActions"
     },
     {
-      "cli" : "undeclared",
+      "cli" : "guiOnly",
       "cli_name" : "action voice-room-open",
-      "context_menu" : "undeclared",
+      "context_menu" : "noObject",
       "context_menus" : [
 
       ],
@@ -32935,7 +33131,7 @@
       "default_shortcut" : null,
       "id" : "voiceRoom.open",
       "main_menu" : null,
-      "mcp" : "undeclared",
+      "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.agents",
@@ -32950,9 +33146,9 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "undeclared",
+      "cli" : "guiOnly",
       "cli_name" : "action voice-room-stop",
-      "context_menu" : "undeclared",
+      "context_menu" : "noObject",
       "context_menus" : [
 
       ],
@@ -32963,7 +33159,7 @@
       "default_shortcut" : null,
       "id" : "voiceRoom.stop",
       "main_menu" : null,
-      "mcp" : "undeclared",
+      "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.agents",
@@ -34619,8 +34815,8 @@
       "title_table" : "SidebarSectionActions"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "action sidebar-spaces-hide",
+      "cli" : "offered",
+      "cli_name" : "sidebar hide-spaces",
       "context_menu" : "offered",
       "context_menus" : [
         "space"
@@ -34632,7 +34828,7 @@
       "default_shortcut" : null,
       "id" : "sidebar.spaces.hide",
       "main_menu" : null,
-      "mcp" : "guiOnly",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.sidebar",
@@ -34647,8 +34843,8 @@
       "title_table" : "SidebarSectionActions"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "action sidebar-spaces-show",
+      "cli" : "offered",
+      "cli_name" : "sidebar show-spaces",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarFooter"
@@ -34660,7 +34856,7 @@
       "default_shortcut" : null,
       "id" : "sidebar.spaces.show",
       "main_menu" : null,
-      "mcp" : "guiOnly",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.sidebar",
@@ -42438,7 +42634,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "reopenClosedWorkspace",
+              "id" : "space.newIncognito",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -42451,7 +42647,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "reopenPreviousSession",
+              "id" : "reopenClosedWorkspace",
               "kind" : "action",
               "order" : 5,
               "visible_when" : {
@@ -42463,14 +42659,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "reopenPreviousSession",
+              "kind" : "action",
+              "order" : 6,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 6
+              "order" : 7
             },
             {
               "enabled_when" : "can_perform",
               "id" : "newCloudWorkspace",
               "kind" : "action",
-              "order" : 7,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -42483,7 +42692,7 @@
               "enabled_when" : "can_perform",
               "id" : "remote.newGroup",
               "kind" : "action",
-              "order" : 8,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "remoteHosts",
@@ -42496,7 +42705,7 @@
               "enabled_when" : "can_perform",
               "id" : "remote.connect",
               "kind" : "action",
-              "order" : 9,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "remoteHosts",
@@ -42509,7 +42718,7 @@
               "enabled_when" : "can_perform",
               "id" : "device.add",
               "kind" : "action",
-              "order" : 10,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "remoteHosts",
@@ -42520,24 +42729,11 @@
             },
             {
               "kind" : "separator",
-              "order" : 11
+              "order" : 12
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.home.add",
-              "kind" : "action",
-              "order" : 12,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "sidebar.item.add",
               "kind" : "action",
               "order" : 13,
               "visible_when" : {
@@ -42550,9 +42746,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.section.add",
+              "id" : "sidebar.item.add",
               "kind" : "action",
               "order" : 14,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.section.add",
+              "kind" : "action",
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -43531,9 +43740,9 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "space.newWindow",
+          "id" : "space.openInNewWindow",
           "kind" : "action",
-          "label" : "New Window",
+          "label" : "Open in New Window",
           "order" : 1,
           "visible_when" : {
             "debug_only" : false,

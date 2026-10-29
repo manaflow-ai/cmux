@@ -1,7 +1,9 @@
 // Leo, 2026-10-13 (coherence pass): the New Tab field should sit on a wallpaper theme as firmly as
 // the art side's own chrome. Its box mixed the text color into the page background, which is
-// transparent over a wallpaper, so the box was a thin film over the art (beige glass). It is the
-// theme's own solid surface under the same tint. Its suggestions are menu rows, the same height,
+// transparent over a wallpaper, so the box was a thin film over the art (beige glass). Since #24593
+// (2026-10-23) the box is the chat composer's shared glass: over art the theme's solid surface as a
+// translucent tint (a surface, not a film; glass is never opaque), solid only under Reduce
+// Transparency (composer-glass.test.ts holds the chat card to the same). Its suggestions are menu rows, the same height,
 // corners and inset as every other menu in the pane. Focus is quiet (Lawrence 10-14): it keeps the
 // box's rim and never takes the theme accent (newtab-quiet-focus.test.ts).
 //
@@ -19,9 +21,11 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
   const source = path.resolve(import.meta.dir, "../src");
   const css = [
     "pages/shared/desktop.css",
+    "ui/glass/glass.css",
     "ui/popupSurface.css",
     "agent-session/shared/styles.css",
     "agent-session/acpmux/styles.css",
+    "agent-session/acpmux/composerStates.css",
     "agent-session/acpmux/newtab/screen.css",
   ]
     .map((file) => fs.readFileSync(path.join(source, file), "utf8").replace(/^@import .*$/gm, ""))
@@ -53,8 +57,8 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
       "--cmux-surface-solid:rgb(25, 23, 36)",
       "--cmux-popup-surface:rgb(52, 49, 68)",
     ].join(";");
-  const body = `<div class="acpmux-shell"><div class="nt-screen"><div class="nt-box"><div class="nt-input">
-<textarea class="nt-field" rows="1" data-focus-ring="none" placeholder="Search or type a URL"></textarea></div></div></div></div>
+  const body = `<div class="acpmux-shell"><div class="nt-screen"><div class="nt-composer"><div class="ui-glass ui-glass-floats nt-box"><div class="nt-input">
+<textarea class="nt-field" rows="1" data-focus-ring="none" placeholder="Search or type a URL"></textarea></div></div></div></div></div>
 <div class="ui-positioner"><div class="ui-popup nt-popover"><div class="nt-rows" id="rows">
 <div class="nt-row is-selected" id="row">reddit.com</div></div></div></div>
 <div class="ui-positioner"><div class="ui-popup ui-context-menu" id="menu"><div class="ui-menu-item" id="item">Copy</div></div></div>
@@ -77,16 +81,25 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
       });
       afterAll(async () => browser?.close());
 
-      const open = async (accent: string) => {
+      // Over a wallpaper the host marks the page see-through (data-cmux-see-through), under Plain glass.
+      const open = async (accent: string, attributes = "") => {
         const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
         await page.setContent(
-          `<!doctype html><html style="${theme(accent)}"><head><style>${css}</style></head><body>${body}</body></html>`,
+          `<!doctype html><html data-cmux-see-through data-glass="plain" ${attributes} style="${theme(accent)}"><head><style>${css}</style></head><body>${body}</body></html>`,
         );
         return page;
       };
 
-      test("the box is the theme's solid surface, not a film over the art", async () => {
+      test("the box is the composer's glass over the art: a surface, not a film, never opaque", async () => {
         const page = await open(TEXT);
+        const background = await page.$eval(".nt-box", (node) => getComputedStyle(node).backgroundColor);
+        expect(alpha(background), "a surface, not a film").toBeGreaterThanOrEqual(0.4);
+        expect(alpha(background), "glass, never opaque").toBeLessThan(1);
+        await page.close();
+      });
+
+      test("under Reduce Transparency the box is the theme's solid surface", async () => {
+        const page = await open(TEXT, "data-reduce-transparency");
         const background = await page.$eval(".nt-box", (node) => getComputedStyle(node).backgroundColor);
         expect(alpha(background)).toBe(1);
         await page.close();

@@ -1622,6 +1622,7 @@ impl Brain {
                 peer.as_deref().unwrap_or("?")
             ));
         }
+        self.outcome_resumed(id);
         // B4: its VM was paused while it was idle; it resumes before the
         // message (a rare tell to a finished cloud subagent, seconds).
         if !cancelled
