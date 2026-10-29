@@ -179,6 +179,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
 
+      - name: Validate attachment admission caps
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_attachment_caps_guard.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
@@ -313,6 +317,10 @@ jobs:
       - name: Validate reload --release builds the Release configuration
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: ./tests/test_reload_release_configuration.sh
+
+      - name: Validate reload signs ad hoc unless CMUX_DEV_SIGN_IDENTITY names a present identity
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: ./tests/test_reload_dev_sign_identity.sh
 
       - name: Validate docs deployment authentication guard
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
