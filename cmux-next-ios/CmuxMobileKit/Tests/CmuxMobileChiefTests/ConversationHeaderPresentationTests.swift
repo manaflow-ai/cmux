@@ -96,6 +96,30 @@ struct ConversationHeaderPresentationTests {
         #expect(controller.detailsController == nil)
     }
 
+    @Test func hostReplyViewportStartsBelowHeaderWhenComposerRises() {
+        for edge in [ConversationHeaderPresentation.ScrollEdge.messages, .system] {
+            let controller = makeController(header: .init(scrollEdge: edge))
+            defer { controller.store.stop() }
+            controller.additionalSafeAreaInsets.top = 62
+            controller.view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            controller.view.layoutIfNeeded()
+            let message = ConversationMessage(id: "reply-root", seq: 1, clientMessageID: nil, senderID: "agent", sentAt: Date(), text: "A long thread")
+            controller.store.apply(.message(message, eventSeq: 1))
+            controller.enterReplyMode(for: message)
+            guard let overlay = controller.replyOverlay else {
+                Issue.record("Reply thread did not open")
+                continue
+            }
+            overlay.contentHeight = 2_000
+            controller.composerContainer.frame.origin.y = 450
+            controller.layoutReplyOverlay()
+            #expect(overlay.content.clipsToBounds == (edge == .system))
+            #expect(overlay.content.frame.minY == controller.header.frame.maxY)
+            #expect(overlay.content.contentOffset.y > 0)
+            overlay.removeFromSuperview()
+        }
+    }
+
     private func makeController(header: ConversationHeaderPresentation = .init()) -> ConversationViewController {
         let store = ConversationStore(backend: HeaderBackend())
         let controller = ConversationViewController(store: store, options: .init(header: header))
