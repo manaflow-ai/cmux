@@ -325,12 +325,19 @@ final class TabContentCache {
     func browser(for key: String, url: URL?, profile: BrowserProfileID? = nil) -> BrowserEntry {
         if let entry = browsers[key] { return entry }
         let profile = profile ?? browserProfile?(key) ?? .default
-        if let page = MachineBrowserPages(cache: self).page(key: key, url: url, profile: profile) { return install(page, for: key) }
+        if let page = sessionLocalAppPage(key: key, url: url, profile: profile) { return install(page, for: key) }
         let tab = webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: profile, initialURL: pageRequests.proxiedTabs.isProxied(key) ? nil : url)
         return install(tab, for: key)
     }
 
     func existingBrowser(_ key: String) -> BrowserEntry? { browsers[key] }
+
+    /// The cmux page of a session-local tab (no daemon record, so no `TabModel` for ``makeAppPage(_:for:)``): only a
+    /// machine's page can live in one (Open on <machine>). Its first open (`browser(for:url:profile:)`) and its wake
+    /// after a release (`BrowserHibernation.restoreAppPage`) build it here.
+    func sessionLocalAppPage(key: String, url: URL?, profile: BrowserProfileID? = nil) -> (any BrowserTab)? {
+        MachineBrowserPages(cache: self).page(key: key, url: url, profile: profile ?? browserProfile?(key) ?? .default)
+    }
 
     /// The page for a daemon browser tab on the engine its record names,
     /// written back to the record (url, title, favicon) while it lives.
