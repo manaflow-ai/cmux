@@ -36,7 +36,7 @@ public final class InvariantRegistry {
     public var onReport: ((InvariantViolation, Data?) -> Void)?
     public private(set) var rules: [InvariantRule] = []
     /// Passes run by turns (idle turns are not passes).
-    public private(set) var turnsChecked: UInt64 = 0
+    public internal(set) var turnsChecked: UInt64 = 0
     var records: [InvariantRuleRecord] = []
     var byID: [InvariantID: Int] = [:]
     var byKey: [InvariantKey: [Int]] = [:]
