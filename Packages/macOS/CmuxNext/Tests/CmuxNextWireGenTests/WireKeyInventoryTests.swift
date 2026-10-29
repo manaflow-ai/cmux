@@ -16,11 +16,14 @@ private func json(_ text: String) throws -> SchemaJSON {
         return try RequestSchema(sdkSchema: data).inventory
     }
 
-    /// Every keyed wire name of a macOS request is already snake case: the old encoder
-    /// sent each one as the generated coder will, so no dictionary-valued or other field
-    /// changes bytes. A migration's wire golden (030-043) must equal its old line exactly.
+    /// Every keyed wire name of a macOS request is snake case but `energy.set`'s `offForNow`
+    /// (the daemon's `#[serde(rename = "offForNow")]`). A snake-case coder would have sent
+    /// `off_for_now`; WireCoding writes CodingKeys as spelled since p05-ipc-046, so the
+    /// hand-written EnergySetRequest already sends `offForNow` (DaemonEnergyEdgesTests
+    /// requestLineCarriesTheReasonOnlyWithTheSaver) and the generated coder sends the same
+    /// bytes. Any other entry is a new camelCase member: its migration must keep its spelling.
     @Test func noMacOSRequestKeyChangesBytes() throws {
-        #expect(try Self.liveInventory().renamedKeys == [:])
+        #expect(try Self.liveInventory().renamedKeys == ["energy.set.offForNow": "off_for_now"])
     }
 
     /// The caller-authored keys (maps, JsonValue documents, objects with additional
@@ -33,6 +36,7 @@ private func json(_ text: String) throws -> SchemaJSON {
             "apps-provider-result.body",
             "apps-run.args",
             "chief-inspect.query",
+            "client-hello.features.values",
             "cloud-attachment-upload.poster",
             "cloud-attachment-upload.preview",
             "cloud-conversation-op.op",
@@ -62,6 +66,7 @@ private func json(_ text: String) throws -> SchemaJSON {
             "set-default-colors.palette",
             "set-frontend-browser-history.history",
             "split.env",
+            "trace-start",
             "update-browser-profile.proxy",
             "update-profile.defaults",
         ])
