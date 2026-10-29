@@ -471,14 +471,14 @@ async fn splice(
                     continue;
                 }
                 // Preserve ordering for commands/mutations. Only explicit terminal
-                // sends bypass a side query waiting for its cached snapshots.
+                // input bypasses a side query waiting for its cached snapshots.
                 let checked = match &verdict {
                     Verdict::Forward => Some(&line),
                     Verdict::Rewrite(checked) => Some(checked),
                     Verdict::Refuse(_) => None,
                 };
                 if claims
-                    && checked.is_some_and(|line| !is_terminal_send(line) && !is_notification_reply(line))
+                    && checked.is_some_and(|line| !is_terminal_input(line) && !is_notification_reply(line))
                 {
                     let request = checked.unwrap().clone();
                     if side_tx.try_send((request, verdict)).is_err() {
@@ -604,11 +604,11 @@ fn side_busy(line: &[u8]) -> String {
     }
 }
 
-/// `send` names an existing terminal explicitly, so it may bypass a slow
-/// workspace query. Other commands keep the phone's order.
-fn is_terminal_send(line: &[u8]) -> bool {
+/// Text and named keys share the input path, preserving their wire order while
+/// bypassing slow workspace queries. Both commands name an existing terminal.
+fn is_terminal_input(line: &[u8]) -> bool {
     serde_json::from_slice::<Value>(line).ok().is_some_and(|v| {
-        v.get("cmd").and_then(Value::as_str) == Some("send")
+        matches!(v.get("cmd").and_then(Value::as_str), Some("send" | "send-key"))
             && v.get("surface").and_then(Value::as_u64).is_some()
     })
 }

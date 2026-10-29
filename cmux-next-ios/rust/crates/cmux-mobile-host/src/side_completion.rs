@@ -12,6 +12,7 @@ pub(crate) struct SideCompletion(Mutex<Option<Pending>>);
 struct Pending {
     id: Value,
     added_id: bool,
+    original_id: Option<Value>,
     invalidates: Option<crate::workspace_cache::WorkspaceCache>,
     done: oneshot::Sender<()>,
 }
@@ -23,12 +24,16 @@ impl SideCompletion {
         invalidates: Option<crate::workspace_cache::WorkspaceCache>,
     ) -> (Vec<u8>, oneshot::Receiver<()>) {
         let mut request: Value = serde_json::from_slice(&line).expect("policy checked request JSON");
-        let added_id = request.get("id").is_none();
+        let original_id = request.get("id").cloned();
+        // The daemon treats an explicit null exactly like an omitted id. Both
+        // need a concrete correlation id so the ordered worker can complete.
+        let added_id = original_id.as_ref().is_none_or(Value::is_null);
         if added_id {
             request["id"] = Value::String(format!("mobile-side-{}", uuid::Uuid::new_v4()));
         }
         let (done, wait) = oneshot::channel();
-        *self.0.lock().unwrap() = Some(Pending { id: request["id"].clone(), added_id, invalidates, done });
+        *self.0.lock().unwrap() =
+            Some(Pending { id: request["id"].clone(), added_id, original_id, invalidates, done });
         let line = if added_id { serde_json::to_vec(&request).unwrap() } else { line };
         (line, wait)
     }
@@ -55,7 +60,14 @@ impl SideCompletion {
         if !pending.added_id {
             return line;
         }
-        reply.as_object_mut().unwrap().remove("id");
+        match pending.original_id {
+            Some(id) => {
+                reply["id"] = id;
+            }
+            None => {
+                reply.as_object_mut().unwrap().remove("id");
+            }
+        }
         let mut line = serde_json::to_vec(&reply).unwrap();
         line.push(b'\n');
         line
@@ -81,13 +93,27 @@ mod tests {
     }
 
     #[test]
-    fn an_internal_id_does_not_escape_to_the_phone() {
+    fn missing_and_null_ids_complete_without_exposing_the_internal_id() {
         let completion = SideCompletion::default();
-        let (line, mut wait) = completion.prepare(br#"{"cmd":"identify"}"#.to_vec(), None);
-        let request: Value = serde_json::from_slice(&line).unwrap();
-        let reply = serde_json::json!({"id":request["id"],"ok":true});
-        let reply = completion.answer(reply.to_string().into_bytes());
-        assert!(serde_json::from_slice::<Value>(&reply).unwrap().get("id").is_none());
-        assert!(wait.try_recv().is_ok());
+        for request in
+            [serde_json::json!({"cmd":"identify"}), serde_json::json!({"id":null,"cmd":"identify"})]
+        {
+            let original_id = request.get("id").cloned();
+            let (line, mut wait) = completion.prepare(request.to_string().into_bytes(), None);
+            let forwarded: Value = serde_json::from_slice(&line).unwrap();
+            assert!(forwarded["id"].as_str().is_some_and(|id| id.starts_with("mobile-side-")));
+
+            // An uncorrelated daemon reply must not unblock this request.
+            completion.answer(br#"{"ok":true}"#.to_vec());
+            completion.answer(br#"{"id":null,"ok":true}"#.to_vec());
+            assert!(matches!(wait.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
+
+            let reply = serde_json::json!({"id":forwarded["id"],"ok":true});
+            let reply = completion.answer(reply.to_string().into_bytes());
+            let restored: Value = serde_json::from_slice(&reply).unwrap();
+            assert_eq!(restored.get("id"), original_id.as_ref());
+            assert_eq!(restored["ok"], true);
+            assert!(wait.try_recv().is_ok());
+        }
     }
 }

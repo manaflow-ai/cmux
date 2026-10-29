@@ -118,8 +118,8 @@ async fn exercise_selection_then_creation(same_channel: bool, terminal_wait: boo
                                                 write.lock().await.write_all(format!("{waiting}\n").as_bytes()).await.unwrap();
                                             }
                                         }
-                                        Some("send") => {
-                                            key_tx.send(Instant::now()).unwrap();
+                                        Some("send" | "send-key") => {
+                                            key_tx.send((request["id"].clone(), Instant::now())).unwrap();
                                         }
                                         Some("list-workspaces") => {
                                             let mut current = tree.clone();
@@ -221,18 +221,22 @@ async fn exercise_selection_then_creation(same_channel: bool, terminal_wait: boo
     let began = Instant::now();
     if let Some(mutator) = &mutation_channel {
         mutator.send(Bytes::from_static(
-            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"input\",\"cmd\":\"send\",\"surface\":4,\"text\":\"x\"}\n",
+            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"input-key\",\"cmd\":\"send-key\",\"surface\":4,\"keys\":[\"enter\"]}\n{\"id\":\"input\",\"cmd\":\"send\",\"surface\":4,\"text\":\"x\"}\n",
         )).await.unwrap();
     } else {
         channel.send(Bytes::from_static(
-            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"create\",\"cmd\":\"new-tab\",\"pane\":3}\n{\"id\":\"input\",\"cmd\":\"send\",\"surface\":4,\"text\":\"x\"}\n",
+            b"{\"id\":\"select\",\"cmd\":\"select-tab\",\"surface\":5}\n{\"id\":\"create\",\"cmd\":\"new-tab\",\"pane\":3}\n{\"id\":\"input-key\",\"cmd\":\"send-key\",\"surface\":4,\"keys\":[\"enter\"]}\n{\"id\":\"input\",\"cmd\":\"send\",\"surface\":4,\"text\":\"x\"}\n",
         )).await.unwrap();
     }
-    let key_at =
-        tokio::time::timeout(Duration::from_secs(3), key_rx.recv()).await.expect("input forwarded").unwrap();
+    let (first_input, key_at) =
+        tokio::time::timeout(Duration::from_secs(3), key_rx.recv()).await.expect("key forwarded").unwrap();
+    let (second_input, text_at) =
+        tokio::time::timeout(Duration::from_secs(3), key_rx.recv()).await.expect("text forwarded").unwrap();
+    assert_eq!(first_input, "input-key", "text overtook the preceding Return key");
+    assert_eq!(second_input, "input");
     let mut answers = HashMap::new();
     if let Some(mutator) = &mut mutation_channel {
-        while answers.len() < 2 {
+        while answers.len() < 3 {
             let answer = reply(mutator, &mut mutation_buffered).await;
             answers.insert(answer["id"].as_str().unwrap().to_owned(), answer);
         }
@@ -245,7 +249,7 @@ async fn exercise_selection_then_creation(same_channel: bool, terminal_wait: boo
             .await
             .unwrap();
     }
-    while answers.len() < if terminal_wait { 4 } else { 3 } {
+    while answers.len() < if terminal_wait { 5 } else { 4 } {
         let answer = reply(&mut channel, &mut buffered).await;
         answers.insert(answer["id"].as_str().unwrap().to_owned(), answer);
     }
@@ -256,13 +260,14 @@ async fn exercise_selection_then_creation(same_channel: bool, terminal_wait: boo
     }
     assert_eq!(answers["select"]["ok"], true);
     assert_eq!(answers["create"]["data"]["cwd"], cwd_b);
+    assert_eq!(answers["input-key"]["data"]["keys"], json!(["enter"]));
     assert_eq!(answers["input"]["data"]["text"], "x");
     let creation = tokio::time::timeout(Duration::from_secs(3), created_rx.recv())
         .await
         .expect("creation forwarded")
         .unwrap();
     assert_eq!(creation, (json!(cwd_b), 1), "creation ran before selection was applied");
-    let input_latency = key_at.duration_since(began);
+    let input_latency = text_at.max(key_at).duration_since(began);
 
     channel.close("eof", "test complete").await;
     if let Some(mutator) = mutation_channel {
