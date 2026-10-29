@@ -901,8 +901,7 @@ async fn acquire_daemon_lock(path: &std::path::Path) -> Result<DaemonLock> {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
             Err(error)
-                if std::env::var_os("INVOCATION_ID").is_some()
-                    && error.downcast_ref::<LockHeld>().is_some() =>
+                if managed_by_acpmux_unit() && error.downcast_ref::<LockHeld>().is_some() =>
             {
                 if !wait_for_lock_release(path.to_owned(), Duration::from_secs(60)).await {
                     return Err(error);
