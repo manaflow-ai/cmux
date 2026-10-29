@@ -56,6 +56,18 @@ class RustEmitterTests(unittest.TestCase):
                     )
                 self.assertNotIn("#![rustfmt::skip]", source)
 
+    def test_wire_enum_modules_allow_large_enum_variant(self) -> None:
+        # A union with one large payload variant (AgentCLIJobResolution's
+        # receipt) failed `clippy -D warnings`; the wire modules allow it.
+        mod_rs = emit(load_ir_document(schema_document()))["mod.rs"]
+        self.assertIsInstance(mod_rs, str)
+        for module in ("commands", "events", "types"):
+            with self.subTest(module=module):
+                self.assertIn(
+                    f"#[allow(clippy::large_enum_variant)]\nmod {module};\n",
+                    mod_rs,
+                )
+
     def test_doc_text_never_reads_as_rustdoc_markup(self) -> None:
         from codegen.emit_rust import _doc
 
