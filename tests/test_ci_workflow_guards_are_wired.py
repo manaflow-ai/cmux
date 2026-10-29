@@ -51,6 +51,9 @@ UNWIRED: set[str] = {
     # rule changes and the toml entry moves to a CI lane.
     "tests/test_cmux_next_guardrails.py",
     "tests/test_settings_stamp_not_committed.py",
+    # lane = "manual" for the same rule. It runs tree-preflight's inspect step with fakes and asserts
+    # wall-clock bounds of its fallback owner election; run it by hand when that step changes.
+    "tests/test_cmux_tui_election_budget.py",
 }
 
 

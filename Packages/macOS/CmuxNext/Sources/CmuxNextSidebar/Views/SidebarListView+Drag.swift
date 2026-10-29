@@ -242,7 +242,7 @@ extension SidebarListViewComponents {
             shape = slot
             rest = false
         } else if drag.tileSource != nil || drag.restShaped == false {
-            shape = NSRect(x: inset, y: 0, width: max(0, bounds.width - inset * 2), height: metrics.rowHeight)
+            shape = NSRect(x: inset, y: 0, width: indentWidth, height: metrics.rowHeight)
         }
         if rest, case let .position(position)? = drag.target, let group = position.group,
            let header = displayed.row(for: .group(group)) {
@@ -275,7 +275,7 @@ extension SidebarListViewComponents {
     /// Flies the lifted view to its row's current frame (or `slot`, the
     /// band slot of a pin drop), then swaps it out and runs `then`.
     func land(_ drag: Drag, at slot: NSRect? = nil, then: (@MainActor () -> Void)? = nil) {
-        let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0) } }
+        let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0).clippedX(to: bounds) } } // as `dragTile` cut it
         // The dragged rows where the layout just applied puts them (their views' model frames), not the
         // `displayed` geometry: on the document path that can lag the views a held drag moved (ptr5: 36 pt pops).
         // A group's card also covers its members' line, as it did when it lifted (SidebarListLift.blockFrame).
@@ -425,7 +425,7 @@ extension SidebarListViewComponents {
     func settledFrame(_ views: [NSView]) -> NSRect? {
         let frames = views.filter { $0.isDescendant(of: self) }.map { convert($0.bounds, from: $0) }
         guard let first = frames.first else { return nil }
-        return frames.dropFirst().reduce(first) { $0.union($1) }
+        return frames.dropFirst().reduce(first) { $0.union($1) }.clippedX(to: bounds) // a band row runs past the edge by its trim
     }
 
     // MARK: - The drag's look (DESIGN "Drag feel" 3)
@@ -485,7 +485,7 @@ extension SidebarListViewComponents {
         // (no line over the rows, Lawrence 2026-10-23): it starts at the x its rows take in the group it joins.
         let stepIn = dropStepIn(layout)
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map {
-            NSRect(x: inset + stepIn, y: $0, width: max(0, bounds.width - inset * 2 - stepIn), height: layout.gapHeight)
+            NSRect(x: inset + stepIn, y: $0, width: max(0, indentWidth - stepIn), height: layout.gapHeight)
         } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: true)

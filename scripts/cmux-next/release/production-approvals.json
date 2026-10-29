@@ -1,5 +1,5 @@
 {
-  "$comment": "cx-w1ald production approvals (plans/cmux-next/release-rails.md, Continuous delivery to production). required_secrets: names production must have before any deploy. do_tags: DO migration tags reviewed for production (reviewer; lawrence: true for a rename, delete or transfer). guarded_vars: production values of INFERENCE_*, AUTOMATION_CAP_* and HOME_INVITES_SEND that Lawrence approved, as NAME=value.",
+  "$comment": "cx-w1ald production approvals (plans/cmux-next/release-rails.md, Continuous delivery to production). required_secrets: names production must have before any deploy. do_tags: DO migration tags reviewed for production (reviewer; lawrence: true for a rename, delete or transfer). guarded_vars: production values of INFERENCE_*, AUTOMATION_CAP_*, HOME_INVITES_*, CHIEF_BRAIN_*, CHIEF_CREDITS_*, CHIEF_RUN_TOKEN_CAP_USD, CLOUD_PLAN_ENTITLEMENTS and PLATFORM_MACHINES that were approved, as NAME=value (prod-promote.ts GUARDED_VAR).",
   "required_secrets": [
     "JWT_PRIVATE_JWK",
     "STACK_SECRET_SERVER_KEY",

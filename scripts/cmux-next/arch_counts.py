@@ -175,6 +175,7 @@ import posixpath
 import re
 import sqlite3
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 from typing import NamedTuple
@@ -3279,7 +3280,11 @@ class Git:
         if not items:
             return {}
         data = "".join(f"{rev}\n" if by_id else f"{rev}:{path}\n" for rev, path in items).encode()
-        r = subprocess.run(["git", "-C", str(self.repo), "cat-file", "--batch"], input=data, capture_output=True)
+        # Through a file, never `input=`: over a pipe a big answer can deadlock (check-leo-bans.py).
+        with tempfile.TemporaryFile() as stdin:
+            stdin.write(data)
+            stdin.seek(0)
+            r = subprocess.run(["git", "-C", str(self.repo), "cat-file", "--batch"], stdin=stdin, capture_output=True)
         out = r.stdout
         result: dict[tuple[str, str], str | None] = {}
         i = 0

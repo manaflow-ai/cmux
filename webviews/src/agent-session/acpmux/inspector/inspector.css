@@ -137,8 +137,11 @@
 
 /* A native browser/terminal pane changes the shell width outside this document. The ResizeObserver
    writes the final Session Info shift in that same layout turn; keep the webview from starting a
-   second translate transition while the native split is still resizing. */
-.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find),
+   second translate transition while the native split is still resizing. The rail and its portaled
+   card too: each took its own transition from values set in different commits, and the card trailed
+   the rail on the resize's frames (thread-minimap-left-rail-stays). */
+.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage > .acpmux-scroll > :is(.acpmux-spacer, .acpmux-find, .acpmux-minimap),
+.acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage > .acpmux-minimap__card,
 .acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-dock > *,
 .acpmux-shell[data-inspector-chat-resizing] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
   transition: none;
@@ -340,6 +343,10 @@ button.acpmux-chat-inspector-port:hover,
   box-sizing: border-box;
   border-radius: var(--acpmux-inspector-row-radius);
   text-align: left;
+}
+.acpmux-chat-inspector-section :is(.ui-disclosure-trigger, .acpmux-chat-inspector-section__head):has(> .acpmux-chat-inspector-section__icon) {
+  /* Context and Connectors share the Environment rows' icon and text columns. */
+  gap: var(--ds-space-2);
 }
 .acpmux-chat-inspector-section .ui-disclosure-trigger {
   margin: 0;
@@ -759,7 +766,8 @@ button.acpmux-chat-inspector-port:hover,
   flex: none;
   width: 7px;
   height: 7px;
-  margin: 6px 2px 0;
+  /* Center the seven-pixel status mark in the fourteen-pixel leading icon slot. */
+  margin: 6px 3.5px 0;
   border-radius: 50%;
   background: var(--agent-status-success);
 }
