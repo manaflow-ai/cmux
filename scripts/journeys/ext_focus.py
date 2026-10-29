@@ -7,7 +7,9 @@ Lawrence 2026-10-29 (felt 1f): "at any point in time (with some very minor excep
 focused, so that keyboard only operation is possible. for example i do cmd shift l and it opens a browser tab, but
 then i start typing, and nothing is focused". The invariant and its exceptions: plans/cmux-next/focus-invariant.md.
 
-Keys: a capture slot's app is never active, so AppKit has no key window there and a key posted to the event queue
+Keys: with the app active (run.py --active: a whole-host lease, the app launched with --activate) every key is
+posted to the app's event queue (debug.key sequence) and goes to the key window AppKit chose, as a keyboard's does.
+In a slot: a capture slot's app is never active, so AppKit has no key window there and a key posted to the event queue
 reaches no window (debug.key's `key_window: shell` is refused: "the shell window did not become key"). Keys
 therefore go through `debug.key`'s dispatch into the front window (debug.windows z_order), the way
 NSApplication.sendEvent hands a key to the key window: the key router, key equivalents, the menu, then the
@@ -113,6 +115,12 @@ def press(j, key, modifiers=(), make_key=False, window=None, sequence=False):
     (debug.key sequence). In a capture slot (never active, no key window), debug.key's dispatch into the front
     window (as NSApplication.sendEvent does for the key window), or into the palette while it is open."""
     j.last_key_at = D.now()
+    focus = None
+    if not sequence:
+        # The app is active (a whole-host run, run.py --active): keys go through the event queue to whatever window
+        # AppKit made key, as a person's keyboard; a key window that drops them is the bug under test.
+        focus = j.app.rpc("debug.focus") or {}
+        sequence = bool(focus.get("app_active"))
     if sequence:
         code = CODES.get(key)
         if code is None:
@@ -133,7 +141,6 @@ def press(j, key, modifiers=(), make_key=False, window=None, sequence=False):
         time.sleep(float(reply.get("duration_ms") or 60) / 1000 + 0.05)
         return reply
     params = {"key": key, "modifiers": list(modifiers)}
-    focus = j.app.rpc("debug.focus") or {}
     if (focus.get("context") or {}).get("palette_open"):
         params["target"] = "palette"
     else:

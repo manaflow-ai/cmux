@@ -248,12 +248,14 @@ def launch_facts(text):
     return facts
 
 
-def run_lease(specs, build, out, frame_interval):
-    """Plays `specs` in one slot; {id: result} (driver results, or not run with the reason)."""
+def run_lease(specs, build, out, frame_interval, active=False):
+    """Plays `specs` in one slot; {id: result} (driver results, or not run with the reason). `active`: a whole-host
+    lease (the mini's GUI is this run's alone, CuaDriver grants needed) and the app launched with --activate, so it
+    can be the active app with a key window, as on a person's Mac; a slot's app never is."""
     ch = capture_host()
     ids = [s["id"] for s in specs]
     try:
-        acquired = run([ch, "acquire", "--slot"], timeout=330).stdout.decode().split()
+        acquired = run([ch, "acquire"] + ([] if active else ["--slot"]), timeout=330).stdout.decode().split()
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         return {i: {"status": "not run", "reason": f"no capture slot: {str(error)[-300:]}"} for i in ids}
     if not acquired:
@@ -284,7 +286,7 @@ def run_lease(specs, build, out, frame_interval):
                      timeout=left(420)).stdout.decode().strip()
         if not app.endswith(".app"):
             raise RuntimeError(f"build {build['id']} has no app bundle")
-        launched = run([ch, "launch", "--commit", build["launch_commit"], lease, app, build.get("tag") or "journeys", "--"],
+        launched = run([ch, "launch", "--commit", build["launch_commit"]] + (["--activate"] if active else []) + [lease, app, build.get("tag") or "journeys", "--"],
                        timeout=left(180), check=False)
         facts = launch_facts(launched.stdout.decode())
         if facts.get("socket", "none") == "none":
@@ -436,6 +438,9 @@ def main(argv=None):
     pick.add_argument("--journey", action="append", help="a journey id (repeatable)")
     pick.add_argument("--all", action="store_true")
     ap.add_argument("--out", help="output folder (default artifacts/journeys/<job12>-<time>)")
+    ap.add_argument("--active", action="store_true",
+                    help="a whole-host lease and the app launched active (--activate): keys reach a real key window; "
+                         "it blocks that mini's other slots and CI for the lease (at most 10 min), so one at a time")
     ap.add_argument("--hosts", help="capture hosts to lease from, spaces between (sets CAPTURE_HOST_SLOT_HOSTS)")
     ap.add_argument("--frame-interval", type=float, default=1.0, help="seconds between clip frames (>= 0.25)")
     ap.add_argument("--build-wait-minutes", type=float, default=90, help="how long to wait for a running build")
@@ -487,7 +492,7 @@ def main(argv=None):
         results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
     else:
         for group in batches(chosen):
-            results.update(run_lease(group, build, out, opts.frame_interval))
+            results.update(run_lease(group, build, out, opts.frame_interval, active=opts.active))
 
     lines = []
     for spec in chosen:
