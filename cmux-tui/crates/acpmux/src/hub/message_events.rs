@@ -294,6 +294,7 @@ fn append_or_repair(
         message.message_id.clone(),
         message.at,
         target_scope,
+        None,
     ) {
         schedule_projection_repair(hub, session_id, message, target_scope);
     }
@@ -359,6 +360,7 @@ fn schedule_projection_repair(
                 message_id.clone(),
                 at,
                 target_scope.as_deref(),
+                None,
             ) {
                 return;
             }
@@ -509,7 +511,7 @@ mod message_recovery_tests {
     }
 
     #[tokio::test]
-    async fn sender_copies_with_same_prompt_id_keep_distinct_targets() {
+    async fn sender_copies_with_same_prompt_id_keep_distinct_targets_and_peers() {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let mut config: Config = serde_json::from_value(json!({
             "harnesses": {"fake": {"argv": ["python3", fake]}},
@@ -535,17 +537,48 @@ mod message_recovery_tests {
             "to b".into(),
             "same-prompt".into(),
             1,
-            Some("b")
+            Some("b"),
+            None
         ));
         assert!(hub.append_message_event_scoped(
             &sender,
-            sender_meta,
+            sender_meta.clone(),
             "to c".into(),
             "same-prompt".into(),
             2,
-            Some("c")
+            Some("c"),
+            None
         ));
         assert_eq!(message_count(&hub, &sender.id), 2);
+        // A peer's chat keeps the raw id of one here after an export and import: a send to each
+        // is its own copy, and each copy is kept once.
+        for (at, peer) in [(3, Some("remote")), (4, Some("remote")), (5, Some("other")), (6, None)]
+        {
+            assert!(hub.append_message_event_scoped(
+                &sender,
+                sender_meta.clone(),
+                "to b".into(),
+                "same-prompt".into(),
+                at,
+                Some("b"),
+                peer
+            ));
+        }
+        assert_eq!(message_count(&hub, &sender.id), 4);
+        // The index a restart rebuilds from the journal keeps the peer apart too.
+        *sender.message_ids.lock().unwrap() = None;
+        for peer in [Some("remote"), Some("other"), None] {
+            assert!(hub.append_message_event_scoped(
+                &sender,
+                sender_meta.clone(),
+                "to b".into(),
+                "same-prompt".into(),
+                7,
+                Some("b"),
+                peer
+            ));
+        }
+        assert_eq!(message_count(&hub, &sender.id), 4);
     }
 
     #[tokio::test]

@@ -243,6 +243,16 @@ pub struct HubEvent {
 }
 
 #[derive(Debug, Clone)]
+/// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
+/// that received it and the peer holding that chat.
+fn message_key(id: &str, target: Option<&str>, peer: Option<&str>) -> String {
+    match (target, peer) {
+        (None, _) => id.to_owned(),
+        (Some(target), None) => format!("{target}\0{id}"),
+        (Some(target), Some(peer)) => format!("{peer}\u{1}{target}\0{id}"),
+    }
+}
+
 pub struct RemoteRef {
     pub peer: String,
     pub summary: Value,
@@ -1197,9 +1207,13 @@ impl Hub {
         message_id: String,
         at: u64,
     ) -> bool {
-        self.append_message_event_scoped(session, sender, text, message_id, at, None)
+        self.append_message_event_scoped(session, sender, text, message_id, at, None, None)
     }
 
+    /// `target_scope` names the receiving chat of a sender's copy, and `target_peer` the peer
+    /// that holds it: a peer's chat may keep the raw id of one here (an export and import keeps
+    /// ids), and a message to each is its own copy.
+    #[allow(clippy::too_many_arguments)] // One copy's fields, each its own value.
     pub(super) fn append_message_event_scoped(
         &self,
         session: &Session,
@@ -1208,6 +1222,7 @@ impl Hub {
         message_id: String,
         at: u64,
         target_scope: Option<&str>,
+        target_peer: Option<&str>,
     ) -> bool {
         #[cfg(test)]
         if self
@@ -1227,6 +1242,9 @@ impl Hub {
         });
         if let Some(target) = target_scope {
             msg["_acpmuxTarget"] = json!(target);
+            if let Some(peer) = target_peer {
+                msg["_acpmuxTargetPeer"] = json!(peer);
+            }
         }
         tool_paths::add_canonical_paths(session, "_acpmux/message", &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1241,12 +1259,9 @@ impl Hub {
             if let Err(error) =
                 self.store.scan_kinds(&session.id, &["_acpmux/message"], &mut |record| {
                     if let Some(id) = record.msg.get("messageId").and_then(Value::as_str) {
-                        let key = record
-                            .msg
-                            .get("_acpmuxTarget")
-                            .and_then(Value::as_str)
-                            .map_or_else(|| id.to_owned(), |target| format!("{target}\0{id}"));
-                        ids.insert(key);
+                        let target = record.msg.get("_acpmuxTarget").and_then(Value::as_str);
+                        let peer = record.msg.get("_acpmuxTargetPeer").and_then(Value::as_str);
+                        ids.insert(message_key(id, target, peer));
                     }
                     true
                 })
@@ -1257,8 +1272,7 @@ impl Hub {
             *index = Some(ids);
         }
         let Some(ids) = index.as_mut() else { return false };
-        let key = target_scope
-            .map_or_else(|| message_id.clone(), |target| format!("{target}\0{message_id}"));
+        let key = message_key(&message_id, target_scope, target_peer);
         if ids.contains(&key) {
             return true;
         }
@@ -1274,7 +1288,9 @@ impl Hub {
         }
     }
 
-    /// Record the sender-side copy when a prompt is accepted by a remote daemon.
+    /// Record the sender-side copy when a prompt is accepted by peer `target_peer`'s chat
+    /// `target_session`.
+    #[allow(clippy::too_many_arguments)] // One copy's fields, each its own value.
     pub(super) fn append_sender_message_event(
         &self,
         sender_session: &str,
@@ -1282,6 +1298,7 @@ impl Hub {
         text: String,
         message_id: String,
         at: u64,
+        target_peer: &str,
         target_session: &str,
     ) -> bool {
         if let Ok(session) = self.resolve(sender_session)
@@ -1294,6 +1311,7 @@ impl Hub {
                 message_id,
                 at,
                 Some(target_session),
+                Some(target_peer),
             )
         } else {
             false

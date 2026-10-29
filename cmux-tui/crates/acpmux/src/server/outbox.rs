@@ -219,6 +219,9 @@ async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value,
         .ok()
         .filter(|s| s.id == caller)
         .ok_or_else(|| ("the message sender no longer exists".to_owned(), Next::Fail))?;
+    // The intent's target is `peer/chat` (`remember_forward`).
+    let (target_peer, target) =
+        delivery.target.split_once('/').unwrap_or(("", delivery.target.as_str()));
     if let Some(accepted) = &delivery.accepted {
         if hub.append_sender_message_event(
             &source.id,
@@ -226,7 +229,8 @@ async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value,
             intent["text"].as_str().unwrap_or_default().to_owned(),
             intent["messageId"].as_str().unwrap_or_default().to_owned(),
             delivery.updated_at,
-            delivery.target.split_once('/').map(|(_, target)| target).unwrap_or(&delivery.target),
+            target_peer,
+            target,
         ) {
             return Ok(accepted.clone());
         }
@@ -264,6 +268,7 @@ async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value,
                     intent["text"].as_str().unwrap_or_default().to_owned(),
                     intent["messageId"].as_str().unwrap_or_default().to_owned(),
                     msg["at"].as_u64().unwrap_or_else(crate::store::now_ms),
+                    target_peer,
                     &target,
                 ) {
                     return Err((
@@ -871,7 +876,7 @@ mod forward_projection_tests {
             messages[0].msg,
             json!({"sessionId": sender.id, "sender": sender_meta,
             "text": "already accepted", "messageId": "d-restart", "at": 1234,
-            "_acpmuxTarget": receiver.id})
+            "_acpmuxTarget": receiver.id, "_acpmuxTargetPeer": "remote"})
         );
         assert_eq!(
             receiver.meta().event_count,

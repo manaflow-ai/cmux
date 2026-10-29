@@ -383,7 +383,7 @@ async fn forward_inner(
             let callback_hub = hub.clone();
             let sender_message = sender_message.clone();
             let forward_intent = forward_intent.clone();
-            let target_id = id.clone();
+            let (target_peer, target_id) = (peer.name.clone(), id.clone());
             let (provisional_conn, provisional_peer) = (conn.clone(), peer_name.clone());
             let names = peer.supports_session_messages();
             hub.peer_accepts.wait(
@@ -412,6 +412,7 @@ async fn forward_inner(
                                 text,
                                 message_id,
                                 crate::store::now_ms(),
+                                &target_peer,
                                 &target_id,
                             )
                         } else {
@@ -482,6 +483,7 @@ async fn forward_inner(
                                 text,
                                 message_id,
                                 crate::store::now_ms(),
+                                &peer.name,
                                 &id,
                             )
                         } else {
