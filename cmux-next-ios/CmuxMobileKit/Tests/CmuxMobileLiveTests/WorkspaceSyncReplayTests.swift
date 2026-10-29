@@ -117,6 +117,53 @@ import Testing
         await sync.bind(nil, macID: "mac")
     }
 
+    @Test func coarseEventBurstsCoalesceWithoutStarvingAgentUpdates() async throws {
+        let (held, heldContinuation) = AsyncStream<Bool>.makeStream()
+        let channel = ReplayDaemonChannel(holdSnapshotRequest: 3, onSnapshotHeld: { heldContinuation.yield(true) })
+        defer { heldContinuation.finish(); channel.finish() }
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        let (ready, readyContinuation) = AsyncStream<DaemonTree>.makeStream()
+        let (agents, agentsContinuation) = AsyncStream<DaemonTree>.makeStream()
+        let (settled, settledContinuation) = AsyncStream<DaemonTree>.makeStream()
+        defer { readyContinuation.finish(); agentsContinuation.finish(); settledContinuation.finish() }
+        var fullPublications = 0
+        var agentFirstSeenAtPublication: Int?
+        sync.onTree = { tree in
+            fullPublications += 1
+            if fullPublications == 2 { readyContinuation.yield(tree) }
+            if fullPublications == 4 {
+                channel.emit(#"{"event":"title-changed","surface":1,"title":"bursts-settled"}"#)
+            }
+        }
+        sync.onRows = { tree, _, agentChanged in
+            if agentChanged, tree.workspaces.first?.tabs.first?.agentStatus == .working {
+                if agentFirstSeenAtPublication == nil { agentFirstSeenAtPublication = fullPublications }
+                agentsContinuation.yield(tree)
+            }
+            if tree.workspaces.first?.tabs.first?.title == "bursts-settled" { settledContinuation.yield(tree) }
+        }
+        await sync.bind(channel, macID: "mac")
+        _ = try await replayTree(ready) { _ in true }
+        let personalBefore = channel.listPersonalRequests
+        let layoutBefore = channel.sidebarLayoutRequests
+        let coarse = #"{"event":"tab-changed","workspace":1,"screen":1,"pane":1,"surface":1}"#
+        let agent = #"{"event":"agent-changed","surface":1,"state":"working","agent":"codex"}"#
+        channel.emitBatch(Array(repeating: coarse, count: 64) + [agent])
+        _ = try await replayValue(held) { $0 }
+        // A second burst lands after the first recovery request has begun;
+        // its changes legitimately require one further recovery snapshot.
+        channel.emitBatch(Array(repeating: coarse, count: 64))
+        channel.releaseHeldSnapshot()
+        _ = try await replayTree(agents) { _ in true }
+        _ = try await replayTree(settled) { _ in true }
+        #expect((agentFirstSeenAtPublication ?? Int.max) <= 3)
+        #expect(fullPublications == 4)
+        #expect(channel.listWorkspaceRequests == 4)
+        #expect(channel.listPersonalRequests - personalBefore <= 2)
+        #expect(channel.sidebarLayoutRequests - layoutBefore <= 2)
+        await sync.bind(nil, macID: "mac")
+    }
+
     @Test func notificationRefreshesOnceWithoutReloadingArrangement() async throws {
         let initial = #"{"ok":true,"data":{"workspace_revision":1,"registry_id":"r","workspaces":[{"id":1,"key":"one","name":"One","screens":[{"id":1,"panes":[{"id":1,"tabs":[{"surface":1,"kind":"pty","title":"Shell","notification":{"notification":9,"unread":false}}]}]}]}]}}"#
         let channel = ReplayDaemonChannel(snapshotBody: initial)
@@ -191,7 +238,12 @@ private enum ReplayWaitError: Error { case timedOut, streamEnded }
 /// iterator, so a failure cannot leave a continuation or polling task alive.
 private func replayTree(_ updates: AsyncStream<DaemonTree>,
                         matching predicate: @escaping @Sendable (DaemonTree) -> Bool) async throws -> DaemonTree {
-    try await withThrowingTaskGroup(of: DaemonTree.self) { group in
+    try await replayValue(updates, matching: predicate)
+}
+
+private func replayValue<Value: Sendable>(_ updates: AsyncStream<Value>,
+                                         matching predicate: @escaping @Sendable (Value) -> Bool) async throws -> Value {
+    try await withThrowingTaskGroup(of: Value.self) { group in
         group.addTask {
             for await tree in updates where predicate(tree) { return tree }
             throw ReplayWaitError.streamEnded
@@ -213,6 +265,9 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
     let id: UInt32 = 1
     private let replayOnRequest: Int?
     private let captureRaceOnRequest: Int?
+    private let holdSnapshotRequest: Int?
+    private let onSnapshotHeld: (@Sendable () -> Void)?
+    private var heldSnapshot: Data?
     private let failIdentify: Bool
     private var snapshotBody: String?
     private let lock = NSLock()
@@ -228,9 +283,12 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
 
     func replaceSnapshot(_ body: String) { lock.withLock { snapshotBody = body } }
 
-    init(replayOnRequest: Int? = nil, failIdentify: Bool = false, snapshotBody: String? = nil, captureRaceOnRequest: Int? = nil) {
+    init(replayOnRequest: Int? = nil, failIdentify: Bool = false, snapshotBody: String? = nil, captureRaceOnRequest: Int? = nil,
+         holdSnapshotRequest: Int? = nil, onSnapshotHeld: (@Sendable () -> Void)? = nil) {
         self.replayOnRequest = replayOnRequest
         self.captureRaceOnRequest = captureRaceOnRequest
+        self.holdSnapshotRequest = holdSnapshotRequest
+        self.onSnapshotHeld = onSnapshotHeld
         self.failIdentify = failIdentify
         self.snapshotBody = snapshotBody
     }
@@ -255,7 +313,10 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
                     title = replayOnRequest.map { number > $0 ? "after-snapshot" : "snapshot-title" } ?? "snapshot-title"
                 }
                 let snapshot = lock.withLock { snapshotBody } ?? Self.snapshot(title: title)
-                if number == captureRaceOnRequest {
+                if number == holdSnapshotRequest {
+                    lock.withLock { heldSnapshot = Self.withID(id, body: snapshot) }
+                    onSnapshotHeld?()
+                } else if number == captureRaceOnRequest {
                     var batch = Data((#"{"event":"title-changed","surface":1,"title":"newer-than-capture"}"# + "\n").utf8)
                     batch.append(Self.withID(id, body: snapshot))
                     push(batch)
@@ -279,6 +340,13 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
     }
 
     func emit(_ line: String) { push(Data((line + "\n").utf8)) }
+
+    func emitBatch(_ lines: [String]) { push(Data((lines.joined(separator: "\n") + "\n").utf8)) }
+
+    func releaseHeldSnapshot() {
+        let reply = lock.withLock { let reply = heldSnapshot; heldSnapshot = nil; return reply }
+        if let reply { push(reply) }
+    }
 
     func receive() async throws -> Data? {
         await withCheckedContinuation { continuation in

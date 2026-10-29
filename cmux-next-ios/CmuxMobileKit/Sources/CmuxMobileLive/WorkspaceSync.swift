@@ -36,6 +36,9 @@ public final class WorkspaceSync {
     /// Events received during capture must replay, even before its reply:
     /// the daemon writes subscription events from a separate thread.
     @ObservationIgnored private var snapshotSequence: UInt64 = 0
+    /// Coarse changes can affect arrangement as well as the tree. Their
+    /// coverage starts before the arrangement requests, not before the list.
+    @ObservationIgnored private var arrangementSequence: UInt64 = 0
     @ObservationIgnored private var pendingChanged = false
     @ObservationIgnored private var initializing = false
     @ObservationIgnored private var dirty = false
@@ -188,6 +191,7 @@ public final class WorkspaceSync {
         updateTask = nil
         queued = []
         snapshotSequence = 0
+        arrangementSequence = 0
         pendingChanged = false
         initializing = false
         dirty = false
@@ -204,7 +208,13 @@ public final class WorkspaceSync {
         guard event != .other else { return }
         let entry = QueuedEvent(event: event, sequence: sequence)
         guard !isBeforeSnapshot(entry) else { return }
-        queued.append(entry)
+        if event == .treeChanged, let index = queued.firstIndex(where: { $0.event == .treeChanged }) {
+            // One pending invalidation covers the burst. Keep its newest
+            // position so a change during capture still requests a follow-up.
+            queued[index] = entry
+        } else {
+            queued.append(entry)
+        }
         drain()
     }
 
@@ -212,8 +222,9 @@ public final class WorkspaceSync {
         guard let sequence = entry.sequence else { return false }
         switch entry.event {
         case .agentChanged: return false
+        case .treeChanged: return sequence <= arrangementSequence
         // Memory-only notification text and subscription loss aren't in a tree.
-        case .notification, .resubscribe, .treeChanged: return false
+        case .notification, .resubscribe: return false
         default: return sequence <= snapshotSequence
         }
     }
@@ -236,7 +247,11 @@ public final class WorkspaceSync {
                         guard self.client === client, !Task.isCancelled else { return }
                         if let update { publish(update, agentChanged: true) }
                     } else if !queued.isEmpty {
-                        let event = queued.removeFirst().event
+                        // Refresh-only markers carry no payload. Drain the
+                        // real updates first so an invalidation burst cannot
+                        // starve title/agent publication behind network trips.
+                        let index = queued.firstIndex(where: { $0.event != .treeChanged }) ?? queued.startIndex
+                        let event = queued.remove(at: index).event
                         var agentChanged = false
                         switch event {
                         case .titleChanged(let surface, _):
@@ -318,6 +333,14 @@ public final class WorkspaceSync {
             repeat {
                 dirty = false
                 do {
+                    let reloadArrangement = arrangementStale
+                    let arrangementCoveredThrough = await client.receivedPosition
+                    guard self.client === client, !Task.isCancelled else { return }
+                    // Locally injected invalidations have no wire position;
+                    // only those already queued before capture are covered.
+                    if reloadArrangement {
+                        queued.removeAll { $0.event == .treeChanged && $0.sequence == nil }
+                    }
                     await loadArrangementIfStale(client)
                     let coveredThrough = await client.receivedPosition
                     let reply = try await client.requestOrdered("list-workspaces")
@@ -327,6 +350,7 @@ public final class WorkspaceSync {
                                                           activity: activity, arrangement: arrangement)
                     guard self.client === client, !Task.isCancelled else { return }
                     snapshotSequence = coveredThrough
+                    if reloadArrangement { arrangementSequence = arrangementCoveredThrough }
                     discardBeforeSnapshot()
                     tree = next
                     lastError = nil
