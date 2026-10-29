@@ -405,6 +405,8 @@ pub struct Hub {
     pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
+    /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
+    pub(crate) github_app: Arc<crate::github_app_token::AppLease>,
     /// Each peer session's events as this daemon saw them, kept on disk
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
@@ -618,6 +620,7 @@ impl Hub {
             peer_leases: StdMutex::new(HashMap::new()),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
             github_owners: Default::default(),
+            github_app: Default::default(),
             peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
