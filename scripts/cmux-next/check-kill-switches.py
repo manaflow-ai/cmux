@@ -218,7 +218,7 @@ def flagged_off(root: Path, errors: list[str]) -> set[str]:
         if item is None:
             continue
         features = item.get("DisabledFeatures") if isinstance(item, dict) else None
-        if not isinstance(item, dict) or not isinstance(features, list):
+        if not isinstance(item, dict) or ("DisabledFeatures" in item and not isinstance(features, list)):
             errors.append(f"{FLAGS}: `{name}` is not an object with a `DisabledFeatures` list")
             continue
         off.update(key for key in features or [] if isinstance(key, str) and key.startswith("pr-"))
