@@ -120,7 +120,9 @@ impl Hub {
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .tags
                         .get("teamAddress")
-                        .is_some_and(|tag| tag.value == key)
+                        .is_some_and(|tag| {
+                            tag.value.trim_start_matches('@') == key.trim_start_matches('@')
+                        })
                 })
                 .cloned()
                 .collect();

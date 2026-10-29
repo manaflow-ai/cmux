@@ -6,7 +6,6 @@
 
 use super::*;
 use crate::mesh::{Ack, Kind, MeshHub, Mode, OutMessage, Sender, Target};
-use std::time::Duration;
 
 pub(super) async fn handle(
     hub: &Arc<Hub>,
@@ -55,7 +54,7 @@ async fn send(
     let caller = conn.caller().filter(|_| !conn.is_person());
     let receipt = mesh
         .send(&OutMessage {
-            to: Target { team_address: Some(address.to_owned()), ..Target::default() },
+            to: Target { team_address: Some(raw), ..Target::default() },
             from: Sender {
                 name: caller.map(|id| hub.session_name(id)),
                 session_id: caller.map(str::to_owned),
@@ -77,13 +76,12 @@ async fn send(
 }
 
 async fn inbox(mesh: &Arc<dyn MeshHub>, params: &Value) -> Result<Value, RpcError> {
-    let unread_only = params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(false);
+    let unread_only = params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
     let rows = mesh
-        .inbox(Duration::ZERO, 50)
+        .team_inbox(unread_only)
         .await
         .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?
         .into_iter()
-        .filter(|m| m.to.team_address.is_some() && (!unread_only || m.attempt <= 1))
         .map(|m| serde_json::to_value(m).unwrap_or(Value::Null))
         .collect::<Vec<_>>();
     Ok(json!({"messages": rows}))
@@ -91,14 +89,10 @@ async fn inbox(mesh: &Arc<dyn MeshHub>, params: &Value) -> Result<Value, RpcErro
 
 async fn read(mesh: &Arc<dyn MeshHub>, params: &Value) -> Result<Value, RpcError> {
     let id = required(params, "id")?;
-    let message = mesh
-        .inbox(Duration::ZERO, 50)
+    mesh.read(&id)
         .await
-        .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?
-        .into_iter()
-        .find(|m| m.message_id == id && m.to.team_address.is_some())
-        .ok_or_else(|| RpcError::not_found(format!("no team message {id}")))?;
-    Ok(serde_json::to_value(message).unwrap_or(Value::Null))
+        .map_err(|e| RpcError::internal(format!("the mesh hub did not mark it read: {e}")))?;
+    Ok(json!({"messageId": id, "state": "read"}))
 }
 
 async fn ack(mesh: &Arc<dyn MeshHub>, params: &Value) -> Result<Value, RpcError> {
