@@ -1104,6 +1104,31 @@ mod tests {
         assert_eq!(mac.closed().await, "peer closed the link");
     }
 
+    /// Closing a channel wakes its own send that waits for queue room: a
+    /// cancelled upload over a stalled link must not keep the phone's file open.
+    #[tokio::test]
+    async fn close_wakes_a_send_waiting_for_room() {
+        // The peer never reads, so the channel's queue fills and the send waits.
+        let (a, _stalled) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let channel = phone.open("upload", serde_json::json!({})).await.unwrap();
+        let sender = Arc::new(channel.sender);
+        let sending = tokio::spawn({
+            let sender = Arc::clone(&sender);
+            async move { sender.send(Bytes::from(vec![0u8; CHANNEL_QUEUE_BYTES * 8])).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!sending.is_finished(), "the send waits for room");
+
+        sender.close("cancelled", "").await;
+        let sent = tokio::time::timeout(Duration::from_secs(5), sending)
+            .await
+            .expect("the close wakes the waiting send")
+            .unwrap();
+        assert!(matches!(sent, Err(LinkError::ChannelClosed)), "{sent:?}");
+        drop(phone);
+    }
+
     /// A stream that accepts at most `chunk` bytes every `pause`, like a
     /// slow relay path.
     struct Throttled {
