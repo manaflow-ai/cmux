@@ -3,7 +3,7 @@
   "name": "terminalStreams",
   "owner": "PL-conn",
   "description": "Terminal views attach as client-minted streams on the app's one control connection to each daemon, with no connection or identify handshake of their own; off keeps one connection per view.",
-  "defaults": { "dev": true, "nightly": true, "release": false },
+  "defaults": { "dev": false, "nightly": false, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",
   "process": "app",
