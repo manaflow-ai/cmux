@@ -193,7 +193,7 @@ fn action_describe_accepts_an_unquoted_cli_name() {
 
 #[test]
 fn cloud_is_an_app_scope() {
-    assert!(super::APP_SCOPES.contains(&"cloud"));
+    assert!(APP_SCOPES.contains(&"cloud"));
 }
 
 #[test]
