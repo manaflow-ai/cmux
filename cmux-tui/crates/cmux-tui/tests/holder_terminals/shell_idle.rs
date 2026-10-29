@@ -177,7 +177,7 @@ fn shell_idle_holder_a_line_read_but_not_run_is_never_idle() {
     let fifo =
         std::env::temp_dir().join(format!("shell-idle-debug-{}-{}", std::process::id(), line!()));
     let _ = fs::remove_file(&fifo);
-    let made = std::process::Command::new("mkfifo").arg(&fifo).status().unwrap();
+    let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
     assert!(made.success(), "mkfifo failed");
     let rc = format!(
         "exec 9<>{}\ntrap '[[ $BASH_COMMAND == \"sleep 600\" ]] && read -t 4 -u 9 _' DEBUG\n",
@@ -210,7 +210,7 @@ fn shell_idle_holder_a_line_held_by_a_return_hook_is_never_idle() {
     let fifo =
         std::env::temp_dir().join(format!("shell-idle-bind-x-{}-{}", std::process::id(), line!()));
     let _ = fs::remove_file(&fifo);
-    let made = std::process::Command::new("mkfifo").arg(&fifo).status().unwrap();
+    let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
     assert!(made.success(), "mkfifo failed");
     let rc = format!(
         "exec 9<>{}\n\
