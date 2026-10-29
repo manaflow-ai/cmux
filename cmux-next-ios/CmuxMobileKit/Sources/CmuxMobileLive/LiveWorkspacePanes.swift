@@ -172,18 +172,29 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
         }
     }
 
-    /// The reply's one complete variant (`undone:true`, or `confirmation_required` with the
-    /// revision and the panes it closes); anything else is a protocol error. A question keeps
-    /// the `screen` and `pane` it was asked for.
-    nonisolated static func undoOutcome(_ reply: [String: Any], screen: Int = 0, pane: Int = 0) throws -> LayoutUndoOutcome {
+    /// The reply's one complete variant (`undone:true` with its screen and revision, or
+    /// `confirmation_required` with the screen, its revision and the pane ids it closes);
+    /// anything else is a protocol error. A question must be about `screen`, the screen of the
+    /// `pane` it was asked for, and keeps both for the yes.
+    nonisolated static func undoOutcome(_ reply: [String: Any], screen: Int, pane: Int) throws -> LayoutUndoOutcome {
         let data = reply["data"] as? [String: Any] ?? [:]
+        let replyScreen = Self.integer(data["screen"])
+        let revision = Self.integer(data["revision"]).flatMap { $0 >= 0 ? UInt64($0) : nil }
         if data["undone"] as? Bool == true, data["confirmation_required"] as? Bool != true,
-           data["screen"] != nil, data["revision"] is NSNumber { return .undone }
+           replyScreen != nil, revision != nil { return .undone }
         if data["undone"] as? Bool == false, data["confirmation_required"] as? Bool == true,
-           let revision = (data["revision"] as? NSNumber)?.uint64Value, let closes = data["closes_panes"] as? [Any] {
+           replyScreen == screen, let revision,
+           let closes = data["closes_panes"] as? [Any], !closes.isEmpty, closes.allSatisfy({ Self.integer($0) != nil }) {
             return .needsConfirmation(LayoutUndoConfirmation(screen: screen, pane: pane, revision: revision, closing: closes.count))
         }
         throw WorkspaceCreationError("The Mac's undo reply wasn't readable")
+    }
+
+    /// A JSON integer (an `Id`), never a boolean, a fraction or a string.
+    nonisolated static func integer(_ value: Any?) -> Int? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue == number.doubleValue.rounded() else { return nil }
+        return number.intValue
     }
 
     public func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws {

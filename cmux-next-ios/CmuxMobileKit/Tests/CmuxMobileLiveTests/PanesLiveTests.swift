@@ -402,14 +402,29 @@ import Testing
     }
 
     @Test func undoRepliesAreReadStrictly() throws {
-        #expect(try LiveWorkspaceCreationBackend.undoOutcome(["data": ["undone": true, "screen": 1, "revision": 2]]) == .undone)
-        // The applied variant needs its screen and revision.
-        #expect(throws: WorkspaceCreationError.self) { try LiveWorkspaceCreationBackend.undoOutcome(["data": ["undone": true]]) }
-        #expect(throws: WorkspaceCreationError.self) {
-            try LiveWorkspaceCreationBackend.undoOutcome(["data": ["undone": true, "confirmation_required": true]])
+        func outcome(_ data: [String: Any]) throws -> LayoutUndoOutcome {
+            try LiveWorkspaceCreationBackend.undoOutcome(["data": data], screen: 5, pane: 1)
         }
-        #expect(throws: WorkspaceCreationError.self) {
-            try LiveWorkspaceCreationBackend.undoOutcome(["data": ["undone": false, "confirmation_required": true, "revision": 3]])
+        #expect(try outcome(["undone": true, "screen": 5, "revision": 2]) == .undone)
+        #expect(try outcome(["undone": false, "confirmation_required": true, "screen": 5, "revision": 3, "closes_panes": [9, 10]])
+            == .needsConfirmation(LayoutUndoConfirmation(screen: 5, pane: 1, revision: 3, closing: 2)))
+        // The applied variant needs its screen and revision.
+        #expect(throws: WorkspaceCreationError.self) { try outcome(["undone": true]) }
+        #expect(throws: WorkspaceCreationError.self) { try outcome(["undone": true, "confirmation_required": true]) }
+        // A question needs its screen (the one asked about), its revision and the pane ids it closes.
+        let question: [String: Any] = ["undone": false, "confirmation_required": true, "screen": 5, "revision": 3, "closes_panes": [9]]
+        for broken: [String: Any] in [
+            question.filter { $0.key != "screen" },
+            question.merging(["screen": 6]) { $1 },
+            question.merging(["screen": "5"]) { $1 },
+            question.filter { $0.key != "revision" },
+            question.merging(["revision": -1]) { $1 },
+            question.merging(["closes_panes": [Int]()]) { $1 },
+            question.merging(["closes_panes": ["9"]]) { $1 },
+            question.merging(["closes_panes": [9.5]]) { $1 },
+            question.merging(["closes_panes": [true]]) { $1 },
+        ] {
+            #expect(throws: WorkspaceCreationError.self) { try outcome(broken) }
         }
     }
 
