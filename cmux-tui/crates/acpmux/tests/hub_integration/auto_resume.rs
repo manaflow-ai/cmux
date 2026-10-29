@@ -203,7 +203,9 @@ async fn a_turn_stopped_mid_stream_is_not_continued_when_it_ends_in_a_connection
     assert!(r.unwrap_err().contains("stream disconnected"));
     tokio::time::sleep(Duration::from_millis(300)).await;
     let k = kinds(&hub, &id);
-    assert!(!k.iter().any(|k| k.starts_with("auto_resume")), "{k:?}");
+    // Stop is durable across restart, but it must never schedule or fire a continuation.
+    let retry_events: Vec<_> = k.iter().filter(|k| k.starts_with("auto_resume")).collect();
+    assert_eq!(retry_events, ["auto_resume_stopped"], "{k:?}");
     assert_eq!(user_messages(&hub, &id).len(), 1);
 }
 
