@@ -138,7 +138,7 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
         await page.waitForSelector(selector);
         const geometry = await page.$eval(selector, (bar) => {
           const spans = [...bar.querySelectorAll<HTMLElement>(":scope > span")];
-          const tiny = spans.at(-1)!;
+          const tiny = spans[1]!;
           const tinyBox = tiny.getBoundingClientRect();
           const separator = getComputedStyle(tiny, "::after");
           return {
@@ -150,7 +150,7 @@ await requireBrowserLane("context-meter-geometry.test.ts", async () => {
           };
         });
         console.log(`context-meter-geometry tiny-positive-category ${JSON.stringify(geometry)}`);
-        expect(geometry.spanCount).toBe(2);
+        expect(geometry.spanCount).toBe(3);
         expect(geometry.tinyWidth).toBeGreaterThanOrEqual(2);
         expect(geometry.separatorWidth).toBeGreaterThan(0);
         expect(geometry.separatorWidth).toBeLessThan(geometry.tinyWidth);

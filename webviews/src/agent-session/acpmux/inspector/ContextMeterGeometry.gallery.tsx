@@ -20,9 +20,10 @@ const TINY_BREAKDOWN = {
   categories: [
     { name: "Normal category", tokens: 49.5, kind: "used" },
     { name: "Tiny positive category", tokens: 0.5, kind: "used" },
-    { name: "Free space", tokens: 50, kind: "free" },
+    { name: "Trailing positive category", tokens: 0.1, kind: "used" },
+    { name: "Free space", tokens: 49.9, kind: "free" },
   ],
-  totalTokens: 50,
+  totalTokens: 50.1,
   maxTokens: 100,
 };
 
@@ -79,8 +80,8 @@ export default componentEntry({
         width: 260,
         breakdown: TINY_BREAKDOWN,
         fixture: "tiny-positive-category",
-        usage: { used: 50, size: 100 },
-        percent: 50,
+        usage: { used: 50.1, size: 100 },
+        percent: 50.1,
       },
     },
   },
