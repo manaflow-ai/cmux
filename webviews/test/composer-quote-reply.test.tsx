@@ -106,6 +106,23 @@ test("Quote in Reply appends after the draft and leaves the caret in a plain par
   expect(content().textContent).not.toContain("> Selected line");
 });
 
+test("a quote-only saved value restores its separate typing paragraph", async () => {
+  await render("");
+  await act(async () => handle.current!.quoteReply("> Selected line"));
+  const saved = handle.current!.value();
+  act(() => root!.unmount());
+  root = undefined;
+  await render(saved);
+  await act(async () => {
+    handle.current!.setCaret(Number.MAX_SAFE_INTEGER);
+    handle.current!.insertTyped("Reply outside");
+  });
+  expect(content().querySelector("blockquote")?.textContent).toBe("Selected line");
+  expect(content().lastElementChild?.tagName).toBe("P");
+  expect(content().lastElementChild?.textContent).toBe("Reply outside");
+  expect(handle.current!.value()).toBe("> Selected line\n\nReply outside");
+});
+
 test("successive Quote in Reply inserts remain ordered after the draft", async () => {
   await render("Draft text");
   await act(async () => {
