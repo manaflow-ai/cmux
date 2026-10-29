@@ -27,7 +27,8 @@ import Testing
 
     @Test func reusedRowActsOnItsNewFoldOnly() throws {
         try withList { list in
-            let row = try #require(list.rowViews[.doneFold(Self.fold)] as? SidebarDoneFoldRowView)
+            let row = SidebarDoneFoldRowView(key: .doneFold(Self.fold))
+            list.wire(row, key: .doneFold(Self.fold))
             row.prepareForReuse(key: .showMore(Self.fold))
             #expect(!row.accessibilityPerformPress(), "a row between bindings must not activate its old fold")
             list.wire(row, key: .showMore(Self.fold))
