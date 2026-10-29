@@ -32,10 +32,10 @@ extension CmuxDialogCenter {
         let openedAt = Self.ms(since: start)
         let id = present(spec, in: .window(window)) { _ in }
         let presentMs = Self.ms(since: start) - openedAt
-        // The card's rect in a recorded frame's pixels (top-left origin).
-        let card = view(id).map { view -> CGRect in
+        // The card's rect in window points, top-left origin (frames are scaled below).
+        let cardPoints = view(id).map { view -> CGRect in
             let rect = view.convert(view.bounds, to: nil)
-            return CGRect(x: rect.minX * scale, y: (frame.height - rect.maxY) * scale, width: rect.width * scale, height: rect.height * scale)
+            return CGRect(x: rect.minX, y: frame.height - rect.maxY, width: rect.width, height: rect.height)
         }
 
         await Self.pause(holdMs)
@@ -50,7 +50,11 @@ extension CmuxDialogCenter {
         _ = dismiss(id)
 
         let frames = await recording.value
-        guard let card, frames.count > 2 else { return ["error": "no frames", "frame_count": frames.count] }
+        guard let cardPoints, let first = frames.first, frames.count > 2 else { return ["error": "no frames", "frame_count": frames.count] }
+        // A frame is the window's backing pixels times `scale`: its own width says how many per point.
+        let perPoint = Double(first.width) / frame.width
+        let card = CGRect(x: cardPoints.minX * perPoint, y: cardPoints.minY * perPoint,
+                          width: cardPoints.width * perPoint, height: cardPoints.height * perPoint)
         let open = await Self.phase("open", frames, from: openedAt, to: closedAt, card: card, dir: dir)
         let closing = await Self.phase("close", frames, from: closedAt, to: .infinity, card: card, dir: dir)
         let intervals = zip(frames.dropFirst(), frames).map { $0.milliseconds - $1.milliseconds }
