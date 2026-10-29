@@ -580,11 +580,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tracing::info!("shutting down");
     startup.abort();
     let _ = startup.await;
-    if let Some(transport) = wireguard
-        && tokio::time::timeout(SHUTDOWN_BUDGET, transport.shutdown()).await.is_err()
-    {
-        tracing::warn!("WireGuard did not close within {SHUTDOWN_BUDGET:?}");
-    }
     // Its last heartbeat empties this daemon's rows in the hub's address book.
     if let Some(relay) = mesh_relay {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
@@ -606,6 +601,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         task.abort();
         let _ = task.await;
         tracing::warn!("websocket clients did not drain before the shutdown deadline");
+    }
+    // Keep encrypted bridges alive until WebSocket close/restart frames have drained.
+    if let Some(transport) = wireguard
+        && tokio::time::timeout(SHUTDOWN_BUDGET, transport.shutdown()).await.is_err()
+    {
+        tracing::warn!("WireGuard did not close within {SHUTDOWN_BUDGET:?}");
     }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
