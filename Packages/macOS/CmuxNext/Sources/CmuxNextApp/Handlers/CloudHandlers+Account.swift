@@ -509,20 +509,33 @@ extension CloudHandlers {
               let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: canCopy && setting.folder(in: root) == .inherit, cwd: cwd,
                                                byPerson: invocation.origin == .user, namesMachineOrCommand: invocation["machine"] != nil || invocation["command"] != nil)
         else { return false }
-        creationFlow(AppActionContext(services: services), startedByPerson: true).start(in: window, existing: nil) { session in
+        let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID, profile = window?.profileID ?? .defaultProfile
+        let checkScope: @MainActor () throws -> Void = {
+            try Task.checkCancellation()
+            guard let userID, cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { throw CancellationError() }
+        }
+        creationFlow(AppActionContext(services: services), startedByPerson: true, proceed: { creation in
+            try checkCreationScope(creation, in: cloud.creations, expectedUserID: userID, expectedTeamID: teamID,
+                                   currentUserID: cloud.auth.user?.id, currentTeamID: cloud.auth.teamID)
+        }).start(in: window, existing: nil) { session in
+            try checkScope()
             defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) } // one group per Cloud machine
             let name = session.machine.title
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
             var cwd: String?
             let folder = try await plan.folder(work: services.work)
+            try checkScope()
             if let folder, let binary = cloud.move.cli {
                 guard let socket = await connection.endpoint?.socketPath else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
                 let cli = CloudMoveCLI(binary: binary, timeout: cloud.move.timeout)
                 do {
                     cwd = try await CloudNewWorkspacePlan.copy(folder, workRoots: cloud.move.workRoots) { remote in
+                        try checkScope()
                         let answer = try await cli.syncPush(socket: socket, local: folder.root, remote: remote)
                         return CloudNewWorkspacePlan.CopyAnswer(ok: answer.ok, errorCode: answer.errorCode, error: answer.error)
                     }.chat
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch CloudNewWorkspacePlan.CopyFailure.outdated {
                     throw ActionFailure(message: CloudMoveStrings.outdatedMachine(name))
                 } catch CloudNewWorkspacePlan.CopyFailure.failed(let detail) {
@@ -531,7 +544,15 @@ extension CloudHandlers {
                     throw ActionFailure(message: CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)))
                 }
             }
+            try checkScope()
             let key = WorkspaceKey.generate()
+            if let room = services.machines.local.store.profile(profile), let sessionID = session.daemon.store.registryID,
+               let home = services.machines.local.connection {
+                try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) {
+                    try await home.pinWorkspace(session: sessionID, key: key, to: room.id)
+                }
+            }
+            try checkScope()
             try await WorkspaceCreation.createWithFirstTab(key, name: folder.map { URL(fileURLWithPath: $0.root).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await connection.createTerminal(in: $0.key, cwd: cwd) }
             return key.rawValue
         }

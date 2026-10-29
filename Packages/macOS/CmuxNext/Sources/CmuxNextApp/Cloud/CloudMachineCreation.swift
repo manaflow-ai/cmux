@@ -194,7 +194,7 @@ final class CloudMachineCreation: Identifiable {
         startedAt = now
         readyAfter = nil
         planRefusal = nil
-        if session == nil { phase = .requesting }
+        phase = session == nil ? .requesting : .created
     }
 }
 

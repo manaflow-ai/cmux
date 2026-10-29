@@ -80,6 +80,10 @@ extension SidebarBridge {
             if ids.count > 1 { return WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services) }
             for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
         case .newWorkspace(let machine, let group):
+            if machine == nil, group == nil {
+                services.registry.perform("newTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .window, id: state.id), origin: .user))
+                return
+            }
             // A double-click in a group's empty part, or its "+": the end of that group.
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
                 ?? services.machines.daemon(machine: state.machineID)
