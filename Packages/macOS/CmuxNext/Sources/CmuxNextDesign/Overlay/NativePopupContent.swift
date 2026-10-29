@@ -60,6 +60,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         else { window?.makeFirstResponder(self) }
     }
 
+    func rowView(id: String) -> NSView? { rowViews.first { $0.0.id == id }?.1 }
+
     private var enabledRows: [(NativePopupRow, NSView)] {
         rowViews.filter { !$0.0.isNoninteractive && $0.0.disabled != true }
     }

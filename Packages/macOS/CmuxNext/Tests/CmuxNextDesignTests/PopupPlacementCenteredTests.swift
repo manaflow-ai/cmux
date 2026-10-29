@@ -51,7 +51,7 @@ import Testing
     }
 
     @Test func aSubmenuFlipsToTheLeftAtTheScreenEdge() {
-        let row = CGRect(x: 900, y: 500, width: 90, height: 28)
+        let row = CGRect(x: 1300, y: 500, width: 90, height: 28)
         let placed = PopupPlacement.sideBySideFrame(anchor: row, size: CGSize(width: 240, height: 300), screen: Self.screen)
         #expect(placed.side == .left)
         #expect(placed.frame.maxX == row.minX - 4)

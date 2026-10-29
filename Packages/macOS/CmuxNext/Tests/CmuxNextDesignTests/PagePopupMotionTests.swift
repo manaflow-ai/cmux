@@ -115,7 +115,7 @@ import Testing
         defer { host.hide() }
         var model = NativePopupModel(schemaVersion: 1, id: "submenu-focus", revision: 1,
                                      anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
-                                     side: .bottom, align: .end, width: 240,
+                                     side: .bottom, align: .start, width: 240,
                                      rows: [NativePopupRow(id: "more", kind: .submenu, label: "More",
                                                            children: [NativePopupRow(id: "pick", kind: .action, label: "Pick")])])
         #expect(host.show(model)["shown"] as? Bool == true)
@@ -144,6 +144,9 @@ import Testing
         }
         #expect(host.activeID == model.id && host.shownFrame != nil)
         #expect(childPanel.isVisible && childPanel.isKeyWindow, "ancestor layout dismissed its submenu")
+        let resizedParentCard = try #require(host.shownFrame)
+        #expect(PopupStyle.standard.cardFrame(inWindow: childPanel.frame).minX >= resizedParentCard.maxX,
+                "resizing the leading-aligned parent left the child at its old anchor")
         #expect(events.isEmpty)
         childContent.dismiss()
         #expect(await GUIAnimationTestSupport.settle { parentPanel.isKeyWindow }, "hiding the submenu did not restore its parent")
@@ -165,6 +168,37 @@ import Testing
         #expect(parentPanel.childWindows?.contains { $0.isVisible } != true)
         host.hide()
         #expect(await GUIAnimationTestSupport.settle { !parentPanel.isVisible && !childPanel.isVisible })
+    }
+
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func aTrailingRootSubmenuFlipsAtTheScreenEdgeOnUpdate() throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        let screen = try #require(window.screen).visibleFrame
+        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { _ in }, isAppActive: { true })
+        defer { host.hide() }
+        var model = NativePopupModel(schemaVersion: 1, id: "submenu-geometry", revision: 1,
+                                     anchor: NativePopupAnchor(left: 20, top: 30, right: 120, bottom: 60),
+                                     side: .bottom, align: .end, width: 240,
+                                     rows: [NativePopupRow(id: "more", kind: .submenu, label: "More",
+                                                           children: [NativePopupRow(id: "pick", kind: .action, label: "Pick")])])
+        #expect(host.show(model)["shown"] as? Bool == true)
+        let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        let content = try #require(panel.firstResponder as? NativePopupContent)
+        let row = try #require(content.rowView(id: "more"))
+        content.openSubmenu(model.rows[0], row)
+        let child = try #require(panel.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        let initial = try #require(host.shownFrame)
+        #expect(PopupStyle.standard.cardFrame(inWindow: child.frame).minX >= initial.maxX)
+        let point = page.convert(window.convertFromScreen(CGPoint(x: screen.maxX - 8, y: screen.midY)), from: nil)
+        model.revision += 1
+        model.anchor = NativePopupAnchor(left: point.x - 100, top: page.bounds.height - point.y,
+                                         right: point.x, bottom: page.bounds.height - point.y + 30)
+        host.update(model)
+        let moved = try #require(host.shownFrame)
+        let childFrame = PopupStyle.standard.cardFrame(inWindow: child.frame)
+        #expect(childFrame.maxX <= moved.minX, "the child must flip left beside the updated parent")
+        #expect(screen.contains(childFrame))
     }
 
     /// A window on screen with a page view, and the page menu panel of `host` once shown.
