@@ -230,6 +230,63 @@ test("effort and speed domain values do not collide and default hint survives", 
   expect(menu.button.getAttribute("aria-expanded")).toBe("false");
 });
 
+test("native effort slider commits a resting default once and rejects invalid changes", async () => {
+  const picks: string[] = [];
+  const menu = await mount(
+    <EffortPicker
+      label="Effort"
+      slider
+      sliderStyle="minimal"
+      efforts={[
+        { id: "low", name: "Low", description: "Faster answers" },
+        { id: "high", name: "High", description: "More reasoning", recommended: true },
+        { id: "max", name: "Maximum" },
+      ]}
+      onPick={(id) => picks.push(id)}
+    />,
+  );
+  const row = menu.model.rows.find((item) => item.kind === "slider")!;
+  expect(row.value).toBe("1");
+  expect(picks).toEqual([]);
+  const change = async (value: string) => {
+    await act(async () => {
+      for (const listener of menu.listeners)
+        listener({ type: "change", popupId: menu.model.id, revision: menu.model.revision, id: row.id, value });
+    });
+  };
+  for (const value of ["", " ", "NaN", "Infinity", "0.5", "-1", "3"]) await change(value);
+  expect(picks).toEqual([]);
+  await change("1");
+  await change("1");
+  expect(picks).toEqual(["high"]);
+  expect(menu.button.getAttribute("aria-expanded")).toBe("true");
+  await change("2");
+  expect(picks).toEqual(["high", "max"]);
+});
+
+test("native effort slider does not resend an already selected value", async () => {
+  const picks: string[] = [];
+  const menu = await mount(
+    <EffortPicker
+      label="Effort"
+      slider
+      current="low"
+      efforts={[
+        { id: "low", name: "Low" },
+        { id: "high", name: "High", recommended: true },
+      ]}
+      onPick={(id) => picks.push(id)}
+    />,
+  );
+  const row = menu.model.rows.find((item) => item.kind === "slider")!;
+  expect(row.value).toBe("0");
+  await act(async () => {
+    for (const listener of menu.listeners)
+      listener({ type: "change", popupId: menu.model.id, revision: menu.model.revision, id: row.id, value: "0" });
+  });
+  expect(picks).toEqual([]);
+});
+
 test.each(["claude", "codex"])("native %s mode metadata and action preserve harness behavior", async (harness) => {
   const ids =
     harness === "claude"
