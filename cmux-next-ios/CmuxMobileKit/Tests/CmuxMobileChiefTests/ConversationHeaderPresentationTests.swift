@@ -56,6 +56,17 @@ struct ConversationHeaderPresentationTests {
         #expect(controller.collectionView.edgeTopInset == 0)
     }
 
+    @Test func hostActionRunsBeforeConversationInfoExists() {
+        let controller = makeController()
+        defer { controller.store.stop() }
+        var opened = false
+        controller.onHeaderInfo = { opened = true }
+        #expect(controller.store.info == nil)
+        controller.header.nameButton.sendActions(for: .touchUpInside)
+        #expect(opened)
+        #expect(controller.detailsController == nil)
+    }
+
     private func makeController(header: ConversationHeaderPresentation = .init()) -> ConversationViewController {
         let store = ConversationStore(backend: HeaderBackend())
         let controller = ConversationViewController(store: store, options: .init(header: header))

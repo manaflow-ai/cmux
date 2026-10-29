@@ -1643,12 +1643,13 @@ public final class ConversationViewController: UIViewController {
     /// CKAvatarButton, clear dimming, alignment rect 208 pt around the
     /// details avatar). UIKit runs the open and close springs.
     func openInfo() {
-        guard store.info != nil, detailsController == nil, presentedViewController == nil else { return }
-        view.endEditing(true)
+        guard detailsController == nil, presentedViewController == nil else { return }
         if let onHeaderInfo {
             onHeaderInfo()
             return
         }
+        guard store.info != nil else { return }
+        view.endEditing(true)
         guard let details = ConversationDetailsViewController(store: store, showsBackgrounds: store.supportsBackgrounds) else { return }
         details.background = store.background
         details.onEditBackground = { [weak self, weak details] kind in
