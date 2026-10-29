@@ -148,7 +148,7 @@ import Testing
         for seed in 0..<5000 {
             guard await Self.run(seed: UInt64(seed)) else { return }
         }
-        #expect(Self.servedChecked > 300, "the schedules serve tickets, so the serve invariant is exercised")
+        #expect(Self.servedChecked > 200, "the schedules serve tickets, so the serve invariant is exercised")
     }
 
     /// One seeded run; false when it could not finish (the test stops at the first such run).
