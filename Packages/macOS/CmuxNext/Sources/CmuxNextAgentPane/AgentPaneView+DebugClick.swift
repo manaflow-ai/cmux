@@ -76,26 +76,17 @@ extension AgentPaneView {
         await page?.debugPress(x: x, y: y) ?? false
     }
 
-    /// The window the chat's Chromium page draws in (a child of the pane's window); nil on WebKit.
-    /// `debug.key {target: page}` delivers its key there, and the pane's gesture monitor judges it.
-    public var debugChromiumPageWindow: NSWindow? { chromiumPage?.contentView.window }
-
-    /// A left mouse down at `x`,`y` (CSS pixels) on the chat's Chromium page, through the pane's
-    /// gesture monitor only: the host's half of a person's click there, which a real click passes
-    /// before Chromium gets it. The DevTools press (``debugPress(x:y:)``) is the page's half and is
-    /// never seen by the monitor, so without this a click on a Chromium chat records no gesture and
-    /// the answer it picks is refused (`transport.gesture_required`). The gesture rule is the
-    /// person rule of a real click (``judge(_:eventWindow:)``); false when the page has no window.
-    @discardableResult
-    public func debugJudgeChromiumClick(x: Double, y: Double) -> Bool {
-        guard let content = chromiumPage?.contentView, let window = content.window else { return false }
+    /// The screen point of `x`,`y` (CSS pixels) on the chat's Chromium page, nil on WebKit. Chromium draws the
+    /// page in its own child window over ``chromiumPage``'s container view (which stays in the pane's window):
+    /// `debug.agent_pane click` turns the point into that window's mouse down for ``judge(_:eventWindow:)``,
+    /// the host's half of a person's click there. The DevTools press (``debugPress(x:y:)``) is the page's half
+    /// and is never seen by the gesture monitor, so without it a click on a Chromium chat records no gesture and
+    /// the answer it picks is refused (`transport.gesture_required`).
+    public func debugChromiumScreenPoint(x: Double, y: Double) -> NSPoint? {
+        guard let content = chromiumPage?.contentView, let window = content.window else { return nil }
         let zoom = max(debugPageZoom, 0.01)
         let local = NSPoint(x: x * zoom, y: content.isFlipped ? y * zoom : content.bounds.height - y * zoom)
-        guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: content.convert(local, to: nil), modifierFlags: [],
-                                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                                            context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return false }
-        judge(down, eventWindow: window)
-        return true
+        return window.convertPoint(toScreen: content.convert(local, to: nil))
     }
 }
 #endif
