@@ -604,7 +604,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
   /* Reserve the final track while keeping the stop control outside the button. */
-  padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
+  padding-right: calc(var(--acpmux-tray-end-inset, 8px) + var(--acpmux-tray-stop-width) + 8px);
 }
 .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop {
   position: static;
