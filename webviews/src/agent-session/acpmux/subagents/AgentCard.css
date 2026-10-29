@@ -21,7 +21,15 @@
   min-width: 0;
   height: 24px;
 }
-.cv-agent-card__head[role="button"] {
+button.cv-agent-card__head {
+  appearance: none;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
   cursor: pointer;
 }
 /* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's. */
