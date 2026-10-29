@@ -6,14 +6,15 @@ import UIKit
 
 extension DemoDriver {
     /// `-cmux-mobile-demo large-preview`: a file beyond the former 24 MiB
-    /// preview limit, through the real loader and gallery. This fixture also
-    /// runs unchanged on the old loader to capture its refusal.
-    func largePreview() {
+    /// preview limit, through the real loader and gallery. The low-space variant
+    /// injects zero available bytes without consuming the simulator disk.
+    func largePreview(lowSpace: Bool = false) {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
         guard var presenter = windows.first(where: \.isKeyWindow)?.rootViewController else { return }
         while let presented = presenter.presentedViewController { presenter = presented }
         let link = LargePreviewDemoLink()
-        let source = LinkFileArtifactSource(macName: "Mac", baseDirectory: "/demo") { link }
+        let capacity: (@Sendable (URL) throws -> Int64)? = lowSpace ? { _ in 0 } : nil
+        let source = LinkFileArtifactSource(macName: "Mac", baseDirectory: "/demo", availableCapacity: capacity) { link }
         FilePreviewRequest(reference: "/demo/sample.pdf", source: source).present(from: presenter)
     }
 }
@@ -81,10 +82,10 @@ private final class LargePreviewDemoLink: MacLink, Sendable {
     var states: AsyncStream<LinkState> { AsyncStream { $0.finish() } }
 
     func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
-        guard service == "file", args["path"] == "/demo/sample.pdf" else {
+        guard (service == "file" || service == "file-preview"), args["path"] == "/demo/sample.pdf" else {
             throw LinkError(code: "not_found", message: "The demo file is unavailable.")
         }
-        return LargePreviewDemoChannel()
+        return LargePreviewDemoChannel(metadata: service == "file-preview")
     }
 
     func ping() async throws -> UInt32 { 0 }
@@ -98,6 +99,9 @@ private final class LargePreviewDemoChannel: LinkChannel, @unchecked Sendable {
     private let lock = NSLock()
     private var offset = 0
     private var closure: LinkError?
+    private var sendsMetadata: Bool
+
+    init(metadata: Bool) { sendsMetadata = metadata }
 
     var closedBy: LinkError? { lock.withLock { closure } }
     func send(_ data: Data) async throws {}
@@ -106,6 +110,10 @@ private final class LargePreviewDemoChannel: LinkChannel, @unchecked Sendable {
         try Task.checkCancellation()
         return lock.withLock {
             guard closure == nil else { return nil }
+            if sendsMetadata {
+                sendsMetadata = false
+                return Data("{\"size\":\(pdf.count)}".utf8)
+            }
             guard offset < pdf.count else {
                 closure = LinkError(code: "eof", message: "")
                 return nil

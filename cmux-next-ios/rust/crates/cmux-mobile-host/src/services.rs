@@ -77,7 +77,8 @@ pub async fn serve(
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
         "acpmux" => acpmux(&config, &peer.device_id, &sender, receiver).await,
-        "file" => file(&config, &args, &sender).await,
+        "file" => file(&config, &args, &sender, false).await,
+        "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
@@ -122,7 +123,7 @@ impl Refusal {
 pub const LINK_PROTOCOL: u32 = 2;
 
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
-pub const CAPABILITIES: [&str; 1] = ["removal-v1"];
+pub const CAPABILITIES: [&str; 2] = ["removal-v1", "file-preview-v1"];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
@@ -871,8 +872,14 @@ pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &P
 
 /// `file`: stream one regular file of any size inside a workspace root, then
 /// close with `eof`. The roots are the Chat Folders, then (only when the file is
-/// outside them) the Mac's workspace folders as they are now.
-async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
+/// outside them) the Mac's workspace folders as they are now. `file-preview`
+/// prepends metadata from the same open descriptor before streaming those bytes.
+async fn file(
+    config: &ServiceConfig,
+    args: &Value,
+    sender: &ChannelSender,
+    preview_metadata: bool,
+) -> Result<(), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
@@ -904,6 +911,14 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
     let metadata = file.metadata().await.map_err(|_| Refusal::new("not_found", "cannot stat"))?;
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
+    }
+    // A distinct service keeps old hosts' raw file bytes from being mistaken for
+    // metadata. Read the size from this descriptor, after all confinement checks,
+    // so the phone can check free storage before accepting the file's contents.
+    if preview_metadata
+        && sender.send(Bytes::from(serde_json::json!({"size": metadata.len()}).to_string())).await.is_err()
+    {
+        return Ok(());
     }
     // Any size streams (Leo: "arbitrarily large files of any type"): one buffer at a time,
     // each send waiting for room in the channel's bounded queue, so memory stays bounded
@@ -1442,12 +1457,15 @@ mod tests {
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
         };
-        assert_eq!(capabilities(&config), ["removal-v1"]);
+        assert_eq!(capabilities(&config), ["removal-v1", "file-preview-v1"]);
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
             Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
         });
         config.browser = crate::browser::BrowserConfig::new(Some(launcher), 1);
-        assert_eq!(capabilities(&config), ["removal-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]);
+        assert_eq!(
+            capabilities(&config),
+            ["removal-v1", "file-preview-v1", BROWSER_STREAM, BROWSER_VIDEO_TRACK]
+        );
     }
 
     #[test]

@@ -23,8 +23,9 @@ import Testing
         private var index = 0
         /// The most bytes already sent that were not on disk yet when the next message went out.
         private var lag = 0
+        private var metadata: Bool
 
-        init(destination: URL?) { self.destination = destination }
+        init(destination: URL?, metadata: Bool = false) { self.destination = destination; self.metadata = metadata }
 
         func send(_ data: Data) async throws {}
         func receive() async throws -> Data? {
@@ -32,6 +33,10 @@ import Testing
                 (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
             } ?? 0
             return lock.withLock {
+                if metadata {
+                    metadata = false
+                    return Data("{\"size\":\(LinkFilePreviewStreamTests.total)}".utf8)
+                }
                 if destination != nil { lag = max(lag, sent - onDisk) }
                 defer { index += 1 }
                 let size: Int
@@ -55,7 +60,7 @@ import Testing
         var transport: TransportKind { .webRTC }
         var states: AsyncStream<LinkState> { AsyncStream { $0.finish() } }
         func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
-            FloodChannel(destination: nil)
+            FloodChannel(destination: nil, metadata: true)
         }
         func ping() async throws -> UInt32 { 0 }
         func close() async {}

@@ -398,7 +398,7 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     // may offer browser tabs and stream phone tabs.
     assert_eq!(
         value["capabilities"],
-        serde_json::json!(["removal-v1", "browser-stream-v1", "browser-video-track-v1", "surface-stream-v1"])
+        serde_json::json!(["removal-v1", "file-preview-v1", "browser-stream-v1", "browser-video-track-v1", "surface-stream-v1"])
     );
 
     // daemon: allowed lines reach the socket, denied ones are answered locally,
@@ -475,6 +475,28 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
         .await
         .unwrap();
     assert_eq!(drain(&mut secret).await, (Vec::new(), "forbidden".into()));
+
+    // Preview metadata precedes the same raw contents; the legacy service above
+    // remains raw. Forbidden paths must not disclose even their file size.
+    let mut preview = link
+        .open("file-preview", serde_json::json!({"path": fixture.root.join("notes.md").to_str().unwrap()}))
+        .await
+        .unwrap();
+    assert_eq!(json_frame(preview.recv().await), serde_json::json!({"size": 8}));
+    assert_eq!(drain(&mut preview).await, (b"# hello\n".to_vec(), "eof".into()));
+    let mut secret_preview = link
+        .open("file-preview", serde_json::json!({"path": fixture.outside.join("secret").to_str().unwrap()}))
+        .await
+        .unwrap();
+    assert_eq!(drain(&mut secret_preview).await, (Vec::new(), "forbidden".into()));
+    let empty_path = fixture.root.join("empty-preview.bin");
+    std::fs::write(&empty_path, []).unwrap();
+    let mut empty_preview = link
+        .open("file-preview", serde_json::json!({"path": empty_path.to_str().unwrap()}))
+        .await
+        .unwrap();
+    assert_eq!(json_frame(empty_preview.recv().await), serde_json::json!({"size": 0}));
+    assert_eq!(drain(&mut empty_preview).await, (Vec::new(), "eof".into()));
 
     // acpmux: one data frame per WebSocket message.
     let mut acp = link.open("acpmux", serde_json::json!({})).await.unwrap();
@@ -1024,7 +1046,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
     let link = &connected.link;
 
     // Before auth: every service is refused.
-    for service in ["daemon", "acpmux", "file", "echo"] {
+    for service in ["daemon", "acpmux", "file", "file-preview", "echo"] {
         let mut channel = link.open(service, serde_json::json!({})).await.unwrap();
         assert_eq!(drain(&mut channel).await.1, "unpaired", "{service}");
     }
@@ -1443,27 +1465,32 @@ async fn a_file_past_the_old_64_mib_cap_streams_whole_in_bounded_chunks() {
     };
 
     let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
-    let mut channel =
-        connected.link.open("file", serde_json::json!({"path": path.to_str().unwrap()})).await.unwrap();
-    let mut hasher = Sha256::new();
-    let (mut received, mut largest): (u64, usize) = (0, 0);
-    let code = loop {
-        match tokio::time::timeout(Duration::from_secs(30), channel.recv()).await.expect("in time") {
-            Some(ChannelEvent::Data(data)) => {
-                largest = largest.max(data.len());
-                received += data.len() as u64;
-                hasher.update(&data);
-            }
-            Some(ChannelEvent::Closed(info)) => break format!("{} {}", info.code, info.reason),
-            None => break "none".into(),
+    for service in ["file", "file-preview"] {
+        let mut channel =
+            connected.link.open(service, serde_json::json!({"path": path.to_str().unwrap()})).await.unwrap();
+        if service == "file-preview" {
+            assert_eq!(json_frame(channel.recv().await), serde_json::json!({"size": size}));
         }
-    };
-    assert_eq!(code.trim(), "eof", "the Mac refused or cut the file");
-    assert_eq!(received, size);
-    assert_eq!(hasher.finalize(), expected);
-    assert!(
-        largest <= cmux_mobile_link::link::DATA_CHUNK,
-        "a message of {largest} bytes: the file must stream in chunks of at most {}",
-        cmux_mobile_link::link::DATA_CHUNK
-    );
+        let mut hasher = Sha256::new();
+        let (mut received, mut largest): (u64, usize) = (0, 0);
+        let code = loop {
+            match tokio::time::timeout(Duration::from_secs(30), channel.recv()).await.expect("in time") {
+                Some(ChannelEvent::Data(data)) => {
+                    largest = largest.max(data.len());
+                    received += data.len() as u64;
+                    hasher.update(&data);
+                }
+                Some(ChannelEvent::Closed(info)) => break format!("{} {}", info.code, info.reason),
+                None => break "none".into(),
+            }
+        };
+        assert_eq!(code.trim(), "eof", "the Mac refused or cut the file");
+        assert_eq!(received, size);
+        assert_eq!(hasher.finalize(), expected);
+        assert!(
+            largest <= cmux_mobile_link::link::DATA_CHUNK,
+            "a message of {largest} bytes: the file must stream in chunks of at most {}",
+            cmux_mobile_link::link::DATA_CHUNK
+        );
+    }
 }

@@ -81,6 +81,14 @@ public struct ArtifactPreview: View {
                         attempt += 1
                     }
                     .accessibilityIdentifier("artifact.retry")
+                    if let storage = error as? PreviewInsufficientSpace {
+                        // The file stays on the Mac: share its reference, never
+                        // pretend that a failed download produced a local file.
+                        ShareLink(item: storage.path) {
+                            Label("Share File Path", systemImage: "square.and.arrow.up")
+                        }
+                        .accessibilityIdentifier("artifact.shareRemotePath")
+                    }
                 }
                 .accessibilityIdentifier(Self.refusedIdentifier)
             case .success(let loaded) where loaded.isEmptyFile:

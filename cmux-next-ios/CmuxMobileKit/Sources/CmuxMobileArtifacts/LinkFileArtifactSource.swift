@@ -1,8 +1,8 @@
 import CmuxMobileTransport
 import Foundation
 
-/// Reads artifacts from the Mac over the link's `file` service (PROTOCOL.md):
-/// one channel per file, opened with `{"path": <absolute path>}`, data frames
+/// Reads artifacts from the Mac over the link's `file-preview` service (PROTOCOL.md):
+/// one channel per file, opened with `{"path": <absolute path>}`, a size header then data frames
 /// until the Mac closes it with `eof`. The Mac confines reads to workspace
 /// roots and refuses folders, so folders and paths outside a root explain why.
 /// A file of any size opens: its bytes go to a local copy in the temporary
@@ -13,14 +13,18 @@ public struct LinkFileArtifactSource: ArtifactSource {
     /// Resolves relative references (the session's working directory).
     let baseDirectory: String?
     let macName: String
+    private let availableCapacity: PreviewStorage.Capacity
     /// Largest text, image or PDF the preview decodes in memory; a larger one
     /// opens in Quick Look from its local copy (not a size cap).
     public static let inMemoryBytes: Int64 = 24 << 20
 
-    public init(macName: String, baseDirectory: String?, link: @escaping @Sendable () async -> (any MacLink)?) {
+    public init(macName: String, baseDirectory: String?,
+                availableCapacity: (@Sendable (URL) throws -> Int64)? = nil,
+                link: @escaping @Sendable () async -> (any MacLink)?) {
         self.link = link
         self.baseDirectory = baseDirectory
         self.macName = macName
+        self.availableCapacity = availableCapacity ?? PreviewStorage.availableCapacity
     }
 
     public func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent {
@@ -39,7 +43,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
         guard let link = await link() else {
             throw ArtifactUnavailable("Connect to \(macName) to open \(artifact.name).")
         }
-        let url = try await Self.read(path: path, over: link, macName: macName, for: artifact)
+        let url = try await Self.read(path: path, over: link, macName: macName, for: artifact, capacity: availableCapacity)
         return try Self.content(for: artifact, file: url)
     }
 
@@ -53,49 +57,91 @@ public struct LinkFileArtifactSource: ArtifactSource {
 
     /// Reads `path` into the artifact's local copy and returns the copy's URL. The bytes
     /// land in a part file first, so a failed read never leaves a short copy behind.
-    static func read(path: String, over link: any MacLink, macName: String, for artifact: TerminalArtifact) async throws -> URL {
+    static func read(path: String, over link: any MacLink, macName: String, for artifact: TerminalArtifact,
+                     capacity: PreviewStorage.Capacity = PreviewStorage.availableCapacity) async throws -> URL {
+        let url = try ArtifactLocalCopy.destination(for: artifact, defaultExtension: artifact.kind == .video ? "mp4" : nil)
+        let part = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).part")
         let channel: any LinkChannel
         do {
-            channel = try await link.openChannel(service: "file", args: ["path": path])
+            // New service negotiates the size header explicitly. Old hosts refuse the
+            // service instead of having arbitrary file bytes mistaken for metadata.
+            channel = try await link.openChannel(service: "file-preview", args: ["path": path])
         } catch let error as LinkError {
             throw Self.unavailable(error, path: path, macName: macName)
         }
-        let url = try ArtifactLocalCopy.destination(for: artifact, defaultExtension: artifact.kind == .video ? "mp4" : nil)
-        let part = url.deletingLastPathComponent().appendingPathComponent(".\(UUID().uuidString).part")
         defer { try? FileManager.default.removeItem(at: part) }
-        _ = try await download(channel, to: part, path: path, macName: macName)
-        try? FileManager.default.removeItem(at: url)
-        try FileManager.default.moveItem(at: part, to: url)
-        return url
+        return try await withTaskCancellationHandler {
+            do {
+                let size = try await previewSize(channel, path: path, macName: macName)
+                _ = try await download(channel, to: part, path: path, macName: macName, expectedSize: size, capacity: capacity)
+                try? FileManager.default.removeItem(at: url)
+                try FileManager.default.moveItem(at: part, to: url)
+                return url
+            } catch {
+                await channel.close(code: "cancelled", reason: "preview ended")
+                throw error
+            }
+        } onCancel: {
+            Task { await channel.close(code: "cancelled", reason: "preview cancelled") }
+        }
     }
 
-    /// Writes the rest of `channel` to `destination`, one message at a time (the phone never
-    /// holds more than one), and returns the bytes written. A refusal or a failed read
-    /// removes the file and throws.
-    static func download(_ channel: any LinkChannel, to destination: URL, path: String, macName: String) async throws -> Int64 {
-        guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
-            throw ArtifactUnavailable("Couldn't save \((path as NSString).lastPathComponent) on this iPhone.")
+    static func previewSize(_ channel: any LinkChannel, path: String, macName: String) async throws -> Int64 {
+        struct Metadata: Decodable { let size: Int64 }
+        guard let header = try await receive(channel, within: idleTimeout, macName: macName) else {
+            if let closed = channel.closedBy { throw unavailable(closed, path: path, macName: macName) }
+            throw ArtifactUnavailable("Couldn't read the file size from \(macName).")
         }
+        guard header.count <= 1024, let metadata = try? JSONDecoder().decode(Metadata.self, from: header),
+              metadata.size >= 0 else {
+            throw ArtifactUnavailable("Couldn't read the file size from \(macName).")
+        }
+        return metadata.size
+    }
+
+    /// Writes one bounded message at a time. Capacity is checked before creating the
+    /// part file and before each write, including the remaining bytes and reserve.
+    /// A capacity drop, cancellation, refusal or failed read closes the channel and
+    /// removes the partial file; no attachment size limit is imposed.
+    static func download(_ channel: any LinkChannel, to destination: URL, path: String, macName: String,
+                         expectedSize: Int64? = nil,
+                         capacity: PreviewStorage.Capacity = PreviewStorage.availableCapacity) async throws -> Int64 {
         var written: Int64 = 0
+        var created = false
         do {
+            try Task.checkCancellation()
+            try PreviewStorage.check(destination, path: path, size: expectedSize ?? 0,
+                                     remaining: expectedSize ?? 0, capacity: capacity)
+            guard FileManager.default.createFile(atPath: destination.path, contents: nil) else {
+                throw ArtifactUnavailable("Couldn't save \((path as NSString).lastPathComponent) on this iPhone.")
+            }
+            created = true
             let handle = try FileHandle(forWritingTo: destination)
             defer { try? handle.close() }
             do {
                 while let chunk = try await Self.receive(channel, within: idleTimeout, macName: macName) {
+                    try Task.checkCancellation()
+                    if let expectedSize, Int64(chunk.count) > expectedSize - written {
+                        throw ArtifactUnavailable("The file changed while downloading. Try again.")
+                    }
+                    try PreviewStorage.check(destination, path: path, size: expectedSize ?? written + Int64(chunk.count),
+                                             remaining: expectedSize.map { $0 - written } ?? Int64(chunk.count), capacity: capacity)
                     try handle.write(contentsOf: chunk)
                     written += Int64(chunk.count)
                 }
             } catch let error as LinkError {
                 throw Self.unavailable(error, path: path, macName: macName)
             }
-            // The Mac refuses by closing the channel (outside the shared
-            // folders, missing, a folder): without this the refusal read as an
-            // empty file and the preview stayed blank.
+            try Task.checkCancellation()
             if let closed = channel.closedBy, !closed.code.isEmpty, closed.code != "eof" {
                 throw Self.unavailable(closed, path: path, macName: macName)
             }
+            if let expectedSize, written != expectedSize {
+                throw ArtifactUnavailable("The file changed while downloading. Try again.")
+            }
         } catch {
-            try? FileManager.default.removeItem(at: destination)
+            if created { try? FileManager.default.removeItem(at: destination) }
+            await channel.close(code: "cancelled", reason: "preview ended")
             throw error
         }
         return written
@@ -148,7 +194,7 @@ public struct LinkFileArtifactSource: ArtifactSource {
             ArtifactUnavailable("\(macName) isn't sharing any folders with this phone yet, so \(name) can't be opened here. \(Self.shareHint)")
         case "forbidden": ArtifactUnavailable("\(name) is outside the folders \(macName) shares with this phone. \(Self.shareHint)")
         case "bad_request": ArtifactUnavailable("\(name) isn't a regular file.")
-        case "unknown_service": ArtifactUnavailable("\(macName) doesn't serve files yet. Update cmux on the Mac.")
+        case "unknown_service": ArtifactUnavailable("Update cmux on \(macName) to preview this file.")
         default: ArtifactUnavailable(error.message.isEmpty ? "Couldn't read \(name) from \(macName)." : error.message)
         }
     }
