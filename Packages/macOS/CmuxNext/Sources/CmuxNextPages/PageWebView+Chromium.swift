@@ -10,8 +10,8 @@ import Foundation
 // has no WebKit view: a page that fails in Chromium builds its WebKit engine and reopens there in
 // the same turn (``fallBackToWebKit(_:detail:)``); one whose browser ended waits (PageChromiumRecovery.swift).
 extension PageWebView {
-    /// The handlers the page scripts post to without a reply, in Chromium mode.
-    static let chromiumFireAndForget = [
+    /// The handlers the page scripts post to without a reply, in Chromium mode (every page has them).
+    public static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
         PageChromiumDocumentScripts.navigateHandler, PageChromiumDocumentScripts.hostDropHandler,
     ]
@@ -140,7 +140,7 @@ extension PageWebView {
     private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork,
                                 dialogs: CmuxDialogCenter, madeIn: PageChromiumWindow?) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
-        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
+        let bridge = ChromiumPageHostBridge(page: page, descriptor: descriptor, fireAndForget: handlers)
         // Hidden until the attach below tells it whether the page shows; then ``setEngineVisible(_:)`` does.
         let hang = PageHangNotice(center: dialogs, anchor: self, visible: false) { [weak page] terminate in
             page?.answerUnresponsive(terminate: terminate)
@@ -149,10 +149,8 @@ extension PageWebView {
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
-            for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers, documentScripts: scripts.sources,
-                                                                       channelEvent: page.pageHostEvent) {
-                _ = try await page.devTools(method, params: params)
-            }
+            // On renderer paths the renderer has the page script and the shared scripts: only the view's own run, at commit.
+            try await bridge.setUp(documentScripts: page.usesRendererPaths ? scripts.perView : scripts.sources)
         } catch {
             session.end()
             guard !Task.isCancelled else { return }
@@ -385,8 +383,8 @@ extension PageWebView {
         return try? await page.evaluate(expression)
     }
 
-    /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``).
-    private static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
+    /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``); no DevTools on renderer paths.
+    static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
         let expression = "(function () {\n\(PageInputReadiness.editScript(edit, token: token, expectedEpoch: expectedEpoch))\n})()"
         return (try? await page.evaluate(expression)) as? Bool == true // MQ12 allowed: focus keeps a page from freezing
     }

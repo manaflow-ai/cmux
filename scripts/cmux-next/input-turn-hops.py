@@ -9,16 +9,16 @@ launch before its app quits. This script symbolicates each site (image + offset)
 
   site, lane (swift | nonswift), count, kinds, origin, symbol, file, line, allowed
 
-A Swift row is a main-actor job enqueued while input was pending or dispatching (the MainJobGate hook, task 021),
-named by its first frame past the Swift runtime and libdispatch. A nonswift row is a main run-loop callout that ran
+A Swift row is a main-actor job enqueued while input was pending or dispatching, named by its first frame past the
+Swift runtime and libdispatch. Its producer was the MainJobGate hook, deleted in sequence-manager S6: the app's replies
+have no Swift rows; the main-job census's input window (`debug.main_jobs.input`) names those jobs. A nonswift row is a main run-loop callout that ran
 while input was pending, named by its own frame when it ran long enough to be sampled, else by its run-loop stretch
 (`runloop.timer`, `runloop.main_queue_or_port`, `runloop.sources_or_polled_main_queue`); `includes_swift_jobs` marks
 the time that also holds Swift jobs. Each row is one task: remove the hop, or justify it with
 `// input-hop-allow: <why>` on the site's line or the line above it (the row is then `allowed`).
 
-The Swift lane needs the MainJobGate hook (p04-input-021). The typing bench types with `debug.key`, which the window
-server never sees as pending: its keys count once 021 adds the dispatching turns, or with real HID keys once
-p04-input-070 gives the bench `--input real` (pass it with --bench-arg).
+The typing bench types with `debug.key`, which the window server never sees as pending: its keys count only with
+real HID keys (`--input real`, p04-input-070; pass it with --bench-arg).
 
   input-turn-hops.py --app APP --out DIR [--tag TAG] [--json artifacts/input-turn-hops.json] [--keys 200] [--busy 4]
       [--bench-arg=--stress ...] [--dsym PATH ...]

@@ -1,6 +1,5 @@
-/// The `input.*` rows (``DragResampleSettings``) and `debug.mainJobGate` (``MainJobGateSettings``).
-/// Off the Settings page and the palette while their features (`resampledDrags`, `mainJobGate`) are
-/// off by default; the schema export lists them.
+/// The `input.*` rows (``DragResampleSettings``). Off the Settings page and the palette while their
+/// feature (`resampledDrags`) is off by default; the schema export lists them.
 nonisolated enum InputSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.pointerInput", "Pointer Input")
@@ -26,16 +25,6 @@ nonisolated enum InputSettingsSchema {
                 keywords: ["drag", "divider", "prediction", "predict", "latency", "resample", "debug", "development"]
             )
             .hiddenFromSettingsPage("a debug knob of the resampledDrags feature (off by default)"),
-            SettingDescriptor(
-                MainJobGateSettings.enabledPath, section: .development, group: group,
-                title: SettingsText.keyed("settings.debug.mainJobGate", "Input Before Background Work"),
-                help: SettingsText.keyed(
-                    "settings.debug.mainJobGate.help",
-                    "While a key, click, scroll or drag waits, other app work waits behind it and runs in order once that input is on screen. Off runs app work in the order it was asked for."),
-                kind: .toggle, default: .bool(MainJobGateSettings.enabledDefault),
-                keywords: ["input", "latency", "typing", "main thread", "queue", "jobs", "debug", "development"]
-            )
-            .hiddenFromSettingsPage("a debug switch of the mainJobGate feature (off by default)"),
         ]
     }
 }

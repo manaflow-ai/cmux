@@ -72,7 +72,7 @@ fn start_bash_with(name: &str, rc_prefix: &str) -> Option<(RecoveryHarness, u64)
     );
     let surface = created["surface"].as_u64().unwrap();
     let screen = wait_for_screen(&harness.socket, surface, PROMPT);
-    assert!(screen.contains(PROMPT), "no {:?} on the screen: {screen:?}", PROMPT);
+    assert!(screen.contains(PROMPT), "no {PROMPT:?} on the screen: {screen:?}");
     wait_for_idle(&harness);
     Some((harness, surface))
 }
@@ -349,4 +349,58 @@ fn shell_idle_a_stopped_job_is_not_idle() {
     assert!(screen.contains("Stopped"), "no {:?} on the screen: {screen:?}", "Stopped");
     wait_for_foreign_foreground(&harness, "a stopped job");
     assert_not_idle(&harness, Duration::from_millis(500), "a stopped job");
+}
+
+/// A continuation prompt (PS2) is not a new prompt. kitty's shell integration
+/// (and any rc that follows the FinalTerm spec) marks PS2 `133;A;k=s`: a
+/// secondary prompt. Counted as a primary `A`, it answered the line the
+/// Return submitted, so an unfinished command (an open quote, a heredoc)
+/// read idle and a close dropped the typed text with no question.
+fn start_bash_with_secondary_marks(name: &str) -> Option<(RecoveryHarness, u64)> {
+    start_bash_with(name, "PS2='\\[\\033]133;A;k=s\\007\\]... \\[\\033]133;B\\007\\]'\n")
+}
+
+#[test]
+fn shell_idle_an_open_quote_at_a_secondary_prompt_is_not_idle() {
+    let _exclusive = exclusive_process_test();
+    let Some((harness, surface)) = start_bash_with_secondary_marks("shell-idle-ps2-quote") else {
+        return;
+    };
+    type_text(&harness, surface, "echo \"unfinished\r");
+    let screen = wait_for_screen(&harness.socket, surface, "...");
+    assert!(screen.contains("..."), "no continuation prompt: {screen:?}");
+    assert_not_idle(&harness, Duration::from_millis(1_000), "an open quote at PS2");
+}
+
+#[test]
+fn shell_idle_a_heredoc_at_a_secondary_prompt_is_not_idle() {
+    let _exclusive = exclusive_process_test();
+    let Some((harness, surface)) = start_bash_with_secondary_marks("shell-idle-ps2-heredoc") else {
+        return;
+    };
+    type_text(&harness, surface, "cat > /dev/null <<EOF\r");
+    let screen = wait_for_screen(&harness.socket, surface, "...");
+    assert!(screen.contains("..."), "no continuation prompt: {screen:?}");
+    type_text(&harness, surface, "a line of the heredoc\r");
+    assert_not_idle(&harness, Duration::from_millis(1_000), "a heredoc at PS2");
+    // The heredoc ends: the primary prompt after it reads idle again.
+    type_text(&harness, surface, "EOF\r");
+    wait_for_idle(&harness);
+}
+
+/// Guard: Ghostty's own integration (the one the daemon injects) marks PS2
+/// `133;P;k=s` and `133;B`, which never answer the line.
+#[test]
+fn shell_idle_an_open_quote_at_ghosttys_secondary_prompt_is_not_idle() {
+    let _exclusive = exclusive_process_test();
+    let Some((harness, surface)) = start_bash_with(
+        "shell-idle-ps2-ghostty",
+        "PS2='\\[\\033]133;P;k=s\\007\\]... \\[\\033]133;B\\007\\]'\n",
+    ) else {
+        return;
+    };
+    type_text(&harness, surface, "echo \"unfinished\r");
+    let screen = wait_for_screen(&harness.socket, surface, "...");
+    assert!(screen.contains("..."), "no continuation prompt: {screen:?}");
+    assert_not_idle(&harness, Duration::from_millis(1_000), "an open quote at Ghostty's PS2");
 }
