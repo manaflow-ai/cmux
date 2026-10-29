@@ -836,6 +836,7 @@ impl Hub {
                     work.steers.clear();
                     // A new harness runs no carried turn of the old one's.
                     work.carry_next = None;
+                    work.turn_carried = false;
                     work.last_host_seq = 0;
                     host_seq_at = None;
                     work.doing = Default::default();
