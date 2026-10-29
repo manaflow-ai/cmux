@@ -239,16 +239,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-summary-text",
     ".acpmux-summary-card__close",
   ),
-  card(
-    "cards/session-info",
-    "agent-pane.chat-inspector",
-    "layout-glance-open",
-    ".acpmux-chat-inspector-section",
-    ".acpmux-chat-inspector-section__icon",
-    ".acpmux-chat-inspector-section__title",
-    ".acpmux-summary-text",
-    ".acpmux-chat-inspector-section__fold",
-  ),
+  // Session Info is measured above as one row surface, not as independent padded cards.
 ];
 
 // These are omissions in the current component design, not selector fallbacks. All other

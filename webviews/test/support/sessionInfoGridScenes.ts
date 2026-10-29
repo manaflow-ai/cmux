@@ -43,7 +43,7 @@ const scene = (variant: string, lines: GridLine[]): GridScene => ({
 });
 export const sessionInfoGridScenes: GridScene[] = [
   scene("grid-expanded", [
-    ...["environment", "connectors"].flatMap((id) => [
+    ...["environment", "connectors", "outputs"].flatMap((id) => [
       lead(id, `${section(id)} ${p}-row > svg`),
       text(id, `${section(id)} ${p}-row__name`),
     ]),
@@ -58,7 +58,7 @@ export const sessionInfoGridScenes: GridScene[] = [
     lead("PR rows", `${p}-pr__icon`),
     text("PR rows", `${p}-pr__title`),
     trail("PR rows", `${p}-pr__more`),
-    lead("source rows", `${p}-source__link > svg`),
+    lead("source rows", `${p}-source__link > svg, ${p}-source > svg`),
     text("source rows", `${p}-source__label`),
     lead("servers", `${p}-server__dot`),
     text("servers", `${p}-server__text > ${p}-task__command`),

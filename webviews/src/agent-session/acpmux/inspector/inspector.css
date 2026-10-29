@@ -796,6 +796,7 @@ button.acpmux-chat-inspector-port:hover,
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: var(--grid-gap);
   height: var(--grid-row);
   padding: 0 var(--grid-gap);
   border-radius: var(--acpmux-inspector-row-radius);
@@ -824,6 +825,8 @@ button.acpmux-chat-inspector-port:hover,
 .acpmux-chat-inspector-source__link > svg,
 .acpmux-chat-inspector-source > svg {
   flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-source__label {
@@ -1122,4 +1125,8 @@ button.acpmux-chat-inspector-scope__parent:focus-visible {
 }
 .acpmux-chat-inspector .acpmux-agent-line__stop-slot {
   margin-right: var(--grid-gap);
+}
+
+.acpmux-chat-inspector-fold:not(:has(> svg)) {
+  padding-left: calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
 }
