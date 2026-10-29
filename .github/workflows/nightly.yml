@@ -5543,7 +5543,22 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
+      # A download that could not reach GitHub's artifact API (ETIMEDOUT on an office mini, run
+      # 40809822736) failed the job and sent the build to the macOS signer, about 8 min later to
+      # the feed: 5 min, then one retry. The next step checks the tar against signer-app's digest.
       - &signer-download-app
+        name: Download the stapled app
+        id: signer-download-app
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signer-app
+      - &signer-download-app-retry
+        name: Download the stapled app (retry)
+        if: steps.signer-download-app.outcome == 'failure'
+        timeout-minutes: 5
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -5612,6 +5627,7 @@ jobs:
           name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-out
       - *signer-download-app
+      - *signer-download-app-retry
       # verify-signed-nightly's handoff, gzipped from the stapled app here while the DMG waits on
       # Apple, rather than on signer-dmg-image's Mac and sent back over the office uplink.
       - name: Start packaging the stapled app for the verify job
