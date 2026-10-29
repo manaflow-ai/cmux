@@ -520,12 +520,46 @@ impl Hub {
         family: &str,
         harness_env: &std::collections::BTreeMap<String, String>,
     ) {
-        let agent_sid = side.meta().agent_session_id;
+        let meta = side.meta();
+        // Read the store before the kill purges the session's meta.
+        let store_env = self.btw_store_env(&meta, harness_env).await;
         if let Err(e) = self.kill(side, true).await {
             tracing::warn!(session = %side.id, "inline side question cleanup: {e}");
         }
-        if let Some(sid) = agent_sid {
-            remove_transcript(family, harness_env, &sid);
+        if let Some(sid) = meta.agent_session_id {
+            remove_transcript(family, &store_env, &sid);
+        }
+    }
+
+    /// The env the side session's harness was started with, built by the
+    /// spawn's own layering (`spawn_profile_for`: family and profile
+    /// defaults under the profile's env, the preset's on top, `${home}`,
+    /// `${cwd}`, `${model}` and `~/` expanded, the chat store, the session's
+    /// env and its route): the store its transcript is really in. When the
+    /// profile no longer resolves, the parent chat's unexpanded env is all
+    /// that is left.
+    async fn btw_store_env(
+        &self,
+        meta: &SessionMeta,
+        fallback: &std::collections::BTreeMap<String, String>,
+    ) -> std::collections::BTreeMap<String, String> {
+        let resolved = {
+            let cfg = self.config.read().await;
+            super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                .map(|profile| (profile, cfg.defaults_for(&meta.harness)))
+        };
+        let spawned = match resolved {
+            Ok((profile, defaults)) => {
+                self.spawn_profile_for(meta, &profile, &defaults.env).await.ok()
+            }
+            Err(_) => None,
+        };
+        match spawned {
+            Some(profile) => profile.env,
+            None => {
+                tracing::warn!(session = %meta.id, "inline side question cleanup: its spawn env did not resolve");
+                fallback.clone()
+            }
         }
     }
 
@@ -873,6 +907,96 @@ mod tests {
         remove_transcript("claude", &env, "temporary");
         assert!(!transcript.exists(), "inline cleanup leaves no temporary transcript");
         assert!(concurrent.exists(), "cleanup must preserve a concurrent transcript");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn claude_profile(env: &[(&str, &str)]) -> crate::config::HarnessProfile {
+        serde_json::from_value(json!({
+            "kind": "claude-stdio",
+            "argv": ["claude"],
+            "family": "claude",
+            "env": env.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<_, _>>(),
+        }))
+        .unwrap()
+    }
+
+    fn side_meta(harness: &str, cwd: &std::path::Path) -> SessionMeta {
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA,
+            "id": "side",
+            "name": "side",
+            "harness": harness,
+            "family": "claude",
+            "cwd": cwd,
+            "status": "idle",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap()
+    }
+
+    /// A profile's `${home}` store is expanded as at spawn; the parent's raw env
+    /// (what cleanup used before) leaves the template, which `HarnessHomes` skips.
+    #[tokio::test]
+    async fn inline_cleanup_store_expands_profile_home_template() {
+        let mut cfg = Config::default();
+        cfg.harnesses.insert(
+            "claude-iso".into(),
+            claude_profile(&[("CLAUDE_CONFIG_DIR", "${home}/isolated-claude")]),
+        );
+        let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+        let meta = side_meta("claude-iso", &std::env::temp_dir());
+        let raw = std::collections::BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            "${home}/isolated-claude".to_owned(),
+        )]);
+        let env = hub.btw_store_env(&meta, &raw).await;
+        let home = dirs::home_dir().unwrap_or_default();
+        assert_eq!(
+            env.get("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from),
+            Some(home.join("isolated-claude")),
+        );
+        let homes = crate::adopt::HarnessHomes::from_env();
+        assert_eq!(homes.with_env(&[&env]).claude, home.join("isolated-claude"));
+        assert_ne!(homes.with_env(&[&raw]).claude, home.join("isolated-claude"));
+        hub.shutdown_all().await;
+    }
+
+    /// A family default's store (here `${cwd}`-relative) is where cleanup looks,
+    /// and the temporary transcript in it is removed.
+    #[tokio::test]
+    async fn inline_cleanup_removes_transcript_from_family_default_store() {
+        let root = std::env::temp_dir().join(format!("acpmux-btw-family-{}", uuid::Uuid::now_v7()));
+        let projects = root.join("family-store").join("projects").join("p");
+        std::fs::create_dir_all(&projects).unwrap();
+        let transcript = projects.join("temporary.jsonl");
+        std::fs::write(&transcript, "temporary").unwrap();
+        let mut cfg = Config::default();
+        cfg.harnesses.insert("claude-fam".into(), claude_profile(&[]));
+        cfg.defaults.insert(
+            "claude".into(),
+            crate::config::SessionDefaults {
+                env: std::collections::BTreeMap::from([(
+                    "CLAUDE_CONFIG_DIR".to_owned(),
+                    "${cwd}/family-store".to_owned(),
+                )]),
+                ..Default::default()
+            },
+        );
+        let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+        let meta = side_meta("claude-fam", &root);
+        // The parent's env carries no family defaults at all.
+        let env = hub.btw_store_env(&meta, &Default::default()).await;
+        assert_eq!(
+            env.get("CLAUDE_CONFIG_DIR").map(std::path::PathBuf::from),
+            Some(root.join("family-store")),
+        );
+        remove_transcript("claude", &env, "temporary");
+        assert!(
+            !transcript.exists(),
+            "cleanup removes the transcript from the family default store"
+        );
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(root);
     }
