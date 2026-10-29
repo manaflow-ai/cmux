@@ -215,13 +215,14 @@ def violations(focus, check, expect, front=None):
 def terminal_text(j, w):
     """The viewport text of the focused terminal pane of window W (debug.surfaces)."""
     report = j.app.rpc("debug.surfaces", {"text": True}) or {}
+    found = []
     for win in report.get("windows") or []:
-        if w is not None and win.get("window") != w.get("id"):
-            continue
         for p in win.get("panes") or []:
-            if isinstance(p, dict) and p.get("focused") and p.get("text") is not None:
-                return p.get("text") or ""
-    return None
+            if isinstance(p, dict) and p.get("focused") and isinstance(p.get("text"), str):
+                found.append((w is not None and w.get("id") in (win.get("window"), p.get("window")), p.get("pane") == ((w or {}).get("model") or {}).get("pane"), p["text"]))
+    # The window's own focused pane first (debug.surfaces names windows by its own key), else the model's pane.
+    found.sort(key=lambda f: (f[0], f[1]), reverse=True)
+    return found[0][2] if found else None
 
 
 def omnibar_text(j, w):
