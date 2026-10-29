@@ -250,7 +250,7 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       }
     }
   }
-  test("an unread steer shows only queue controls; pointer Send now reaches its prompt and accepted delivery shows only hover actions", async () => {
+  test("an unread steer keeps queue controls and Copy; Send now reaches its prompt and accepted delivery shows hover actions", async () => {
     const page = await open();
     try {
       const row = footer(page);
@@ -259,9 +259,10 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       expect(await row.locator(".cv-user__take-back").count()).toBe(1);
       expect(
         await row
-          .locator(".cv-user__read, .cv-user__dot, .cv-user__time, button[aria-label='Copy'], .cv-message-retry")
+          .locator(".cv-user__read, .cv-user__dot, .cv-user__time, .cv-message-retry")
           .count(),
       ).toBe(0);
+      expect(await row.getByRole("button", { name: "Copy", exact: true }).count()).toBe(1);
       const before = await row.evaluate((element) => {
         const bubble = element.querySelector(".cv-user__bubble")!.getBoundingClientRect();
         const footer = element.querySelector(".cv-user__actions")!.getBoundingClientRect();
