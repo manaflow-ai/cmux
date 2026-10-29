@@ -1080,6 +1080,35 @@ describe("pause, resume and the idle stretch", () => {
       expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
     }
   });
+
+  test("an updatedAt-only write does not block an otherwise fenced idle pause", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
+    const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
+    const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }), {
+      // A display rename, resource retry, or provider metadata merge can move
+      // updatedAt without changing the idle fence or the probe's address.
+      reread: (current) => ({ ...current, updatedAt: new Date(current.updatedAt.getTime() + 1) }),
+    });
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, paused: 1, active: 0 });
+    expect(recorded.paused).toEqual([VM]);
+  });
+
+  test("a changed probe address refuses the claim without clearing the idle stretch", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: CPU0 };
+    const row = machineRow({ providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: observation } });
+    const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }), {
+      reread: (current) => ({
+        ...current,
+        updatedAt: new Date(current.updatedAt.getTime() + 1),
+        providerMetadata: { ...current.providerMetadata, networkIpv4: "10.192.0.6" },
+      }),
+    });
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, paused: 0, active: 1 });
+    expect(recorded.paused).toEqual([]);
+    expect(row.providerMetadata?.cmuxIdleObservation).toEqual(observation);
+  });
 });
 
 describe("overlapping probes", () => {
