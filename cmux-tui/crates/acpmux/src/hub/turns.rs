@@ -899,8 +899,7 @@ impl Hub {
         // A turn its agent runs on with steers it read after this one ended takes its place
         // (`carried_turn.rs`).
         let carries_on = next.is_some();
-        let detached =
-            self.take_turn_then(session, turn_id, next).is_none_or(|t| t.turn_id != turn_id);
+        let detached = self.take_turn(session, turn_id, next).is_none_or(|t| t.turn_id != turn_id);
         let carries_on = carries_on && !detached;
         session.queue_moved.notify_waiters();
         // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is

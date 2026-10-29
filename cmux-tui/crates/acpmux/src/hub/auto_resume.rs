@@ -316,13 +316,9 @@ impl TurnInfo {
 impl Hub {
     /// Ends the chat's turn (`finish_turn`): takes it, and marks `turn_id` as ending, in one
     /// step with Stop's check, so a Stop between the turn's end and its scheduling counts.
-    pub(super) fn take_turn(&self, session: &Session, turn_id: &str) -> Option<super::TurnInfo> {
-        self.take_turn_then(session, turn_id, None)
-    }
-
-    /// `take_turn`, and when it took `turn_id` the turn `next` starts in its place in the same
-    /// step, so no prompt finds the chat idle between them (`carried_turn.rs`).
-    pub(super) fn take_turn_then(
+    /// When it took `turn_id`, the turn `next` starts in its place in the same step, so no prompt
+    /// finds the chat idle between them (`carried_turn.rs`).
+    pub(super) fn take_turn(
         &self,
         session: &Session,
         turn_id: &str,
