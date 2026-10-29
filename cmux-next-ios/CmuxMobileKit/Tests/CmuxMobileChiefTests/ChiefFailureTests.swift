@@ -79,7 +79,7 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
     /// The Mac's Home list cuts previews short (no closing parenthesis).
     @Test func homeRowPreviewsReadAsPlainWords() {
         let cut = "(turn refused: the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running"
-        #expect(ChiefTurnFailure.previewText(cut) == "Chief ran into a problem on your Mac and didn't finish this.")
+        #expect(ChiefTurnFailure.previewText(cut) == "Chief couldn't finish this reply.")
         #expect(ChiefTurnFailure.previewText("Done.\n\n(turn failed: ECONNREFUSED to 10.0.0.1:443") .hasPrefix("Done.\n\nChief couldn't reach its model"))
         #expect(ChiefTurnFailure.previewText("All 12 tests pass.") == "All 12 tests pass.")
     }
@@ -98,7 +98,7 @@ let gatewayOutage = "(turn failed on claude: API Error: 503 no non-exhausted cla
             ["id": "m1", "seq": 3, "author": author, "parts": [["type": "text", "text": text]], "created_at": "2026-10-14T21:31:00.000Z"]
         }
         let chief = try #require(wire.message(object(ChiefIdentity.standard.chiefID, gatewayOutage), peerReadSeq: 0))
-        #expect(chief.text == "Chief's model was too busy, so it didn't finish this.")
+        #expect(chief.text == "Chief's model is busy.")
         #expect(wire.failure(object(ChiefIdentity.standard.chiefID, gatewayOutage))?.detail.contains("31415") == true)
         let mine = try #require(wire.message(object(ChiefIdentity.standard.meID, gatewayOutage), peerReadSeq: 0))
         #expect(mine.text == gatewayOutage)

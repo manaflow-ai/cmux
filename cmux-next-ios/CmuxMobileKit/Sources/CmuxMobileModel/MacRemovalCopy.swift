@@ -16,7 +16,7 @@ public struct MacRemovalCopy: Sendable {
     /// The sentence for an online Mac.
     public static func online(honorsRemoval: Bool) -> String {
         honorsRemoval
-            ? "It's online, so it will disconnect now. It stays off until you choose Allow Again in Settings → Mobile on that Mac."
-            : "It's online, so cmux on that Mac can add it back. To keep it off, turn off Settings → Mobile on that Mac."
+            ? "Disconnects now. Reconnect with Allow Again in the Mac’s Settings → Mobile."
+            : "May return automatically; turn off the Mac’s Settings → Mobile to prevent this."
     }
 }

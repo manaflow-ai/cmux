@@ -34,13 +34,13 @@ public struct ChiefTurnFailure: Equatable, Sendable {
     public var friendlyText: String {
         switch kind {
         case .modelUnreachable:
-            String(localized: "Chief couldn't reach its model, so it didn't finish this.")
+            String(localized: "Chief couldn't reach its model.")
         case .modelBusy:
-            String(localized: "Chief's model was too busy, so it didn't finish this.")
+            String(localized: "Chief's model is busy.")
         case .modelSignIn:
-            String(localized: "Chief's model didn't accept its sign-in on your Mac, so it didn't finish this.")
+            String(localized: "Sign in to Chief's model on your Mac.")
         case .other:
-            String(localized: "Chief ran into a problem on your Mac and didn't finish this.")
+            String(localized: "Chief couldn't finish this reply.")
         }
     }
 
@@ -48,9 +48,9 @@ public struct ChiefTurnFailure: Equatable, Sendable {
     /// newest message; nil when the failure was not the model's.
     public var modelStatus: String? {
         switch kind {
-        case .modelUnreachable: String(localized: "Chief's model server isn't reachable right now. Chief's last reply didn't finish.")
-        case .modelBusy: String(localized: "Chief's model server is too busy right now. Chief's last reply didn't finish.")
-        case .modelSignIn: String(localized: "Chief's model server didn't accept Chief's sign-in on your Mac.")
+        case .modelUnreachable: String(localized: "Chief couldn't reach its model.")
+        case .modelBusy: String(localized: "Chief's model is busy.")
+        case .modelSignIn: String(localized: "Sign in to Chief's model on your Mac.")
         case .other: nil
         }
     }
@@ -206,11 +206,11 @@ public enum ChiefEngineProblem: Equatable, Sendable {
     /// The sentence the settings page shows for a failed load.
     public var loadText: String {
         switch self {
-        case .macUnreachable: String(localized: "Your Mac didn't answer. Check that it's on and connected. Trying again…")
-        case .chiefBusy: String(localized: "Chief on your Mac is busy and didn't answer in time. Trying again…")
-        case .modelsUnavailable: String(localized: "Chief couldn't list its models right now. Trying again…")
+        case .macUnreachable: String(localized: "Mac unavailable · Retrying…")
+        case .chiefBusy: String(localized: "Chief busy · Retrying…")
+        case .modelsUnavailable: String(localized: "Models unavailable · Retrying…")
         case .chiefDown(let text), .refused(let text): text
-        case .failed: String(localized: "Chief on your Mac couldn't load its settings. Try again.")
+        case .failed: String(localized: "Couldn't load Chief's settings.")
         }
     }
 

@@ -336,7 +336,7 @@ public struct ChiefSettingsView: View {
                     session.setSendsReadReceipts(on) { withAnimation { receipts = !on } }
                 }
         } footer: {
-            Text("Hide Alerts silences Chief's notifications on this iPhone. With Send Read Receipts off, reading Chief here does not mark it read on your Mac.")
+            Text("These settings apply to this iPhone.")
         }
         .disabled(session.conversationID == nil)
         .listRowBackground(ChiefInfoGeometry.card)
@@ -396,11 +396,13 @@ public struct ChiefSettingsView: View {
     #if DEBUG
     /// The raw errors behind the plain sentences (DEBUG builds only).
     private var diagnosticsSection: some View {
-        Section("Diagnostics") {
-            LabeledContent("Engine read", value: session.engineError.map { String(describing: $0) } ?? "OK")
-            LabeledContent("Report", value: session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
-            if let failure = session.lastTurnFailure {
-                LabeledContent("Last failed turn", value: failure.detail)
+        Section {
+            DisclosureGroup("Diagnostics") {
+                LabeledContent("Engine read", value: session.engineError.map { String(describing: $0) } ?? "OK")
+                LabeledContent("Report", value: session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
+                if let failure = session.lastTurnFailure {
+                    LabeledContent("Last failed turn", value: failure.detail)
+                }
             }
         }
         .font(.caption)
@@ -451,12 +453,12 @@ public struct ChiefSettingsView: View {
         // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
         switch ChiefEngineProblem(error) {
         case .macUnreachable: return String(localized: "Your Mac didn't answer. Check that it's on and connected, then try again.")
-        case .chiefBusy: return String(localized: "Chief on your Mac is busy and didn't answer in time. Try again.")
+        case .chiefBusy: return String(localized: "Chief is busy. Try again.")
         default: break
         }
         return switch action {
-        case .change: String(localized: "Chief on your Mac didn't take the change. Try again.")
-        case .stop: String(localized: "Chief on your Mac didn't stop. Try again.")
+        case .change: String(localized: "Couldn't save the change. Try again.")
+        case .stop: String(localized: "Couldn't stop Chief. Try again.")
         }
     }
 

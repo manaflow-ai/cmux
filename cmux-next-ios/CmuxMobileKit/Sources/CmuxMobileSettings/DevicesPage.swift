@@ -44,7 +44,7 @@ final class SettingsDeviceList {
             loadError = nil
         } catch is CancellationError {
         } catch {
-            loadError = "Couldn't load your devices. Pull to try again."
+            loadError = "Couldn't load devices. Pull to retry."
         }
     }
 
@@ -86,7 +86,7 @@ struct DevicesPage: View {
                     CmuxMobileGutterRow {
                         SettingsIcon("exclamationmark.triangle").accessibilityHidden(true)
                     } content: {
-                        Text("Relay unavailable. Connections from outside your network may fail.")
+                        Text("Connections outside this network may be unavailable.")
                     }
                     .font(theme.type.meta)
                     .foregroundStyle(theme.colors.label2)
@@ -95,7 +95,7 @@ struct DevicesPage: View {
             }
             Section {
                 if macs.isEmpty {
-                    Text(loadedMacs == nil ? "Loading…" : "No Macs yet. Open cmux on your Mac and sign in with this account.")
+                    Text(loadedMacs == nil ? "Loading…" : "Sign in to cmux on your Mac to connect it.")
                         .font(theme.type.meta).foregroundStyle(theme.colors.label2)
                         .cmuxMobileTextColumn()
                 }
@@ -119,7 +119,7 @@ struct DevicesPage: View {
                 Text("Macs").cmuxMobileTextColumn()
             } footer: {
                 if directory != nil {
-                    Text("Remove a Mac you no longer use. It comes back if cmux on that Mac signs in again.").cmuxMobileTextColumn()
+                    Text("Removed Macs can return when you sign in again.").cmuxMobileTextColumn()
                 }
             }
             if directory != nil, !phones.isEmpty {
@@ -131,7 +131,7 @@ struct DevicesPage: View {
                 } header: {
                     Text("Phones").cmuxMobileTextColumn()
                 } footer: {
-                    Text(directory != nil ? "To remove this iPhone, use Remove This iPhone from My Macs below." : "Sign out to remove this iPhone.")
+                    Text(directory != nil ? "Remove this iPhone with the button below." : "Sign out to remove this iPhone.")
                         .cmuxMobileTextColumn()
                 }
             }
@@ -146,7 +146,7 @@ struct DevicesPage: View {
                     .disabled(removingPhone)
                     .accessibilityIdentifier("settings.removeThisPhone")
                 } footer: {
-                    Text("Signing out keeps this iPhone allowed on your Macs. Remove it to make each Mac ask again before it connects.")
+                    Text("Removal resets Mac approval; signing out keeps it.")
                         .cmuxMobileTextColumn()
                 }
             }
@@ -180,7 +180,7 @@ struct DevicesPage: View {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) { Task { await removeThisPhone() } }
         } message: {
-            Text("Your Mac forgets this iPhone and its keys are replaced. The next time it connects, the Mac asks you to allow it again. You stay signed in.")
+            Text("Your Macs must approve this iPhone again; you stay signed in.")
         }
         .alert("Couldn't remove", isPresented: Binding(get: { removalError != nil }, set: { if !$0 { removalError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -255,14 +255,14 @@ struct DevicesPage: View {
         guard device.kind == .mac else {
             // The account's device list is all this removes: a Mac keeps its approval of the
             // phone (its paired list) until it is removed there too.
-            return "It stops receiving notifications and leaves this list. Your Macs still allow it to connect until you remove it in Settings → Mobile on each Mac. It comes back here when cmux on it signs in again."
+            return "Stops notifications until it signs in again. To revoke access, remove it in each Mac’s Settings → Mobile."
         }
-        var parts = ["\(displayName ?? device.name) leaves the Mac list on all your devices, and this iPhone forgets its saved workspaces."]
-        if connected { parts.append("This iPhone disconnects from it now.") }
+        var parts = ["Removes this Mac from your devices and clears this iPhone’s saved workspaces."]
+        if connected { parts.append("Disconnects this iPhone.") }
         if device.online == true {
             parts.append(MacRemovalCopy.online(honorsRemoval: honorsRemoval))
         } else {
-            parts.append("To use it again, sign in to cmux on that Mac or turn on Settings → Mobile there.")
+            parts.append("Re-enable Mobile or sign in again on that Mac.")
         }
         return parts.joined(separator: " ")
     }

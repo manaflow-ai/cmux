@@ -47,10 +47,29 @@ public struct ChiefConversationScreen: View {
     @State private var link = ChiefScreenLink()
 
     public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil, focusesComposer: Bool = false) {
+        #if DEBUG
+        if DeveloperOptions.mockContentEnabled, CommandLine.arguments.contains("-cmux-mobile-chief-outbox-demo") {
+            self.session = Self.outboxDemo
+        } else {
+            self.session = session
+        }
+        #else
         self.session = session
+        #endif
         self.compose = compose
         self.focusesComposer = focusesComposer
     }
+
+    #if DEBUG
+    /// An isolated, memory-only outbox for capture; never changes a real queue.
+    private static let outboxDemo: ChiefSession = {
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
+        session.status = "Offline"
+        session.send(ConversationComposeMessage(text: "Check the latest build."), asksForAlerts: false)
+        session.send(ConversationComposeMessage(text: "Let me know when the tests finish."), asksForAlerts: false)
+        return session
+    }()
+    #endif
 
     public var body: some View {
         ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, link: link,
@@ -87,7 +106,7 @@ extension ConversationPresentationOptions {
         ConversationPresentationOptions(
             placeholder: String(localized: "Message Chief"),
             serviceTitle: "Chief",
-            serviceSubtitle: String(localized: "Runs your agents on your Macs"),
+            serviceSubtitle: String(localized: "Runs your agents"),
             // The header's trailing button is Invite to cmux (the share sheet).
             trailingSymbol: ChiefInvite.symbol
         )
@@ -235,13 +254,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     private func holdUnsentMessage() {
         guard presentedViewController == nil else { return }
         let text = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        var reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
-        // Reasons come with and without a final period ("Chief isn't connected
-        // to a Mac"); the alert read "…to a Mac Your message…".
-        if let last = reason.last, !".!?".contains(last) { reason += "." }
         let alert = UIAlertController(
-            title: String(localized: "Message Not Sent"),
-            message: String(localized: "\(reason) Your message is still in the box."),
+            title: String(localized: "Not sent"),
+            message: String(localized: "Your draft is saved here."),
             preferredStyle: .alert)
         if session.canRetryConnecting {
             alert.addAction(UIAlertAction(title: String(localized: "Try Again"), style: .default) { [weak self] _ in
@@ -314,7 +329,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         }
         let alert = UIAlertController(
             title: String(localized: "Sent to Cloud Chief"),
-            message: String(localized: "Cloud Chief has your message and the recent messages from this chat. Its answer is in the Cloud Chief chat."),
+            message: String(localized: "Continue in the Cloud Chief chat."),
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .cancel))
         present(alert, animated: true)
@@ -556,23 +571,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         trailingButton.accessibilityLabel = ChiefInvite.actionTitle
     }
 
-    /// Messages written before Chief connected are not in the transcript
-    /// yet; say so, with why, instead of showing nothing.
-    private func showOutboxIfWaiting() {
-        guard !session.outbox.isEmpty, !session.isConnected, presentedViewController == nil else { return }
-        let count = session.outbox.count
-        let reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
-        let alert = UIAlertController(
-            title: count == 1 ? String(localized: "Message Not Sent Yet") : String(localized: "\(count) Messages Not Sent Yet"),
-            message: String(localized: "\(reason) It will send when Chief connects."),
-            preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: String(localized: "Keep"), style: .cancel))
-        alert.addAction(UIAlertAction(title: String(localized: "Delete"), style: .destructive) { [weak self] _ in
-            self?.session.discardOutbox()
-        })
-        present(alert, animated: true)
-    }
-
     /// Pushes Chief's info on the navigation stack (``ChiefConversationScreen``).
     var openInfo: (() -> Void)?
 
@@ -706,10 +704,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
             field.delegate?.textViewDidChange?(field)
         }
         session.markSeen()
-        showOutboxIfWaiting()
         if focusesComposerOnAppear {
             focusesComposerOnAppear = false
-            // Not under the waiting-outbox alert.
             if presentedViewController == nil { focusComposer() }
         }
         #if DEBUG
