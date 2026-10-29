@@ -3,11 +3,54 @@ public import CmuxNextDesign
 import CmuxNextWakeups
 
 /// Keeps destruction's main-actor hop in a small AppKit lifecycle seam.
-private final class DisplayBackdropDeinitAdapter: @unchecked Sendable {
-    weak var owner: DisplayBackdropBinding?
+@MainActor
+private final class DisplayBackdropLifecycle {
+    let scope: ThemeScope
+    let displayScope: ThemeScope
+    let inheritedScope: ThemeScope
+    let center: NotificationCenter
+    let recordRemoval: (() -> Void)?
+    let timer = DemandTimer(owner: "display-backdrop")
+    var observers: [NSObjectProtocol] = []
+    var stopped = false
+    var generation = 0
+    var folders: [String: (task: Task<[BackdropSelection], Never>, expires: Date, pictures: [BackdropSelection]?)] = [:]
+    var folderRefresh: Task<Void, Never>?
+
+    init(scope: ThemeScope, displayScope: ThemeScope, inheritedScope: ThemeScope, center: NotificationCenter,
+         recordRemoval: (() -> Void)?) {
+        self.scope = scope
+        self.displayScope = displayScope
+        self.inheritedScope = inheritedScope
+        self.center = center
+        self.recordRemoval = recordRemoval
+    }
+
+    func teardown() {
+        guard !stopped else { return }
+        stopped = true
+        generation += 1
+        timer.cancel()
+        folderRefresh?.cancel()
+        folderRefresh = nil
+        for folder in folders.values { folder.task.cancel() }
+        folders.removeAll()
+        observers.forEach { center.removeObserver($0); recordRemoval?() }
+        observers.removeAll()
+        displayScope.pinBackdrop(.inherit)
+        if scope.parent === displayScope { scope.setParent(inheritedScope) }
+    }
+}
+
+private struct DisplayBackdropDeinitAdapter: Sendable {
+    private let cleanup: @MainActor @Sendable () -> Void
+
+    init(lifecycle: DisplayBackdropLifecycle) {
+        cleanup = { lifecycle.teardown() }
+    }
 
     nonisolated func run() {
-        MainDelivery().run { @MainActor [weak owner] in owner?.teardown() }
+        MainDelivery().run(cleanup)
     }
 }
 
@@ -18,21 +61,24 @@ public final class DisplayBackdropBinding {
     private let scope: ThemeScope
     private let displayScope: ThemeScope
     private let inheritedScope: ThemeScope
-    private let center: NotificationCenter
     private let displayID: () -> String?
     private let now: () -> Date
     private let calendar: () -> Calendar
     private let listFolder: @Sendable (String) async -> [BackdropSelection]
+    private let lifecycle: DisplayBackdropLifecycle
     private let deinitAdapter: DisplayBackdropDeinitAdapter
     private let recordObserver: ((Notification.Name, AnyObject?, OperationQueue?) -> Void)?
-    private let recordRemoval: (() -> Void)?
-    private let timer = DemandTimer(owner: "display-backdrop")
-    private var observers: [NSObjectProtocol] = []
     private var root: JSONValue = [:]
-    private var stopped = false
-    private var generation = 0
-    private var folders: [String: (task: Task<[BackdropSelection], Never>, expires: Date, pictures: [BackdropSelection]?)] = [:]
-    private(set) var folderRefresh: Task<Void, Never>?
+    private var stopped: Bool { lifecycle.stopped }
+    private var generation: Int { get { lifecycle.generation } set { lifecycle.generation = newValue } }
+    private var folders: [String: (task: Task<[BackdropSelection], Never>, expires: Date, pictures: [BackdropSelection]?)] {
+        get { lifecycle.folders }
+        set { lifecycle.folders = newValue }
+    }
+    private(set) var folderRefresh: Task<Void, Never>? {
+        get { lifecycle.folderRefresh }
+        set { lifecycle.folderRefresh = newValue }
+    }
 
     public init(window: NSWindow, scope: ThemeScope, center: NotificationCenter = .default,
                 displayID: @escaping () -> String?, now: @escaping () -> Date = Date.init,
@@ -40,22 +86,22 @@ public final class DisplayBackdropBinding {
                 listFolder: @escaping @Sendable (String) async -> [BackdropSelection] = DisplayBackdropBinding.readFolder,
                 recordObserver: ((Notification.Name, AnyObject?, OperationQueue?) -> Void)? = nil,
                 recordRemoval: (() -> Void)? = nil) {
-        self.scope = scope; self.center = center; self.displayID = displayID; self.now = now; self.calendar = calendar
+        self.scope = scope; self.displayID = displayID; self.now = now; self.calendar = calendar
         self.listFolder = listFolder
-        self.deinitAdapter = DisplayBackdropDeinitAdapter()
         self.recordObserver = recordObserver
-        self.recordRemoval = recordRemoval
         inheritedScope = scope.parent ?? .app
         displayScope = ThemeScope(level: .room, parent: inheritedScope)
         scope.setParent(displayScope)
-        deinitAdapter.owner = self
+        lifecycle = DisplayBackdropLifecycle(scope: scope, displayScope: displayScope, inheritedScope: inheritedScope,
+                                             center: center, recordRemoval: recordRemoval)
+        deinitAdapter = DisplayBackdropDeinitAdapter(lifecycle: lifecycle)
         let names: [Notification.Name] = [NSWindow.didChangeScreenNotification, .NSSystemClockDidChange,
                                          .NSCalendarDayChanged, .NSSystemTimeZoneDidChange]
         for name in names {
             // Never make a notification's posting thread wait for the UI actor (SwiftUI can hold its render lock).
             recordObserver?(name, name == NSWindow.didChangeScreenNotification ? window : nil, nil)
-            observers.append(center.addObserver(forName: name, object: name == NSWindow.didChangeScreenNotification ? window : nil,
-                                                queue: nil) { [weak self] _ in
+            lifecycle.observers.append(center.addObserver(forName: name, object: name == NSWindow.didChangeScreenNotification ? window : nil,
+                                                          queue: nil) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.refresh() }
             })
         }
@@ -87,24 +133,13 @@ public final class DisplayBackdropBinding {
     }
 
     fileprivate func teardown() {
-        guard !stopped else { return }
-        stopped = true
-        generation += 1
-        timer.cancel()
-        folderRefresh?.cancel()
-        folderRefresh = nil
-        for folder in folders.values { folder.task.cancel() }
-        folders.removeAll()
-        observers.forEach { center.removeObserver($0); recordRemoval?() }
-        observers.removeAll()
-        displayScope.pinBackdrop(.inherit)
-        if scope.parent === displayScope { scope.setParent(inheritedScope) }
+        lifecycle.teardown()
     }
 
     private func refresh() {
         guard !stopped else { return }
         generation += 1
-        timer.cancel()
+        lifecycle.timer.cancel()
         folderRefresh?.cancel()
         folderRefresh = nil
         let values = root.value(at: ["appearance", "displayBackgrounds"])?.objectValue
@@ -169,6 +204,6 @@ public final class DisplayBackdropBinding {
     }
 
     private func schedule(after wait: TimeInterval) {
-        timer.schedule(after: .seconds(wait)) { @MainActor [weak self] in self?.refresh() }
+        lifecycle.timer.schedule(after: .seconds(wait)) { @MainActor [weak self] in self?.refresh() }
     }
 }
