@@ -1252,6 +1252,18 @@ pre.cv-math-source {
   left: var(--cv-inset);
   right: var(--cv-inset);
 }
+.acpmux-row__gap {
+  position: absolute;
+  z-index: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 0;
+  /* Inherit the actual row padding: step rows and live lines use smaller or zero gaps. */
+  padding-bottom: inherit;
+  pointer-events: auto;
+  background: transparent;
+}
 /* Keyboard transcript selection uses a roving article tab stop. The fill is deliberately on the
    row rather than the prose so a range remains visible while its rows virtualize in and out. */
 .acpmux-row[data-transcript-selected="true"] {
