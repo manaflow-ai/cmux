@@ -566,6 +566,14 @@ impl V2Tool {
         // answer ("required selector is missing") did not (tests/tool-evals:
         // `workspace_get({})`, `terminal_input_write({terminal_id})`).
         for (name, requiredness) in selectors.into_iter().flatten() {
+            // A terminal named by its tab: the tab shows one terminal, which the daemon's
+            // `current` under that tab names (tests/tool-evals: models read a terminal by
+            // the tab id they listed).
+            if name == "terminal" && !arguments.contains_key(name) && arguments.contains_key("tab")
+            {
+                params.insert("terminal".into(), json!("current"));
+                continue;
+            }
             if requiredness.as_str() == Some("required")
                 && self.selector_argument(name)
                 && !arguments.contains_key(name)

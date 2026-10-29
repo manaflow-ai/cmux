@@ -233,8 +233,9 @@ fn mcp_current_is_the_callers_pane_without_an_app() {
                 "params": {"name": "cmux_exec", "arguments": {"script":
                     "const split = await cmux.pane_split({pane: 'current', direction: 'right'}); \
                      const panes = await cmux.pane_list({workspace: 'current'}); \
-                     const tab = await cmux.tab_create_terminal({shell: 'echo BESIDE_OK'}); \
-                     const waited = await cmux.terminal_wait({terminal: tab.value.terminal_id, \
+                     const tab = await cmux.tab_create_terminal({}); \
+                     await cmux.terminal_input_write({terminal: tab.terminal_id, text: 'echo BESIDE_OK\\n'}); \
+                     const waited = await cmux.terminal_wait({tab: tab.tab_id, \
                          pattern: 'BESIDE_OK', timeout_ms: 10000}); \
                      return {split, panes, tab, waited};"}}}),
         ] {
@@ -258,7 +259,8 @@ fn mcp_current_is_the_callers_pane_without_an_app() {
     let listed = value["panes"]["items"].as_array().unwrap_or_else(|| panic!("{reply}"));
     assert!(listed.iter().any(|item| item["id"] == pane.as_str()), "{reply}");
     // A terminal with no place goes beside the chat (the new right column),
-    // as the app's `beside` puts it, and a numeric timeout_ms is taken.
+    // as the app's `beside` puts it; a script reads the new ids from the top of a
+    // change's answer, a terminal by its tab, and a numeric timeout_ms is taken.
     assert_eq!(value["tab"]["value"]["pane_id"], new_pane, "{reply}");
     assert!(value["waited"].to_string().contains("BESIDE_OK"), "{reply}");
     let focused = state_cli(&server, None, &["workspace", "current", "show"]);

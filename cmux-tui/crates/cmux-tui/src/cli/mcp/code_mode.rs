@@ -536,9 +536,18 @@ const PRELUDE: &str = r#"
   };
   const log = (level) => (...args) => native.log(level, args.map(format).join(" "));
   globalThis.console = { log: log("log"), info: log("info"), warn: log("warn"), error: log("error"), debug: log("debug") };
+  // A change answers {value: {...new ids}, revision, generation}; models read the new ids
+  // from the top too (`r.terminal_id`), so they are there as well as under `value`
+  // (tests/tool-evals: 6 of 9 models read the top level).
+  const flat = (result) => {
+    if (!result || typeof result !== "object" || Array.isArray(result)) return result;
+    const inner = result.value;
+    if (!inner || typeof inner !== "object" || Array.isArray(inner) || !("revision" in result)) return result;
+    return { ...inner, ...result };
+  };
   const call = (name, args) => {
     const answer = JSON.parse(native.call(String(name), JSON.stringify(args ?? {})));
-    if (answer.ok) return answer.value;
+    if (answer.ok) return flat(answer.value);
     const error = new Error(`${name}: ${answer.message}`);
     error.cmux = answer.error;
     throw error;
