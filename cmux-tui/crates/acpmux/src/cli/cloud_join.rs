@@ -5,7 +5,6 @@ use anyhow::{Context, Result, anyhow};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::io::Read;
 use std::path::PathBuf;
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
@@ -155,7 +154,7 @@ pub async fn join_with_token(hub: Option<String>, name: Option<String>, replace:
     }
     let record = MachineCredential { credential: credential.to_owned(), machine_id: machine_id.to_owned(), team_id: team_id.to_owned(), name, hub_origin: hub.clone(), last_heartbeat: None, revoked: false, wg_public_key: returned_key.to_owned() };
     save(&record).map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", e.to_string()).with_exit(5))?;
-    configure_mesh_relay(&hub).map_err(|e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", "mesh relay configuration failed").with_exit(5))?;
+    configure_mesh_relay(&hub).map_err(|_e| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.store", "mesh relay configuration failed").with_exit(5))?;
     if json_out { crate::cli::output::print_json(&json!({"joined":true,"alreadyJoined":false,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":hub})); }
     else { println!("joined {} ({})", record.name, record.machine_id); }
     Ok(())
@@ -258,13 +257,12 @@ fn http_client() -> Result<reqwest::Client> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_token;
+    use super::parse_token_text;
 
     #[test]
-    fn join_token_requires_one_newline_terminated_shell_safe_line() {
-        assert_eq!(parse_token(b"cmj_abc-123_\n").unwrap(), "cmj_abc-123_");
-        assert!(parse_token(b"cmj_abc").is_err());
-        assert!(parse_token(b"cmj_abc!\n").is_err());
-        assert!(parse_token(b"cmj_a\nsecond\n").is_err());
+    fn join_token_is_shell_safe_after_shared_line_reader() {
+        assert_eq!(parse_token_text("cmj_abc-123_").unwrap(), "cmj_abc-123_");
+        assert!(parse_token_text("cmj_abc!").is_err());
+        assert!(parse_token_text("cmxt1_ticket").is_err());
     }
 }

@@ -20,9 +20,11 @@ pub fn read_stdin_line() -> Result<Zeroizing<String>> {
         .take(MAX_BYTES + 1)
         .read_to_end(&mut bytes)
         .context("read join value from stdin")?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(anyhow!("stdin holds more than a join value"));
-    }
+    parse_line(&bytes)
+}
+
+fn parse_line(bytes: &[u8]) -> Result<Zeroizing<String>> {
+    if bytes.len() as u64 > MAX_BYTES { return Err(anyhow!("stdin holds more than a join value")); }
     let text = std::str::from_utf8(&bytes).map_err(|_| anyhow!("join value is not text"))?;
     let line = text
         .strip_suffix('\n')
@@ -36,4 +38,18 @@ pub fn read_stdin_line() -> Result<Zeroizing<String>> {
         return Err(anyhow!("join value is empty"));
     }
     Ok(Zeroizing::new(value.to_owned()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_line;
+
+    #[test]
+    fn accepts_one_trimmed_line_only() {
+        assert_eq!(&*parse_line(b" cmj_abc \n").unwrap(), "cmj_abc");
+        assert_eq!(&*parse_line(b"cmxt1.ticket\r\n").unwrap(), "cmxt1.ticket");
+        assert!(parse_line(b"cmj_abc").is_err());
+        assert!(parse_line(b"cmj_abc\nsecond\n").is_err());
+        assert!(parse_line(b"\xff\n").is_err());
+    }
 }
