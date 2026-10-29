@@ -41,6 +41,7 @@ async fn an_agent_tool_call_spawns_a_subagent_session() {
             "task": "Branch A",
             "prompt": "Look at the tests",
             "capabilities": {},
+            "model": "haiku", "effort": "default",
             "_meta": {"claude": {"subagentType": "Explore", "toolUseId": "toolu_1"}}
         })
     );

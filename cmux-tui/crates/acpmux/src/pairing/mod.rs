@@ -1,8 +1,8 @@
 //! Pairing: add a machine with one pasted line.
 //!
 //! The person mints a ticket here (`acpmux host ticket new --role R`). The new
-//! machine redeems it once (`acpmux host join TICKET`, which the install
-//! script runs) over this daemon's WebSocket listener, and gets a device
+//! machine redeems it once (`acpmux host join`, the ticket on its stdin, which
+//! the install line runs) over this daemon's WebSocket listener, and gets a device
 //! credential bound to the role the minter chose:
 //!
 //! - `client`: the new machine adds this daemon as its peer and drives its

@@ -1,6 +1,13 @@
 import Foundation
 
 public extension AuthCoordinator {
+    /// The generation of the published account/team scope. It advances when
+    /// either the signed-in account or its selected team changes, including a
+    /// switch away and back to the same identifiers. Callers pin this value
+    /// across an awaited credential read so they cannot pair an old scope with
+    /// credentials captured from a newer one.
+    var authTeamScopeGeneration: UInt64 { authenticatedTeamScopeGeneration }
+
     /// The locally persisted account and team used only to warm read-only v2
     /// state while Stack validates the session. It is never sufficient for a
     /// server request or a mutation.

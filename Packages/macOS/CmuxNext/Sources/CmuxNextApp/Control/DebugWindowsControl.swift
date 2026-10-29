@@ -55,7 +55,8 @@ enum DebugWindowsControl {
     /// not entered again yet), `sidebar_width` (points; the saved width while
     /// the window has no controller), `sidebar_hidden`, `display` (the display
     /// UUID of the screen the window is on, null with no screen) and
-    /// `saved_display` (the registry's, written at each geometry save).
+    /// `saved_display` (the registry's, written at each geometry save) and `profile` (the space the
+    /// window shows).
     static func restoreFields(_ windows: WindowManager, id: String) -> [String: JSONValue] {
         let controller = windows.controller(for: id), state = windows.states[id]
         let width = controller.map { Double($0.sidebar.model.width) } ?? state?.sidebarWidth
@@ -67,6 +68,7 @@ enum DebugWindowsControl {
             "sidebar_hidden": .bool(hidden),
             "display": controller?.window?.screen.flatMap(WindowPlacementFallback.displayID(of:)).map(JSONValue.string) ?? .null,
             "saved_display": windows.registry.value.window(id)?.display.map(JSONValue.string) ?? .null,
+            "profile": state.map { JSONValue.string($0.profileID.rawValue) } ?? .null,
         ]
     }
 }
