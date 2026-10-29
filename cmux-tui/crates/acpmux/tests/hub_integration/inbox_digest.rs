@@ -385,6 +385,27 @@ fn cut_lines(dir: &std::path::Path, cut: impl Fn(&str) -> bool) -> usize {
     dropped
 }
 
+/// Drops, in each log under `dir`, the first line `from` picks and every line after it: a stop
+/// right before that record.
+fn truncate_from(dir: &std::path::Path, from: impl Fn(&str) -> bool) -> usize {
+    let mut dropped = 0;
+    let mut dirs = vec![dir.to_path_buf()];
+    while let Some(d) = dirs.pop() {
+        for path in std::fs::read_dir(&d).unwrap().flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|e| e == "ndjson") {
+                let log = std::fs::read_to_string(&path).unwrap();
+                let kept: Vec<&str> = log.lines().take_while(|l| !from(l)).collect();
+                dropped += log.lines().count() - kept.len();
+                std::fs::write(&path, kept.iter().map(|l| format!("{l}\n")).collect::<String>())
+                    .unwrap();
+            }
+        }
+    }
+    dropped
+}
+
 /// A restart before a digest's turn started drops it and gives its messages back in its place,
 /// ahead of an agent message it left (a slash command), each once: also when the stop cut every
 /// record after the digest's own (the queue's order and their `dequeued` records).
@@ -564,18 +585,23 @@ async fn a_digest_refused_before_its_turn_puts_every_message_back_and_a_restart_
     drop(c);
     drop(hub);
 
-    // A stop between the digest's refusal and their `requeued` records loses none either.
-    let saved = root.join("saved");
-    copy_dir(&state, &saved);
-    // Their two `queued` records and the hold that came with them.
-    assert_eq!(cut_lines(&saved, |l| l.contains("\"requeued\":true")), 3);
-    let hub = durable_hub(&saved);
-    let mut c = connect(&hub).await;
-    let order = queue_order(&mut c, &id).await;
-    assert_eq!(order, ["p-a", "p-b"], "a stop before they went back lost them");
-    hub.shutdown_all().await;
-    drop(c);
-    drop(hub);
+    // A stop before any of them went back, or after only the first did, loses none and keeps
+    // their order: the digest's removal comes after them.
+    for (copy, first) in [("before-a", "p-a"), ("before-b", "p-b")] {
+        let saved = root.join(copy);
+        copy_dir(&state, &saved);
+        let at = |l: &str| {
+            l.contains("\"requeued\":true") && l.contains(&format!("\"promptId\":\"{first}\""))
+        };
+        assert!(truncate_from(&saved, at) > 0);
+        let hub = durable_hub(&saved);
+        let mut c = connect(&hub).await;
+        let order = queue_order(&mut c, &id).await;
+        assert_eq!(order, ["p-a", "p-b"], "a stop before {first} went back");
+        hub.shutdown_all().await;
+        drop(c);
+        drop(hub);
+    }
 
     // Once they ran on their own, a resend of one answers from its own turn, not the refused
     // digest's (and not from the chat's last turn: another one runs after it).
@@ -616,4 +642,106 @@ fn copy_dir(from: &std::path::Path, to: &std::path::Path) {
             std::fs::copy(&path, &target).unwrap();
         }
     }
+}
+
+/// A hub in a new directory, with a busy session that has `messages` agent messages queued and
+/// drained into a digest that waits. Returns the directory, the session and the digest's id.
+async fn waiting_digest(
+    messages: &[&str],
+) -> (std::path::PathBuf, Arc<Hub>, TestClient, String, String) {
+    let dir = std::env::temp_dir().join(format!("acpmux-inbox-digest-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&dir);
+    let mut c = connect(&hub).await;
+    let (id, _) = busy(&mut c).await;
+    for m in messages {
+        queue(&mut c, from_agent(&id, m, "lane-a", &format!("text of {m}"))).await;
+    }
+    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(made["delivery"], "queued", "{made}");
+    let digest = made["promptId"].as_str().unwrap().to_owned();
+    (dir, hub, c, id, digest)
+}
+
+/// The order of session `id`'s queue in a hub restarted in `dir`.
+async fn order_after_a_restart(
+    hub: Arc<Hub>,
+    c: TestClient,
+    dir: &std::path::Path,
+    id: &str,
+) -> Vec<String> {
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let hub = durable_hub(dir);
+    let mut c = connect(&hub).await;
+    let order = queue_order(&mut c, id).await;
+    hub.shutdown_all().await;
+    order
+}
+
+/// A digest the person edited is their prompt now: a restart keeps their text and gives back
+/// none of the messages it took (`queue_updated`).
+#[tokio::test]
+async fn a_restart_keeps_a_digest_the_person_edited_and_not_its_messages() {
+    let (dir, hub, mut c, id, digest) = waiting_digest(&["p-a"]).await;
+    let edit = json!({"sessionId": id, "promptId": digest, "op": "update", "text": "mine now"});
+    c.request("_acpmux/queue_edit", edit).await.unwrap();
+    let order = order_after_a_restart(hub, c, &dir, &id).await;
+    assert!(order.contains(&digest), "the person's edit was lost: {order:?}");
+    assert!(!order.iter().any(|p| p == "p-a"), "{order:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A digest withdrawn before its turn answered its messages' senders `cancelled`: a restart does
+/// not bring them back.
+#[tokio::test]
+async fn a_restart_does_not_bring_back_the_messages_of_a_withdrawn_digest() {
+    let (dir, hub, mut c, id, digest) = waiting_digest(&["p-a"]).await;
+    let remove = json!({"sessionId": id, "promptId": digest});
+    assert_eq!(c.request("_acpmux/queue_remove", remove).await.unwrap()["removed"], true);
+    let order = order_after_a_restart(hub, c, &dir, &id).await;
+    assert!(!order.iter().any(|p| p == "p-a" || *p == digest), "{order:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A digest's turn starts with its `turn_started`, logged after its `user_message` and the agent's
+/// start: a stop between them gives its messages back, never the digest alone.
+#[tokio::test]
+async fn a_restart_between_a_digests_prompt_and_its_turn_gives_its_messages_back() {
+    let (dir, hub, mut c, id, digest) = waiting_digest(&["p-a", "p-b"]).await;
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    record_until(&hub, &id, "turn_result", |m| m["promptId"] == *digest).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let started = |l: &str| l.contains("\"kind\":\"turn_started\"") && l.contains(digest.as_str());
+    assert!(truncate_from(&dir, started) > 0);
+    let hub = durable_hub(&dir);
+    let c = connect(&hub).await;
+    let order = order_after_a_restart(hub, c, &dir, &id).await;
+    let at = |p: &str| order.iter().position(|q| q == p);
+    assert!(at(&digest).is_none(), "{order:?}");
+    assert!(at("p-a").is_some() && at("p-a") < at("p-b"), "{order:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Messages a restart gave back, drained again into a second digest, follow that one: a second
+/// restart puts them in its place, ahead of an agent message queued between the two drains.
+#[tokio::test]
+async fn messages_drained_twice_follow_the_newest_digest_at_a_restart() {
+    let (dir, hub, c, id, _) = waiting_digest(&["p-a", "p-b"]).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let hub = durable_hub(&dir);
+    let mut c = connect(&hub).await;
+    assert_eq!(queue_order(&mut c, &id).await.iter().filter(|p| p.starts_with("p-")).count(), 2);
+    queue(&mut c, from_agent(&id, "p-slash", "lane-x", "/compact")).await;
+    let made = c.request(DIGEST, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(made["digested"], 2, "{made}");
+    let order = order_after_a_restart(hub, c, &dir, &id).await;
+    let at = |p: &str| order.iter().position(|q| q == p);
+    let (a, b, slash) = (at("p-a"), at("p-b"), at("p-slash"));
+    assert!(a.is_some() && a < b && b < slash, "{order:?}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
