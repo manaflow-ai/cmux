@@ -1811,6 +1811,10 @@ path = "tests/test_release_signer_nightly.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_signer_parity_compare.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_dev_app_linux.py"
 lane = "linux-guard"
 

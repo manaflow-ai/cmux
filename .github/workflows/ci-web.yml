@@ -446,6 +446,12 @@ jobs:
           CMUX_WEB_TEST_RAW_LOG_DIR: ${{ runner.temp }}/webviews-head-results/raw-logs
           CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+          # Room for one alone retry of the slowest file after a short one: at the
+          # runner's 120 s default, #27045's shard 1 spent 60 s retrying
+          # code-block-highlight-height and cut attach-huge-files' retry (about
+          # 130 s) short, so its first run's typing reads stood as reds. 300 s
+          # keeps the slowest shard (about 32 min on 16 vCPU) inside its 40 min.
+          CMUX_WEB_TEST_RETRY_BUDGET: "300"
         run: |
           # Replay uses this exact runner and result parser, with the base's tests and bun.
           # Different deadline policies can otherwise turn an old named failure into a new timeout.
@@ -527,12 +533,19 @@ jobs:
           - shard: 3
           - shard: 4
     steps:
-      - name: Checkout base
+      # The base is the merge commit's first parent, the commit the head shards
+      # were merged onto (their prScope diff is HEAD^1 too). pull_request.base.sha
+      # lags it once the base moves: #27045's replay ran on a base 12 commits
+      # older, where agent-pane-no-capsules still passed, so a red the merge
+      # parent already had (#27019's capsule bars) was charged to the change.
+      - name: Checkout the merge commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          fetch-depth: 1
+          fetch-depth: 2
           persist-credentials: false
+
+      - name: Use the merge parent as the base
+        run: git checkout -q --detach HEAD^1
 
       - name: Download head webview results
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131

@@ -3548,7 +3548,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.delay" : {
-      "default" : 250,
+      "default" : 1300,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -3562,7 +3562,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.groups.delay" : {
-      "default" : 600,
+      "default" : 1500,
       "description" : "How long the pointer rests on a group before its summary card opens.",
       "maximum" : 5000,
       "minimum" : 0,

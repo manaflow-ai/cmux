@@ -24477,7 +24477,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 250,
+      "default" : 1300,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -25038,7 +25038,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 600,
+      "default" : 1500,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
