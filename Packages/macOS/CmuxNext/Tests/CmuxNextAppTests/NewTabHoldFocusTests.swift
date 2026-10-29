@@ -40,7 +40,18 @@ struct NewTabHoldFocusTests {
                                       charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode))
     }
 
-    @Test func keysHeldForAPageInAPaneFocusHasNotReachedGoToItsFieldAtItsReadiness() async throws {
+    private struct PageHarness {
+        let services: AppServices
+        let controller: WindowController
+        let window: NSWindow
+        let focused: PaneController
+        let other: PaneController
+        let page: AgentPaneView
+    }
+
+    /// A window with two panes: the second shows a New Tab page whose field has not reported ready, and the focus model
+    /// names the first pane. `body` runs with it.
+    private static func withUnreadyPage(_ body: (PageHarness) async throws -> Void) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -90,22 +101,60 @@ struct NewTabHoldFocusTests {
         controller.focus.send(.focusPane(focused.paneKey, source: .programmatic))
         try #require(controller.focus.state.pane == focused.paneKey, "the first pane does not have focus")
 
-        // The opening's hold, as NewTabPage.open begins it: only the field's readiness may end it here.
-        let router = services.keyRouter
-        let input = router.newTabInputCoordinator
-        input.holdLimit = .seconds(600)
-        input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
-        let token = try #require(input.begin(for: other))
-        input.didShow(in: window)
-        let typed = [try Self.key("h", keyCode: 4, in: window), try Self.key("i", keyCode: 34, in: window)]
-        for event in typed { #expect(router.interceptKeyDown(event, in: window), "the hold did not take \(event.characters ?? "")") }
-        #expect(input.isHolding(in: window))
+        try await body(PageHarness(services: services, controller: controller, window: window, focused: focused, other: other, page: page))
+    }
 
-        // The field reports ready: the held keys go to it now, not at the hold's limit.
-        input.acknowledge(token, in: window)
-        #expect(!input.isHolding(in: window), "the hold kept the keys after the page's field was ready: \(input.log)")
-        #expect(window.firstResponder === page.focusTarget, "the page's field never got the keyboard (first responder \(String(describing: window.firstResponder)))")
-        #expect(input.log.contains { $0.hasPrefix("drained to field") }, "the held keys did not go to the page's field: \(input.log)")
-        #expect(controller.focus.state.pane == other.paneKey, "the focus model still names the pane the keys were not typed for")
+    @Test func keysHeldForAPageInAPaneFocusHasNotReachedGoToItsFieldAtItsReadiness() async throws {
+        try await Self.withUnreadyPage { h in
+            let (services, controller, window, focused, other, page) = (h.services, h.controller, h.window, h.focused, h.other, h.page)
+            _ = focused
+            // The opening's hold, as NewTabPage.open begins it: only the field's readiness may end it here.
+            let router = services.keyRouter
+            let input = router.newTabInputCoordinator
+            input.holdLimit = .seconds(600)
+            input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
+            let token = try #require(input.begin(for: other))
+            input.didShow(in: window)
+            let typed = [try Self.key("h", keyCode: 4, in: window), try Self.key("i", keyCode: 34, in: window)]
+            for event in typed { #expect(router.interceptKeyDown(event, in: window), "the hold did not take \(event.characters ?? "")") }
+            #expect(input.isHolding(in: window))
+
+            // The field reports ready: the held keys go to it now, not at the hold's limit.
+            input.acknowledge(token, in: window)
+            #expect(!input.isHolding(in: window), "the hold kept the keys after the page's field was ready: \(input.log)")
+            #expect(window.firstResponder === page.focusTarget, "the page's field never got the keyboard (first responder \(String(describing: window.firstResponder)))")
+            #expect(input.log.contains { $0.hasPrefix("drained to field") }, "the held keys did not go to the page's field: \(input.log)")
+            #expect(controller.focus.state.pane == other.paneKey, "the focus model still names the pane the keys were not typed for")
+        }
+    }
+
+    /// No timer decides where a held key goes (principled audit R5, lagFirstKey step 3): the field of the page the keys
+    /// were typed for is not ready when the hold's old 2 s bound passes. The keys keep waiting for that field; they never
+    /// run into the view that has the keyboard instead (before, the bound gave them to whatever had focus). At the
+    /// field's readiness they go to it, in order.
+    @Test func keysForAPageWhoseFieldIsNotReadyNeverGoElsewhereWhenTimePasses() async throws {
+        try await Self.withUnreadyPage { h in
+            let (services, window, other, page) = (h.services, h.window, h.other, h.page)
+            let router = services.keyRouter
+            let input = router.newTabInputCoordinator
+            let seam = services.inputLatency.heldKeys
+            let token = try #require(input.begin(for: other))
+            input.didShow(in: window)
+            for event in [try Self.key("h", keyCode: 4, in: window), try Self.key("i", keyCode: 34, in: window)] {
+                #expect(router.interceptKeyDown(event, in: window), "the hold did not take \(event.characters ?? "")")
+            }
+            let before = seam.stage(.newTab).count
+
+            // Past the old bound (2 s after Cmd-T): no key went anywhere, and the hold still has them.
+            try? await PasswordManagerRouteTests.until({ seam.stage(.newTab).count != before }, within: .milliseconds(2600))
+            #expect(seam.stage(.newTab).count == before, "the hold's bound sent the keys typed for the page to another view: \(input.log)")
+            #expect(input.isHolding(in: window), "the hold ended without its field: \(input.log)")
+
+            // The field reports ready: the keys go to it, in order.
+            input.acknowledge(token, in: window)
+            #expect(seam.stage(.newTab).count == before + 2, "the held keys did not go to the page's field: \(input.log)")
+            #expect(window.firstResponder === page.focusTarget, "the page's field never got the keyboard")
+            #expect(!input.isHolding(in: window))
+        }
     }
 }
