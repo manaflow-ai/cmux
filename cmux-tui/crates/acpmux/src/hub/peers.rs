@@ -675,7 +675,7 @@ impl Hub {
                             .map(|(key, _)| key.clone());
                         let previous =
                             old_id.as_ref().and_then(|key| map.get(key).map(|r| r.summary.clone()));
-                        let summary = Self::retain_summary_tools(summary, previous.as_ref());
+                        summary = Self::retain_summary_tools(summary, previous.as_ref());
                         if let Some(old_id) = old_id {
                             map.take(&old_id);
                         }
