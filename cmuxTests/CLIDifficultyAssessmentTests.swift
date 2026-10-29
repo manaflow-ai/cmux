@@ -178,6 +178,32 @@ import Testing
         #expect(RecentTextFileLines.byteSize(path: url.path + ".missing") == nil)
     }
 
+    /// A symlinked transcript: the size noted is the size of the file the reader reads, not the
+    /// length of the link.
+    @Test func byteSizeOfASymlinkedTranscriptIsTheFilesSize() throws {
+        let url = try transcriptFile("a\nb\n")
+        let link = url.appendingPathExtension("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: url)
+        defer {
+            try? FileManager.default.removeItem(at: link)
+            try? FileManager.default.removeItem(at: url)
+        }
+        let size = try #require(RecentTextFileLines.byteSize(path: link.path))
+        #expect(size == 4)
+        #expect(RecentTextFileLines.read(path: link.path, maxBytes: 512, endingAt: size) == ["a", "b", ""])
+    }
+
+    /// The size noted at hook start can fall inside a record still being written, even inside a
+    /// multi-byte character ("한" is 3 bytes): the complete records before it still come back.
+    @Test func boundedReadDropsARecordCutMidCharacter() throws {
+        let complete = Data("{\"a\":1}\n{\"b\":2}\n".utf8)
+        let cutAt = complete.count + Data("{\"t\":\"".utf8).count + 1
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("difficulty-tail-\(UUID().uuidString).jsonl")
+        try (complete + Data("{\"t\":\"한글\"}\n".utf8)).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(RecentTextFileLines.read(path: url.path, maxBytes: 512, endingAt: UInt64(cutAt)) == ["{\"a\":1}", "{\"b\":2}", ""])
+    }
+
     @Test func throttleWaitsTheMinInterval() {
         let min = DifficultyAssessmentConfig.minInterval
         let stamp = t0.timeIntervalSince1970

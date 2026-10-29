@@ -86,15 +86,32 @@ struct CLIDifficultyAssessmentTurnTests {
         #expect(run.rated(user: Self.step7), "saw \(run.classifierPrompts())")
     }
 
-    /// The transcript was truncated or replaced during naming's call: what the hook recorded at its
-    /// start is gone, so nothing is rated rather than a prompt read from another file.
+    /// The transcript was truncated or replaced during naming's call by a shorter one with another
+    /// prompt: what the hook recorded at its start is gone, so nothing is rated rather than a
+    /// prompt read from another file.
     @Test func skipsWhenTheTranscriptShrankSinceTheHookStarted() throws {
-        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)], truncateDuringNaming: true)
+        let other = Fixture.userLine("Delete the build cache.")
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)], replaceDuringNaming: [other])
         defer { run.cleanup() }
         try run.stop(lastAssistantMessage: "Planned the cut-over for step 7.")
-        #expect(try String(contentsOf: run.transcript, encoding: .utf8).isEmpty, "naming must have run")
-        #expect(run.classifierPrompts().isEmpty)
+        #expect(try String(contentsOf: run.transcript, encoding: .utf8) == other + "\n", "naming must have replaced it")
+        #expect(run.classifierPrompts().isEmpty, "saw \(run.classifierPrompts())")
         #expect(run.priorityParams().isEmpty)
+    }
+
+    /// The sync `Stop` hook can hold the session store's lock at turn end. Meanwhile the reply and
+    /// a queued next prompt reach the transcript; the size the hook noted before waiting on that
+    /// lock still ends at this turn's prompt.
+    @Test func notesTheTranscriptSizeBeforeWaitingOnTheSessionStore() throws {
+        let reply = "Planned the cut-over for step 7."
+        let run = try Fixture(probe: Probe(), answer: "Hard.", transcript: Fixture.sixExchanges + [Fixture.userLine(Self.step7)])
+        defer { run.cleanup() }
+        try run.stopWhileStoreIsLocked(lastAssistantMessage: reply) {
+            try run.appendToTranscript(Fixture.assistantLine(reply))
+            try run.appendToTranscript(Fixture.userLine("Now rename the README title."))
+        }
+        #expect(run.classifierPrompts().count == 1)
+        #expect(run.rated(user: Self.step7, reply: reply), "saw \(run.classifierPrompts())")
     }
 
     @Test func ratesAFirstTurnFromTheStopInput() throws {

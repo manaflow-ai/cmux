@@ -49,8 +49,8 @@ struct DifficultyHookFixture {
     ///   hook's difficulty probe reaches cmux, as Claude Code writes the turn's reply after the
     ///   async `Stop` hook has started.
     /// - Parameter duringNaming: lines the fake `claude` appends while it answers auto-naming's
-    ///   prompt, as the user sends the next prompt during that call. `truncateDuringNaming`
-    ///   empties the transcript then instead.
+    ///   prompt, as the user sends the next prompt during that call. `replaceDuringNaming`
+    ///   instead replaces the whole transcript with these lines, as a truncated or rotated file.
     init(
         probe: Probe,
         answer: String,
@@ -58,7 +58,7 @@ struct DifficultyHookFixture {
         transcript lines: [String] = DifficultyHookFixture.sixExchanges,
         lateReply: String? = nil,
         duringNaming: [String] = [],
-        truncateDuringNaming: Bool = false
+        replaceDuringNaming: [String] = []
     ) throws {
         context = try Harness.makeContext(name: "difficulty-hook")
         self.paneEffort = paneEffort
@@ -70,8 +70,10 @@ struct DifficultyHookFixture {
         if !duringNaming.isEmpty {
             try (duringNaming.joined(separator: "\n") + "\n").write(to: pending, atomically: true, encoding: .utf8)
         }
-        let truncate = context.root.appendingPathComponent("truncate-during-naming")
-        if truncateDuringNaming { try Data().write(to: truncate) }
+        let replacement = context.root.appendingPathComponent("replace-during-naming.jsonl")
+        if !replaceDuringNaming.isEmpty {
+            try (replaceDuringNaming.joined(separator: "\n") + "\n").write(to: replacement, atomically: true, encoding: .utf8)
+        }
 
         // Answers the rating prompt with `answer`, logging the prompt and the effort it ran at;
         // answers auto-naming's prompt with a title.
@@ -91,7 +93,7 @@ struct DifficultyHookFixture {
             if [ -f '\(pending.path)' ]; then
               cat '\(pending.path)' >> '\(transcript.path)' && mv '\(pending.path)' '\(pending.path).done'
             fi
-            [ -f '\(truncate.path)' ] && : > '\(transcript.path)'
+            [ -f '\(replacement.path)' ] && cp '\(replacement.path)' '\(transcript.path)'
             printf '%s\\n' 'Sync engine redesign'
             ;;
         esac
@@ -118,6 +120,47 @@ struct DifficultyHookFixture {
     /// Runs the turn-end hook once. `lastAssistantMessage` is the turn's reply as Claude Code
     /// passes it in the `Stop` input; `nil` leaves the key out.
     func stop(lastAssistantMessage: String? = nil) throws {
+        let (environment, input) = hookInvocation(lastAssistantMessage: lastAssistantMessage)
+        let result = Harness.runHookProcess(
+            context: context, arguments: ["hooks", "claude", "auto-name"], environment: environment, standardInput: input
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+    }
+
+    /// Runs the turn-end hook while the hook session store's lock is held, as the sync `Stop`
+    /// hook can hold it at turn end. `whileLocked` runs once the hook has had 2 s to start and
+    /// read its input; then the lock is released and the hook finishes.
+    func stopWhileStoreIsLocked(lastAssistantMessage: String, whileLocked: () throws -> Void) throws {
+        let lockFD = open(context.storeURL.path + ".lock", O_RDWR | O_CREAT, 0o600)
+        try #require(lockFD >= 0)
+        defer { close(lockFD) }
+        try #require(flock(lockFD, LOCK_EX) == 0)
+        let (environment, input) = hookInvocation(lastAssistantMessage: lastAssistantMessage)
+        let context = context
+        let box = ResultBox()
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            box.result = Harness.runHookProcess(
+                context: context, arguments: ["hooks", "claude", "auto-name"], environment: environment, standardInput: input
+            )
+            finished.signal()
+        }
+        Thread.sleep(forTimeInterval: 2)
+        let appended = Result { try whileLocked() }
+        flock(lockFD, LOCK_UN)
+        finished.wait()
+        try appended.get()
+        let result = try #require(box.result)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+    }
+
+    private final class ResultBox: @unchecked Sendable {
+        var result: Harness.ProcessRunResult?
+    }
+
+    private func hookInvocation(lastAssistantMessage: String?) -> (environment: [String: String], input: String) {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.workspaceId
         environment["CMUX_SURFACE_ID"] = Self.surfaceId
@@ -131,14 +174,7 @@ struct DifficultyHookFixture {
             "transcript_path": transcript.path,
         ]
         if let lastAssistantMessage { input["last_assistant_message"] = lastAssistantMessage }
-        let result = Harness.runHookProcess(
-            context: context,
-            arguments: ["hooks", "claude", "auto-name"],
-            environment: environment,
-            standardInput: Self.jsonLine(input)
-        )
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        return (environment, Self.jsonLine(input))
     }
 
     func appendToTranscript(_ line: String) throws { try Self.append(line, to: transcript) }
@@ -157,7 +193,6 @@ struct DifficultyHookFixture {
         return (payload["params"] as? [String: Any])?["probe"] as? Bool == true
     }
 
-    /// The prompt of each rating call, one per call.
     /// Whether the first rating call's prompt held `user` as the prompt and `reply` as the reply.
     func rated(user: String? = nil, reply: String? = nil) -> Bool {
         guard let prompt = classifierPrompts().first else { return false }
@@ -165,6 +200,7 @@ struct DifficultyHookFixture {
         return blocks.compactMap { $0 }.allSatisfy { prompt.contains($0) }
     }
 
+    /// The prompt of each rating call, one per call.
     func classifierPrompts() -> [String] {
         guard let text = try? String(contentsOf: promptLog, encoding: .utf8) else { return [] }
         return text.components(separatedBy: Self.promptSeparator + "\n").filter { !$0.isEmpty }
