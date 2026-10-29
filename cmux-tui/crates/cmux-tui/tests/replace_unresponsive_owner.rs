@@ -137,3 +137,31 @@ fn replace_unresponsive_keeps_a_responsive_owner() {
     assert_eq!(pid_of(&again), pid_of(&first), "{again}");
     assert!(again.get("replaced_pid").is_none(), "{again}");
 }
+
+/// A frozen owner keeps its socket and accepts connections but never answers its identify. An
+/// owner still restoring answers at once (`lifecycle_ready: false`), so this is not one: plain
+/// `server ensure` reports it unavailable soon, which offers "Restart cmux-tui", instead of
+/// waiting out the 120 s restore bound (restore journey, daemon-stop variant: no offer in 150 s).
+#[test]
+fn ensure_reports_a_frozen_owner_unavailable_without_waiting_out_the_restore_bound() {
+    let mut fixture = Fixture::new("ensure-frozen");
+    let old = pid_of(&fixture.server("ensure", &[]));
+    // SAFETY: kill takes a pid and a signal; the pid is the owner `ensure`
+    // just reported for this test's private socket.
+    assert_eq!(unsafe { libc::kill(old, libc::SIGSTOP) }, 0);
+    fixture.frozen = Some(old);
+
+    let started = std::time::Instant::now();
+    let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .args(["server", "ensure", "--json", "--session", &fixture.session, "--socket"])
+        .arg(&fixture.socket)
+        .env("CMUX_TUI_STATE_DIR", fixture.dir.join("state"))
+        .env("CMUX_TUI_CONFIG", fixture.dir.join("config.json"))
+        .output()
+        .unwrap();
+    let took = started.elapsed();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!output.status.success(), "ensure succeeded on a frozen owner: {stdout}");
+    assert!(stdout.contains("\"server.unavailable\""), "not reported unavailable: {stdout}");
+    assert!(took < std::time::Duration::from_secs(60), "ensure waited {took:?} on a frozen owner");
+}
