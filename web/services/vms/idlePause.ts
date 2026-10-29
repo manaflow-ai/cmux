@@ -368,10 +368,15 @@ def daemon():
         legacy = legacy or a
     return legacy
 
+# a9b104f3's daemon answers a request it cannot parse with "bad request: " and serde's
+# message, which for an unknown tag is: unknown variant <tick>name<tick>, expected ...
+# (\x60 is the backtick; the script lives in a template literal and may not contain one).
+LEGACY_DAEMON_REFUSAL = re.compile(r"bad request: unknown variant \x60subscribe-activity\x60, expected \S")
+
 def refused_as_unknown(msg):
-    # A build from before subscribe-activity: serde's "unknown variant" for exactly this command.
+    # A build from before subscribe-activity refuses exactly this command, and nothing else.
     err = msg.get("error") if msg.get("ok") is False else None
-    return isinstance(err, str) and "unknown variant" in err and "subscribe-activity" in err.split(",")[0]
+    return isinstance(err, str) and LEGACY_DAEMON_REFUSAL.match(err) is not None
 
 def daemon_at(path):
     try:
@@ -424,15 +429,27 @@ def acpmux():
             latest = u
     return {"busy_sessions": busy, "last_updated_at_ms": latest}
 
+# a9b104f3's CLI refuses an unknown first word with exactly this message, optionally
+# followed by a suggestion; with --json it prints one usage.invalid object, else one
+# "cmux: " line. Its stderr is that line and nothing else.
+ACP_REFUSAL = re.compile(r'unknown resource scope "acp"\.( Did you mean \x60[a-z][a-z-]*\x60\?)?')
+
 def acp_missing():
-    # A CLI from before acpmux refuses the acp subcommand as an unknown resource
-    # scope (in a JSON error its quotes are escaped). Any other failure is not this.
     try:
         with open(os.environ["CMUX_IDLE_ACPMUX_ERR"]) as f:
-            err = f.read()
+            err = f.read().strip()
     except Exception:
         return False
-    return re.search(r'unknown resource scope \\?"acp\\?"', err) is not None
+    if "\n" in err:
+        return False
+    if err.startswith("{"):
+        try:
+            e = json.loads(err)
+        except Exception:
+            return False
+        message = e.get("message") if isinstance(e, dict) and e.get("code") == "usage.invalid" else None
+        return isinstance(message, str) and ACP_REFUSAL.fullmatch(message) is not None
+    return err.startswith("cmux: ") and ACP_REFUSAL.fullmatch(err[len("cmux: "):]) is not None
 
 def processes():
     out = {}
