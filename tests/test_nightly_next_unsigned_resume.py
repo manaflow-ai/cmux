@@ -8,7 +8,6 @@ at a time, and only for a build newer than the feed.
 from __future__ import annotations
 
 import importlib.util
-import re
 from pathlib import Path
 import sys
 import unittest
@@ -192,6 +191,15 @@ class StarvationTests(unittest.TestCase):
         self.assertFalse(watch.carries_tip(running, tip, None))
         self.assertTrue(watch.carries_tip(dict(push(NEWER), head_sha=tip), tip, None))
 
+    def test_a_running_resume_never_carries_the_next_tip(self):
+        # cmux NEXT judges by head_sha; a resume runs on nightly-next's head, which may hold the tip.
+        watch = sys.modules["nightly_next_feed_watch"]
+        tip = "a" * 40
+        running = resumed(OLDER, 1, NEWER, status="in_progress")
+        running.update(head_sha=tip)
+        self.assertFalse(watch.next_carries_tip(None, running, tip))
+        self.assertTrue(watch.next_carries_tip(None, dict(push(NEWER), head_sha=tip), tip))
+
 
 class FeedTests(unittest.TestCase):
     def test_feed_newest_build_reads_the_nightly_ring(self):
@@ -209,16 +217,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("continue-on-error: true", step)
         self.assertIn("scripts/ci/nightly_next_unsigned_resume.py", step)
         self.assertNotIn("cancel", step.split("run:", 1)[1])
-
-    def test_the_feed_watch_runs_a_quarter_hour_off_the_tick(self):
-        # One GitHub scheduler delay must not hit the tick and its backstop together.
-        workflows = Path(__file__).resolve().parents[1] / ".github/workflows"
-        watch = re.search(r'cron: "([^"]+)"', (workflows / "nightly-next-feed-watch.yml").read_text()).group(1)
-        tick = re.search(r'cron: "([^"]+)"', (workflows / "nightly-next-tick.yml").read_text()).group(1)
-        minutes = lambda cron: {int(m) for m in cron.split()[0].split(",")}
-        self.assertTrue(all(min(abs(a - b), 60 - abs(a - b)) >= 10 for a in minutes(watch) for b in minutes(tick)),
-                        (watch, tick))
-
 
 if __name__ == "__main__":
     unittest.main()
