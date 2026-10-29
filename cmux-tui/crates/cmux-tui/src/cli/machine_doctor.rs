@@ -91,11 +91,8 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     {
         // Not a joined machine: the app's ssh Check Machine, as before. When the joined list
         // could not be read, say so: the checks above did not run.
-        if let Some(why) = unread(list.as_ref()) {
-            eprintln!(
-                "cmux machine doctor: {key} was checked as an ssh machine; joined machines were \
-                 not checked ({why})"
-            );
+        if let Some(note) = fallback_note(global.output, key, list.as_ref()) {
+            eprintln!("{note}");
         }
         return Some(code);
     }
@@ -290,6 +287,23 @@ pub(super) fn remote_steps(
         }
     });
     steps
+}
+
+/// The stderr line after the ssh check ran for `key` because the joined list was not read;
+/// `None` when it was read, or in quiet mode, which prints nothing.
+fn fallback_note(
+    output: OutputMode,
+    key: &str,
+    list: Option<&Result<Vec<Value>, CallError>>,
+) -> Option<String> {
+    if output == OutputMode::Quiet {
+        return None;
+    }
+    let why = unread(list)?;
+    Some(format!(
+        "cmux machine doctor: {key} was checked as an ssh machine; joined machines were not \
+         checked ({why})"
+    ))
 }
 
 /// Why the joined list was not read: `None` when it was.

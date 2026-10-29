@@ -177,6 +177,15 @@ fn an_unread_joined_list_is_named_when_the_ssh_check_runs_instead() {
     assert_eq!(unread(Some(&denied)).unwrap(), "the platform answered 401");
     let down = Err(CallError::Unreachable("tcp".into()));
     assert_eq!(unread(Some(&down)).unwrap(), "the platform did not answer");
+    let note = fallback_note(OutputMode::Human, "build-box", Some(&down)).unwrap();
+    assert_eq!(
+        note,
+        "cmux machine doctor: build-box was checked as an ssh machine; joined machines were not \
+         checked (the platform did not answer)"
+    );
+    assert!(fallback_note(OutputMode::Json, "build-box", None).is_some());
+    assert_eq!(fallback_note(OutputMode::Quiet, "build-box", None), None, "quiet prints nothing");
+    assert_eq!(fallback_note(OutputMode::Human, "build-box", Some(&Ok(vec![]))), None);
 }
 
 #[test]
