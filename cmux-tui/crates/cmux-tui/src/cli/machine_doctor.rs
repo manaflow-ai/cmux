@@ -89,7 +89,14 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         && plain_name(key)
         && let Some(code) = super::run_app_action_fallback(args)
     {
-        // Not a joined machine: the app's ssh Check Machine, as before.
+        // Not a joined machine: the app's ssh Check Machine, as before. When the joined list
+        // could not be read, say so: the checks above did not run.
+        if let Some(why) = unread(list.as_ref()) {
+            eprintln!(
+                "cmux machine doctor: {key} was checked as an ssh machine; joined machines were \
+                 not checked ({why})"
+            );
+        }
         return Some(code);
     }
     let mesh = match (&platform, &found) {
@@ -276,13 +283,28 @@ pub(super) fn remote_steps(
             JoinStep::fail("mesh", format!("the mesh does not list daemon {peer}"), on_it)
         }
         (Some(_), Some(Err(CallError::Status { status: 404, .. }))) => {
-            JoinStep::new("mesh", StepState::Warn, format!("the mesh is off on {origin}"))
+            JoinStep::fail("mesh", format!("the mesh is off on {origin}"), on_it)
         }
         (Some(_), Some(Err(_))) => {
-            JoinStep::new("mesh", StepState::Warn, "the mesh's sessions could not be read")
+            JoinStep::fail("mesh", "the mesh's sessions could not be read", on_it)
         }
     });
     steps
+}
+
+/// Why the joined list was not read: `None` when it was.
+fn unread(list: Option<&Result<Vec<Value>, CallError>>) -> Option<String> {
+    match list {
+        None => Some("not signed in: sign in in cmux, or pass --cloud-token-file".to_owned()),
+        Some(Ok(_)) => None,
+        Some(Err(CallError::Status { status: 404, .. })) => {
+            Some("joining isn't available on this server yet (it answered 404)".to_owned())
+        }
+        Some(Err(CallError::Status { status, .. } | CallError::Unreadable(status))) => {
+            Some(format!("the platform answered {status}"))
+        }
+        Some(Err(CallError::Unreachable(_))) => Some("the platform did not answer".to_owned()),
+    }
 }
 
 /// A machine name safe to print in a fix or hand to the app: letters, digits, `.`, `-`, `_`,

@@ -152,11 +152,31 @@ fn the_mesh_step_degrades_without_a_mesh_id_or_a_mesh() {
     assert_eq!(state(&checked, "mesh").state, StepState::Skip);
     let off = Some(Err(CallError::Status { status: 404, code: "" }));
     let checked = remote_steps(ORIGIN, "m_1", Some(Ok(vec![entry(5_000, now)])), off, now);
-    assert_eq!(state(&checked, "mesh").state, StepState::Warn);
+    let mesh = state(&checked, "mesh");
+    assert_eq!(mesh.state, StepState::Fail, "a mesh that is off fails the check");
+    assert_eq!(
+        mesh.fix.as_deref(),
+        Some("Run cmux machine doctor (or acpmux host doctor --here) on lane-vm-3")
+    );
     let (text, ok) = doctor::render("lane-vm-3", "joined machine", &checked, Print::Lines);
-    assert!(ok, "a warning is still healthy");
+    assert!(!ok);
     let lines: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
-    assert_eq!(lines.last().unwrap()["report"]["ok"], true);
+    assert_eq!(lines.last().unwrap()["report"]["ok"], false);
+    let down = Some(Err(CallError::Unreachable("connect refused".into())));
+    let checked = remote_steps(ORIGIN, "m_1", Some(Ok(vec![entry(5_000, now)])), down, now);
+    assert_eq!(state(&checked, "mesh").state, StepState::Fail);
+}
+
+#[test]
+fn an_unread_joined_list_is_named_when_the_ssh_check_runs_instead() {
+    assert_eq!(super::unread(Some(&Ok(vec![]))), None);
+    assert!(super::unread(None).unwrap().starts_with("not signed in"));
+    let off = Err(CallError::Status { status: 404, code: "" });
+    assert!(super::unread(Some(&off)).unwrap().contains("isn't available"));
+    let denied = Err(CallError::Status { status: 401, code: "" });
+    assert_eq!(super::unread(Some(&denied)).unwrap(), "the platform answered 401");
+    let down = Err(CallError::Unreachable("tcp".into()));
+    assert_eq!(super::unread(Some(&down)).unwrap(), "the platform did not answer");
 }
 
 #[test]
