@@ -120,6 +120,23 @@ describe("cross-surface UI review lint", () => {
     expect(
       findMixedRowWeights(css, `.dialog__title { font-weight: 600; } .dialog__body { font-weight: 400; }`),
     ).toHaveLength(0);
+    const commented = `/* .item-row { font-weight: 600; } */ .item-row { font-weight: 400; }`;
+    expect(findMixedRowWeights(css, commented)).toHaveLength(0);
+    expect(
+      findMixedRowWeights(css, `.item-row { font-weight: bold; } .item-row__name { font-weight: 700; }`),
+    ).toHaveLength(0);
+    expect(
+      findMixedRowWeights(css, `.item-row { font-weight: normal; } .item-row__name { font-weight: 600 !important; }`),
+    ).toMatchObject([{ fingerprint: "item-row|400,600" }]);
+    expect(
+      findMixedRowWeights(
+        css,
+        `.item-row { font-weight: 400; font-weight: 600; } .item-row__name { font-weight: 600; }`,
+      ),
+    ).toHaveLength(0);
+    expect(
+      findMixedRowWeights(css, `.item-row { font-weight: var(--weight); } .item-row__name { font-weight: bolder; }`),
+    ).toHaveLength(0);
     expect(
       findMixedRowWeights(css, `.panel__row { font-weight: 400; } .panel__row:hover { font-weight: 600; }`),
     ).toMatchObject([{ fingerprint: "panel__row|400,600" }]);
