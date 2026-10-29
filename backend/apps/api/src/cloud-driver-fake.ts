@@ -1,17 +1,16 @@
 import type { SqlStore } from "@cmux/ownership"
 import { execKind } from "@cmux/cloud-env"
-import type { GuestExecResult } from "./cloud-driver-exec.ts"
 import { DriverError } from "./team-vm-driver.ts"
 import { LIST_PAGE } from "./cloud-driver.ts"
-import { vmTagMetadata, type CloudProvider, type CreateOptions, type EdgeTlsRule, type VmResources, type VmTag } from "./providers/contract.ts"
+import { vmTagMetadata, type ClientSessionGrant, type CloudProvider, type CreateOptions, type EdgeTlsRule, type GuestExecResult, type VmResources, type VmTag } from "./providers/contract.ts"
 
 /**
  * Test provider (ENVIRONMENT=test, CLOUD_DRIVER=fake): VMs in the object's own SQLite.
  * `fail_next` makes the next calls fail as retryable (a cut-off call).
  */
 export class FakeCloudDriver implements CloudProvider {
-  /** Like the production provider, except that there is no guest to exec in. */
-  readonly capabilities = { sizing: false, resize: true, snapshot: true, guestExec: false, edgeTls: true }
+  /** Like the production provider. Its guest is scripted (execStdin): the readiness probe, a build start and its poll answer; other commands are refused. */
+  readonly capabilities = { sizing: false, resize: true, snapshot: true, guestExec: true, edgeTls: true, clientSession: true }
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_snapshot (slug TEXT PRIMARY KEY, id TEXT NOT NULL, source TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER, state TEXT NOT NULL DEFAULT 'running', cpu INTEGER NOT NULL DEFAULT 2, memory INTEGER NOT NULL DEFAULT 4096, storage INTEGER NOT NULL DEFAULT 16384, snapshot TEXT)`)
@@ -24,6 +23,23 @@ export class FakeCloudDriver implements CloudProvider {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_exec (n INTEGER PRIMARY KEY AUTOINCREMENT, vm TEXT NOT NULL, kind TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_guest (id INTEGER PRIMARY KEY CHECK (id = 1), build_exit INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT '')`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_guest (id) VALUES (1)`)
+    // Client sessions: one row per identity (its one VM and user grant) and how many tokens it minted; never a token.
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_identity (id TEXT PRIMARY KEY, vm TEXT NOT NULL, user TEXT NOT NULL, tokens INTEGER NOT NULL DEFAULT 0, expires_at INTEGER NOT NULL DEFAULT 0)`)
+  }
+
+  /** Like the production provider: an identity granted only `id` as `linuxUser`, reused while it exists. */
+  async clientSession(id: string, linuxUser: string, expiresAt: number, identity: string | null): Promise<ClientSessionGrant> {
+    this.maybeFail()
+    if (!this.sql.exec<{ id: string }>(`SELECT id FROM cloud_fake_vm WHERE id = ?`, id)[0]) throw new DriverError("cloud.provider.vm_missing", "fake provider: no such VM", true)
+    const held = identity ? this.sql.exec<{ id: string }>(`SELECT id FROM cloud_fake_identity WHERE id = ? AND vm = ? AND user = ?`, identity, id, linuxUser)[0] : undefined
+    const handle = held?.id ?? `fsid-${crypto.randomUUID()}`
+    if (!held) this.sql.exec(`INSERT INTO cloud_fake_identity (id, vm, user) VALUES (?, ?, ?)`, handle, id, linuxUser)
+    this.sql.exec(`UPDATE cloud_fake_identity SET tokens = tokens + 1, expires_at = ? WHERE id = ?`, expiresAt, handle)
+    return { identity: handle, token: `fstok-${crypto.randomUUID()}`, expiresAt, vmId: id, linuxUser, apiBaseUrl: "https://freestyle.fake", ssh: { host: "ssh.freestyle.fake", user: `${id}+${linuxUser}` } }
+  }
+
+  async dropClientIdentity(identity: string) {
+    this.sql.exec(`DELETE FROM cloud_fake_identity WHERE id = ?`, identity)
   }
 
   private maybeFail() {

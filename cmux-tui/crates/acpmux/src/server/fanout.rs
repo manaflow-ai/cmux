@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<()> {
     let mut rx = hub.subscribe();
     let mut harnesses = hub.subscribe_harness_changes();
+    let mut peer_states = hub.peer_states().subscribe();
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
@@ -22,6 +23,25 @@ pub(super) fn start(hub: Arc<Hub>, conn: Arc<Conn>) -> tokio::task::JoinHandle<(
                             harness_admin::watch_note(&conn, note)
                         }
                         // Lagged: a newer change follows with the full list.
+                        Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                    continue;
+                }
+                // A peer link's state, to watchers, through the same `watch_note` (`peer_states.rs`).
+                // Never to a peer daemon's connection: its handshake watches, and this host's
+                // peers, their states and their errors are this machine's, not that peer's.
+                note = peer_states.recv() => {
+                    let hears = conn.origin != super::Origin::Peer
+                        && conn.watch_all.load(Ordering::SeqCst);
+                    match note {
+                        Ok(note) if hears => harness_admin::watch_note(&conn, note),
+                        // Fell behind: a note carries one change, so each peer's last one again.
+                        Err(broadcast::error::RecvError::Lagged(_)) if hears => {
+                            for note in hub.peer_states().snapshot() {
+                                harness_admin::watch_note(&conn, note);
+                            }
+                        }
                         Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                         Err(broadcast::error::RecvError::Closed) => break,
                     }

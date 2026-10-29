@@ -83,7 +83,7 @@ export {
   type Respondent
 } from "./question.ts"
 export { conversationRedact, PRIVATE_TABLES } from "./redact.ts"
-export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, type SearchHit, type SearchInput, type SearchResult, type SearchSource } from "./search.ts"
+export { MAX_LIMIT as SEARCH_MAX_LIMIT, messageText, searchConversations, snippetOf, snippetWindow, type SearchHit, type SearchInput, type SearchResult, type SearchSource, type SnippetWindow } from "./search.ts"
 export {
   ATTACHMENT_LIMITS,
   ATTACHMENT_TYPES,
