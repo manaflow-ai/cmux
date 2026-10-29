@@ -912,8 +912,10 @@ fn push_log(log: &Mutex<Vec<Value>>, mut entry: Value) {
     if log.len() > MAX_LOG + usize::from(dropped_row) {
         if dropped_row {
             log.remove(1);
-            let count = log[0].get("count").and_then(Value::as_u64).unwrap_or(0) + 1;
-            log[0]["count"] = json!(count);
+            if let Some(first) = log.first_mut() {
+                let count = first.get("count").and_then(Value::as_u64).unwrap_or(0) + 1;
+                first.set("count", json!(count));
+            }
         } else {
             log.remove(0);
             log.insert(

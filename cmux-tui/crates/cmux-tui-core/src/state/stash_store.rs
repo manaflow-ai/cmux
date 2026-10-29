@@ -215,7 +215,10 @@ pub(crate) fn stash_member(
     if !page || is_app_tab(connection, tab_id)? {
         return Ok(Err(Refusal::NotPage));
     }
-    member["screens"][0]["tabs"][0]["title"] = json!(page_title(connection, tab_id)?);
+    let title = json!(page_title(connection, tab_id)?);
+    if let Some(tab) = member.pointer_mut("/screens/0/tabs/0") {
+        tab.set("title", title);
+    }
     Ok(Ok(member))
 }
 
