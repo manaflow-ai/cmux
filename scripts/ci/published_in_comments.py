@@ -8,11 +8,12 @@ names a PR. First-parent keeps out history merged in from elsewhere: a
 merged-in repository's own "(#5)" subjects, or main's PRs arriving on
 feat-cmux-next through a sync merge.
 
-Each PR gets one comment, marked `<!-- cmux-published-in -->`, holding one
-line per build: the first build creates it, later ones (a nightly, then a
-stable release) edit it in place. A rerun of the same build changes nothing.
-Existing comments are read in batched GraphQL, then each write is one REST
-call, paced under GitHub's secondary limit on content writes (about 500 an
+Publication lines live in the shared PR status comment, in its `published`
+section. Legacy standalone `<!-- cmux-published-in -->` comments are folded
+into that section without losing their release links. A rerun of the same
+build changes nothing. Existing comments are read in batched GraphQL, and
+status writes preserve other sections and settle concurrent writers. Writes
+are paced under GitHub's secondary limit on content writes (about 500 an
 hour). The first rate-limit refusal stops the run and says how many PRs are
 left; a rerun skips the ones already noted. Any other failure on one PR is
 reported and the rest continue; the script exits 0 so
@@ -29,10 +30,15 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+# This script is also loaded by path in tests.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pr_status  # noqa: E402
 
 MARKER = "<!-- cmux-published-in -->"
 PR_SUFFIX = re.compile(r"\(#(\d+)\)\s*$")
-BOT = "github-actions[bot]"
+SECTION = "published"
 
 
 def pr_numbers(subjects: list[str]) -> list[int]:
@@ -49,13 +55,42 @@ def build_line(name: str, url: str, sha: str) -> str:
     return f"- [{name}]({url}) (`{sha[:10]}`)"
 
 
-def updated_body(existing: str | None, line: str) -> str | None:
-    """The comment body with this build's line, or None when it is already there."""
-    if existing is None:
-        return f"{MARKER}\nShipped in:\n{line}\n"
-    if line in existing.splitlines():
-        return None
-    return existing.rstrip("\n") + "\n" + line + "\n"
+def publication_text(comments: list[dict], line: str, previous: str = "") -> str:
+    """Keep every published build, including old standalone comments, once."""
+    bodies = [previous] + [pr_status.parse(c["body"]).get(SECTION, "")
+              for c in pr_status.bot_comments(comments, pr_status.MARKER)]
+    bodies += [c["body"] for c in pr_status.bot_comments(comments, MARKER)]
+    lines = list(dict.fromkeys(item for body in bodies for item in body.splitlines()
+                              if item.startswith("- ")))
+    if line not in lines:
+        lines.append(line)
+    return "Shipped in:\n" + "\n".join(lines)
+
+
+def status_api(method: str, path: str, payload: dict | None = None) -> object:
+    return gh("-X", method, path.lstrip("/"), payload=payload)
+
+
+def publish(repo: str, number: int, line: str, comments: list[dict], pause: float) -> str:
+    """Use the batched first read, then the status writer's normal race checks."""
+    # Recompute the publication lines on every settle read, so two release
+    # writers cannot replace each other's build lines. Other sections remain
+    # owned by pr_status.plan, including legacy comment migration.
+    snapshot = comments
+    did = "unchanged"
+    text = ""
+    for attempt in range(pr_status.ATTEMPTS):
+        if attempt:
+            snapshot = pr_status.list_comments(status_api, repo, number)
+        text = publication_text(snapshot, line, text)
+        writes = pr_status.plan(repo, number, snapshot, SECTION, text, legacy=MARKER)
+        if not writes:
+            return did
+        for method, path, payload in writes:
+            status_api(method, path, payload)
+            time.sleep(pause)
+        did = "written"
+    return did + " (unconfirmed: another writer kept replacing the comment)"
 
 
 def git_subjects(since: str, head: str) -> list[str]:
@@ -78,32 +113,36 @@ def gh(*args: str, payload: dict | None = None) -> object:
 def comments_query(owner: str, name: str, numbers: list[int]) -> str:
     fields = " ".join(
         f"p{n}: issueOrPullRequest(number: {n}) {{ ... on PullRequest {{ comments(last: 100) "
-        "{ nodes { databaseId body author { login } } } } }"
+        "{ pageInfo { hasPreviousPage } nodes { databaseId body author { login } } } } }"
         for n in numbers
     )
     return f'query {{ repository(owner: "{owner}", name: "{name}") {{ {fields} }} }}'
 
 
-def marker_comment(node: dict | None) -> dict | None:
-    for comment in reversed(((node or {}).get("comments") or {}).get("nodes") or []):
-        login = (comment.get("author") or {}).get("login")
-        if login in {BOT, "github-actions"} and MARKER in (comment.get("body") or ""):
-            return {"id": comment["databaseId"], "body": comment["body"]}
-    return None
+def normalize_comments(node: dict | None) -> list[dict]:
+    """Match REST's comment shape and bot logins for the shared status writer."""
+    result = []
+    for comment in ((node or {}).get("comments") or {}).get("nodes") or []:
+        login = (comment.get("author") or {}).get("login") or ""
+        if login in {"github-actions", "cmux-bot"}:
+            login += "[bot]"
+        result.append({"id": comment["databaseId"], "body": comment.get("body") or "",
+                       "user": {"login": login}})
+    return result
 
 
-def existing_comments(repo: str, numbers: list[int], batch: int = 25) -> tuple[dict[int, dict], set[int]]:
-    """The marker comment on each PR, and the numbers that could not be read.
+def existing_comments(repo: str, numbers: list[int], batch: int = 25) -> tuple[dict[int, list[dict]], set[int]]:
+    """Comments on each PR, and the numbers that could not be read.
 
     Reads 25 PRs per GraphQL query from each PR's last 100 comments: a stable
     release spans hundreds of PRs, more than one REST call per PR fits in the
-    job token's hourly quota. A marker comment older than the last 100
-    comments is missed, and that PR gets a second one. A batch that fails (a
+    job token's hourly quota. A longer timeline uses a paginated REST read
+    so an older status comment is never missed. A batch that fails (a
     number that was deleted or transferred) is retried one PR at a time, and
     the PRs that still fail are skipped.
     """
     owner, name = repo.split("/", 1)
-    found: dict[int, dict] = {}
+    found: dict[int, list[dict]] = {}
     unreadable: set[int] = set()
     for start in range(0, len(numbers), batch):
         chunk = numbers[start:start + batch]
@@ -117,9 +156,16 @@ def existing_comments(repo: str, numbers: list[int], batch: int = 25) -> tuple[d
                 except (subprocess.CalledProcessError, KeyError, TypeError):
                     unreadable.add(n)
         for n in chunk:
-            comment = marker_comment(data.get(f"p{n}"))
-            if comment:
-                found[n] = comment
+            node = data.get(f"p{n}")
+            if n in unreadable:
+                continue
+            try:
+                if ((node or {}).get("comments") or {}).get("pageInfo", {}).get("hasPreviousPage"):
+                    found[n] = pr_status.list_comments(status_api, repo, n)
+                else:
+                    found[n] = normalize_comments(node)
+            except subprocess.CalledProcessError:
+                unreadable.add(n)
     return found, unreadable
 
 
@@ -153,21 +199,13 @@ def main() -> int:
     posted = skipped = failed = 0
     for index, number in enumerate(numbers):
         try:
-            comment = existing.get(number)
-            body = updated_body(comment["body"] if comment else None, line)
-            if body is None:
-                skipped += 1
-            elif args.dry_run:
+            if args.dry_run:
                 print(f"#{number}: {line}")
                 posted += 1
-            elif comment:
-                gh("-X", "PATCH", f"repos/{args.repo}/issues/comments/{comment['id']}", payload={"body": body})
-                posted += 1
+            elif publish(args.repo, number, line, existing.get(number, []), args.pause) == "unchanged":
+                skipped += 1
             else:
-                gh("-X", "POST", f"repos/{args.repo}/issues/{number}/comments", payload={"body": body})
                 posted += 1
-            if not args.dry_run:
-                time.sleep(args.pause)  # GitHub's secondary limit on content writes
         except subprocess.CalledProcessError as error:
             if rate_limited(error):
                 print(f"published-in: rate limited at #{number}; {len(numbers) - index} PRs left, rerun to finish", file=sys.stderr)

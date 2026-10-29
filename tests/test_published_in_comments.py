@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,15 +21,83 @@ class PublishedInTests(unittest.TestCase):
         subjects = ["fix: a (#12)", "feat: b (#11)", "revert fix: a (#12)", "safe-push train", "mentions (#9) mid subject", "c (#10) "]
         self.assertEqual(module.pr_numbers(subjects), [12, 11, 10])
 
-    def test_first_build_creates_then_later_builds_append(self):
+    def test_publication_lines_preserved_in_shared_status(self):
         nightly = module.build_line("nightly-next 2026101901", "https://x/n", "a" * 40)
         stable = module.build_line("v0.66.0", "https://x/v", "b" * 40)
-        body = module.updated_body(None, nightly)
-        self.assertTrue(body.startswith(module.MARKER))
-        self.assertIn("`aaaaaaaaaa`", body)
-        body = module.updated_body(body, stable)
-        self.assertEqual(body.count("\n- "), 2)
-        self.assertIsNone(module.updated_body(body, stable), "a rerun of the same build changes nothing")
+        comments = [{"id": 1, "body": module.pr_status.render({"review": "SHIP", "published": "Shipped in:\n" + nightly}),
+                     "user": {"login": "github-actions[bot]"}}]
+        text = module.publication_text(comments, stable)
+        self.assertEqual(text, "Shipped in:\n" + nightly + "\n" + stable)
+        calls = []
+
+        def api(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return comments
+            self.assertEqual(method, "PATCH")
+            comments[0]["body"] = payload["body"]
+
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.publish("o/r", 7, stable, comments.copy(), 0), "written")
+            self.assertEqual(module.publish("o/r", 7, stable, comments.copy(), 0), "unchanged")
+        self.assertEqual(module.pr_status.parse(comments[0]["body"]), {"review": "SHIP", "published": text})
+        self.assertEqual([method for method, _, _ in calls], ["PATCH", "GET"])
+
+    def test_legacy_migration_preserves_builds_and_other_sections(self):
+        nightly = module.build_line("nightly-next 1", "https://x/n", "a" * 40)
+        stable = module.build_line("v1", "https://x/v", "b" * 40)
+        comments = [
+            {"id": 1, "body": module.pr_status.render({"checks": "green"}), "user": {"login": "cmux-bot[bot]"}},
+            {"id": 2, "body": module.MARKER + "\nShipped in:\n" + nightly + "\n" + stable,
+             "user": {"login": "github-actions[bot]"}},
+        ]
+        writes = []
+
+        def api(method, path, payload=None):
+            if method == "GET":
+                return comments
+            writes.append(method)
+            if method == "PATCH":
+                comments[0]["body"] = payload["body"]
+            elif method == "DELETE":
+                comments.pop()
+
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.publish("o/r", 7, stable, comments.copy(), 0), "written")
+        self.assertEqual(writes, ["PATCH", "DELETE"])
+        self.assertEqual(module.pr_status.parse(comments[0]["body"]),
+                         {"checks": "green", "published": "Shipped in:\n" + nightly + "\n" + stable})
+
+    def test_standalone_migration_edits_without_new_timeline_entry(self):
+        line = module.build_line("v1", "https://x/v", "a" * 40)
+        comments = [{"id": 2, "body": module.MARKER + "\nShipped in:\n" + line,
+                     "user": {"login": "github-actions[bot]"}}]
+        plan = module.pr_status.plan("o/r", 7, comments, module.SECTION,
+                                     module.publication_text(comments, line), legacy=module.MARKER)
+        self.assertEqual(len(plan), 1)
+        self.assertEqual(plan[0][:2], ("PATCH", "repos/o/r/issues/comments/2"))
+        self.assertEqual(module.pr_status.parse(plan[0][2]["body"]), {"published": "Shipped in:\n" + line})
+
+    def test_settle_preserves_prior_build_after_stale_writer(self):
+        old = module.build_line("v1", "https://x/v1", "a" * 40)
+        new = module.build_line("v2", "https://x/v2", "b" * 40)
+        comments = [{"id": 1, "body": module.pr_status.render({"published": "Shipped in:\n" + old}),
+                     "user": {"login": "github-actions[bot]"}}]
+        writes = []
+
+        def api(method, path, payload=None):
+            if method == "GET":
+                if len(writes) == 1:
+                    comments[0]["body"] = module.pr_status.render({"checks": "new status"})
+                return comments
+            writes.append(payload["body"])
+            comments[0]["body"] = payload["body"]
+
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            module.publish("o/r", 7, new, comments.copy(), 0)
+        self.assertEqual(len(writes), 2)
+        self.assertEqual(module.pr_status.parse(comments[0]["body"]),
+                         {"checks": "new status", "published": "Shipped in:\n" + old + "\n" + new})
 
     def test_dry_run_over_a_git_span(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -71,8 +140,8 @@ class PublishedInTests(unittest.TestCase):
             {"databaseId": 1, "body": module.MARKER + " old", "author": {"login": "someone"}},
             {"databaseId": 2, "body": module.MARKER + "\nShipped in:", "author": {"login": "github-actions"}},
         ]}}
-        self.assertEqual(module.marker_comment(node)["id"], 2)
-        self.assertIsNone(module.marker_comment({}))
+        self.assertEqual(module.normalize_comments(node)[1]["user"]["login"], "github-actions[bot]")
+        self.assertEqual(module.normalize_comments({}), [])
         refusal = subprocess.CalledProcessError(1, "gh", stderr="HTTP 403: You have exceeded a secondary rate limit")
         self.assertTrue(module.rate_limited(refusal))
         self.assertFalse(module.rate_limited(subprocess.CalledProcessError(1, "gh", stderr="HTTP 404: Not Found")))
