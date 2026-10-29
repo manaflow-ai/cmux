@@ -49,10 +49,16 @@ nonisolated final class OneShotRelay: @unchecked Sendable {
     func waitForRequest(containing needle: String, timeout: Duration = .seconds(2)) async -> Bool {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
-            if requests.contains(where: { $0.contains(needle) }) { return true }
+            if recorded(containing: needle) { return true }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        return requests.contains(where: { $0.contains(needle) })
+        return recorded(containing: needle)
+    }
+
+    /// JSONSerialization writes `/` as `\/`, so a method such as `_acpmux/btw` is matched on
+    /// the unescaped text.
+    private func recorded(containing needle: String) -> Bool {
+        requests.contains { $0.replacingOccurrences(of: #"\/"#, with: "/").contains(needle) }
     }
 
     convenience init(path: String, reply: String) throws {
