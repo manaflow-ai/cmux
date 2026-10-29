@@ -14,12 +14,12 @@ mod idle_adopted;
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
 mod queue_restore;
+#[path = "durable_agents/reconnect_priority.rs"]
+mod reconnect_priority;
 #[path = "durable_agents/restart_fence.rs"]
 mod restart_fence;
 #[path = "durable_agents/restart_reattach.rs"]
 mod restart_reattach;
-#[path = "durable_agents/reconnect_priority.rs"]
-mod reconnect_priority;
 #[path = "durable_agents/stalled_turn.rs"]
 mod stalled_turn;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
