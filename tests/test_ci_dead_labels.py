@@ -569,6 +569,40 @@ class RedispatchTests(unittest.TestCase):
         self.assertEqual(github.calls, [])
         self.assertIn("dry run", results[1])
 
+    def test_an_unfinished_cancel_is_read_once_and_resumed_next_sweep(self) -> None:
+        github = FakeGitHub(settle_after=2)
+        github.add(run(1))
+        (results, failures), saved = self.move(github, [go(run(1))])
+        self.assertEqual(github.state[1]["reads"], 1)
+        self.assertEqual(github.calls, [("force-cancel", 1)])
+        self.assertEqual(failures, 0)
+        self.assertIn("next sweep", results[1])
+        self.assertEqual(owed_ids(saved.last), [1])
+        owed, _, failures = self.next_sweep(github, saved)
+        self.assertEqual(github.calls, [("force-cancel", 1), ("rerun", 1)])
+        self.assertEqual((owed_ids(owed), failures), ([1], 0))
+        self.assertEqual(dead_labels.resume(github, owed, now=200.0)[0], [])
+
+    def test_a_failed_immediate_cancel_read_leaves_owed_and_stops_later_cancels(self) -> None:
+        read_log = janitor_guard.ReadLog()
+
+        class FailedRead(FakeGitHub):
+            def run(self, run_id):
+                if self.state[run_id]["cancelled"]:
+                    read_log.failed("the immediate cancel read")
+                    raise RuntimeError("the immediate cancel read failed")
+                return super().run(run_id)
+        github = FailedRead()
+        github.add(run(1))
+        github.add(run(2))
+        saved = Store()
+        with redirect_stderr(io.StringIO()):
+            (results, _), _ = self.move(github, [go(run(1)), go(run(2))], saved, hold=read_log.hold)
+        self.assertEqual(github.calls, [("force-cancel", 1)])
+        self.assertEqual(owed_ids(saved.last), [1])
+        self.assertIn("could not be read", results[1])
+        self.assertIn("nothing is cancelled", results[2])
+
     def test_a_cancel_that_never_settles_stays_owed_for_the_next_sweep(self) -> None:
         github = FakeGitHub(settle_after=10**9)
         github.add(run(1))
