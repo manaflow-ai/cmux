@@ -33,7 +33,9 @@ What is generated, in one place:
         - adds a "committed" generator or a generated_outputs.py export pattern, moves one from
           "build" back to "committed", or widens a committed generator's outputs, or adds a
           by-design exception without a ruling link;
-        - adds a baseline line for a file the base did not track;
+        - adds a baseline line for a file the base did not track, unless the change moves a file
+          the base's baseline lists there (git sees a rename) and drops the old line: the line
+          moves with its file, and the baseline does not grow;
         - edits an output of a generator that declares its inputs without changing any of
           them (a hand edit the next regeneration would undo);
         - leaves a tracked generated file at --head that neither a committed generator nor the
@@ -252,7 +254,31 @@ def changes(repo: Path, base: str, head: str) -> list[tuple[str, str]]:
     return [(fields[i][0], fields[i + 1]) for i in range(0, len(fields), 2)]
 
 
-def rule_changes(base: Rules, head: Rules, base_tracked: set[str]) -> list[str]:
+def moved_baseline(repo: Path, base: Rules, head: Rules, base_rev: str, head_rev: str) -> dict[str, str]:
+    """{new path: old path} for each file the base's baseline lists that the change moves (a git rename)
+    to a path the head's baseline lists instead. Such a line moves with its file; the baseline keeps its
+    size (a package split moved BackdropArt.swift from CmuxNextDesign to CmuxNextAppearance/Backdrop)."""
+    dropped = base.baseline - head.baseline
+    added = head.baseline - base.baseline
+    if not dropped or not added:
+        return {}
+    out = git(repo, "diff", "-M", "--name-status", "-z", base_rev, head_rev, "--", *sorted(dropped | added))
+    fields = [f for f in out.split("\0") if f]
+    moves, index = {}, 0
+    while index < len(fields):
+        status = fields[index]
+        if status.startswith(("R", "C")):
+            old, new = fields[index + 1], fields[index + 2]
+            if status.startswith("R") and old in dropped and new in added:
+                moves[new] = old
+            index += 3
+        else:
+            index += 2
+    return moves
+
+
+def rule_changes(base: Rules, head: Rules, base_tracked: set[str], moved: dict[str, str] | None = None) -> list[str]:
+    moved = moved or {}
     errors = []
     before = {g.id: g for g in base.generators}
     for g in head.generators:
@@ -281,7 +307,7 @@ def rule_changes(base: Rules, head: Rules, base_tracked: set[str]) -> list[str]:
             errors.append(f"{MANIFEST}: the committed-by-design entry {entry.get('paths')} is new and has no "
                           "\"ruling\" link (the issue or comment that decided these files belong in git).")
     for path in sorted(head.baseline - base.baseline):
-        if path not in base_tracked:
+        if path not in base_tracked and path not in moved:
             errors.append(f"{BASELINE}: {path} is new to the baseline but the base does not track it. "
                           "The baseline only lists generated files git already had; it may only shrink.")
     return errors
@@ -316,8 +342,9 @@ def check(repo: Path, base_rev: str, head_rev: str, exports=None) -> tuple[list[
     changed = changes(repo, base_rev, head_rev)
     errors: list[str] = []
     reported: set[str] = set()
+    moved = moved_baseline(repo, base, head, base_rev, head_rev)
     for status, path in changed:
-        if status != "A" or base.covered(path):
+        if status != "A" or base.covered(path) or path in moved:
             continue
         # The base's rules decide, and an output the change itself declares (say a new "build"
         # generator's) is generated too unless the head covers it (rule_changes judges that cover).
@@ -329,7 +356,7 @@ def check(repo: Path, base_rev: str, head_rev: str, exports=None) -> tuple[list[
                 "gitignore it and generate it where it is used (the build, the test preload, the install "
                 "hook), the way the web bundles and the page strings are (ce0b9e76, #21946).")
     base_tracked = set(git(repo, "ls-tree", "-r", "--name-only", "-z", base_rev).split("\0")) - {""}
-    errors += rule_changes(base, head, base_tracked)
+    errors += rule_changes(base, head, base_tracked, moved)
     errors += hand_edits(base, changed)
     missing = [p for p in uncovered_generated(head, repo) if p not in head.baseline]
     # A file reported above is not reported twice. The rest are this change's when it touched the file
