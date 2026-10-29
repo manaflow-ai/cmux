@@ -324,5 +324,20 @@ describe("lineage from a Codex chat's records", () => {
       lastMessage: "Reviewing the changed files.",
       tokens: 321,
     });
+    fold.reduce(
+      {
+        seq: 2,
+        at: 2000,
+        msg: { params: { update, _meta: { acpmux: { subagents: [
+          { id: "native-worker", model: null, effort: null, lastMessage: null },
+        ] } } } },
+      },
+      update,
+    );
+    expect(fold.all().find((agent) => agent.id === "native-worker")).not.toMatchObject({
+      model: expect.any(String),
+      effort: expect.any(String),
+      lastMessage: expect.any(String),
+    });
   });
 });
