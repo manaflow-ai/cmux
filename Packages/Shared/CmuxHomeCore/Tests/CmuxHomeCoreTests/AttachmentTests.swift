@@ -422,7 +422,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         let root = try temporaryDirectory()
         let source = root.appendingPathComponent("growing.txt")
         defer { try? FileManager.default.removeItem(at: root) }
-        let byteCount = 100_000_001
+        let byteCount = 1_073_741_825
         #expect(FileManager.default.createFile(atPath: source.path, contents: nil))
         let file = try FileHandle(forWritingTo: source)
         try file.truncate(atOffset: UInt64(byteCount))

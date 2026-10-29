@@ -157,8 +157,10 @@
 
 .ui-menu-check {
   display: inline-flex;
+  align-items: center;
   width: 12px;
   justify-content: center;
+  line-height: 1;
 }
 
 .ui-select {

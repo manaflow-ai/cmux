@@ -23,6 +23,12 @@ import Testing
             let file = root.appending(path: "staged-" + token).appending(path: "a.bin")
             let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
             #expect((attributes[.size] as? NSNumber)?.intValue == 0)
+            let wrongSession = await stage(.chunk(token: token, offset: 0, data: Data([1])), "other-chat")
+            #expect(wrongSession["ok"] as? Bool == false)
+            let oversizedChunk = await stage(.chunk(token: token, offset: 0, data: Data(repeating: 0, count: 512 * 1024 + 1)), nil)
+            #expect(oversizedChunk["ok"] as? Bool == false)
+            let invalidOffset = await stage(.chunk(token: token, offset: Int.max, data: Data([1])), nil)
+            #expect(invalidOffset["ok"] as? Bool == false)
             let chunk = await stage(.chunk(token: token, offset: 0, data: Data([1, 2])), nil)
             #expect(chunk["ok"] as? Bool == true)
             let prematureFinish = await stage(.finish(token: token), nil)
@@ -31,8 +37,15 @@ import Testing
             #expect(second["ok"] as? Bool == true)
             let secondValue = try #require(second["value"] as? [String: Any])
             let secondToken = try #require(secondValue["token"] as? String)
+            let wrongCancel = await stage(.cancel(token: token), "other-chat")
+            #expect(wrongCancel["ok"] as? Bool == false)
+            #expect(FileManager.default.fileExists(atPath: file.path))
             _ = await stage(.cancel(token: token), nil)
             _ = await stage(.cancel(token: secondToken), nil)
+            #expect(!FileManager.default.fileExists(atPath: file.deletingLastPathComponent().path))
+            #expect(!FileManager.default.fileExists(atPath: root.appending(path: "staged-" + secondToken).path))
+            let afterCancel = await stage(.chunk(token: token, offset: 2, data: Data([3])), nil)
+            #expect(afterCancel["ok"] as? Bool == false)
         }
     }
 
@@ -67,7 +80,7 @@ import Testing
         }
         let now = Date()
         func upload(_ chat: String?, age days: Double) throws -> URL {
-            let parent = chat.map { AgentChatUploads.chatFolder($0, in: root) } ?? root
+            let parent = chat.map { ChatUploadFolders(root: root).chat($0) } ?? root
             let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
             _ = try AgentChatUploads.write([AgentPaneUpload(name: "a.txt", data: Data("x".utf8))], in: folder)
             try manager.setAttributes([.creationDate: now.addingTimeInterval(-days * 86_400)], ofItemAtPath: folder.path)
@@ -75,12 +88,12 @@ import Testing
         }
         let old = try upload("chat-a", age: 31), new = try upload("chat-a", age: 1)
         let onlyOld = try upload("chat-b", age: 40), newChatOld = try upload(nil, age: 45), newChatNew = try upload(nil, age: 2)
-        let notes = AgentChatUploads.chatFolder("chat-c", in: root).appending(path: "notes", directoryHint: .isDirectory)
+        let notes = ChatUploadFolders(root: root).chat("chat-c").appending(path: "notes", directoryHint: .isDirectory)
         try manager.createDirectory(at: notes, withIntermediateDirectories: true)
         try manager.setAttributes([.creationDate: now.addingTimeInterval(-90 * 86_400)], ofItemAtPath: notes.path)
         try manager.createDirectory(at: outside, withIntermediateDirectories: true)
         try Data("x".utf8).write(to: outside.appending(path: "keep.txt"))
-        try manager.createSymbolicLink(at: AgentChatUploads.chatFolder("chat-d", in: root), withDestinationURL: outside)
+        try manager.createSymbolicLink(at: ChatUploadFolders(root: root).chat("chat-d"), withDestinationURL: outside)
         try manager.createSymbolicLink(at: root.appending(path: UUID().uuidString.lowercased()), withDestinationURL: outside)
 
         #expect(AgentChatUploads.sweep(root, now: now) == 3)
@@ -105,8 +118,8 @@ import Testing
     }
 
     @Test func aSessionIdIsOneFolderName() {
-        for good in ["0190a000-0000-7000-8000-000000000001", "chat_1"] { #expect(AgentChatUploads.isSessionName(good), "\(good)") }
-        for bad in ["", ".", "..", "a/b", "huge-blue/chat", "é"] { #expect(!AgentChatUploads.isSessionName(bad), "\(bad)") }
+        for good in ["0190a000-0000-7000-8000-000000000001", "chat_1"] { #expect(ChatUploadFolders.isSessionName(good), "\(good)") }
+        for bad in ["", ".", "..", "a/b", "huge-blue/chat", "é"] { #expect(!ChatUploadFolders.isSessionName(bad), "\(bad)") }
     }
 }
 
