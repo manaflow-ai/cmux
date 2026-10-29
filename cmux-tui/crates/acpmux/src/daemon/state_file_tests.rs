@@ -59,7 +59,7 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
     std::fs::write(
         &systemctl,
         format!(
-            "#!/bin/sh\nif [ \"$2\" = show ] && [ \"$4\" = LoadState ]; then echo loaded; exit 0; fi\nif [ \"$2\" = show ] && [ \"$4\" = Environment ]; then echo ACPMUX_HOME={}; exit 0; fi\nif [ \"$2\" = start ]; then : > \"$(dirname \"$0\")/started\"; exit 0; fi\nexit 1\n",
+            "#!/bin/sh\nif [ \"$2\" = show ] && [ \"$5\" = LoadState ]; then echo loaded; exit 0; fi\nif [ \"$2\" = show ] && [ \"$5\" = Environment ]; then echo ACPMUX_HOME={}; exit 0; fi\nif [ \"$2\" = start ]; then : > \"$(dirname \"$0\")/started\"; exit 0; fi\nexit 1\n",
             supervised.display()
         ),
     )
