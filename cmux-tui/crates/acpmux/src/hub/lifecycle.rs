@@ -758,7 +758,7 @@ impl Hub {
             }
             {
                 let mut m = session.meta.lock().unwrap();
-                m.agent_session_id = None;
+                m.set_agent_session_id(None, "claude");
                 m.claude_unstored = false;
             }
             if !untouched {
@@ -990,7 +990,7 @@ impl Hub {
                 } else {
                     "new"
                 };
-                m.agent_session_id = sid.clone();
+                m.set_agent_session_id(sid.clone(), "claude");
                 m.claude_unstored = level == "new";
                 if level != "exact" {
                     m.claude_profile = Some(m.harness.clone());
@@ -1089,7 +1089,7 @@ impl Hub {
                 .to_owned();
             {
                 let mut m = session.meta.lock().unwrap();
-                m.agent_session_id = Some(sid);
+                m.set_agent_session_id(Some(sid), "non-claude");
             }
             self.absorb_session_response(session, &res);
             if had_history {

@@ -180,6 +180,8 @@ class Sandbox:
             "GITHUB_REPOSITORY": "manaflow-ai/cmux",
             "R2_ENDPOINT": "https://r2.invalid",
             "FAKE_SLEEP_LOG": str(self.root / "sleep.log"),
+            # Each run is its own job, as on a runner: a fresh RUNNER_TEMP.
+            "RUNNER_TEMP": tempfile.mkdtemp(prefix="runner-temp-", dir=self.root),
             **env,
         }
         return subprocess.run(["bash", "-e", "-c", script], cwd=self.repo, env=full, text=True, capture_output=True)
