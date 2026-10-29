@@ -18,9 +18,9 @@ await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(vite, "agent-pane.new-tab", {
+    await warmGalleryFrame(vite, "agent-pane.new-tab-page", {
       browser,
-      params: { variant: "inherited-project", theme: "Apple System Colors" },
+      params: { variant: "idle", theme: "Apple System Colors" },
     });
   });
   afterAll(async () => {
@@ -34,7 +34,7 @@ await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
         const page = await browser!.newPage({ viewport: { width, height: 560 } });
         const port = (vite!.httpServer!.address() as { port: number }).port;
         await page.goto(
-          `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", { variant: "inherited-project", theme })}`,
+          `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab-page", { variant: "idle", theme })}`,
         );
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const result = await page.locator(".acpmux-project-button").evaluate((button) => {
