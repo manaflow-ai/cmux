@@ -443,3 +443,16 @@ async fn allowed_relay_messages_become_read_only_after_confirmed_write_and_never
     child.kill().await;
     hub.shutdown_all().await;
 }
+
+#[tokio::test]
+async fn heartbeat_omits_invalid_team_claims_from_generic_tags() {
+    let (hub, _) = hub();
+    let session = session(&hub);
+    hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+    for invalid in ["@member/role", "a/b", "with space", "", &"a".repeat(129)] {
+        hub.set_tags(&session, json!({"teamAddress": invalid}).as_object(), &[], None);
+        assert_eq!(hub.mesh_rows().await[0].team_address, None, "{invalid}");
+    }
+    hub.set_tags(&session, json!({"teamAddress": "reviewer:backend"}).as_object(), &[], None);
+    assert_eq!(hub.mesh_rows().await[0].team_address.as_deref(), Some("reviewer:backend"));
+}

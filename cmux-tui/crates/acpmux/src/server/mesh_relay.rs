@@ -440,9 +440,8 @@ pub async fn deliver(
     control: &dyn ControlHook,
     own_daemon: Option<&str>,
 ) -> Option<Ack> {
-    let team = message.to.team_address.is_some()
-        || message.from.team_address.is_some()
-        || message.start_work.is_some();
+    // Sender display metadata alone must never change legacy session delivery semantics.
+    let team = message.to.team_address.is_some() || message.start_work.is_some();
     if team
         && !hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging)
     {

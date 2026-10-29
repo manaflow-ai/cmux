@@ -153,10 +153,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let (k, val) = assignment.split_once('=').ok_or_else(|| anyhow!("use key=value"))?;
             let v = match k {
                 "team-address" | "teamAddress" => {
-                    if val.is_empty()
-                        || val.len() > 128
-                        || !val.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
-                    {
+                    if !crate::mesh::valid_team_suffix(val) {
                         return Err(anyhow!(
                             "team-address must be an agent suffix such as coordinator; the hub supplies your member namespace"
                         ));

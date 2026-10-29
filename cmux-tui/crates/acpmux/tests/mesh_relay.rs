@@ -312,7 +312,10 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
     // An id that is no plain id (here a credential) is never run, acked (its path) or logged.
     let token_id = "Bearer eyJhbGciOiJIUzI1NiJ9/../ack";
     fake.lease(message(token_id, "dep-land", Kind::Prompt));
-    fake.lease(message("msg-1", "dep-land", Kind::Prompt));
+    // Canonical sender display metadata does not turn a legacy session target into team traffic.
+    let mut legacy = message("msg-1", "dep-land", Kind::Prompt);
+    legacy.from.team_address = Some("@member/coordinator".into());
+    fake.lease(legacy);
     fake.until("the ack", |s| !s.acked("msg-1").is_empty()).await;
     // Its ack was lost: the hub leases it again, and it is acked again without a second run.
     fake.lease(InMessage { attempt: 2, ..message("msg-1", "dep-land", Kind::Prompt) });

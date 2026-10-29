@@ -46,9 +46,11 @@ impl Hub {
                                 m.tags
                                     .get("teamAddress")
                                     .filter(|tag| {
-                                        tag.expires_at
-                                            .map(|at| at > crate::store::now_ms())
-                                            .unwrap_or(true)
+                                        crate::mesh::valid_team_suffix(&tag.value)
+                                            && tag
+                                                .expires_at
+                                                .map(|at| at > crate::store::now_ms())
+                                                .unwrap_or(true)
                                     })
                                     .map(|tag| tag.value.clone())
                             })
