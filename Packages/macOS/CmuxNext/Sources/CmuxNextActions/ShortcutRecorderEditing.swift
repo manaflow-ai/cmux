@@ -7,7 +7,8 @@ public import AppKit
     /// Ghostty keybinds and browser chords for the key-down being recorded
     /// (nil for a restored default).
     func environment(for event: NSEvent?) -> ShortcutEditEnvironment
-    /// Writes each shortcut; nil unbinds the action (`null`).
+    /// Writes each shortcut; nil unbinds the action (`null`); `keys` writes
+    /// that list.
     func save(_ changes: [ShortcutChange])
     /// Removes `id`'s override, restoring its default, and unbinds `others`.
     func restoreDefault(_ id: ActionID, unbinding others: [ActionID])
@@ -16,9 +17,18 @@ public import AppKit
 public struct ShortcutChange: Equatable, Sendable {
     public var id: ActionID
     public var shortcut: Shortcut?
+    /// Every key `id` keeps (one key or a chord each), written as
+    /// `{"any": [...]}`; set when one of several keys leaves (`shortcut` is
+    /// then unused).
+    public var keys: [[Shortcut]]?
 
     public init(_ id: ActionID, _ shortcut: Shortcut?) {
         self.id = id
         self.shortcut = shortcut
+    }
+
+    public init(_ id: ActionID, keys: [[Shortcut]]) {
+        self.id = id
+        self.keys = keys
     }
 }

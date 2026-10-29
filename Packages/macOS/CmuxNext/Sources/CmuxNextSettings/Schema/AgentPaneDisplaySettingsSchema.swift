@@ -24,6 +24,23 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
     /// Every row's key (agents may set them: looks only).
     static var keys: Set<String> { Set(descriptors.map(\.id)) }
 
+    /// `agentPane.display.minimap`, the Chat Minimap row.
+    static let minimapKey = (section + ["minimap"]).joined(separator: ".")
+
+    /// A stored value as the chat page and schema readers read it. `agentPane.display.minimap` was an on/off toggle
+    /// before it was the Rail / Full Map / Off choice: on (`true`) was the full map, and off (`false`)
+    /// left the chat to the thread minimap experiment, which no value means now. Every other value
+    /// is returned as stored; the row still checks it.
+    ///
+    /// - Parameters:
+    ///   - id: The dotted key.
+    ///   - value: The value cmux-next.json holds.
+    /// - Returns: The value to check against the row, or nil for none.
+    static func pageValue(_ id: String, _ value: JSONValue) -> JSONValue? {
+        guard id == minimapKey, case .bool(let on) = value else { return value }
+        return on ? .string("full") : nil
+    }
+
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         func row(_ path: [String], _ title: SettingText, help: SettingText? = nil, _ kind: SettingKind,
@@ -40,6 +57,12 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
             row(["fullWidth"], SettingsText.keyed("settings.agentPane.display.fullWidth", "Chat Full Width"),
                 help: SettingsText.keyed("settings.agentPane.display.fullWidth.help", "The chat fills the whole pane instead of the text width."),
                 .toggle, .bool(false), ["full", "width", "wide"]),
+            // The VS Code-style picture of the whole chat at its right edge (webviews chatMinimap/ChatMinimap.tsx).
+            // Off by default; the thread rail at the left (Toggle Thread Minimap) is its own thing.
+            row(["vscodeMinimap"], SettingsText.keyed("settings.agentPane.display.vscodeMinimap", "VS Code Minimap"),
+                help: SettingsText.keyed("settings.agentPane.display.vscodeMinimap.help",
+                                         "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."),
+                .toggle, .bool(false), ["minimap", "vscode", "vs code", "code", "map", "overview", "scroll", "scrollbar", "right", "toggle"]),
             row(["font", "preset"], SettingsText.keyed("settings.agentPane.display.font", "Chat Font"),
                 .choice([
                     SettingChoice("markdown", SettingsText.keyed("settings.choice.agentChatFontMarkdown", "Same as Markdown Viewer")),
@@ -80,6 +103,23 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
                 ]),
                 .string("left"), ["session", "info", "chip", "environment", "machine", "folder", "placement", "left", "right", "off"]),
+            // What the chat's edge shows (webviews threadMinimap/ThreadMinimap.tsx): the prompt rail
+            // of ticks, the full map (ScrollMap.tsx),
+            // or nothing. The values are the `thread-minimap-layout` experiment's arms and the
+            // default is its default arm (webviews/test/thread-minimap-setting.test.ts checks both),
+            // so the row never says one thing while the chat shows another. The keywords are the
+            // words people search for it with (Leo, 2026-10-22, searching "TICK RAIL": "doesn't
+            // show as an option").
+            row(["minimap"], SettingsText.keyed("settings.agentPane.display.minimap", "Chat Minimap"),
+                help: SettingsText.keyed("settings.agentPane.display.minimap.help",
+                                         "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing."),
+                .choice([
+                    SettingChoice("compact", SettingsText.keyed("settings.choice.agentChatMinimapRail", "Rail")),
+                    SettingChoice("full", SettingsText.keyed("settings.choice.agentChatMinimapFull", "Full Map")),
+                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                .string("compact"), ["minimap", "thread minimap", "map", "overview", "scroll", "vscode", "rail", "tick", "ticks",
+                                 "wave", "prompt rail", "scroll rail", "prompts"]),
         ]
     }
 }

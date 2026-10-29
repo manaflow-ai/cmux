@@ -3,6 +3,49 @@
 
 use serde_json::Value;
 
+/// The target names used by `host update --binary-dir` release bundles.
+pub fn target_triple(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("Linux" | "linux", "x86_64" | "amd64") => Some("x86_64-unknown-linux-musl"),
+        ("Linux" | "linux", "aarch64" | "arm64") => Some("aarch64-unknown-linux-musl"),
+        ("Darwin" | "macos", "arm64" | "aarch64") => Some("aarch64-apple-darwin"),
+        ("Darwin" | "macos", "x86_64" | "amd64") => Some("x86_64-apple-darwin"),
+        _ => None,
+    }
+}
+
+pub fn target_from_uname(uname: &str) -> Option<&'static str> {
+    let mut words = uname.split_whitespace();
+    target_triple(words.next()?, words.next()?)
+}
+
+fn local_target() -> Option<&'static str> {
+    target_triple(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// The actionable hint for an outdated peer, including the release target
+/// needed by `host update --binary-dir` when platforms differ.
+pub fn outdated_hint(name: &str, peer: &Value) -> Option<String> {
+    if peer.get("outdated").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let platform = peer.get("health").filter(|health| health.is_object()).unwrap_or(peer);
+    let os = platform.get("os").and_then(Value::as_str);
+    let arch = platform.get("arch").and_then(Value::as_str);
+    let target = os.zip(arch).and_then(|(os, arch)| target_triple(os, arch));
+    if let Some(target) = target.filter(|target| Some(*target) != local_target()) {
+        return Some(format!(
+            "  (differs from this build: acpmux host update {name} --binary-dir DIR (DIR/acpmux-{target}), or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md))"
+        ));
+    }
+    if target.is_none() {
+        return Some(format!(
+            "  (peer target unknown: acpmux host update {name} only with a matching build, or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md))"
+        ));
+    }
+    Some(format!("  (differs from this build: acpmux host update {name})"))
+}
+
 /// The lines `peer status` prints for `reply`: one per machine, then one
 /// indented line per problem its health loop reports.
 pub fn lines(reply: &Value) -> Vec<String> {
@@ -10,12 +53,23 @@ pub fn lines(reply: &Value) -> Vec<String> {
     hosts.iter().flat_map(|h| std::iter::once(line(h)).chain(problem_lines(h))).collect()
 }
 
-/// `  problem DNS: DNS: github.com does not resolve (since 2026-10-25T11:40:00.000Z)`.
+/// `  problem DNS: DNS: github.com does not resolve (since 2026-10-25T11:40:00.000Z)`;
+/// a disk problem with a severity says it: `  problem disk (warning): ...`.
 fn problem_lines(h: &Value) -> Vec<String> {
-    problems(h)
-        .map(|(check, detail, since)| {
+    h.get("problems")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            let check = p.get("check")?.as_str()?;
+            let detail = p.get("detail")?.as_str()?;
+            let since = p.get("since").and_then(Value::as_str);
             let since = since.map(|s| format!(" (since {s})")).unwrap_or_default();
-            format!("  problem {}: {detail}{since}", check_label(check))
+            let level = match p.get("severity").and_then(Value::as_str) {
+                Some(level @ ("warning" | "critical")) => format!(" ({level})"),
+                _ => String::new(),
+            };
+            Some(format!("  problem {}{level}: {detail}{since}", check_label(check)))
         })
         .collect()
 }
@@ -36,6 +90,7 @@ fn check_label(check: &str) -> &str {
         "disk" => "disk",
         "ram" => "RAM",
         "acpmux" => "acpmux",
+        "cmux" => "cmux-tui",
         "peer" => "peer link",
         "loop" => "health check",
         other => other,
@@ -96,8 +151,8 @@ fn line(h: &Value) -> String {
         parts.push(format!("build {b}"));
     }
     let mut out = format!("{label:<20} ok  {}", parts.join("  "));
-    if h.get("outdated").and_then(Value::as_bool).unwrap_or(false) {
-        out.push_str(&format!("  (differs from this build: acpmux host update {name})"));
+    if let Some(hint) = outdated_hint(name, h) {
+        out.push_str(&hint);
     }
     if let Some(e) = h.get("error").and_then(Value::as_str) {
         out.push_str(&format!("  ({e})"));
@@ -141,10 +196,76 @@ fn gb(bytes: u64) -> String {
     format!("{:.1} GB", bytes as f64 / 1e9)
 }
 
+/// `acpmux host vm-host`'s line for an `_acpmux/vm_host` reply:
+/// `this machine: vmHost on (unsandboxed only for its owner's own sessions, …)`.
+pub fn vm_host_line(name: Option<&str>, v: &Value) -> String {
+    let who = name.unwrap_or("this machine");
+    let on = v["vmHost"] == true;
+    let state = if on { "on" } else { "off" };
+    let why = match (on, v["configured"].as_bool()) {
+        (_, Some(false)) => "turned off in its config",
+        (true, _) => "unsandboxed only for its owner's own sessions, when the Cloud API says so",
+        (false, _) => "always sandboxed here",
+    };
+    format!("{who}: vmHost {state} ({why})")
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn vm_host_line_says_why() {
+        use serde_json::json;
+        let v = json!({"vmHost": true, "cmuxVm": true, "configured": null});
+        assert_eq!(
+            super::vm_host_line(None, &v),
+            "this machine: vmHost on (unsandboxed only for its owner's own sessions, when the Cloud API says so)"
+        );
+        let v = json!({"vmHost": false, "cmuxVm": true, "configured": false});
+        assert_eq!(
+            super::vm_host_line(Some("cloud-a"), &v),
+            "cloud-a: vmHost off (turned off in its config)"
+        );
+        // A Mac: its Seatbelt sandbox always runs.
+        let v = json!({"vmHost": false, "cmuxVm": false, "configured": null});
+        assert_eq!(
+            super::vm_host_line(None, &v),
+            "this machine: vmHost off (always sandboxed here)"
+        );
+    }
+
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn outdated_hint_names_the_peer_and_avoids_cross_platform_update() {
+        let other_os = if std::env::consts::OS == "linux" { "macos" } else { "linux" };
+        let other = json!({"outdated": true, "os": other_os, "arch": std::env::consts::ARCH});
+        let hint = outdated_hint("my-linux", &other).unwrap();
+        assert!(hint.contains("acpmux host update my-linux --binary-dir DIR"), "{hint}");
+        assert!(hint.contains("DIR/acpmux-"), "{hint}");
+        assert!(
+            hint.contains("or rebuild acpmux on my-linux for its OS and architecture"),
+            "{hint}"
+        );
+        let same =
+            json!({"outdated": true, "os": std::env::consts::OS, "arch": std::env::consts::ARCH});
+        assert_eq!(
+            outdated_hint("same", &same).as_deref(),
+            Some("  (differs from this build: acpmux host update same)")
+        );
+        let nested =
+            json!({"outdated": true, "health": {"os": other_os, "arch": std::env::consts::ARCH}});
+        assert!(
+            outdated_hint("nested-linux", &nested)
+                .unwrap()
+                .contains("acpmux host update nested-linux --binary-dir DIR")
+        );
+        let unknown = json!({"outdated": true, "health": {"cpus": 4}});
+        let hint = outdated_hint("unknown-platform", &unknown).unwrap();
+        assert!(hint.contains("peer target unknown"), "{hint}");
+        assert!(hint.contains("only with a matching build"), "{hint}");
+        assert!(hint.contains("or rebuild acpmux on unknown-platform"), "{hint}");
+    }
 
     #[test]
     fn a_reachable_peer_reads_its_numbers_and_an_unreachable_one_its_next_step() {
@@ -156,7 +277,7 @@ mod tests {
             {"name": "big-red", "self": false, "reachable": false,
              "error": "connection refused; `acpmux host doctor big-red` checks it step by step"},
             {"name": "cmux16", "self": false, "reachable": true, "latencyMs": 41, "outdated": true,
-             "build": "old"},
+             "build": "old", "os": std::env::consts::OS, "arch": std::env::consts::ARCH},
         ]});
         let l = lines(&reply);
         assert_eq!(
@@ -196,6 +317,18 @@ mod tests {
             "  problem health check: machine health check has not run since 2026-10-25T11:50:00.000Z"
         );
         assert!(l[3].starts_with("cmux16"), "{}", l[3]);
+    }
+
+    #[test]
+    fn a_disk_problem_says_its_severity_and_a_cmux_tui_one_its_name() {
+        let reply = json!({"hosts": [{"name": "devbox", "self": true, "reachable": true, "problems": [
+            {"check": "disk", "detail": "disk: CRITICAL: 1.0 GB free on /", "severity": "critical"},
+            {"check": "disk", "detail": "disk: 9.0 GB free on /", "severity": "loud"},
+            {"check": "cmux", "detail": "cmux: cmux-tui-daemon.service failed"}]}]});
+        let l = lines(&reply);
+        assert_eq!(l[1], "  problem disk (critical): disk: CRITICAL: 1.0 GB free on /");
+        assert_eq!(l[2], "  problem disk: disk: 9.0 GB free on /");
+        assert_eq!(l[3], "  problem cmux-tui: cmux: cmux-tui-daemon.service failed");
     }
 
     #[test]

@@ -147,7 +147,7 @@ import Testing
 
     @Test func everySettingIdIsAMascot() {
         // HomeChiefPetSetting.mascots (CmuxNextSettings) lists the same ids.
-        #expect(ChiefPetMascot.allCases.map(\.rawValue) == ["orb", "orb-spark", "orb-hood", "machine", "machine-cyan", "machine-blue", "moon", "moon-blue", "fox"])
+        #expect(ChiefPetMascot.allCases.map(\.rawValue) == ["orb", "orb-spark", "orb-hood", "machine", "machine-cyan", "machine-blue", "moon", "moon-blue", "fox", "mochi"])
     }
 
     @Test func pressOnTheRailBackgroundDragsButIsNoClick() {

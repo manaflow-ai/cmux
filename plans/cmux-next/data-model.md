@@ -238,6 +238,12 @@ Terminal defaults (`defaults.cwd` / `defaults.env`) are applied by the app
 when it creates a terminal in a space's workspace (it knows the space; a remote
 daemon never does). A terminal created without the app (CLI on a machine)
 gets none.
+Set Space Terminal Defaults… (`space.setDefaults`) changes only the fields it
+names: `--cwd X` keeps the space's env and `--env '{...}'` keeps its cwd; an
+empty one (`--cwd=`) clears that field, both empty clear the defaults. `cwd` is
+an absolute directory (or starts with `~`); a value that is not text is refused.
+Clear Space Terminal Defaults… (`space.clearDefaults`) is destructive: the
+palette asks first and automation passes `confirm`.
 
 ### 3.4 Name
 
@@ -402,7 +408,7 @@ two-finger horizontal swipe over the sidebar switches spaces.
 
 | Area | Actions (each: palette, context menu where targeted, CLI verb, bindable shortcut) |
 | --- | --- |
-| Spaces | New Space, New Window in Space, New Workspace in Space, Rename, Set Color (9) / Clear, Set Icon / Clear, Set Theme / Clear, Set Default Browser Profile, Set Default Session, Follow / Unfollow Session, Set Terminal Defaults, Move Left / Right / to Position, Delete (confirmation), Next / Previous (Cmd-Opt-] / [), Select 1-9 (Ctrl-Opt-1..9), Switch to Space |
+| Spaces | New Space, New Window in Space, New Workspace in Space, Rename, Set Color (9) / Clear, Set Icon / Clear, Set Theme / Clear, Set Default Browser Profile, Set Default Session, Follow / Unfollow Session, Set Terminal Defaults, Clear Terminal Defaults (confirmation), Move Left / Right / to Position, Delete (confirmation), Next / Previous (Cmd-Opt-] / [), Select 1-9 (Ctrl-Opt-1..9), Switch to Space |
 | Workspaces | New Workspace on Session, Move to Space, Duplicate into Space, Set Browser Profile / Clear, Set Theme / Clear, Move to Session (re-home layout) |
 | Groups | Move Group to Space |
 | Browser profiles | New, Rename, Set Color / Icon, Delete (confirmation), New Tab with Browser Profile, Open Link in Browser Profile, Move Tab to Browser Profile, Duplicate Tab into Browser Profile |

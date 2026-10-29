@@ -9696,7 +9696,7 @@
       }
     },
     "control.error.uploadFileMissing": {
-      "comment": "browser.page.upload error: a file path the agent passed does not exist or is not a regular file. %@ is the path.",
+      "comment": "browser.page.upload error: a path the agent passed does not exist. %@ is the path.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9955,6 +9955,1458 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "要上傳的檔案超過 25 MB"
+          }
+        }
+      }
+    },
+    "control.error.uploadNoChooser": {
+      "comment": "browser.page.upload error: clicking the element opened no file chooser. %@ is the selector.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clicking %@ opened no file chooser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يفتح النقر على %@ أي منتقي ملفات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klik na %@ nije otvorio birač datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et klik på %@ åbnede ingen filvælger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Klick auf %@ hat keine Dateiauswahl geöffnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hacer clic en %@ no abrió ningún selector de archivos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cliquer sur %@ n’a ouvert aucun sélecteur de fichiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il clic su %@ non ha aperto alcun selettore di file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ をクリックしてもファイル選択画面が開きませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចុច %@ មិនបានបើកផ្ទាំងជ្រើសឯកសារទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@을(를) 클릭해도 파일 선택기가 열리지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et klikk på %@ åpnet ingen filvelger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kliknięcie %@ nie otworzyło okna wyboru plików"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clicar em %@ não abriu nenhum seletor de arquivos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нажатие на %@ не открыло окно выбора файлов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การคลิก %@ ไม่ได้เปิดตัวเลือกไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ öğesine tıklamak dosya seçici açmadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Натискання на %@ не відкрило вікно вибору файлів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhấp vào %@ không mở trình chọn tệp nào"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "点击 %@ 没有打开文件选择器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "點按 %@ 沒有開啟檔案選擇器"
+          }
+        }
+      }
+    },
+    "control.error.uploadTooManyFiles": {
+      "comment": "browser.page.upload error: the page's file input takes a single file and the agent passed several.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file input takes one file"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حقل الملف يقبل ملفًا واحدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polje za datoteku prima jednu datoteku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filfeltet tager én fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Dateifeld nimmt nur eine Datei an"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El campo de archivo acepta un solo archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le champ de fichier n’accepte qu’un fichier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il campo file accetta un solo file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このファイル入力は1つのファイルだけを受け付けます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រអប់ឯកសារនេះទទួលបានតែឯកសារមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 파일 입력은 파일 하나만 받습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filfeltet tar én fil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pole pliku przyjmuje jeden plik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O campo de arquivo aceita um único arquivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поле файла принимает только один файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ช่องไฟล์นี้รับไฟล์ได้ไฟล์เดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosya alanı tek bir dosya alır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поле файлу приймає лише один файл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ô tệp chỉ nhận một tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此文件输入框只接受一个文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此檔案輸入框只接受一個檔案"
+          }
+        }
+      }
+    },
+    "control.error.uploadNeedsFolder": {
+      "comment": "browser.page.upload error: the page's file input takes one folder (webkitdirectory) and the agent passed files.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file input takes one folder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حقل الملف يقبل مجلدًا واحدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polje za datoteku prima jednu mapu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filfeltet tager én mappe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Dateifeld nimmt einen Ordner an"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El campo de archivo acepta una carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le champ de fichier accepte un dossier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il campo file accetta una cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このファイル入力は1つのフォルダを受け付けます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រអប់ឯកសារនេះទទួលបានថតមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 파일 입력은 폴더 하나를 받습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filfeltet tar én mappe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pole pliku przyjmuje jeden folder"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O campo de arquivo aceita uma pasta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поле файла принимает одну папку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ช่องไฟล์นี้รับโฟลเดอร์เดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosya alanı tek bir klasör alır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поле файлу приймає одну теку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ô tệp nhận một thư mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此文件输入框接受一个文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此檔案輸入框接受一個資料夾"
+          }
+        }
+      }
+    },
+    "control.error.uploadNeedsFiles": {
+      "comment": "browser.page.upload error: the page's file input takes files and the agent passed a folder.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file input takes files, not folders"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حقل الملف يقبل ملفات وليس مجلدات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Polje za datoteku prima datoteke, ne mape"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filfeltet tager filer, ikke mapper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Dateifeld nimmt Dateien an, keine Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El campo de archivo acepta archivos, no carpetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le champ de fichier accepte des fichiers, pas des dossiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il campo file accetta file, non cartelle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このファイル入力はフォルダではなくファイルを受け付けます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រអប់ឯកសារនេះទទួលឯកសារ មិនមែនថតទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 파일 입력은 폴더가 아닌 파일을 받습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filfeltet tar filer, ikke mapper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pole pliku przyjmuje pliki, nie foldery"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O campo de arquivo aceita arquivos, não pastas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поле файла принимает файлы, а не папки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ช่องไฟล์นี้รับไฟล์ ไม่ใช่โฟลเดอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosya alanı klasör değil dosya alır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поле файлу приймає файли, а не теки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ô tệp nhận tệp, không nhận thư mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此文件输入框接受文件，不接受文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此檔案輸入框接受檔案，不接受資料夾"
+          }
+        }
+      }
+    },
+    "control.error.uploadSaveChooser": {
+      "comment": "browser.page.upload error: the click opened a save chooser (the page asked where to save), which agents do not answer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The page asked where to save a file, not for files to upload"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلبت الصفحة مكان حفظ ملف، وليس ملفات لرفعها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranica je pitala gdje sačuvati datoteku, a ne datoteke za otpremanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden spurgte, hvor en fil skal gemmes, ikke efter filer til upload"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Seite fragt, wo eine Datei gespeichert werden soll, nicht nach Dateien zum Hochladen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La página preguntó dónde guardar un archivo, no qué archivos subir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La page demande où enregistrer un fichier, pas des fichiers à envoyer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pagina ha chiesto dove salvare un file, non file da caricare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ページが求めたのはアップロードするファイルではなく、ファイルの保存先です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រនេះសួររកកន្លែងរក្សាទុកឯកសារ មិនមែនឯកសារសម្រាប់ផ្ទុកឡើងទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지가 업로드할 파일이 아니라 파일을 저장할 위치를 요청했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden spurte hvor en fil skal lagres, ikke etter filer å laste opp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona zapytała, gdzie zapisać plik, a nie o pliki do przesłania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A página pediu onde salvar um arquivo, não arquivos para enviar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Страница спросила, куда сохранить файл, а не какие файлы загрузить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้านี้ถามตำแหน่งที่จะบันทึกไฟล์ ไม่ใช่ไฟล์ที่จะอัปโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sayfa yüklenecek dosyaları değil, bir dosyanın nereye kaydedileceğini sordu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторінка запитала, куди зберегти файл, а не які файли завантажити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang hỏi nơi lưu tệp, không hỏi tệp để tải lên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "页面询问的是文件保存位置，而不是要上传的文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頁面詢問的是檔案儲存位置，而不是要上傳的檔案"
+          }
+        }
+      }
+    },
+    "control.error.downloadCopyFailed": {
+      "comment": "browser.page.download.wait error: the finished download could not be copied to the path the agent passed. %1$@ is the path, %2$@ the system's reason.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save the download to %1$@: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذر حفظ التنزيل في %1$@: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzimanje nije moguće sačuvati u %1$@: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke gemme overførslen i %1$@: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Download konnte nicht unter %1$@ gespeichert werden: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo guardar la descarga en %1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d’enregistrer le téléchargement dans %1$@ : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile salvare il download in %1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ダウンロードを %1$@ に保存できませんでした: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចរក្សាទុកការទាញយកទៅ %1$@ បានទេ៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다운로드를 %1$@에 저장할 수 없습니다: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke lagre nedlastingen i %1$@: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można zapisać pobranego pliku w %1$@: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível salvar o download em %1$@: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось сохранить загрузку в %1$@: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บันทึกไฟล์ที่ดาวน์โหลดไปที่ %1$@ ไม่ได้: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İndirme %1$@ konumuna kaydedilemedi: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося зберегти завантаження в %1$@: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể lưu tệp tải xuống vào %1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法将下载内容保存到 %1$@：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法將下載內容儲存到 %1$@：%2$@"
+          }
+        }
+      }
+    },
+    "control.error.downloadTargetExists": {
+      "comment": "browser.page.download.wait: the reason (%2$@ of control.error.downloadCopyFailed) when the --path target already holds another file, which is never replaced.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a file is already there"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يوجد ملف هناك بالفعل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "tamo već postoji datoteka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "der ligger allerede en fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dort liegt bereits eine Datei"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ya hay un archivo ahí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "un fichier s’y trouve déjà"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "c’è già un file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "そこにはすでにファイルがあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានឯកសារនៅទីនោះរួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이미 파일이 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "det ligger allerede en fil der"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "istnieje już tam plik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "já existe um arquivo lá"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "там уже есть файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีไฟล์อยู่ที่นั่นแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "orada zaten bir dosya var"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "там уже є файл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "đã có tệp ở đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那里已有文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "那裡已有檔案"
+          }
+        }
+      }
+    },
+    "control.error.downloadNotFound": {
+      "comment": "browser.page.download.wait error: no download in the list has the id the agent passed. %@ is the id.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No download %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد تنزيل %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema preuzimanja %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen overførsel %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Download %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay ninguna descarga %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun téléchargement %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun download %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ダウンロード %@ はありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានការទាញយក %@ ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다운로드 %@이(가) 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen nedlasting %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak pobierania %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum download %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет загрузки %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีการดาวน์โหลด %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ indirmesi yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає завантаження %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có tệp tải xuống %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有下载 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有下載 %@"
+          }
+        }
+      }
+    },
+    "control.error.downloadTimedOut": {
+      "comment": "browser.page.download.wait error: no download ended before the wait's time ran out. %@ is the number of milliseconds.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No download ended within %@ ms"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم ينتهِ أي تنزيل خلال %@ ملّي ثانية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedno preuzimanje nije završilo u roku od %@ ms"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen overførsel blev færdig inden for %@ ms"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Download wurde innerhalb von %@ ms beendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguna descarga terminó en %@ ms"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun téléchargement ne s’est terminé en %@ ms"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun download è terminato entro %@ ms"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ミリ秒以内に終わったダウンロードはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានការទាញយកណាបញ្ចប់ក្នុងរយៈពេល %@ ms ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ms 안에 끝난 다운로드가 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen nedlasting ble ferdig innen %@ ms"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żadne pobieranie nie zakończyło się w ciągu %@ ms"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum download terminou em %@ ms"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ни одна загрузка не завершилась за %@ мс"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีการดาวน์โหลดที่เสร็จภายใน %@ มิลลิวินาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ms içinde hiçbir indirme bitmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Жодне завантаження не завершилося за %@ мс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có tệp tải xuống nào kết thúc trong %@ ms"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 毫秒内没有下载结束"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 毫秒內沒有下載結束"
+          }
+        }
+      }
+    },
+    "control.error.downloadFailed": {
+      "comment": "browser.page.download.wait error: the download the wait followed ended without finishing. %1$@ is the file name, %2$@ why (the engine's reason, or its status such as cancelled).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The download %1$@ did not finish (%2$@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يكتمل تنزيل %1$@ (%2$@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzimanje %1$@ nije završeno (%2$@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Overførslen %1$@ blev ikke færdig (%2$@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Download %1$@ wurde nicht abgeschlossen (%2$@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La descarga %1$@ no terminó (%2$@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le téléchargement %1$@ n’a pas abouti (%2$@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il download %1$@ non è terminato (%2$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ダウンロード %1$@ は完了しませんでした (%2$@)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការទាញយក %1$@ មិនបានបញ្ចប់ទេ (%2$@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다운로드 %1$@이(가) 완료되지 않았습니다(%2$@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nedlastingen %1$@ ble ikke fullført (%2$@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pobieranie %1$@ nie zostało ukończone (%2$@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O download %1$@ não terminou (%2$@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Загрузка %1$@ не завершилась (%2$@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดาวน์โหลด %1$@ ไม่เสร็จสมบูรณ์ (%2$@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ indirmesi tamamlanmadı (%2$@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантаження %1$@ не завершилося (%2$@)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp tải xuống %1$@ chưa hoàn tất (%2$@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下载 %1$@ 未完成（%2$@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下載 %1$@ 未完成（%2$@）"
+          }
+        }
+      }
+    },
+    "control.error.downloadsUnsupported": {
+      "comment": "browser.page.downloads error: the host serving the control socket keeps no browser downloads list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app keeps no browser downloads"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتفظ هذا التطبيق بتنزيلات المتصفح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova aplikacija ne čuva preuzimanja preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne app gemmer ingen browseroverførsler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese App führt keine Browser-Downloads"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta app no guarda descargas del navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette app ne conserve aucun téléchargement du navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa app non conserva download del browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このアプリはブラウザのダウンロードを保持していません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីនេះមិនរក្សាទុកការទាញយករបស់កម្មវិធីរុករកទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 앱은 브라우저 다운로드를 보관하지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne appen tar ikke vare på nettlesernedlastinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta aplikacja nie przechowuje pobrań przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este app não guarda downloads do navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это приложение не хранит загрузки браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปนี้ไม่เก็บรายการดาวน์โหลดของเบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu uygulama tarayıcı indirmelerini tutmaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця програма не зберігає завантаження браузера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng này không lưu các tệp tải xuống của trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此应用不保留浏览器下载内容"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 App 不保留瀏覽器下載內容"
           }
         }
       }
@@ -12315,6 +13767,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "atomic 必須是 true 或 false"
+          }
+        }
+      }
+    },
+    "control.error.mirrorUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app cannot show a tab in a second pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن لهذا التطبيق عرض علامة تبويب في جزء ثانٍ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova aplikacija ne može prikazati karticu u drugom oknu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne app kan ikke vise en fane i en anden rude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese App kann einen Tab nicht in einem zweiten Bereich zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta app no puede mostrar una pestaña en un segundo panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette app ne peut pas afficher un onglet dans un second panneau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa app non può mostrare una scheda in un secondo riquadro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このアプリではタブを 2 つ目のペインに表示できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីនេះមិនអាចបង្ហាញផ្ទាំងក្នុងផ្ទាំងទីពីរបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 앱은 탭을 두 번째 창에 표시할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne appen kan ikke vise en fane i en annen rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta aplikacja nie może pokazać karty w drugim panelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este app não pode mostrar uma aba em um segundo painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это приложение не может показать вкладку во второй панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปนี้แสดงแท็บในบานหน้าต่างที่สองไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu uygulama bir sekmeyi ikinci bölmede gösteremez"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця програма не може показати вкладку в другій панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ứng dụng này không thể hiện một thẻ trong ngăn thứ hai"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此应用无法在第二个窗格中显示标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 App 無法在第二個窗格中顯示分頁"
+          }
+        }
+      }
+    },
+    "control.error.mirrorNoPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pane %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد جزء %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema okna %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen rude %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Bereich %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay panel %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun panneau %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun riquadro %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペイン %@ がありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានផ្ទាំង %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 창이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen rute %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak panelu %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum painel %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет панели %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีบานหน้าต่าง %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bölmesi yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає панелі %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có ngăn %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有窗格 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有窗格 %@"
+          }
+        }
+      }
+    },
+    "control.error.mirrorOwnPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab is already in that pane"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامة التبويب موجودة بالفعل في هذا الجزء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica je već u tom oknu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanen er allerede i den rude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Tab ist schon in diesem Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pestaña ya está en ese panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’onglet est déjà dans ce panneau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La scheda è già in quel riquadro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブはすでにそのペインにあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងនេះមាននៅក្នុងផ្ទាំងនោះរួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭이 이미 그 창에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanen er allerede i den ruten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta jest już w tym panelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A aba já está nesse painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка уже в этой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บอยู่ในบานหน้าต่างนั้นแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme zaten o bölmede"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка вже в цій панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ đã ở trong ngăn đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该标签页已在那个窗格中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "該分頁已在那個窗格中"
           }
         }
       }
