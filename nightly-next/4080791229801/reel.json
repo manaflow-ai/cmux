@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4080791229801",
+  "notes": "notes/4080791229801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26916,
+      "title": "cmux-tui: a headless owner exits when its executable's volume is removed (macOS spin)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27055,
+      "title": "ci(cmux-next): fleet-shared compile cache seeds for the DEV Release compile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26785,
+      "title": "acpmux: Add Machine lends the Mac's GitHub login; `acpmux gh` asks for it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27098,
+      "title": "acpmux: mesh hub types (MeshHub trait, inbox message, ack, control hook, backoff)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27044,
+      "title": "cmux cloud client-session: create and exec on your own Cloud machine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27035,
+      "title": "acpmux ls: bounded and selective session listings",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
