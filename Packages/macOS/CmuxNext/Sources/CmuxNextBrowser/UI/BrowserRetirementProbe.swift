@@ -1,16 +1,16 @@
-#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextCompat
 
 /// Exercises implicit owner release with Chromium's real ancestor tracker. Normal tab-close
 /// automation explicitly closes the owner, so it cannot reproduce this final-release path.
+/// Only the App's debug control endpoint invokes this probe.
 @MainActor
 public struct BrowserRetirementProbe {
     private let engine: CEFEngine
 
     public init(engine: CEFEngine) { self.engine = engine }
 
-    public func run(makeOwner: (any BrowserTab) -> (owner: AnyObject, chrome: BrowserChromeView)) async throws -> [String: Bool] {
+    public func run(makeOwner: @MainActor (any BrowserTab) -> (owner: AnyObject, chrome: BrowserChromeView)) async throws -> [String: Bool] {
         guard let url = URL(string: "about:blank"),
               let page = try await engine.makeTab(BrowserTabConfiguration(initialURL: url)) as? CEFTab else {
             throw BrowserTabError.unsupported("Chromium page unavailable")
@@ -44,4 +44,3 @@ public struct BrowserRetirementProbe {
                 "chrome_released": chrome == nil, "passed": closed && detached && chrome == nil]
     }
 }
-#endif
