@@ -15,7 +15,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use serde_json::json;
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Output, Stdio};
@@ -226,6 +226,83 @@ fn cli_daemon_restart_reattaches_an_active_turn() {
         "turn did not finish after restart: {}",
         text(&last)
     );
+}
+
+/// Both callers are already attached when the old daemon shuts down. The
+/// harness blocks on a FIFO until the replacement is ready, so an ordinary
+/// fast turn cannot make this pass without traversing the handover.
+#[test]
+fn streaming_send_and_active_wait_return_one_reply_across_restart() {
+    let dir = scratch("waiting-stream");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake"]);
+    assert!(made.status.success(), "new: {}", text(&made));
+
+    let gate = dir.join("gate");
+    let gate_c = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: the C string is valid and this test owns the new path.
+    assert_eq!(unsafe { libc::mkfifo(gate_c.as_ptr(), 0o600) }, 0);
+    // Opening both ends does not block. The fake harness reads until this
+    // writer closes, which happens only after the replacement serves.
+    let gate_writer = fs::OpenOptions::new().read(true).write(true).open(&gate).unwrap();
+    let prompt = format!("gate: {}", gate.display());
+    let mut send = cli_command(
+        &dir,
+        &["send", "--timeout", "30", "--prompt-id", "stream-handover", "lane", &prompt],
+    )
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .unwrap();
+    let mut stdout = send.stdout.take().unwrap();
+    let (prefix_tx, prefix_rx) = std::sync::mpsc::channel();
+    let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut prefix = [0; 11];
+        let first = stdout.read_exact(&mut prefix);
+        prefix_tx.send(first.map(|()| prefix)).unwrap();
+        let mut reply = prefix.to_vec();
+        stdout.read_to_end(&mut reply).unwrap();
+        reply_tx.send(reply).unwrap();
+    });
+    assert_eq!(
+        prefix_rx.recv_timeout(Duration::from_secs(15)).expect("no streamed prefix").unwrap(),
+        *b"before-gate"
+    );
+
+    let mut wait = cli_command(&dir, &["--json", "wait", "lane", "--timeout", "30"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(wait.try_wait().unwrap().is_none(), "wait ended before the gated turn");
+    let stopped = cli(&dir, &["daemon", "shutdown"]);
+    assert!(stopped.status.success(), "shutdown: {}", text(&stopped));
+    let started = cli(&dir, &["daemon", "start"]);
+    assert!(started.status.success(), "replacement: {}", text(&started));
+    drop(gate_writer);
+
+    let reply = reply_rx.recv_timeout(Duration::from_secs(35)).expect("send never completed");
+    reader.join().unwrap();
+    let sent = send.wait_with_output().unwrap();
+    assert!(sent.status.success(), "send: {}", text(&sent));
+    assert_eq!(String::from_utf8(reply).unwrap().trim(), "before-gateafter-gate");
+    let waited = wait.wait_with_output().unwrap();
+    assert!(waited.status.success(), "wait: {}", text(&waited));
+    let result: serde_json::Value = serde_json::from_slice(&waited.stdout).unwrap();
+    assert_eq!(result["sessions"][0]["reply"], "before-gateafter-gate");
+    assert_eq!(result["timedOut"], false);
+    let tail = cli(&dir, &["tail", "lane", "--last", "100"]);
+    assert!(tail.status.success(), "tail: {}", text(&tail));
+    let occurrences = String::from_utf8_lossy(&tail.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|event| {
+            event["kind"] == "user_message" && event["msg"]["promptId"] == "stream-handover"
+        })
+        .count();
+    assert_eq!(occurrences, 1, "reconnect delivered the prompt twice: {}", text(&tail));
 }
 
 #[test]
