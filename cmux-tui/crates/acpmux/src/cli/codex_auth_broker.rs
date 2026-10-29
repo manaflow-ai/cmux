@@ -9,6 +9,7 @@
 
 use anyhow::{Result, anyhow, ensure};
 use base64::Engine;
+use fs4::FileExt;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::fs::File;
@@ -220,8 +221,17 @@ struct Owner {
     child: Child,
     input: FramedWrite<ChildStdin, LinesCodec>,
     output: FramedRead<ChildStdout, LinesCodec>,
+    lock: File,
     next_id: u64,
     account: Option<String>,
+}
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        // Keep the release deterministic even on an early-return path that
+        // drops an owner without reaching its async stop routine.
+        let _ = self.lock.unlock();
+    }
 }
 
 enum StartupCancellation<'a> {
@@ -254,6 +264,11 @@ impl Owner {
             }
             self.child.wait().await.ok();
         }
+        // A child forked before exec can retain the inherited open file
+        // description after its owner exits. Explicitly unlocking our clone
+        // releases the flock without waiting for every inherited descriptor
+        // to close. This mirrors the daemon's lock-holder Drop contract.
+        let _ = self.lock.unlock();
     }
 
     async fn start(
@@ -273,6 +288,7 @@ impl Owner {
     ) -> Result<Option<Self>> {
         let mut command = Command::new(codex);
         command.process_group(0);
+        let owned_lock = lock.try_clone().map_err(|_| anyhow!("cannot retain broker lock"))?;
         let lock_fd = lock.as_raw_fd();
         // SAFETY: the lock lives through this child. fcntl is async-signal-safe.
         // The child retains the same locked open-file description if its parent
@@ -309,6 +325,7 @@ impl Owner {
             child,
             input: FramedWrite::new(stdin, LinesCodec::new_with_max_length(LIMIT)),
             output: FramedRead::new(stdout, LinesCodec::new_with_max_length(LIMIT)),
+            lock: owned_lock,
             next_id: 0,
             account: None,
         };

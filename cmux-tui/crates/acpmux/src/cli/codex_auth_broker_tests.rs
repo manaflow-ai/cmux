@@ -201,6 +201,57 @@ for line in sys.stdin:
 }
 
 #[tokio::test]
+async fn owner_stop_unlocks_when_a_detached_child_keeps_the_lock_fd() {
+    let home = Home::new();
+    let holder = prepare(&home.0).unwrap();
+    let codex = home.0.join("forking-codex");
+    std::fs::write(
+        &codex,
+        r#"#!/usr/bin/env python3
+import json, os, subprocess, sys
+
+lock_fd = next(
+    int(fd) for fd in os.listdir('/proc/self/fd')
+    if os.path.basename(os.readlink('/proc/self/fd/' + fd)) == 'broker.lock'
+)
+child = subprocess.Popen(
+    ['sleep', '30'],
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    pass_fds=(lock_fd,),
+    start_new_session=True,
+)
+with open(os.path.join(os.environ['CODEX_HOME'], 'detached-child.pid'), 'w') as pid:
+    pid.write(str(child.pid))
+for line in sys.stdin:
+    request = json.loads(line)
+    if request.get('id') is not None:
+        print(json.dumps({'id': request['id'], 'result': {}}), flush=True)
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut terminate =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+    let mut owner = Owner::start(&home.0, &codex, &holder, &mut terminate).await.unwrap().unwrap();
+    drop(holder);
+    owner.stop().await;
+
+    // The detached child still has the inherited broker.lock descriptor, so
+    // prepare only succeeds if Owner::stop explicitly releases its lock.
+    assert!(prepare(&home.0).is_ok());
+    let pid = std::fs::read_to_string(home.0.join("detached-child.pid"))
+        .unwrap()
+        .parse::<libc::pid_t>()
+        .unwrap();
+    // SAFETY: the test just spawned this detached child and owns its lifetime.
+    unsafe {
+        libc::kill(pid, libc::SIGKILL);
+    }
+}
+
+#[tokio::test]
 async fn stalled_owner_cancellation_releases_inherited_lock() {
     let home = Home::new();
     let holder = prepare(&home.0).unwrap();
