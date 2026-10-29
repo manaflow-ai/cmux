@@ -394,6 +394,18 @@ class WastePatternTests(unittest.TestCase):
         self.assertEqual(report.pull_request_heads(runs, REPO), {})
         self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
 
+    def test_a_linked_push_run_still_names_its_pull_requests_head(self):
+        # The pull request's newest run is a push on its branch with no head sha in its link: it still names
+        # the head, so the older pull_request run's failure there is superseded (the push row itself never is).
+        base = self.fixture["runs"][2]
+        headless = dict(link(5, ""), head={"repo": link(5, "")["head"]["repo"]})
+        old = dict(base, id=1, head_sha="old", created_at="2026-09-22T10:00:00Z", pull_requests=[headless])
+        pushed = dict(base, id=2, event="push", head_sha="new", created_at="2026-09-22T11:00:00Z",
+                      pull_requests=[headless])
+        self.assertEqual(report.pull_request_heads([old, pushed], REPO), {5: "new"})
+        self.assertTrue(report.superseded(self.failing(old)[0], {5: "new"}))
+        self.assertFalse(report.superseded(self.failing(pushed)[0], {5: "other"}))
+
     def test_the_links_head_wins_over_the_newest_run(self):
         # An old head's run created later (a re-dispatch) does not decide: the link names the head now.
         base = self.fixture["runs"][2]

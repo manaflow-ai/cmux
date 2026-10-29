@@ -501,15 +501,15 @@ def pull_request_heads(runs: Iterable[Mapping[str, Any]], repo: str) -> dict[int
     head the pull request has now. A link with no head sha falls back to the
     head_sha of that pull request's newest run (by creation, then id). Runs with
     no link (a fork's, a deleted head repository's) name no head: a branch name
-    is never an identity. Only links into `repo` (full owner/name) count, so a
+    is never an identity. Every linked run says where its pull request is, push
+    and schedule runs too (only `superseded` exempts their rows). Only links into
+    `repo` (full owner/name) count, so a
     pull request of the same number in another repository never names this one's
     head.
     """
     linked: dict[int, str] = {}
     newest: dict[int, tuple[tuple[str, int], str]] = {}
     for run in runs:
-        if run.get("event") in NEVER_SUPERSEDED_EVENTS:
-            continue
         stamp = (str(run.get("created_at") or ""), int(run.get("id") or 0))
         sha = str(run.get("head_sha") or "")
         for pull in pull_links(run, repo):
