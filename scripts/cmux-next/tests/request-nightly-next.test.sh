@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # request-nightly-next.sh: feat-cmux-next asks main to promote a commit to
 # nightly-next only when that commit's cmux-tui tree is published and
-# daemon-tested. Its Release compile is not awaited (2026-10-26): the nightly
+# verified. Its daemon tests are not awaited (2026-10-28) and neither is its
+# Release compile (2026-10-26): the nightly
 # build compiles the commit itself and publishes nothing when that fails.
 # cmux-next.yml still asks after its Release compile, and cmux-tui-artifacts.yml
 # and nightly-next-tick after the publication, so nightly-next always points at
@@ -315,36 +316,34 @@ rm -f "$TMP/bin/node"
 git_q -C "$src" checkout -q --detach "$head"
 
 # A tree published before its daemon tests ended (source.json daemonTests
-# "separate", chief 2026-10-13) is promoted only once daemon-tests.json exists.
+# "separate", chief 2026-10-13) is promoted without daemon-tests.json: since
+# 2026-10-28 no nightly waits on the daemon tests (run 40651931144's failed
+# Zig download held the feed for hours). Leo, 2026-10-23: "we want no smoke tests".
 publish "$other"
 okey=$(key "$other")
 printf '{"key": "%s", "commit": "%s", "daemonTests": "separate"}\n' "$okey" "$other" > "$cdn/tree/$okey/source.json"
 git_q -C "$src" checkout -q --detach "$other"
 request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && ! dispatched "$other" && grep -q "daemon tests have not passed" <<<"$out" \
-  || fail "a tree without its daemon-tests marker must not be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-printf '{"key": "%s", "result": "success"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
-request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && dispatched "$other" || fail "a tree with its daemon-tests marker must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-# A marker from before the runner-OS field was dropped still promotes.
-printf '{"key": "%s", "result": "success", "os": "Linux"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
-request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && dispatched "$other" || fail "a marker carrying the old os field must still promote (exit $status):" "$out" "$(cat "$TMP/gh.log")"
-git_q -C "$src" checkout -q --detach "$head"
+[[ "$status" == 0 ]] && dispatched "$other" \
+  || fail "a published tree without its daemon-tests marker must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+rc=0; tout=$(cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh tree-ready "$okey" 2>&1) || rc=$?
+[[ "$rc" == 0 && "$tout" == "publishedBy=$other" ]] \
+  || fail "tree-ready must answer ready for a published tree with no daemon-tests marker (exit $rc):" "$tout"
 
-# A read of source.json that is neither 200 nor 404 is a read failure: never
-# promoted (row 18 of the 2026-10-27 audit: it used to skip the daemon-tests check).
+# daemon-tested (kept for its other callers) still reads the marker: 1 without
+# it, 0 with it, and a read of source.json that is neither 200 nor 404 is a
+# read failure (row 18 of the 2026-10-27 audit), never a pass.
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh daemon-tested "$okey" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 1 ]] || fail "daemon-tested without daemon-tests.json must exit 1, got $rc"
+printf '{"key": "%s", "result": "success"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh daemon-tested "$okey" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 0 ]] || fail "daemon-tested with daemon-tests.json must exit 0, got $rc"
 echo "tree/$okey/source.json" > "$cdn/FAILW"
-git_q -C "$src" checkout -q --detach "$other"
-request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && ! dispatched "$other" && grep -q "read failure" <<<"$out" \
-  || fail "a source.json read failure must not promote (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh daemon-tested "$okey" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 3 ]] || fail "daemon-tested on a source.json read failure must exit 3, got $rc"
 rm -f "$cdn/FAILW"
 # A source.json transfer that fails after a 200 (curl exit 18) is a read failure too.
 echo "tree/$okey/source.json" > "$cdn/TRUNC"
-request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && ! dispatched "$other" && grep -q "read failure" <<<"$out" \
-  || fail "a truncated source.json read must not promote (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh daemon-tested "$okey" >/dev/null 2>&1) || rc=$?
 [[ "$rc" == 3 ]] || fail "daemon-tested on a truncated read must exit 3, got $rc"
 rm -f "$cdn/TRUNC"
@@ -466,7 +465,7 @@ git_q -C "$src" checkout -q --detach "$head"
 
 # The writer (tree-commit-marker.sh write, cmux-tui-artifacts.yml mark-tree-commits)
 # marks HEAD and its first-parent ancestors in the window whose tree is published
-# and daemon-tested, write-once, and nothing else. A stub upload stands in for R2.
+# and verified, write-once, and nothing else. A stub upload stands in for R2.
 touch "$cdn/NOAUTO"; rm -rf "$cdn/tree-commits"
 cat > "$src/scripts/ci/upload-r2-object.py" <<STUB
 import shutil, sys, os
@@ -497,11 +496,18 @@ before=$(cksum < "$cdn/tree-commits/$other.json")
 wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid GITHUB_RUN_ID=78 \
   bash scripts/cmux-next/tree-commit-marker.sh write --window 3 2>&1) || fail "a second writer run must succeed:" "$wout"
 [[ "$(cksum < "$cdn/tree-commits/$other.json")" == "$before" ]] || fail "markers are write-once"
-# A tree whose daemon tests have not passed is not ready: not marked.
+# A published tree whose daemon tests have not passed is ready (2026-10-28): marked.
 rm -f "$cdn/tree/$okey/daemon-tests.json" "$cdn/tree-commits/$other.json"
 wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
+  || fail "the writer failed:" "$wout"
+[[ -f "$cdn/tree-commits/$other.json" ]] || fail "a published tree without its daemon tests must be marked:" "$wout"
+# A tree that is not published is not ready: not marked.
+rm -f "$cdn/tree-commits/$other.json"
+mv "$cdn/tree/$okey/$bin.sha256" "$TMP/held.sha256"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
   || fail "the writer must succeed when nothing is ready:" "$wout"
-[[ ! -f "$cdn/tree-commits/$other.json" ]] || fail "a tree without its daemon tests must not be marked:" "$wout"
+[[ ! -f "$cdn/tree-commits/$other.json" ]] || fail "an unpublished tree must not be marked:" "$wout"
+mv "$TMP/held.sha256" "$cdn/tree/$okey/$bin.sha256"
 # --tip-branch: a run that publishes a tree late marks the newer branch commits sharing
 # it (their own runs ran before the tree existed and marked nothing). The run at
 # $head published its tree; $app, a later app-only commit, shares the key.
@@ -591,4 +597,4 @@ request --sha nothex --release-compile-green
 request --sha "$head"
 [[ "$status" == 2 ]] || fail "--sha without --release-compile-green must exit 2, got $status:" "$out"
 : "$other"
-echo "PASS: nightly-next promotion waits for the published, daemon-tested tree, not the Release compile"
+echo "PASS: nightly-next promotion waits for the published tree, not its daemon tests or the Release compile"

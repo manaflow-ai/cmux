@@ -22,6 +22,8 @@ pub(super) enum ServerAction {
     /// running owner keeps the grace it was started with.
     Ensure {
         terminal_reap_grace: Option<Duration>,
+        /// Test harnesses: the spawned owner ends with this pid (`local_owner::exit_with`).
+        exit_with_pid: Option<crate::local_owner::ExitWith>,
         /// Private app contract (P8 3b-2): read the app's install key from
         /// stdin and hand it to an owner this call spawns.
         install_key_stdin: bool,
@@ -118,6 +120,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let socket_output = socket.to_string_lossy().into_owned();
     if let ServerAction::Ensure {
         terminal_reap_grace,
+        exit_with_pid,
         install_key_stdin,
         progress,
         websocket,
@@ -134,7 +137,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         };
         return run_ensure(
             expected_session,
-            terminal_reap_grace,
+            (terminal_reap_grace, exit_with_pid),
             install_key,
             (socket, socket_is_derived),
             (progress, replace_unresponsive),
@@ -707,11 +710,12 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 /// `server ensure`: connect to a ready owner, spawning a detached one when
 /// nothing serves the socket. Reports `running` for an owner that already
 /// existed and `started` for one this call spawned. `socket` is the socket
-/// path and whether it was derived from the session name; the flag pair is
-/// `--restore-progress` and `--replace-unresponsive`.
+/// path and whether it was derived from the session name; the owner pair is
+/// the reap grace and `--exit-with-pid`, the flag pair `--restore-progress`
+/// and `--replace-unresponsive`.
 fn run_ensure(
     expected_session: Option<String>,
-    terminal_reap_grace: Option<Duration>,
+    (terminal_reap_grace, exit_with_pid): (Option<Duration>, Option<crate::local_owner::ExitWith>),
     install_key: Option<cmux_tui_core::server::FrontendKey>,
     (socket, socket_is_derived): (std::path::PathBuf, bool),
     (progress, replace_unresponsive): (bool, bool),
@@ -728,6 +732,7 @@ fn run_ensure(
         term: None,
         initial_host_colors: None,
         terminal_reap_grace,
+        exit_with_pid,
         install_key,
         // The app's Chief owner: the brain tools socket this client was
         // started with (taken out of its environment at start).

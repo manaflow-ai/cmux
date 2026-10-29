@@ -31,7 +31,8 @@
 # without progress, default 180), CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT (seconds an
 # attempt may run, default 1800), CMUX_ZIG_FETCH_RETRY_DELAY (seconds, default
 # 20, multiplied by the attempt number) and CMUX_ZIG_FETCH_SAMPLE (seconds
-# between progress checks, default 5) bound the retries.
+# between progress checks, default 5) bound the retries. CMUX_ZIG_SEED=0 skips
+# the curl pre-download (scripts/ci/seed-zig-package-archives.sh).
 set -euo pipefail
 source_dir="${1:-ghostty-next}"
 attempts="${CMUX_ZIG_FETCH_ATTEMPTS:-3}"
@@ -46,6 +47,7 @@ done
 [[ "$delay" =~ ^[0-9]+$ ]] || { echo "error: CMUX_ZIG_FETCH_RETRY_DELAY must be a whole number" >&2; exit 2; }
 [[ -f "$source_dir/build.zig.zon" ]] || { echo "error: $source_dir/build.zig.zon not found" >&2; exit 2; }
 zig_bin="${CMUX_ZIG:-zig}"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
 cd "$source_dir"
 
 marker="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-stopped.XXXXXX")"
@@ -170,6 +172,12 @@ fetch_once() {
   fi
   return "$status"
 }
+
+# Download what curl can first, with retries and a speed floor that
+# Zig's own HTTP read lacks; Zig then unpacks those from the cache offline.
+if [[ -n "$cache" && "${CMUX_ZIG_SEED:-1}" != 0 ]]; then
+  "$script_dir/seed-zig-package-archives.sh" "$cache" . || true
+fi
 
 attempt=1
 while :; do

@@ -270,9 +270,8 @@ export const vitessStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
 }
 
 export const openStore = (env: Env): Promise<Store> => {
-  // cmux-next-vitess first (vitess-migration-DESIGN.md 2.3); HYPERDRIVE (the old Postgres) only until it is unbound.
+  // cmux-next-vitess (vitess-migration-DESIGN.md 2.3). pgStore stays only for a read of the old Postgres.
   if (env.PS_MYSQL) return vitessStore(env.PS_MYSQL)
-  if (env.HYPERDRIVE) return pgStore(env.HYPERDRIVE)
   // Tests, and `wrangler dev` of the local (top-level) config: rows live in the isolate's memory.
   if (env.ENVIRONMENT === "test" || env.ENVIRONMENT === "local") return Promise.resolve(memoryStore())
   throw new Error("no database binding")

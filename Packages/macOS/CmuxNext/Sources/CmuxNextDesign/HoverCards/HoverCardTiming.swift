@@ -18,6 +18,13 @@ public nonisolated struct HoverCardTiming {
     /// tooltips). While a card shows, the next target's card replaces it at once and the card
     /// slides over (`HoverCardPanel`).
     public static let reshowWindow: Duration = .milliseconds(500)
+    /// A sweep: a retarget this soon after the last show or retarget puts the card at its row
+    /// with its new content in that frame, with no slide, crossfade or resize (`HoverCardPanel`).
+    /// A pointer crossing rows faster than the card's slide settles (the `.panel` spring, about
+    /// 0.2 s) restarted it on every row, so the card trailed the pointer and its text doubled
+    /// mid-crossfade (Lawrence 2026-10-28, msg 15501: "card animation needs to be better, if i
+    /// move across it very fast"). A deliberate move to the next row comes later and glides.
+    public static let sweepInterval: Duration = .milliseconds(150)
 }
 
 extension DesignSettings {

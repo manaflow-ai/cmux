@@ -21,4 +21,9 @@ pub struct PeerConfig {
     /// lease carries it when the Cloud API said the caller owns that VM.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub vm_boundary: bool,
+    /// `githubBroker`: this Mac lends the peer its `gh` login for the broker's fixed actions
+    /// (`github_broker.rs`). Add Machine (`acpmux host enroll`) sets it for the person's own
+    /// machine; a plain `peer_add` and a Cloud lease never do.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub github_broker: bool,
 }
