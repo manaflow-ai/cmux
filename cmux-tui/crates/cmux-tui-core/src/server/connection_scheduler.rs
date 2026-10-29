@@ -35,11 +35,10 @@
 //! lane (`Mux::work`), not on the control sequence and not on a thread of its
 //! own, so a later Send for another surface answers while it runs.
 //!
-//! Request threads start through [`spawn_request_thread`]: UserInitiated,
-//! blocking disallowed (p02-threads task 211); the pool's control workers
-//! run the same way. A WebSocket connection thread starts through
-//! [`spawn_connection_thread`] and disallows blocking once its connection
-//! is admitted (websocket_listener.rs). A request task
+//! The pool's control workers run requests at UserInitiated with blocking
+//! disallowed (p02-threads task 211). A WebSocket connection thread starts
+//! through [`spawn_connection_thread`] at the same class and disallows
+//! blocking once its connection is admitted (websocket_listener.rs). A request task
 //! then rests at its connection's class (connection_qos.rs, task 224). A
 //! clear-history request runs as a `Mux::work` item on the System lane at
 //! its cause's priority, inside `will_block`, as the connection's other
@@ -101,33 +100,15 @@ use std::time::Instant;
 /// classified (connection_qos.rs, task 224).
 pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 
-/// Starts request thread `name` at [`REQUEST_THREAD_QOS`] with blocking
-/// disallowed for its life, as Chrome's `DisallowBlocking` on its UI and IO
-/// threads (base/threading/thread_restrictions.h). A checked blocking call
-/// under it is a `server.blocking` site (recorded by default; panics under
-/// `CMUX_DAEMON_BLOCKING=panic` in Debug), and its work moves to
-/// `cmux_threads::work`.
-///
-/// The thread is registered with the release hang watch for its life; each
-/// request it runs is one scope at its class deadline
-/// (server/request_hang_watch.rs).
-pub(super) fn spawn_request_thread<F, T>(name: &str, f: F) -> std::io::Result<SupervisedThread<T>>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    spawn_connection_thread(name, move || {
-        cmux_threads::disallow_blocking();
-        f()
-    })
-}
-
-/// Starts connection thread `name` as [`spawn_request_thread`] does, but
-/// with blocking allowed until `f` disallows it: a connection that must
-/// admit itself first (a WebSocket's request head, a page file or download
-/// answer, its handshake, token and the person's pairing decision, which
-/// wait on its peer, the disk and the person) runs its requests inside
-/// `cmux_threads::blocking::with_blocking_disallowed` once admitted.
+/// Starts connection thread `name` at [`REQUEST_THREAD_QOS`], registered
+/// with the release hang watch for its life (each request it runs is one
+/// scope at its class deadline, server/request_hang_watch.rs). Blocking is
+/// allowed until `f` disallows it: a connection that must admit itself
+/// first (a WebSocket's request head, a page file or download answer, its
+/// handshake, token and the person's pairing decision, which wait on its
+/// peer, the disk and the person) runs its requests inside
+/// `cmux_threads::blocking::with_blocking_disallowed` once admitted, as
+/// Chrome's `DisallowBlocking` (base/threading/thread_restrictions.h).
 pub(super) fn spawn_connection_thread<F, T>(
     name: &str,
     f: F,
