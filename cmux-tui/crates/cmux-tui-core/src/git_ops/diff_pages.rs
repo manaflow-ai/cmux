@@ -41,9 +41,13 @@ impl Captures {
         // A request key describes the comparison inputs, but not the bytes that
         // were captured at a particular revision. Keep older revisions alive so
         // a continuation for an in-flight page cannot be evicted by a newer
-        // offset-zero capture for the same request. A new capture of the same
-        // revision still replaces the old one.
-        self.0.retain(|entry| entry.key != key || entry.window.sha256 != window.sha256);
+        // offset-zero capture for the same request. Keep the first metadata for
+        // a key/revision too: it is the snapshot that produced that revision,
+        // and replacing it with a later listing could mix unrelated file state
+        // into an already-issued continuation.
+        if self.0.iter().any(|entry| entry.key == key && entry.window.sha256 == window.sha256) {
+            return;
+        }
         self.0.sort_by_key(|entry| entry.used);
         while !self.0.is_empty()
             && (self.0.len() >= MAX_CAPTURES
@@ -165,6 +169,35 @@ mod tests {
         assert_eq!(
             cache.get("same request", &second.sha256, now + Duration::from_millis(2)).unwrap().1,
             json!({"revision":"second"})
+        );
+    }
+
+    #[test]
+    fn captures_keep_first_metadata_for_a_revision() {
+        let window = run_git_window_within(
+            &std::env::temp_dir(),
+            &[],
+            &["--version"],
+            0,
+            512,
+            Duration::from_secs(2),
+        )
+        .unwrap()
+        .window
+        .unwrap();
+        let now = Instant::now();
+        let mut cache = Captures::default();
+        cache.put("same request".into(), window.clone(), json!({"complete":false}), now);
+        cache.put(
+            "same request".into(),
+            window.clone(),
+            json!({"complete":true}),
+            now + Duration::from_millis(1),
+        );
+        assert_eq!(cache.0.len(), 1);
+        assert_eq!(
+            cache.get("same request", &window.sha256, now + Duration::from_millis(2)).unwrap().1,
+            json!({"complete":false})
         );
     }
 }
