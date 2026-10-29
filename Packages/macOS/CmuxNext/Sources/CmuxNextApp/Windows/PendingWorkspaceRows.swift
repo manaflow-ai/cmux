@@ -1,6 +1,5 @@
 import CmuxNextBridge
 import CmuxNextSidebar
-import CmuxNextWakeups
 import Observation
 
 /// A new workspace's sidebar row from the press (cx-9a7wx; Lawrence
@@ -23,13 +22,7 @@ final class PendingWorkspaceRows {
         let face: SidebarWorkspace
         let slot: WorkspaceSlot?
         let byDefault: NewWorkspaceDefaultSlot?
-        /// When the row was drawn: it stands in for its workspace at most ``placeLimit`` from then.
-        let pressed = ContinuousClock.now
     }
-
-    /// How long a pending row stands in for its workspace while the window lists that workspace
-    /// somewhere else (the daemon's place, before the move to the row's slot lands).
-    static let placeLimit: Duration = .seconds(2)
 
     private(set) var rows: [Row] = []
     /// The names `add` reserved, by key, until a store lists the workspace (its name counts there from then) or its create
@@ -42,15 +35,11 @@ final class PendingWorkspaceRows {
     /// Each window's sidebar, redrawn in the turn a row comes or goes: the row draws over the rows the
     /// sidebar shows already, not after a rows pass walks every workspace on a later hop.
     let redraws = SidebarRedraws()
-    /// Bumped as a row's ``placeLimit`` passes, so the tracked `listing` lets its workspace's row list where it is.
-    private var placeLimitsPassed = 0
-    @ObservationIgnored private let placeTimer = DemandTimer(owner: "PendingWorkspaceRows.placeLimit")
 
     func add(_ row: Row, name: String) {
         rows.append(row)
         names[row.id] = (row.machine, name)
         redraws.run()
-        placeTimer.schedule(after: Self.placeLimit) { @MainActor [weak self] in self?.placeLimitsPassed += 1 }
     }
 
     /// The create `id` failed or a close took it: its row and its name go.
@@ -90,32 +79,20 @@ final class PendingWorkspaceRows {
     /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
     /// Also while the sidebar document does not place the daemon's workspace yet: the document lists it last until its
     /// next projection (a hop later) places it, so its own row drew at the end and sprang to its slot.
-    /// And while the window lists the workspace anywhere but the row's slot (the daemon put it last or first, and the
-    /// move to the slot is on its way), for at most ``placeLimit``: the row opens where it stays and is not drawn again
-    /// at the bottom and sent back (Leo 2026-10-29: "you just make it on the bottom, or you put it right next to it.
-    /// What the fuck is this conflicting situation?"). Its own row replaces it at the same place, so nothing moves.
     func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
-        _ = placeLimitsPassed
-        let home = NewWorkspacePlacements.home(machines), now = ContinuousClock.now
-        let waiting = Set(rows.filter { $0.window == window }.filter { row in
-            guard let (workspace, daemon) = machines.workspace(id: row.id) else { return false }
+        Self.removing(ids(in: window) { id in
+            guard let (workspace, daemon) = machines.workspace(id: id) else { return false }
             if workspace.isProvisional { return true }
-            guard SidebarDocWiring.awaitsPlacement(workspace, session: daemon.store.registryID)
-                || now < row.pressed.advanced(by: Self.placeLimit) && !Self.isAtSlot(row, in: listed, home: home) else { return false }
-            takenOver.insert(row.id)
+            guard SidebarDocWiring.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
+            takenOver.insert(id)
             return true
-        }.map(\.id))
-        return Self.removing(waiting, from: listed)
+        }, from: listed)
     }
 
-    /// Whether `listed` shows `row`'s workspace at the slot its pending row stood at (`adding`'s rule). A slot
-    /// `listed` cannot resolve (its anchor went) or a workspace it does not list holds nothing back.
-    static func isAtSlot(_ row: Row, in listed: [SidebarRowSection], home: String?) -> Bool {
-        let section = SectionID.machine(row.machine)
-        let slot = row.slot ?? row.byDefault?.slot(for: row.id, section: section, in: listed, home: home) ?? .bottom(anchor: nil)
-        guard let at = SidebarEdits.position(of: SidebarWorkspaceID(row.id), in: listed),
-              let wanted = slot.position(moving: [row.id], section: section, in: listed) else { return true }
-        return at == wanted
+    /// The pending rows of `window` whose workspace the sidebar cannot draw at its slot yet (`unplaced`: Cmd-N's
+    /// stand-in, or a workspace the sidebar document does not place yet): the sidebar lists the pending row for them.
+    func ids(in window: String, unplaced: (String) -> Bool) -> Set<String> {
+        Set(rows.filter { $0.window == window && unplaced($0.id) }.map(\.id))
     }
 
     /// `sections` without the workspace rows `ids` (their pending rows list instead, at their slot).
