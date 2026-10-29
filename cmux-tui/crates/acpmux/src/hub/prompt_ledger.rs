@@ -87,6 +87,13 @@ impl Hub {
                 && let Some(id) = rec.msg.get("turnId").and_then(Value::as_str)
             {
                 stopped_turns.insert(id.to_owned());
+                // New Stop records name the accepted prompt even if the daemon died
+                // before writing any user_message. Older records still join by turn ID.
+                if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
+                    && turn_id.is_none()
+                {
+                    turn_id = Some(id.to_owned());
+                }
             }
             match (rec.kind.as_str(), &turn_id) {
                 ("user_message" | "queued", _)
@@ -196,6 +203,7 @@ mod tests {
             ("withdrawn", Some("withdrawn")),
             ("stopped_before_start", Some("cancelled")),
             ("stopped_before_message", Some("cancelled")),
+            ("stopped_without_message", Some("cancelled")),
             ("unrelated_stop_before_message", None),
             ("stopped_then_result", Some("failed")),
             ("completed", Some("completed")),
@@ -220,12 +228,21 @@ mod tests {
             // cancellation for the prompt we are looking up.
             hub.append(&session, "mux", "turn_stop_requested", json!({"turnId": "unrelated"}));
             let queued = ["queued", "joined", "withdrawn"].contains(&point);
-            hub.append(
+            if point == "stopped_without_message" {
+                hub.append(
+                    &session,
+                    "mux",
+                    "turn_stop_requested",
+                    json!({"turnId": "t", "promptId": "p"}),
+                );
+            } else {
+                hub.append(
                 &session,
                 "in",
                 if queued { "queued" } else { "user_message" },
                 json!({"promptId": "p", "turnId": "t", "steer": point == "steer", "text": "hello"}),
             );
+            }
             if ["started", "completed", "requeued"].contains(&point) {
                 hub.append(
                     &session,

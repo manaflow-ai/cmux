@@ -374,6 +374,7 @@ mod tests {
             "message",
             "message_stop",
             "stop_message",
+            "stop_without_message",
             "stop",
             "unscheduled_stop",
             "started",
@@ -404,7 +405,7 @@ mod tests {
                     }),
                 );
             }
-            if ["message_stop", "stop_message"].contains(&point) {
+            if ["message_stop", "stop_message", "stop_without_message"].contains(&point) {
                 // In-memory admission precedes the harness's durable turn_started.
                 // Stop here names `retry`, whereas the saved schedule names `cut`.
                 hub.start_turn(
@@ -459,7 +460,7 @@ mod tests {
             let expected = ["result", "schedule", "message"].contains(&point);
             let retry = restored.session_summary(&session)["retry"].clone();
             assert_eq!(retry.is_object(), expected, "crash after {point}: {retry}");
-            if ["message_stop", "stop_message"].contains(&point) {
+            if ["message_stop", "stop_message", "stop_without_message"].contains(&point) {
                 assert_eq!(
                     restored.logged_prompt(&session, "original~resume-1").unwrap()["stopReason"],
                     "cancelled"

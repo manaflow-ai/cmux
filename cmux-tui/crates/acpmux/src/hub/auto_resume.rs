@@ -493,7 +493,8 @@ impl Hub {
                 false
             },
         );
-        let active_turn = session.turn().map(|turn| turn.turn_id);
+        let active = session.turn();
+        let active_turn = active.as_ref().map(|turn| turn.turn_id.clone());
         let stopping_turn = active_turn.clone().or_else(|| match pending.as_ref() {
             Some(Mark::Ending(t) | Mark::Stopped(t)) => Some(t.clone()),
             Some(Mark::Waiting { turn, retry: None, .. }) => Some(turn.clone()),
@@ -506,7 +507,12 @@ impl Hub {
                 // Ordinary Stop has no retry state or retry watcher update. Its durable
                 // turn-scoped boundary still forbids recovery if the turn later fails,
                 // or if restart interrupts it before a result was written.
-                self.append(session, "mux", "turn_stop_requested", json!({"turnId": turn_id}));
+                self.append(
+                    session,
+                    "mux",
+                    "turn_stop_requested",
+                    json!({"turnId": turn_id, "promptId": active.as_ref().map(|turn| &turn.prompt_id)}),
+                );
             } else if waiting_mark || journal_retry.is_some() {
                 let turn_id = match pending.as_ref() {
                     Some(Mark::Waiting { turn, .. } | Mark::Firing(turn)) => Some(turn.clone()),
