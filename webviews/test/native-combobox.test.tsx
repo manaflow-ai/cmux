@@ -144,30 +144,31 @@ test("native combobox search keeps the invoking field query in sync", async () =
   const container = installDom();
   const { host, shown, listeners } = nativeHost();
   const queries: string[] = [];
+  function Fixture() {
+    const [query, setQuery] = useState("alpha");
+    const suggestions = ["alpha", "beta"].filter((value) => value.includes(query));
+    return (
+      <Combobox label="Projects" defaultValue="alpha" suggestions={suggestions}
+        onQuery={(value) => { queries.push(value); setQuery(value); }} onSubmit={() => {}} onCancel={() => {}}
+        native={{ model: comboboxDescription({ suggestions, query }) }} />
+    );
+  }
   await act(async () => {
     root = createRoot(container);
     root.render(
       <UiProvider container={container} popupHost={host}>
-        <Combobox
-          inline
-          label="Projects"
-          defaultValue="alpha"
-          suggestions={["alpha", "beta"]}
-          onQuery={(value) => queries.push(value)}
-          onSubmit={() => {}}
-          onCancel={() => {}}
-          native={{ model: comboboxDescription({ suggestions: ["alpha", "beta"], query: "alpha" }) }}
-        />
+        <Fixture />
       </UiProvider>,
     );
   });
   const model = shown[0]!;
   await act(async () => {
     for (const listener of listeners)
-      listener({ type: "search", popupId: model.id, revision: model.revision, id: "query", value: "beta" });
+      listener({ type: "search", popupId: model.id, revision: model.revision, id: "query", value: "missing" });
   });
-  expect(queries).toEqual(["beta"]);
-  expect(container.querySelector<HTMLInputElement>("input")!.value).toBe("beta");
+  expect(queries).toEqual(["missing"]);
+  expect(listeners.size).toBe(0);
+  expect(container.querySelector<HTMLInputElement>("input")!.value).toBe("missing");
 });
 
 test("native combobox ignores picks absent from its enabled suggestions", async () => {
@@ -344,7 +345,7 @@ test.each([false, true])("native select preserves closeOnPick=%s and enabled opt
   expect(button.getAttribute("aria-expanded")).toBe(String(!closeOnPick));
 });
 
-test.each(["children", "rail", "footer"] as const)("native select preserves keep-open in %s", async (location) => {
+test.each(["children", "rail", "footer", "actions"] as const)("native select preserves keep-open in %s", async (location) => {
   const container = installDom();
   const { host, shown, listeners } = nativeHost();
   const changed: string[] = [];
@@ -353,8 +354,9 @@ test.each(["children", "rail", "footer"] as const)("native select preserves keep
     side: "bottom" as const,
     align: "start" as const,
     width: 220,
-    rows: location === "children" ? [{ id: "themes", kind: "submenu" as const, label: "Themes", children: [action] }] : [],
-    ...(location === "children" ? {} : { [location]: [action] }),
+    rows: location === "children" ? [{ id: "themes", kind: "submenu" as const, label: "Themes", children: [action] }]
+      : location === "actions" ? [{ id: "themes", kind: "text" as const, label: "Themes", actions: [action] }] : [],
+    ...(location === "rail" || location === "footer" ? { [location]: [action] } : {}),
   };
   await act(async () => {
     root = createRoot(container);
@@ -368,7 +370,8 @@ test.each(["children", "rail", "footer"] as const)("native select preserves keep
   const button = container.querySelector<HTMLButtonElement>("button")!;
   await act(async () => button.click());
   const sent = shown[0]!;
-  const sentAction = location === "children" ? sent.rows[0]!.children![0]! : sent[location]![0]!;
+  const sentAction = location === "children" ? sent.rows[0]!.children![0]!
+    : location === "actions" ? sent.rows[0]!.actions![0]! : sent[location]![0]!;
   expect(sentAction.keepOpen).toBe(true);
   await act(async () => {
     for (const listener of listeners)
