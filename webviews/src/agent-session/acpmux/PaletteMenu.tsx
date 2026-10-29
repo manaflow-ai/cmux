@@ -103,6 +103,7 @@ export function PaletteMenu({
   const t = useT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [searchHeight, setSearchHeight] = useState<number>();
   const [active, setActive] = useState(0);
   const [error, setError] = useState<string>();
   const dispatch = useRef(0);
@@ -140,6 +141,7 @@ export function PaletteMenu({
     dispatch.current += 1;
     setError(undefined);
     setQuery("");
+    setSearchHeight(undefined);
     setActive(0);
     setOpen(true);
     onOpen?.();
@@ -263,7 +265,7 @@ export function PaletteMenu({
       {open && (
         <div
           ref={attach}
-          style={menuStyle}
+          style={{ ...menuStyle, height: searchHeight }}
           className={`ui-popup ui-glass acpmux-menu acpmux-palette-menu acpmux-menu-${align}`}
         >
           <div className="acpmux-palette-search">
@@ -271,7 +273,13 @@ export function PaletteMenu({
               ref={search}
               type="search"
               value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
+              onChange={(event) => {
+                // Preserve the opening surface while filtering an above-anchored menu, so
+                // the search field stays under the pointer. The anchor's maxHeight still
+                // constrains this height when the pane becomes smaller.
+                if (searchHeight === undefined) setSearchHeight(menu.current?.offsetHeight);
+                setQuery(event.currentTarget.value);
+              }}
               onKeyDown={keyDown}
               // oxlint-disable-next-line jsx-a11y/no-redundant-roles
               role="combobox"
