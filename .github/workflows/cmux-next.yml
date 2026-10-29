@@ -1246,7 +1246,8 @@ jobs:
           # The fast tier's reserved label, taken only while one of its runners is idle.
           FAST_LABEL: ${{ vars.CI_FAST_LANE_RUNNER }}
           # Generated files' own session lane, weighed like the gui and session routes (session_lane_runner).
-          SESSION_LANE: ${{ vars.CI_SESSION_LANE_RUNNER }}
+          # Fork branch first: a fork never reads the variable, and a label that is not glaeda-* places no lane.
+          SESSION_LANE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_SESSION_LANE_RUNNER }}
           # The freshness slot (glaeda#1628: one side instance on opted-in minis carries only this label;
           # glaeda#1636: its hook admits cmux-scheme-compile on a feat-cmux-next push or a dev_daily dispatch
           # and a push's release-compile, and while idle it keeps one feed compile's units from PR jobs),
