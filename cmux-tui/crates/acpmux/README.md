@@ -968,8 +968,16 @@ machine. The Mac serves only a peer whose saved config has `githubBroker: true`:
 before at its next enroll; `host doctor --fix`, a plain `peer add` without `githubBroker`, a pairing
 and a Cloud lease never do. `"githubBroker": false` in `config.json` with `acpmux daemon reload`
 takes it back at once, and only a new enroll turns it on again. Each decision is a
-`github_broker_action` event on the agent's session (action, repository, branch, number and
-outcome; never a title, body or output) and a log line on the Mac.
+`github_broker_action` event on the agent's session (action, repository, branch, number,
+outcome and `source`; never a title, body, output or token) and a log line on the Mac.
+
+When the Mac's `gh` has no keyring login, the Mac uses the cmux GitHub App the person connected
+in Settings instead (`src/github_app_token.rs`). The app lends the daemon its cmux sign-in
+(`_acpmux/github_app_lease`: the app's own unix-socket connection, which proved the person; memory only; sent only to cmux Cloud's API; each call's `seq` only grows, and an older one is refused, so a late lend never undoes a sign-out). For each action the daemon gets a
+token for that one repository from cmux Cloud, runs that one `gh` with it (any `ghs_` token in its output is cut out), and drops it. The keyring check and a keyring action run with no GitHub token from the daemon's env.
+`source` says which login ran (`keyring` or `app`). With neither, the action fails with
+`github.not_connected`: "GitHub is not connected on this Mac: connect GitHub in cmux Settings
+(or sign in with `gh auth login`)".
 
 `acpmux host status` (also the hidden `peer status` alias, with `--json`) is the check to run before remote work
 and after a peer request fails. It asks every connected peer `_acpmux/host_health` at once,

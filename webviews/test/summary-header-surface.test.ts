@@ -19,7 +19,10 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
     });
     await server.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(server, "agent-pane.summary-card", { browser, params: { variant: "shared-tab-row" } });
+    await warmGalleryFrame(server, "agent-pane.summary-card", {
+      browser,
+      params: { variant: "shared-tab-row" },
+    });
   });
   afterAll(async () => {
     await browser?.close();
@@ -28,7 +31,9 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
   for (const height of [28, 40]) {
     for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
       test(`inline Summary leaves the ${height}px native tools row clear (${theme})`, async () => {
-        const page = await browser.newPage({ viewport: { width: 720, height: 560 } });
+        const page = await browser.newPage({
+          viewport: { width: 720, height: 560 },
+        });
         try {
           const port = (server.httpServer!.address() as { port: number }).port;
           await page.goto(
@@ -39,7 +44,9 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
             (node as HTMLElement).style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
           }, height);
           if (process.env.CMUX_SUMMARY_CAPTURE_DIR) {
-            await mkdir(process.env.CMUX_SUMMARY_CAPTURE_DIR, { recursive: true });
+            await mkdir(process.env.CMUX_SUMMARY_CAPTURE_DIR, {
+              recursive: true,
+            });
             await page.screenshot({
               path: path.join(
                 process.env.CMUX_SUMMARY_CAPTURE_DIR,
@@ -100,29 +107,54 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
   }
   for (const width of [640, 1000]) {
     for (const height of [28, 40]) {
-      test(`Preview leaves the ${height}px native row clear at ${width}px`, async () => {
-        const page = await browser.newPage({ viewport: { width, height: 560 }, reducedMotion: "reduce" });
-        try {
-          const port = (server.httpServer!.address() as { port: number }).port;
-          await page.goto(
-            `http://127.0.0.1:${port}${galleryFrame("agent-pane.summary-card", { variant: "preview-tab-row" })}`,
-          );
-          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-          await page.locator(".acpmux-shell").evaluate((node, pixels) => {
-            (node as HTMLElement).style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
-          }, height);
-          await page.locator(".acpmux-artifact").waitFor();
-          const actual = await page.evaluate(() => {
-            const shell = document.querySelector(".acpmux-shell")!.getBoundingClientRect();
-            const panel = document.querySelector(".acpmux-artifact")!.getBoundingClientRect();
-            return { top: panel.top - shell.top, bottom: panel.bottom - shell.bottom };
+      for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
+        test(`Preview leaves the ${height}px native row clear at ${width}px (${theme})`, async () => {
+          const page = await browser.newPage({
+            viewport: { width, height: 560 },
+            reducedMotion: "reduce",
           });
-          expect(actual.top).toBe(height);
-          expect(actual.bottom).toBeLessThanOrEqual(0);
-        } finally {
-          await page.close();
-        }
-      });
+          try {
+            const port = (server.httpServer!.address() as { port: number }).port;
+            await page.goto(
+              `http://127.0.0.1:${port}${galleryFrame("agent-pane.summary-card", { variant: "preview-tab-row", theme })}`,
+            );
+            await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+            await page.locator(".acpmux-shell").evaluate((node, pixels) => {
+              (node as HTMLElement).style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
+            }, height);
+            await page.locator(".acpmux-artifact").waitFor();
+            if (process.env.CMUX_SUMMARY_CAPTURE_DIR) {
+              await mkdir(process.env.CMUX_SUMMARY_CAPTURE_DIR, {
+                recursive: true,
+              });
+              await page.screenshot({
+                path: path.join(
+                  process.env.CMUX_SUMMARY_CAPTURE_DIR,
+                  `preview-${height}-${width}-${theme.endsWith("Light") ? "light" : "dark"}.png`,
+                ),
+              });
+            }
+            const actual = await page.evaluate(() => {
+              const shell = document.querySelector(".acpmux-shell")!.getBoundingClientRect();
+              const panel = document.querySelector(".acpmux-artifact")!.getBoundingClientRect();
+              const tools = document.querySelector<HTMLElement>(".acpmux-header-tools")!.getBoundingClientRect();
+              return {
+                top: panel.top - shell.top,
+                bottom: panel.bottom - shell.bottom,
+                toolsWidth: tools.width,
+                toolsRight: tools.right,
+                shellRight: shell.right,
+              };
+            });
+            expect(actual.top).toBe(height);
+            expect(actual.bottom).toBeLessThanOrEqual(0);
+            expect(actual.toolsWidth).toBeGreaterThan(0);
+            expect(actual.toolsRight).toBe(actual.shellRight);
+          } finally {
+            await page.close();
+          }
+        });
+      }
     }
   }
 });

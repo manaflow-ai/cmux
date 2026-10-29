@@ -310,8 +310,25 @@ public final class HomeSidebarView: NSView {
     /// The search is open while the field edits or holds a query.
     var searchOpen: Bool { list.searchField.isEditing || !list.searchField.stringValue.isEmpty }
 
+    /// The traffic lights over the header's band at its last layout (`homeWindowControls`).
+    private var windowControls: CGRect?
+
+    /// Re-reads the traffic lights after the list moved in its window without a resize of its
+    /// header (the window's sidebar opened or closed beside the Home page); relays out the header
+    /// only when what lies over it changed. `HomeSidebarSplitView` calls it on every layout.
+    func updateWindowControlsAvoidance() {
+        guard list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
+        // The header's layout also places the list under it (its height may change). Laid out
+        // now, not at the next display pass: an occluded window gets none until it shows, and
+        // the next frame on screen would still have the search field under the lights.
+        list.headerView.needsLayout = true
+        list.headerView.layoutSubtreeIfNeeded()
+    }
+
     private func layoutHeader(_ bounds: CGRect) -> CGFloat {
-        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen)
+        let controls = list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)
+        windowControls = controls
+        let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen, windowControls: controls)
         header = h
         dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: h.listTop)
         let compactClosed = h.compact && !h.buttonsCovered
@@ -406,6 +423,13 @@ public final class HomeSidebarView: NSView {
     public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
         let before = [compose, unreadToggle].map(\.debugState)
+        // The header as it stood before this call lays anything out, and the traffic lights it
+        // used then and sees now (a stale header under the lights shows here).
+        func rect(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
+        let stale: [String: Any] = ["search": rect(header.search), "used": rect(windowControls),
+                                    "sees": rect(list.headerView.homeWindowControls(band: HomeSidebarHeaderLayout.band)),
+                                    "headerInWindow": rect(list.headerView.convert(list.headerView.bounds, to: nil)),
+                                    "lights": rect(window.flatMap { WindowTitlebar.trafficLightsFrame(in: $0) })]
         let split = superview as? HomeSidebarSplitView
         if let width { split?.setWidth(width) }
         if let select {
@@ -426,6 +450,7 @@ public final class HomeSidebarView: NSView {
                 "header": ["search": frame(h.search), "filter": frame(h.filter), "compose": frame(h.compose),
                            "compact": h.compact, "buttonsCovered": h.buttonsCovered,
                            "chatCompose": frame(chat)] as [String: Any],
+                "beforeLayout": stale,
                 "buttons": ["before": before, "after": [compose, unreadToggle].map(\.debugState)]]
     }
     #endif
@@ -445,6 +470,8 @@ public final class HomeSidebarView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyColors()
+        // A new window has its own traffic lights (or none, in full screen).
+        updateWindowControlsAvoidance()
     }
 
     public override func layout() {

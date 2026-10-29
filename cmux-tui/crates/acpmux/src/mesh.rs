@@ -1,9 +1,10 @@
 //! The mesh relay: a send reaches a session on any host by name, through a team hub
 //! (cmux-platform), with no ssh peer list and no tailnet. This module is the hub's shape as the
 //! daemon sees it: [`MeshHub`], which the HTTPS client implements and tests fake, and the
-//! records it carries. `server/mesh_relay.rs` runs the daemon's side: it long-polls its inbox,
-//! delivers each message into the session it names as a local send does, and acks with the prompt
-//! id.
+//! records it carries (cmux-platform `openapi.json` 1.3.0, `/v1/mesh`). `server/mesh_relay.rs`
+//! runs the daemon's side: it heartbeats its sessions, long-polls its inbox, delivers each message
+//! into the session it names as a local send does, and acks with the prompt id. `mesh_http.rs` is
+//! the HTTPS client.
 //!
 //! Delivery is at least once: a message stays leased until acked and comes back when its lease
 //! ends. The prompt id of a delivery is the message id, so a message delivered twice runs once
@@ -13,6 +14,40 @@ use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+
+/// One session as the address book lists it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRow {
+    pub name: String,
+    pub session_id: String,
+    pub harness: String,
+    /// `idle`, `ready`, `running`, `waiting` or `disconnected` (`store::SessionStatus`).
+    pub state: String,
+    /// Why a session whose harness keeps failing is stuck, once the daemon reports it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stuck_reason: Option<String>,
+}
+
+/// A heartbeat: it replaces this daemon's sessions in the address book.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Heartbeat {
+    pub host: String,
+    pub sessions: Vec<SessionRow>,
+}
+
+/// The most sessions one heartbeat lists.
+pub const MAX_HEARTBEAT_SESSIONS: usize = 256;
+
+/// The hub took a heartbeat: this daemon's rows expire `ttlSeconds` after it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeartbeatReply {
+    #[serde(default)]
+    pub daemon_id: String,
+    pub ttl_seconds: u64,
+}
 
 /// Whom a message is for: a session id, or a name (with `host` when several hosts have it); a
 /// daemon (`daemonId`, or `host` alone) for a control message. The hub fills what it resolved.
@@ -126,15 +161,29 @@ impl Ack {
 pub struct HubError {
     pub message: String,
     pub refused: bool,
+    /// The hub's code (`mesh.unauthorized`, `mesh.rate_limited`, ...).
+    pub code: Option<String>,
+    /// How long a rate-limited caller waits (429 `retryAfterSeconds`).
+    pub retry_after: Option<Duration>,
+    /// The HTTP status the hub answered, when it answered one.
+    pub status: Option<u16>,
 }
 
 impl HubError {
+    /// Whether no retry can help this daemon's loops: a refused credential (401, 403: a Cloud VM
+    /// token, a token without a team) or a refusal from no answer at all (no token command).
+    /// Any other refusal (a request the hub took issue with) is tried again with backoff.
+    pub fn ends_relay(&self) -> bool {
+        self.refused && self.status.is_none_or(|s| s == 401 || s == 403)
+    }
+
     pub fn unavailable(message: impl Into<String>) -> Self {
-        Self { message: message.into(), refused: false }
+        Self { refused: false, ..Self::refused(message) }
     }
 
     pub fn refused(message: impl Into<String>) -> Self {
-        Self { message: message.into(), refused: true }
+        let message = message.into();
+        Self { message, refused: true, code: None, retry_after: None, status: None }
     }
 }
 
@@ -151,6 +200,11 @@ pub trait MeshHub: Send + Sync {
     /// Up to `max` messages for this daemon, leased to it, waiting up to `wait` for one.
     fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>>;
     fn ack<'a>(&'a self, message_id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>>;
+    /// Replace this daemon's sessions in the address book.
+    fn heartbeat<'a>(
+        &'a self,
+        beat: &'a Heartbeat,
+    ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>>;
 }
 
 /// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
@@ -207,10 +261,26 @@ impl Backoff {
     }
 }
 
+/// Whether a hub-given message id is safe to use: 1 to 128 of `A-Z a-z 0-9 . _ : -` (the
+/// hub's own ids are `msg_...`). The id goes into the ack's URL path and into log lines, so a
+/// message whose id is anything else is skipped, never delivered, acked or logged.
+pub fn is_message_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn only_a_plain_message_id_is_taken() {
+        assert!(is_message_id("msg_01HZY:3.a-b"));
+        for bad in ["", "Bearer eyJhbGci", "../ack", "a/b", "m?x=1", &"m".repeat(129)] {
+            assert!(!is_message_id(bad), "{bad:?}");
+        }
+    }
 
     #[test]
     fn records_read_and_write_the_hubs_field_names() {
