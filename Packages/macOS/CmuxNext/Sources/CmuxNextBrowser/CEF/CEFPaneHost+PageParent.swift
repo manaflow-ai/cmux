@@ -75,11 +75,10 @@ extension CEFPaneHost {
         // The page's keys, clicks, moves and wheel ticks into the host's ring for the shown tab (task 042).
         route?.attach(page) { [weak self] in self?.visibleTab?.browserID }
         #endif
-        // The host's page window takes the view's size in the same commit as the pane (task 052).
+        // The host's page window takes the view's size (task 052).
         page.onGeometry = { [weak self, weak page] geometry in
             guard let self, let page else { return }
-            runtime.hostPageResizes()?.resize(view: page.wireToken, browser: visibleTab?.browserID ?? 0, geometry: geometry,
-                                              in: page.window)
+            runtime.hostPageResizes()?.resize(view: page.wireToken, geometry: geometry)
         }
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
         hostView.showOcclusion(in: page)
@@ -101,8 +100,7 @@ extension CEFPaneHost {
         if let pageWindow = page.window, page.bounds.width >= 1, page.bounds.height >= 1 {
             let geometry = ChromiumHostGeometry(screenRect: pageWindow.convertToScreen(page.convert(page.bounds, to: nil)),
                                                 scale: pageWindow.backingScaleFactor)
-            runtime.hostPageResizes()?.resize(view: page.wireToken, browser: browser, geometry: geometry, in: pageWindow,
-                                              resend: true)
+            runtime.hostPageResizes()?.resize(view: page.wireToken, geometry: geometry, resend: true)
         }
         // Before the hosting op: the host applies it when it detaches the page window.
         postPageVisibility(browser: browser)

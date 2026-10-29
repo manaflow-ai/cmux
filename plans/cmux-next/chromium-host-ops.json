@@ -290,7 +290,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Host mode never holds a commit for a page: the page view's resize carries a Core Animation fence right with a one-frame deadline instead (kOpPageResize, task 052, ChromiumHostResizeFence)."
+      "reason": "Host mode never holds a commit for a page: the page view's resize goes as the ordered kOpPageResize instead (task 052, ChromiumHostPageResizes)."
     },
     {
       "name": "cmux_shim_browser_set_resize_fence",
@@ -315,7 +315,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "A Mach port name means nothing in the host's IPC space, so no op carries one: the client returns 0 (a fork without the call) and sends nothing. Host mode's fence goes with the page view's resize: the right in a Mach message to the host's fence inbox, then the ordered kOpPageResize naming its seq (task 052, ChromiumHost/src/host_resize.h)."
+      "reason": "A Mach port name means nothing in the host's IPC space, so no op carries one: the client returns 0 (a fork without the call) and sends nothing."
     },
     {
       "name": "cmux_shim_browser_set_embedder_visibility",
