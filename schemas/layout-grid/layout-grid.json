@@ -1,7 +1,7 @@
 {
   "$comment": "Layout grid in CSS pixels / native points. Edges and sizes are on the 4 pt grid; centers are derived. Menus retain schemas/menu-metrics/menu-metrics.json. Comfortable icon boxes apply only to sidebar and Home lists. Formula terms are token names multiplied by their coefficients. CSS lengths marked scaled follow --cmux-interface-scale; native lengths are unscaled points.",
   "metrics": [
-    {"name": "base", "pt": 4, "kind": "edge", "scaled": false, "description": "Base spacing unit"},
+    {"name": "base", "pt": 4, "kind": "edge", "scaled": true, "description": "Base spacing unit"},
     {"name": "half-step", "pt": 2, "kind": "halfStep", "scaled": false, "description": "Named half-step unit"},
     {"name": "icon-box", "pt": 16, "kind": "edge", "scaled": true, "description": "Compact icon box"},
     {"name": "icon-box-comfortable", "pt": 20, "kind": "edge", "scaled": true, "description": "Comfortable sidebar and Home list icon box only"},
