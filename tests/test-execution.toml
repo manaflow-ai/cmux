@@ -2194,6 +2194,10 @@ path = "tests/test_swift_linux_packages.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_tree_critical_path.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_shortcut_alternates_documented.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Reads the schema, the two docs pages, en.json and the three skill references; run python3 tests/test_shortcut_alternates_documented.py yourself after changing the accepted shortcuts.bindings forms or the prose that lists them (under 1 s, no build)."
