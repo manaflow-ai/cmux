@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as Effect from "effect/Effect";
@@ -91,9 +92,8 @@ describe("idle decision", () => {
     expect(runCron(() => hookAgent, 6 * 60).pausedAfterMinutes).toBeNull();
   });
 
-  test("an attached client, a foreground command, an ssh login or a forwarded-port connection keeps it awake", () => {
+  test("a foreground command, an ssh login or a forwarded-port connection keeps it awake", () => {
     const cases: Array<[VmIdleProbe, string]> = [
-      [idleProbe({ daemon: { attachedClients: 1, liveAgents: 0, lastUserInputAt: null, lastAgentActionAt: null } }), "active:attached_clients"],
       [idleProbe({ busyTerminals: 1 }), "active:busy_terminals"],
       [idleProbe({ sshSessions: 1 }), "active:ssh_sessions"],
       [idleProbe({ inboundConnections: 2 }), "active:inbound_connections"],
@@ -102,6 +102,19 @@ describe("idle decision", () => {
       expect(runCron(() => probe, 6 * 60).pausedAfterMinutes).toBeNull();
       expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe, previous: null, now: T0 })).toEqual({ pause: false, reason, observation: null });
     }
+  });
+
+  test("an attached app with nobody typing pauses after the timeout; typing into it keeps it awake", () => {
+    // The Mac app stays attached for days (it re-attaches after every daemon restart), so
+    // attachment is not activity: a person's input through it is.
+    const attached = (lastUserInputAt: number | null) =>
+      idleProbe({ daemon: { attachedClients: 2, liveAgents: 0, lastUserInputAt, lastAgentActionAt: null } });
+    expect(runCron(() => attached(null), 120).pausedAfterMinutes).toBe(30);
+    expect(decideVmIdlePause({ providerVmId: VM, minutes: 30, probe: attached(null), previous: null, now: T0 }).reason).toBe("idle");
+    // Typing every minute through the attached app: never idle for 30 minutes.
+    expect(runCron((now) => attached(now - MIN), 6 * 60).pausedAfterMinutes).toBeNull();
+    // The person stops typing at minute 40: paused 30 minutes later, at the next probe.
+    expect(runCron((now) => attached(Math.min(now, T0 + 40 * MIN)), 6 * 60).pausedAfterMinutes).toBe(70);
   });
 
   test("activity in the middle of the stretch starts it over", () => {
@@ -283,6 +296,44 @@ describe("idle probe guest script", () => {
       inbound_connections: 1,
       cpu_busy_ms: null,
     });
+  });
+
+  test("with no daemon-socket file (images baked before it), the daemon is found at its session socket", async () => {
+    const root = fakeProc({ "net/tcp": TCP_HEADER, "net/tcp6": TCP_HEADER });
+    const dir = path.join(root, "tmp", "cmux-tui-1000");
+    mkdirSync(dir, { recursive: true });
+    const socketPath = path.join(dir, "cloud.sock");
+    const server = createServer((conn) => {
+      conn.once("data", (line) => {
+        expect(String(line)).toContain('"subscribe-activity"');
+        conn.end(JSON.stringify({ id: 1, ok: true, data: { activity: { attached_clients: 1, live_agents: 0, last_user_input_at_ms: 1_700_000_000_000, last_agent_action_at_ms: null } } }) + "\n");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    try {
+      writeFileSync(path.join(root, "acpmux.json"), "NONE");
+      const result = await runChild("python3", ["-I", "-c", VM_IDLE_PROBE_SCRIPT], {
+        env: {
+          PATH: process.env.PATH ?? "/usr/bin:/bin",
+          CMUX_IDLE_PROC_ROOT: root,
+          CMUX_IDLE_ACPMUX: path.join(root, "acpmux.json"),
+          CMUX_IDLE_DAEMON_SOCKET_FILE: path.join(root, "no-daemon-socket-file"),
+          CMUX_IDLE_DAEMON_UID: "1000",
+          CMUX_IDLE_DAEMON_SOCKET_ROOTS: `${path.join(root, "run-user-1000")}:${path.join(root, "tmp")}`,
+        },
+        timeout: 30_000,
+      });
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "{}").daemon).toEqual({
+        attached_clients: 1, live_agents: 0, last_user_input_at_ms: 1_700_000_000_000, last_agent_action_at_ms: null,
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("the probe command passes the daemon user's uid for the session socket", () => {
+    expect(vmIdleProbeCommand(["10.192.0.5"])).toContain(`CMUX_IDLE_DAEMON_UID="$(id -u "$CMUX_TUI_USER")"`);
   });
 
   test("an idle machine reads all zeros; a stopped acpmux is none; an unreadable one is unknown", async () => {
