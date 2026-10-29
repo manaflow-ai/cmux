@@ -170,10 +170,84 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  # The candidate compile's route, picked on Linux right before it queues: an
+  # owned Mac while one of its runners is idle now, else the Blacksmith macOS 26
+  # label whose queue moves (scripts/ci/nightly_build_runner.py, the picker the
+  # nightly-next app build uses). The routing order is Linux, then owned Macs,
+  # then Blacksmith macOS last (Leo, 2026-10-24), and GitHub-hosted macOS is
+  # never in it (tests/test_ci_no_github_hosted_macos.py).
+  pick-train-runner:
+    name: Pick the train compile's runner
+    if: github.repository == 'manaflow-ai/cmux' && inputs.mode == 'build' && startsWith(github.ref, 'refs/heads/nightly-train/')
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The routing App's key, as nightly.yml's pick-nightly-build-runner reads it.
+    environment: ci-routing-agent
+    timeout-minutes: 5
+    permissions:
+      # The queue janitor's pool snapshot (an artifact).
+      actions: read
+      contents: read
+    outputs:
+      owned: ${{ steps.pick.outputs.owned }}
+      blacksmith: ${{ steps.pick.outputs.blacksmith }}
+      # The attempt the pick was made for: a re-run of the failed compile keeps
+      # this job and its outputs, so it reads `blacksmith` and leaves the owned
+      # label (GitHubBuilder in nightly_next_train_drive.py re-runs a refused one).
+      attempt: ${{ steps.pick.outputs.attempt }}
+    steps:
+      - name: Checkout the runner picker at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts/ci
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      # No dedicated builder (it keeps the nightly-next tip's warm state). An owned
+      # label is offered only while a runner carrying it is idle now; a busy fleet,
+      # unread runners or a failed step all leave `owned` empty.
+      - name: Pick an idle owned Mac, else a moving Blacksmith label
+        id: pick
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          OWNED_LABELS: ${{ format('{0} {1}', vars.NIGHTLY_NEXT_TRAIN_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py
+
   build:
     name: nightly-next train Release compile
-    if: github.repository == 'manaflow-ai/cmux' && inputs.mode == 'build' && startsWith(github.ref, 'refs/heads/nightly-train/')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.NIGHTLY_NEXT_TRAIN_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    needs: pick-train-runner
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && inputs.mode == 'build' && startsWith(github.ref, 'refs/heads/nightly-train/') }}
+    # An idle owned Mac on the pick's own attempt, else the moving Blacksmith label;
+    # a failed pick falls back to vars.MACOS_RUNNER_26, then Blacksmith macOS 26.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # The same one-architecture Release xcodebuild as cmux-next.yml's
     # "cmux-next Release compile (Xcode 26)", on the candidate train commit.
     timeout-minutes: 60

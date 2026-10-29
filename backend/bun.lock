@@ -28,6 +28,7 @@
       "name": "@cmux/api",
       "version": "0.0.0",
       "dependencies": {
+        "@cmux/cloud-env": "workspace:*",
         "@cmux/db": "workspace:*",
         "@cmux/home-core": "workspace:*",
         "@cmux/ownership": "workspace:*",
@@ -39,7 +40,7 @@
         "agents": "0.28.1",
         "croner": "10.0.1",
         "drizzle-orm": "0.45.4",
-        "effect": "4.0.0-rc.117",
+        "effect": "4.0.5",
         "jose": "6.2.12",
         "mysql2": "3.23.1",
         "pg": "8.23.0",
@@ -105,6 +106,15 @@
         "typescript": "7.0.2",
       },
     },
+    "packages/cloud-env": {
+      "name": "@cmux/cloud-env",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/node": "26.6.2",
+        "typescript": "7.0.2",
+        "vitest": "4.1.12",
+      },
+    },
     "packages/home-core": {
       "name": "@cmux/home-core",
       "version": "0.0.0",
@@ -130,7 +140,7 @@
       "name": "@cmux/protocol",
       "version": "0.0.0",
       "dependencies": {
-        "effect": "4.0.0-rc.117",
+        "effect": "4.0.5",
       },
       "devDependencies": {
         "@types/node": "26.6.2",
@@ -276,6 +286,8 @@
     "@cmux/api": ["@cmux/api@workspace:apps/api"],
 
     "@cmux/cloud-client": ["@cmux/cloud-client@workspace:../clients/ts/cloud"],
+
+    "@cmux/cloud-env": ["@cmux/cloud-env@workspace:packages/cloud-env"],
 
     "@cmux/dashboard": ["@cmux/dashboard@workspace:apps/dashboard"],
 
@@ -733,7 +745,7 @@
 
     "ecdsa-sig-formatter": ["ecdsa-sig-formatter@1.0.11", "", { "dependencies": { "safe-buffer": "^5.0.1" } }, "sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ=="],
 
-    "effect": ["effect@4.0.0-rc.117", "", {}, "sha512-UUyi9QiOW4nySFIBM3KnYbNMd9EZliOdKfBcyLD0mPMPheO2fkuXS5y0opjWc9oqzlJxPQICEGm8gGw3kh9j/w=="],
+    "effect": ["effect@4.0.5", "", {}, "sha512-BY4/28NlpOd99yzmV741xbVGmp+1U7tks4oB7F/Png64bTa5tm5eCA6W0RiXsnuLDDoJpjfVSo4Dnq4BZb/89Q=="],
 
     "electron-to-chromium": ["electron-to-chromium@1.5.439", "", {}, "sha512-qu6QIPXhsb+CRcAiTMNjR4A1y/7tCYKkKjr5CZXRVih6qkDf79peZ2BpEU3qoDBNCRrcy3Mra3X9nG5oruuA7Q=="],
 

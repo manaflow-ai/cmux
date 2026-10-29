@@ -240,11 +240,36 @@ pub fn is_sign_in_failure(message: &str) -> bool {
         || m.contains("authentication_failed")
 }
 
+/// Whether `message` says a credential expired: "OAuth token has expired", "the token is
+/// expired", "credential expired", "expired API key". One matcher for every place that tells an
+/// expired sign-in from a missing one (a failed auth check, a failed turn), so the two never
+/// drift. Only a statement that one expired counts: "invalid token expiry", "the credential
+/// expires in 30 days" and a bare "session expired" do not.
+pub fn is_expired_credential(message: &str) -> bool {
+    // A constant pattern; the unit test proves it compiles.
+    static EXPIRED: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?i)\b(?:tokens?|credentials?|api keys?|logins?|sign-ins?)(?:\s+(?:has|have|is|are|was|were))?\s+expired\b|\bexpired\s+(?:(?:oauth|access|refresh|auth|authentication|session)\s+)?(?:tokens?|credentials?|api keys?|logins?|sign-ins?)\b",
+        )
+        .ok()
+    });
+    EXPIRED.as_ref().is_some_and(|re| re.is_match(message))
+}
+
+/// Whether [`explain`] rewrites `original`: a sign-in failure it has not explained yet, and not
+/// one that says the provider was unreachable ("HTTP 503: OAuth token has expired"), which
+/// stays as the agent said it, so its turn is retried and typed as the outage it is.
+fn explains(original: &str) -> bool {
+    is_sign_in_failure(original)
+        && !crate::hub::turn_errors::says_unreachable(original)
+        && !original.starts_with("Claude is not signed in here")
+}
+
 /// The explanation for a Claude agent's sign-in failure, or None when this
 /// session is not a Claude agent acpmux started (or the text says another
 /// thing). `original` is Claude's own text, kept at the end.
 pub fn explain(session_id: &str, original: &str) -> Option<String> {
-    if !is_sign_in_failure(original) || original.starts_with("Claude is not signed in here") {
+    if !explains(original) {
         return None;
     }
     let agent_env =
@@ -339,4 +364,17 @@ fn compose(agent: &Found, terminal: &Found, shell: Option<&str>, original: &str)
     out.push_str(&fix);
     out.push_str(&format!(" (Claude said: {})", original.trim()));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    /// A sign-in failure is explained; one that says the provider was unreachable is not.
+    #[test]
+    fn an_outage_that_names_a_token_is_not_explained_as_a_sign_in() {
+        assert!(super::explains("Not logged in · Please run /login"));
+        assert!(super::explains("API Error: 401 OAuth token has expired"));
+        assert!(!super::explains("HTTP 503: OAuth token has expired"));
+        assert!(!super::explains("connection error: Not logged in"));
+        assert!(!super::explains("Claude is not signed in here. Not logged in"));
+    }
 }

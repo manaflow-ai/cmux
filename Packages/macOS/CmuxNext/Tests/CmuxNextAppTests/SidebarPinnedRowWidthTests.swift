@@ -117,7 +117,8 @@ struct SidebarPinnedRowWidthTests {
             let (pill, radius) = try h.itemPill(id)
             #expect(abs(pill.minX - inset) < 0.5, "\(id) starts at \(pill.minX), the rows at the inset \(inset)")
             #expect(abs(pill.maxX - header.maxX) < 0.5, "\(id) ends at \(pill.maxX), the group header at \(header.maxX) (list \(width))")
-            #expect(pill.maxX <= width - inset + 0.5, "\(id) runs past the sidebar's trailing inset: \(pill.maxX) in \(width)")
+            // Since Leo 2026-10-27 a row's fill runs to `rowEdgeGap` from the sidebar's edge, never past it.
+            #expect(pill.maxX <= width - SidebarStyle.rowEdgeGap + 0.5, "\(id) runs past the sidebar's edge gap: \(pill.maxX) in \(width)")
             #expect(abs(radius - headerRadius) < 0.01, "\(id) radius \(radius), the group header's \(headerRadius)")
             #expect(abs(radius - SidebarDensityTokens.rowCornerRadius) < 0.01, "\(id) radius \(radius) is not the density token")
         }

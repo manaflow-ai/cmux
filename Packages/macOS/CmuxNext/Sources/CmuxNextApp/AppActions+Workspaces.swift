@@ -179,8 +179,9 @@ extension AppActions {
     /// person just asked for, not yet shown), never the one the window still
     /// shows (cx-7cit9). Otherwise it closes the scoped workspace after the
     /// window's earlier creates and closes (`WorkspaceLanes`). The workspace
-    /// is resolved at the press and its row leaves then; a person's run asks
-    /// about running programs afterwards (`WorkspaceCloseFlow`).
+    /// is resolved at the press. A person's run that may ask about running
+    /// programs keeps its row until the answer; otherwise the row leaves at the
+    /// press (`WorkspaceCloseFlow`).
     private static func closeWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
@@ -196,16 +197,21 @@ extension AppActions {
         // window's lane (later creates and closes never wait for it) until it connects or leaves the app (the row then lists
         // again); a row that cannot hide says why. CLI and socket closes still fail at once.
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
-        let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
+        let id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
+                // A person's close animates its row out even when the row leaves after their answer to the question
+                // (or after the terminals' answer), past the press's window for motion (calm-sidebar-movement).
+                if invocation.origin == .user { controller?.sidebar.model.noteUserIntent() }
                 let hidden = !InstantClose.begin([id], in: owner, windows: services.windows).isEmpty
                 selected.afterPress = controller?.state.workspaceID
                 return hidden
             },
+            // A terminal that may run a program (and the warning on): the row stays until the person answers.
+            mayAsk: { WorkspaceBulkClose.mayAsk([(workspace, daemon)], warn: warn) },
             // The question, when a terminal runs a program: on the window that lists the workspace, above its pages.
             question: {
                 guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return nil }
@@ -217,9 +223,11 @@ extension AppActions {
                     }
                 }
             },
-            // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
+            // Closed another way while the question was up (the CLI, another window): nothing to send.
             exists: { services.workspace(id: id) != nil },
             send: { hidden in
+                // Told only once the close goes ahead: a cancelled question keeps the workspace's remote terminals.
+                let terminals = WorkspaceClose.closing(workspace, on: daemon)
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
@@ -233,8 +241,8 @@ extension AppActions {
                 }
                 return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }
             },
-            // Cancel: the row is listed again, and the window shows it again unless the person moved on meanwhile
-            // (or it closed another way meanwhile).
+            // Cancel on a row that left at the press (its store read a prompt while a program ran): the row is
+            // listed again, and the window shows it again unless the person moved on meanwhile.
             restore: { hidden in
                 guard hidden else { return }
                 ClosingWorkspaces.shared.end(id, refused: false, in: nil)
