@@ -5198,6 +5198,16 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: false
 
+      # Publication tooling from this workflow's own commit (see publish-nightly).
+      - &checkout-publication-tooling-a
+        name: Checkout publication tooling at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts
+
       # The static DMG verifier runs the license check, which reads
       # ghostty-next/build.zig.zon.
       - name: Initialize cmux-next notices submodule
@@ -5227,35 +5237,7 @@ jobs:
         env:
           POOL_SIGNED: ${{ needs.signer-dmg.result == 'success' }}
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
-        run: |
-          set -euo pipefail
-          mkdir -p tested
-          : > "tested/tested-${NIGHTLY_VARIANT}.sha256"
-          release="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
-          [ -f "$release" ] || { echo "no final DMG for $NIGHTLY_VARIANT" >&2; exit 1; }
-          # The DMG was signed and checked for the signing channel (cmux NEXT signs as next).
-          stapled_flag=(--require-stapled-app)
-          if [ -n "${STAPLED_APP_FALLBACK_ID:-}" ]; then
-            stapled_flag=(--stapled-app-fallback "$STAPLED_APP_FALLBACK_ID")
-          fi
-          # signer-dmg's one-DMG artifact carries no immutable copy, which signer-dmg.sh makes with
-          # cp: make it the same way. publish-nightly publishes that name only with these bytes.
-          if [ "$POOL_SIGNED" = true ]; then
-            immutable="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD:?}.dmg"
-            [ ! -e "$immutable" ] || { echo "the one-DMG artifact holds $(basename "$immutable")" >&2; exit 1; }
-            cp -c "$release" "$immutable" 2>/dev/null || cp "$release" "$immutable"
-          fi
-          ./scripts/ci/verify-dmg-artifact.sh "$release" "$SIGN_CHANNEL" "${stapled_flag[@]}" 3>"$RUNNER_TEMP/verified.line"
-          tested="$(awk '$1 == "verified" {print $2}' "$RUNNER_TEMP/verified.line")"
-          [ -n "$tested" ] || { echo "verify-dmg-artifact.sh reported no verified digest" >&2; exit 1; }
-          # The immutable DMG is a copy of the release DMG: require the same bytes.
-          for dmg in final-dmg/"${CHANNEL_DMG_PREFIX}"-*.dmg; do
-            [ -f "$dmg" ] || continue
-            actual="$(shasum -a 256 "$dmg" | awk '{print $1}')"
-            [ "$actual" = "$tested" ] || { echo "$(basename "$dmg") differs from the DMG that was verified" >&2; exit 1; }
-            printf '%s  %s\n' "$actual" "$(basename "$dmg")" >> "tested/tested-${NIGHTLY_VARIANT}.sha256"
-          done
-          cat "tested/tested-${NIGHTLY_VARIANT}.sha256"
+        run: bash .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg.sh
 
       - name: Apple's checks of a pool-signed DMG and the app in it
         if: needs.signer-dmg.result == 'success'
@@ -5263,6 +5245,14 @@ jobs:
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
         run: bash scripts/ci/nightly-steps/signer-final-dmg-checks.sh
+
+      # Leo, 2026-10-29: "Just don't have that be the downloading thing." The app launched from a fresh
+      # home must stay up with Home rendered: a crash fails this job, so publish-nightly puts none of
+      # this build on the feed (scripts/ci/nightly-steps/launch-smoke-gate.sh; cannot-run never holds it).
+      - name: Launch smoke from a fresh home
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && env.TRACK == 'nightly-next' && matrix.variant == 'arm64'
+        timeout-minutes: 12
+        run: bash .publish-tooling/scripts/ci/nightly-steps/launch-smoke-gate.sh "final-dmg/${CHANNEL_DMG_PREFIX}-arm64.dmg"
 
       # Size of the app in the final DMG, by component, against
       # scripts/cmux-next/bundle-size-budget.json (plans/cmux-next/bundle-size-DESIGN.md).
@@ -5862,6 +5852,11 @@ jobs:
       - name: Verify recovered DMG artifact
         run: bash scripts/ci/nightly-steps/recover-verify-dmg.sh
 
+      # As verify-final-dmg-nightly: a recovered build that crashes at launch is never published.
+      - name: Launch smoke from a fresh home
+        timeout-minutes: 12
+        run: bash scripts/ci/nightly-steps/launch-smoke-gate.sh "recovered/${CHANNEL_DMG_PREFIX}-arm64.dmg"
+
       - name: Upload tested DMG digests
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -5998,14 +5993,7 @@ jobs:
       # read the build's own source tree still run from the publish ref:
       # verify_remote_daemon_release.py, fetch-release-notes-span.sh,
       # release-notes.py, check_ghostty_vt_notices.py, ghostty_source_archive.py.
-      - &checkout-publication-tooling-a
-        name: Checkout publication tooling at the workflow commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          ref: ${{ github.sha }}
-          path: .publish-tooling
-          sparse-checkout: scripts
+      - *checkout-publication-tooling-a
 
       # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
       # its own actor, so a limit that every workflow's github.token shares does not refuse it.
