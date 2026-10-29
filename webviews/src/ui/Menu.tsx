@@ -72,7 +72,11 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, native, childre
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
     anchor: () => trigger.current,
     onEvent: (event) => native?.onEvent?.(event),
-    onDismiss: () => native?.onDismiss?.(),
+    onDismiss: () => {
+      if (open === undefined) setInternalOpen(false);
+      onOpenChange?.(false);
+      native?.onDismiss?.();
+    },
   });
   const setMenuOpen = (next: boolean) => {
     if (next && !isOpen) {
