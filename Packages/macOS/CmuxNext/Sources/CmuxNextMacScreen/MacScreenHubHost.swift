@@ -118,7 +118,8 @@ public final class MacScreenHubHost {
     public func consentChanged(allows: (SessionScope) -> Bool) {
         guard let current = session, !allows(current.scope) else { return }
         logger.info("serving stopped: this Mac's consent no longer allows the session")
-        stopSession(reason: .hostStopped)
+        // Closes here at once; the hub hears it after (a hub that does not answer never keeps it serving).
+        stopSession(reason: .hostStopped, immediately: true)
     }
 
     private func start(_ ticket: SessionTicket) {
@@ -192,6 +193,7 @@ public final class MacScreenHubHost {
     /// `immediately` (quitting) closes at once.
     @discardableResult
     public func stopSession(reason: MacScreenHubReason = .hostStopped, immediately: Bool = false) -> Task<Void, Never>? {
+        dropAwaitingConsent(reason: reason)
         guard let current = session else { return nil }
         guard let hub = hub(), !immediately else {
             closeLocal()
@@ -221,6 +223,14 @@ public final class MacScreenHubHost {
                 await self?.stopSession(reason: .hostStopped)?.value
             }
         }
+    }
+
+    /// Tickets still waiting for their consent read end unserved, with `reason`.
+    private func dropAwaitingConsent(reason: MacScreenHubReason) {
+        let waiting = awaitingConsent
+        awaitingConsent.removeAll()
+        guard let hub = hub() else { return }
+        for id in waiting.sorted() { end(id, reason: reason, hub: hub) }
     }
 
     /// Signed out, or the hub went away: end the session here (the caller told the hub first, when it could).

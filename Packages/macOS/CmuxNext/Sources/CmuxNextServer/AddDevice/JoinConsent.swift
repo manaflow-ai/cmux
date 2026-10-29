@@ -159,21 +159,35 @@ public final class JoinConsentModel {
     public var shown: Bool { services.enabled() && status?.credentialPresent == true && status?.revoked != true }
 
     public func refresh() async {
+        await readAndKeep()
+    }
+
+    /// One read: the join status and acpmux's record.
+    private struct Reading {
+        var status: JoinStatus?
+        var consent: JoinConsentRecord?
+        var supported: Bool?
+    }
+
+    /// Reads, and keeps the result unless a newer read started meanwhile; returns it either way.
+    @discardableResult
+    private func readAndKeep() async -> Reading {
         generation += 1
         let mine = generation
-        var next: JoinStatus?, record: JoinConsentRecord?, supported: Bool?
+        var reading = Reading()
         if services.enabled() {
-            next = await services.status()
+            reading.status = await services.status()
             if let line = await services.openLine() {
-                supported = line.supportsConsent
-                if line.supportsConsent { record = await line.read() }
+                reading.supported = line.supportsConsent
+                if line.supportsConsent { reading.consent = await line.read() }
                 line.close()
             }
         }
-        guard mine == generation else { return }
-        status = next
-        consent = record
-        consentSupported = supported
+        guard mine == generation else { return reading }
+        status = reading.status
+        consent = reading.consent
+        consentSupported = reading.supported
+        let record = reading.consent
         changed()
         // The Labs switch went off (or the join went away): an open sheet can no longer allow.
         if !shown, ask != nil { dismissAsk() }
@@ -181,6 +195,7 @@ public final class JoinConsentModel {
         if shown, let surface = record?.lastRefusal, record?.allows(surface) == false {
             refused(JoinConsentRefusal(requester: JoinConsentStrings.teamMachine, surface: surface))
         }
+        return reading
     }
 
     /// Turns `surface` on or off on this Mac. Returns the error to show, nil when set.
@@ -222,9 +237,13 @@ public final class JoinConsentModel {
     /// SECURITY: an acpmux without `machine-consent-v1`, or no read, never allows.
     public func permitsMacScreen(control: Bool) -> Bool {
         guard services.enabled() else { return true }
-        guard consentSupported == true else { return false }
-        if (consent?.consentRequired ?? status?.credentialPresent) == false { return true }
-        guard let consent, consent.screen else { return false }
+        return Self.permits(Reading(status: status, consent: consent, supported: consentSupported), control: control)
+    }
+
+    private static func permits(_ reading: Reading, control: Bool) -> Bool {
+        guard reading.supported == true else { return false }
+        if (reading.consent?.consentRequired ?? reading.status?.credentialPresent) == false { return true }
+        guard let consent = reading.consent, consent.screen else { return false }
         return !control || consent.control
     }
 
@@ -233,10 +252,11 @@ public final class JoinConsentModel {
     /// once acpmux answered (with or without consent support).
     public func allowsMacScreen(control: Bool, requester: String) async -> Bool {
         guard services.enabled() else { return true }
-        await refresh()
-        if permitsMacScreen(control: control) { return true }
-        if consentSupported != nil {
-            refused(JoinConsentRefusal(requester: requester, surface: consent?.screen == true ? .control : .screen))
+        // SECURITY: decided from this request's own read, never from what an older read left behind.
+        let reading = await readAndKeep()
+        if Self.permits(reading, control: control) { return true }
+        if reading.supported != nil {
+            refused(JoinConsentRefusal(requester: requester, surface: reading.consent?.screen == true ? .control : .screen))
         }
         return false
     }

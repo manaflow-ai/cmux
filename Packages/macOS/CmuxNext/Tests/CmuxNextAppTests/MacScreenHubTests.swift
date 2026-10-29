@@ -737,11 +737,35 @@ struct MacScreenHubHostOrderTests {
         host.serve(ticket("s2", role: .host, scope: .view, peer: "v1"))
         for _ in 0..<1000 where host.session == nil { await Task.yield() }
         #expect(host.session?.id == "s2" && made.items == ["signaling"])
-        // Turning Screen sharing off stops the running session.
+        // Turning Screen sharing off stops the running session here at once, before the hub answers.
+        let hubAnswers = JoinConsentTests.Gate()
+        host.endSession = { _, id, reason in
+            ends.items.append("\(id) \(reason)")
+            await hubAnswers.wait()
+        }
         #expect(await consent.set(.screen, on: false) == nil)
-        for _ in 0..<1000 where host.session != nil { await Task.yield() }
         #expect(host.session == nil)
+        for _ in 0..<1000 where ends.items.count < 2 { await Task.yield() }
         #expect(ends.items == ["s1 failed", "s2 host_stopped"])
+        hubAnswers.open()
+    }
+
+    @Test func stopSharingEndsATicketStillWaitingForConsent() async {
+        let (host, _) = serving()
+        let ends = CallLog()
+        host.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        let read = JoinConsentTests.Gate()
+        host.consentGate = { _ in
+            await read.wait()
+            return true
+        }
+        host.serve(ticket("s2", role: .host, scope: .view, peer: "v2"))
+        await host.stopSession()?.value
+        read.open()
+        for _ in 0..<1000 where ends.items.count < 2 { await Task.yield() }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(host.session == nil, "the waiting ticket never serves")
+        #expect(Set(ends.items) == ["s1 host_stopped", "s2 host_stopped"])
     }
 
     @Test func revokeSetsNoneAndWaitsForTheHubsRevocation() async {

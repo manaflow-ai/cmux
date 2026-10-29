@@ -83,8 +83,10 @@ extension JoinConsentModel {
     /// Mac Screen's gate (``MacScreenHubHost/consentGate``): a fresh read, then what it allows.
     func macScreenGate(_ ticket: SessionTicket) async -> Bool {
         // SECURITY: a capture fixture (debug.join_consent) never authorizes a live session.
+        // Checked again after the read: a fixture set while it ran never authorizes either.
         if Self.fixtureActive { return false }
-        return await allowsMacScreen(control: ticket.scope == .full, requester: ticket.peer.name)
+        let allowed = await allowsMacScreen(control: ticket.scope == .full, requester: ticket.peer.name)
+        return allowed && !Self.fixtureActive
     }
 
     /// What the last read allows a running Mac Screen session of `scope`.

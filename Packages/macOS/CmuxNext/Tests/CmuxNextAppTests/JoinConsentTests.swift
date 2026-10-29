@@ -191,7 +191,8 @@ import Testing
         model.present = { shown.values.append("\($0)") }
         await model.refresh()
         #expect(model.consentSupported == false && model.consent == nil, "a record it cannot vouch for is not read")
-        let page = try #require(try JSONSerialization.jsonObject(with: try #require(model.pageData())) as? [String: Any])
+        let data = try #require(model.pageData())
+        let page = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect((page["switches"] as? [[String: Any]])?.map { $0["on"] as? Bool } == [false, false])
         #expect(page["error"] as? String == JoinConsentStrings.unsupported)
         #expect(await model.set(.screen, on: true) == JoinConsentStrings.unsupported)
@@ -243,16 +244,65 @@ import Testing
         #expect(changes.values == ["true"], "each read tells the app, which stops a session no longer allowed")
     }
 
+    /// A request decides from its own read: a newer read still running when it answers, which keeps the
+    /// older permissive state in place a moment longer, never lets it through.
+    @Test func aRequestDecidesFromItsOwnReadNeverFromAnOlderPermissiveOne() async {
+        let fake = Fake()
+        fake.status = JoinStatus(credentialPresent: false)
+        let base = fake.services()
+        let ticketRead = Gate(), laterRead = Gate()
+        var reads = 0
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: {
+                reads += 1
+                let read = reads
+                if read == 2 { await ticketRead.wait() }
+                if read == 3 { await laterRead.wait() }
+                return await base.status()
+            },
+            openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+        await model.refresh()
+        #expect(model.permitsMacScreen(control: false), "not joined: serves as before")
+        fake.status = JoinStatus(credentialPresent: true, machineId: "m_1")
+        let ticket = Task { await model.allowsMacScreen(control: false, requester: "Studio") }
+        for _ in 0..<1000 where reads < 2 { await Task.yield() }
+        let later = Task { await model.refresh() }
+        for _ in 0..<1000 where reads < 3 { await Task.yield() }
+        #expect(reads == 3, "both reads started")
+        ticketRead.open()
+        #expect(!(await ticket.value), "its own read says joined, with nothing allowed")
+        laterRead.open()
+        await later.value
+        #expect(!model.permitsMacScreen(control: false))
+    }
+
     #if DEBUG
     @Test func aCaptureFixtureNeverAuthorizesALiveMacScreenSession() async {
         let fake = Fake()
         fake.status = JoinStatus(credentialPresent: false)
-        let model = JoinConsentModel(services: fake.services())
+        let base = fake.services()
+        let read = Gate()
+        var reads = 0
+        var held = false
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: {
+                reads += 1
+                if held { await read.wait() }
+                return await base.status()
+            },
+            openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
         let ticket = SessionTicket(sessionId: "s1", ticket: "a.b.c", signalURL: URL(string: "wss://hub.invalid/v1/sessions/s1/ws")!,
                                    ice: [], peer: .init(id: "v1", name: "Studio", signingKey: "key"), role: .host, scope: .view)
         #expect(await model.macScreenGate(ticket), "an unjoined Mac serves as before")
-        DebugJoinConsent.status = JoinStatus(credentialPresent: false)
         defer { DebugJoinConsent.status = nil }
+        // A fixture set while the ticket's read runs.
+        held = true
+        let pending = Task { await model.macScreenGate(ticket) }
+        for _ in 0..<1000 where reads < 2 { await Task.yield() }
+        DebugJoinConsent.status = JoinStatus(credentialPresent: false)
+        read.open()
+        #expect(!(await pending.value))
+        // And one set before.
         #expect(!(await model.macScreenGate(ticket)))
         #expect(!model.macScreenPermits(.view))
     }
