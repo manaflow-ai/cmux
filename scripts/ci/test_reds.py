@@ -368,6 +368,139 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     return Verdict(bool(reasons), reasons, sorted(head.failed & seen))
 
 
+# The webview tests (scripts/cmux-next/run-webviews-tests.sh, bun), judged per test across jobs. One test file runs in
+# a head shard (`react-apps-check (N)`) and, when red, is replayed on the merge parent by `react-apps-base-check (N)`,
+# while the base's own push runs it in whichever shard it falls in; a per-job comparison never matches those names
+# (2026-10-29: agent-pane-no-capsules, red on the base as `react-apps-check (1)`, charged to a PR as
+# `react-apps-base-check (4)`). So a test is named by its file and its title (webviews_test_results.py's `FILE >
+# TEST`, or `FILE` for a file that failed naming no test), and compared with its error (the bun `error:` line and the
+# test file's line it failed at) against every base job that ran it.
+WEB_FILE = r"(test/\S+?\.[cm]?[jt]sx?)"
+WEB_GROUP = re.compile(r"^##\[group\](FAIL|TIMEOUT) " + WEB_FILE + r"\b")  # a red file's log, run-webviews-tests.sh
+WEB_SUMMARY = re.compile(r"^(FAIL|TIMEOUT) " + WEB_FILE + r" \(limit")  # its line in the run's closing list
+WEB_FAIL = re.compile(r"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$")
+WEB_ERROR = re.compile(r"^error: (.+)$")
+WEB_AT = re.compile(r"\bat .*?/webviews/" + WEB_FILE + r":(\d+):\d+\)?$")
+WEB_RETRY = "--- retry, alone ---"
+# guards_new_reds.py --label "Webview test": the tests a base replay charged to the change (errors) or found red on
+# the merge parent too (warnings), as GitHub prints the annotations.
+WEB_CHARGED = re.compile(r"^##\[(error|warning)\]" + WEB_FILE + r"(?: > (.+))?$")
+
+
+class WebFailures:
+    """What one webview test job log says: failed ({`FILE > TEST` or `FILE`: error, "" when none was printed}),
+    timed_out and crashed files, and charged/shared (a base replay's guards_new_reds verdicts, by name)."""
+
+    def __init__(self):
+        self.failed: dict = {}
+        self.timed_out: set = set()
+        self.crashed: set = set()
+        self.charged: set = set()
+        self.shared: set = set()
+
+
+def web_failures(log: str | None) -> WebFailures:
+    """The webview tests a job log names as failed, with each one's error. A red file's log is read in full (both
+    runs, the retry's too: any run a test fails in is evidence it fails there)."""
+    found = WebFailures()
+    if not log:
+        return found
+    current = None  # the red file whose log this is
+    error = where = ""
+    for text in lines_of(log):
+        if match := WEB_GROUP.match(text):
+            current, error, where = match.group(2), "", ""
+            if match.group(1) == "TIMEOUT":
+                found.timed_out.add(current)
+            continue
+        if match := WEB_SUMMARY.match(text):
+            name = match.group(2)
+            if match.group(1) == "TIMEOUT":
+                found.timed_out.add(name)
+            elif not any(key == name or key.startswith(name + " > ") for key in found.failed):
+                found.failed[name] = ""  # a red file that named no test (it did not load)
+            continue
+        if match := WEB_CHARGED.match(text):
+            (found.charged if match.group(1) == "error" else found.shared).add(
+                match.group(2) + (f" > {match.group(3)}" if match.group(3) else ""))
+            continue
+        if current is None:
+            continue
+        if text.startswith("### webviews tests:"):
+            current = None
+            continue
+        if BUN_PANIC.match(text):
+            found.crashed.add(current)
+        if text == WEB_RETRY:
+            error = where = ""
+        elif match := WEB_ERROR.match(text):
+            error, where = match.group(1).strip(), ""
+        elif (match := WEB_AT.search(text)) and match.group(1) == current and not where:
+            where = f"{match.group(1)}:{match.group(2)}"
+        elif match := WEB_FAIL.match(text):
+            key = f"{current} > {match.group(1)}"
+            said = f"{error} at {where}" if error and where else error
+            if said or key not in found.failed:
+                found.failed[key] = said
+            error = where = ""
+        elif text.startswith("(pass) "):
+            error = where = ""
+    return found
+
+
+def merged_web(logs: list) -> WebFailures:
+    out = WebFailures()
+    for log in logs:
+        got = web_failures(log)
+        for key, said in got.failed.items():
+            if said or key not in out.failed:
+                out.failed[key] = said
+        out.timed_out |= got.timed_out
+        out.crashed |= got.crashed
+        out.charged |= got.charged
+        out.shared |= got.shared
+    return out
+
+
+def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "the base") -> Verdict | None:
+    """A red webview test job (a head shard, or the base replay that charged tests to the change) judged per test
+    against every base job that ran those tests: own unless each test the head is red on fails on the base too with
+    the same error. head_logs: the red job's log first, then the logs of the head's other jobs that ran the same
+    files (where each failure's error is printed); base_logs: the base's red webview test jobs. None when the red job's
+    log names no failing webview test (not a webview test red: the caller judges it as before). A file that timed out
+    or crashed, an unreadable log, or a test whose error is printed on only one side is the head's own."""
+    if not head_logs or head_logs[0] is None:
+        return Verdict(True, [f"{job or 'the job'}: its log could not be read, so no test can be compared with {base}"])
+    red = web_failures(head_logs[0])
+    names = sorted(red.charged) if red.charged else sorted(red.failed)
+    if not names and not red.timed_out and not red.crashed:
+        return None
+    # A replay's own log holds the merge parent's runs of those files, never the head's: the head's errors come from
+    # the head's other jobs then.
+    head = merged_web([log for log in (head_logs[1:] if red.charged else head_logs) if log is not None])
+    reasons = [f"{name} crashed" for name in sorted(red.crashed)]
+    reasons += [f"{name} timed out (a cut-short run is never a base red)" for name in sorted(red.timed_out)]
+    if any(log is None for log in base_logs) or not base_logs:
+        reasons.append(f"no readable {base} webview test log to compare {len(names)} failing test(s) with")
+        return Verdict(True, reasons)
+    seen = merged_web(base_logs)
+    new, differ, shared = [], [], []
+    for name in names:
+        if name not in seen.failed:
+            new.append(name)
+            continue
+        mine, theirs = head.failed.get(name, ""), seen.failed[name]
+        if " > " in name and (not mine or not theirs or mine != theirs):
+            differ.append(f"{name} ({mine or 'no error read'} here; {theirs or 'no error read'} on {base})")
+            continue
+        shared.append(name)
+    if new:
+        reasons.append(f"{len(new)} failing test(s) pass or do not run on {base}: {'; '.join(new)[:600]}")
+    if differ:
+        reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(differ)[:600]}")
+    return Verdict(bool(reasons), reasons, shared)
+
+
 # Gallery health's health.json: a shard's broken states and its states over their ready-time budget.
 GALLERY_KEYS = ("fresh", "known", "slow")
 # A render the browser lost: a crash, never a state the base can share.
