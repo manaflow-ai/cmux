@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
-"""Reject attachment cap names and literal size ceilings in upload code.
+"""Reject attachment cap names and literal size or count ceilings in upload code.
+
+Leo, 2026-10-26: "why the FUCK SHOULD THERE BE A FUCKING SIZE CAP ANYWAYS ... I ALREADY SAID WE
+NEED ARBITARRILY LARGE FILES OF ANY TYPE". Attachments take arbitrarily large files of any type,
+any number of them.
 
 This is a source guard, not data-flow analysis. Named protocol/chunk boundaries remain
-valid; inline numeric ceilings on file/batch sizes must not hide admission limits.
+valid; inline numeric ceilings on file/batch sizes must not hide admission limits, and
+neither may a ceiling on how many files a send or a batch takes (`files.length > 10`,
+`list.count <= 64`, `MAX_ATTACHMENTS`). A comparison that only picks a route (one message
+or several, inline or staged) carries `cap-allow: route` in a comment on its line or the
+line above.
+
+`bun run check` runs it as `check:attachment-caps` with `--warn`: each finding is a
+`::warning` annotation and the exit is 0 (style and size checks warn, never fail).
+Without `--warn` a finding exits 1 (tests/test_attachment_caps_guard.py).
 """
 
 from __future__ import annotations
@@ -58,6 +70,7 @@ RETAINED_BOUNDS = {
     },
     "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs": {
         "MAX_FILE_BYTES": "Cloud CLI upload quota; deferred with the cloud transport integration.",
+        "MAX_FILES": "Open: the Cloud upload CLI takes 64 files a call; removed with its size cap (#27016).",
     },
     "webviews/src/agent-session/acpmux/attachments.ts": {
         "MAX_IMAGE_BYTES": "Model image representation budget; larger previews are downsampled.",
@@ -68,8 +81,38 @@ RETAINED_BOUNDS = {
     "webviews/src/pages/home-channels/attachmentService.ts": {
         "MAX_ATTACHMENT_BYTES": "Home original admission; removal requires streaming and multipart upload.",
     },
+    # Count bounds that are not a send's admission: concurrency and other surfaces' items.
+    "cmux-tui/crates/cmux-tui-core/src/conversation_attachments.rs": {
+        "MAX_UPLOADS": "Uploads open at once (concurrency); more wait their turn, none is refused for count.",
+    },
+    "cmux-tui/crates/cmux-tui-core/src/conversation_attachment_cloud.rs": {
+        "MAX_UPLOADS": "The same concurrency bound, imported.",
+    },
+    "cmux-tui/crates/cmux-tui-core/src/state/workspace_checklist_store.rs": {
+        "MAX_ITEM_ATTACHMENTS": "A workspace checklist item's links, not chat or Home attachments.",
+    },
+    # Open count caps on a send, found by this guard's count rules (HQ#4946 item 4 follow-up).
+    # Each is a real cap to remove; listed so new ones still warn, never as permission.
+    "Native/OptChat/chief-kernel/src/tools.rs": {
+        "MAX_SEND_ATTACHMENTS": "Open: the Chief's send tool takes 10 attachments; Chief-area follow-up.",
+    },
+    "Native/OptChat/optchat-chief/src/tools.rs": {
+        "MAX_SEND_ATTACHMENTS": "Open: re-export of the Chief kernel's cap above.",
+    },
+    "backend/apps/api/src/chief-brain-cc/attachments.ts": {
+        "MAX_FILES": "Open: the hosted Chief brain reads the 12 newest files of a turn; Chief-area follow-up.",
+    },
 }
 FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:BYTES|SIZE)|maximum\w*(?:File|Bytes|Stage)\w*)\b")
+# Count caps by name: how many files a send or a batch takes. In attachment/upload paths any
+# of these; elsewhere only a name that says attachments or uploads (a diff's or a git
+# listing's file limit is not an attachment cap).
+FORBIDDEN_COUNT = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:ATTACHMENTS|FILES|UPLOADS)|max(?:imum)?(?:[A-Z]\w*)?(?:Attachments|Files|Uploads)(?:Count)?)\b")
+FORBIDDEN_COUNT_ANYWHERE = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:ATTACHMENTS|UPLOADS)|max(?:imum)?(?:[A-Z]\w*)?(?:Attachments|Uploads)(?:Count)?)\b")
+# Collections a literal count comparison caps, in attachment/upload paths (elsewhere a count
+# of attachments is a cache or a layout bound far more often than an admission cap).
+COUNTED = {"files", "attachments", "attachment", "uploads", "upload", "batch", "manifest", "list", "items", "entries"}
+ROUTE_MARK = "cap-allow: route"
 EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "tests", "test", "__tests__", "vendor", "target", "build", "third_party"}
 SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
 # chat.upload is decoded here despite the filename lacking upload/attachment.
@@ -140,15 +183,30 @@ def literal_value(tokens: list[str]) -> int | None:
         return None
 
 
-def file_size(tokens: list[str]) -> bool:
+def words_of(tokens: list[str]) -> set[str]:
     words = re.sub(r"([a-z])([A-Z])", r"\1 \2", " ".join(tokens)).lower()
-    words = set(re.findall(r"[a-z]+", words))
+    return set(re.findall(r"[a-z]+", words))
+
+
+def file_count(tokens: list[str], nouns: set[str]) -> bool:
+    """A count of files, attachments or batch entries (`files.length`, `list.count`)."""
+    words = words_of(tokens)
+    return bool(words & {"count", "length", "len"}) and bool(words & nouns) and not words & {"chunk", "chunks", "frame", "range", "text", "name", "bytes", "size", "key", "keys"}
+
+
+def file_size(tokens: list[str]) -> bool:
+    words = words_of(tokens)
     # These sizes bound one transfer unit, not the original or batch. In particular,
     # a named MAX_CHUNK_BYTES comparison can choose streaming for a large file.
     return bool(words & {"size", "bytes", "count", "length", "len"}) and not words & {"chunk", "chunks", "frame", "range"}
 
 
-def files(root: Path) -> list[Path]:
+def attachment_path(relative: Path) -> bool:
+    return relative.name in EXTRA_SOURCES or any("attachment" in part.lower() or "upload" in part.lower() for part in relative.parts)
+
+
+def files(root: Path, everywhere: bool = False) -> list[Path]:
+    """Sources in attachment/upload paths, or every source when `everywhere`."""
     found: list[Path] = []
     for folder, directories, names in os.walk(root):
         directories[:] = [name for name in directories if name.lower() not in EXCLUDED and not name.endswith("Tests") and not name.startswith(".")]
@@ -157,43 +215,72 @@ def files(root: Path) -> list[Path]:
             relative = path.relative_to(root)
             if path.suffix not in SOURCE_SUFFIXES or ".test." in name or ".spec." in name:
                 continue
-            if name in EXTRA_SOURCES or any("attachment" in part.lower() or "upload" in part.lower() for part in relative.parts):
+            if everywhere or attachment_path(relative):
                 found.append(path)
     return sorted(found)
 
 
+def routed(lines: list[str], line_number: int) -> bool:
+    """The finding's line, or the line above it, says the comparison only picks a route."""
+    return any(ROUTE_MARK in lines[at] for at in (line_number - 1, line_number - 2) if 0 <= at < len(lines))
+
+
 def violations(root: Path) -> list[str]:
     result: list[str] = []
-    for path in files(root):
+    for path in files(root, everywhere=True):
+        relative = path.relative_to(root)
+        upload_code = attachment_path(relative)
         try:
             source = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
+        if not upload_code and not FORBIDDEN_COUNT_ANYWHERE.search(source):
+            continue
+        count_names = FORBIDDEN_COUNT if upload_code else FORBIDDEN_COUNT_ANYWHERE
+        lines = source.split("\n")
         tokens = code_tokens(source)
         for index, token in enumerate(tokens):
             finding = None
-            if FORBIDDEN.fullmatch(token[0]) and token[0] not in TRANSPORT_BOUNDS:
-                if token[0] not in RETAINED_BOUNDS.get(path.relative_to(root).as_posix(), {}):
+            if upload_code and FORBIDDEN.fullmatch(token[0]) and token[0] not in TRANSPORT_BOUNDS:
+                if token[0] not in RETAINED_BOUNDS.get(relative.as_posix(), {}):
                     finding = token[0]
-            elif token[0] in COMPARISONS:
+            elif count_names.fullmatch(token[0]):
+                if token[0] not in RETAINED_BOUNDS.get(relative.as_posix(), {}):
+                    finding = "count cap: " + token[0]
+            elif upload_code and token[0] in COMPARISONS:
                 left = operand(tokens, index - 1, -1)
                 right = operand(tokens, index + 1, 1)
-                for size, limit in ((left, right), (right, left)):
+                for counted, limit in ((left, right), (right, left)):
                     numeric = literal_value(limit)
-                    if numeric is not None and numeric >= 1024 * 1024 and file_size(size):
+                    if numeric is None:
+                        continue
+                    if numeric >= 1024 * 1024 and file_size(counted):
                         finding = "literal size cap: " + " ".join(left + [token[0]] + right)
+                        break
+                    if numeric >= 2 and file_count(counted, COUNTED):
+                        finding = "literal count cap: " + " ".join(left + [token[0]] + right)
                         break
             if finding:
                 line_number = source.count("\n", 0, token.start()) + 1
-                result.append(f"{path.relative_to(root)}:{line_number}: {finding}")
+                if not routed(lines, line_number):
+                    result.append(f"{relative}:{line_number}: {finding}")
     return result
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("root", nargs="?", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--warn", action="store_true",
+                        help="report each finding as a ::warning annotation and exit 0 (bun run check)")
     args = parser.parse_args()
     found = violations(args.root.resolve())
+    if found and args.warn:
+        for finding in found:
+            path, line, message = finding.split(":", 2)
+            print(f"::warning file={path},line={line},title=attachment cap::{message.strip()} "
+                  "(attachments take any number of files of any size; see scripts/cmux-next/check-attachment-caps.py)")
+        print(f"attachment cap guard: {len(found)} warning(s)")
+        return 0
     if found:
         print("attachment caps are forbidden in attachment/upload paths:")
         print("\n".join(found))
