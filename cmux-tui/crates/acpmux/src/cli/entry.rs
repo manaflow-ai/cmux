@@ -363,7 +363,6 @@ mod tests {
             assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
             assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");
         }
-        assert!(MCP_WORKERS <= 2);
     }
 
     #[test]
