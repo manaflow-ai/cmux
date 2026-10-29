@@ -27,6 +27,12 @@ on:
       timeout:
         description: Command deadline in seconds, at most 10800
         default: '3600'
+      runner:
+        description: >-
+          A Blacksmith Linux label (8, 16 or 32 vCPU) to run on instead of the default, or empty.
+          The lane-gh broker sets it when it dispatches a run again because the first one waited 3 minutes on a
+          label that started no job; any other value is ignored
+        default: ''
 
 # Same read-only checkout scope as the existing Linux test jobs. No secrets,
 # environment, provider credentials or write token is passed to test commands.
@@ -36,7 +42,10 @@ permissions:
 jobs:
   checks:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # inputs.runner: the broker's re-dispatch off a stalled label (HQ tools/lane-gh-broker ci_reroute). GitHub binds
+    # a job's label when it creates the job, so a run stuck on a label that starts nothing is dispatched again on
+    # another size; only the Blacksmith Linux labels listed are taken.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 195
     defaults:
       run:
@@ -219,6 +228,50 @@ jobs:
           fi
           bunx --no-install playwright install --with-deps chromium webkit
           echo 'CMUX_GALLERY_IN_VM=1' >> "$GITHUB_ENV"
+
+      # A script outside the checkout (a capture written to /tmp and run with bun) finds no
+      # node_modules above it, so Bun auto-installed the newest Playwright (1.64.1, Chromium
+      # revision 1248) rather than the pinned 1.62.1 whose browsers (revision 1234) setup had
+      # installed: run 40786981913 failed mid-capture with "Executable doesn't exist at
+      # .../chromium_headless_shell-1248/...". NODE_PATH, which Bun resolves before it
+      # auto-installs, lists first the workspace whose Playwright installed the browsers above
+      # (scripts/gallery-matrix for `playwright` when it has a manifest, else webviews), then
+      # webviews for everything else (vite, react). Then the Playwright such a script resolves,
+      # and each workspace's own, launches its headless Chromium here: a missing or mismatched
+      # browser fails setup, naming the version and browsers path, never the command mid-run.
+      - name: Pin and check the Playwright browsers
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        env:
+          SETUP: ${{ inputs.setup }}
+          PLAYWRIGHT_LAUNCH_CHECK: |
+            let version = "unknown";
+            try { version = require("playwright/package.json").version; } catch {}
+            const where = process.env.PLAYWRIGHT_BROWSERS_PATH || "the default browsers path";
+            require("playwright").chromium.launch({ headless: true })
+              .then((browser) => browser.close())
+              .catch((error) => {
+                const reason = String((error && error.message) || error).split("\n")[0];
+                console.error(`setup: ${process.argv[1] || process.cwd()}: Playwright ${version} cannot launch its headless Chromium from ${where}: ${reason}`);
+                process.exit(2);
+              });
+        run: |
+          installer=webviews
+          if [[ "$SETUP" == playwright && -f scripts/gallery-matrix/package.json ]]; then installer=scripts/gallery-matrix; fi
+          node_path="$PWD/$installer/node_modules"
+          [[ "$installer" == webviews ]] || node_path="$node_path:$PWD/webviews/node_modules"
+          echo "NODE_PATH=$node_path" >> "$GITHUB_ENV"
+          dirs=(webviews)
+          if [[ "$SETUP" == playwright ]]; then dirs+=(scripts/gallery-matrix); fi
+          for dir in "${dirs[@]}"; do
+            [[ -x "$dir/node_modules/.bin/playwright" ]] || continue
+            (cd "$dir" && bun -e "$PLAYWRIGHT_LAUNCH_CHECK" "$dir")
+          done
+          # What a script outside the checkout gets: run from an empty directory through NODE_PATH.
+          if [[ -d "$installer/node_modules/playwright" ]]; then
+            outside=$(mktemp -d)
+            (cd "$outside" && NODE_PATH="$node_path" bun -e "$PLAYWRIGHT_LAUNCH_CHECK" "a script outside the checkout")
+            rmdir "$outside"
+          fi
 
       - name: Initialize Rust native dependencies
         if: inputs.setup == 'rust'
