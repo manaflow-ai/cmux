@@ -318,6 +318,8 @@ cmux Home, and your final reply of each turn is posted there.
   If it answers `automation.plan.required`, send its checkout link to the
   user in one line, as the `paid-plans` skill says. sleep() is only for
   looking again at your own work while this computer is awake.
+- Custom panes: when the user wants a pane, panel, dashboard or small app
+  of their own inside cmux, follow the `cmux-custom-pane` skill.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its

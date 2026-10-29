@@ -466,37 +466,36 @@ def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
     # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token.
     helper_names = {name for key, (_, kind, name, _) in nodes.items()
                     if key in selected and kind == "func"}
-    for key, (_, kind, _, tokens) in nodes.items():
-        values = set()
-        # Metatype values can invoke static factories; keep such declarations conservative.
-        metatypes = "Type" in tokens or "Protocol" in tokens or "self" in tokens
-        parens = brackets = 0
-        in_signature = kind == "func"
+    # Empty member calls cannot invoke a factory whose every overload requires arguments.
+    # This excludes model.toggle() without guessing receiver types: an instance property may
+    # itself hold a metatype, so services.factory.points(2) must remain conservative.
+    def requires_arguments(tokens: list[str]) -> bool:
+        try:
+            start = tokens.index("(")
+        except ValueError:
+            return False
+        depth, signature = 0, []
+        for token in tokens[start:]:
+            depth += (token == "(") - (token == ")")
+            if depth == 0:
+                break
+            signature.append(token)
+        # Defaulted and variadic signatures stay conservative, as do unknown signatures.
+        return ":" in signature and "=" not in signature and "." not in signature
+
+    required = {name: all(requires_arguments(tokens) for _, kind, other, tokens in nodes.values()
+                          if kind == "func" and other == name)
+                for name in helper_names}
+    for key, (_, _, _, tokens) in nodes.items():
         for i, token in enumerate(tokens):
-            if in_signature:
-                parens += (token == "(") - (token == ")")
-                brackets += (token == "[") - (token == "]")
-                if (token == ":" and parens == 1 and brackets == 0 and i
-                        and i + 1 < len(tokens) and tokens[i + 1] in types):
-                    values.add(tokens[i - 1])
-                if token == "{":
-                    in_signature = False
-            elif (kind == "func" and i and tokens[i - 1] in ("let", "var")
-                  and i + 2 < len(tokens) and tokens[i + 1] == "=" and tokens[i + 2] in values):
-                values.add(token)
             if token not in helper_names:
                 continue
-            # A member chain rooted in this function's parameter/local value is
-            # an instance call, e.g. services.windows.active?.sidebar.model.toggle().
-            # Unknown receivers remain conservative: they may be typealiases,
-            # inherited factories, extensions or generic-qualified type names.
-            if kind == "func" and not metatypes and i > 1 and tokens[i - 1] == ".":
-                root = i - 2
-                while root > 1 and tokens[root - 1] == ".":
-                    root -= 2
-                    if tokens[root] in ("?", "!"):
-                        root -= 1
-                if tokens[root] in values:
+            if (i and tokens[i - 1] == "." and tokens[i + 1:i + 3] == ["(", ")"]
+                    and required[token]):
+                after = tokens[i + 3:i + 6]
+                # An empty argument list can still pass a required trailing closure.
+                trailing_closure = after[:1] == ["{"] or after[1:] == [":", "{"]
+                if not trailing_closure:
                     continue
             selected.add(key)
             break
