@@ -96,6 +96,10 @@ impl Store {
             .flatten()
             .map(|entry| entry.path())
             .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            // The finished-answer memo shares this directory but is not a
+            // manifest. In particular, do not read it here: FinishedMemo
+            // owns its bounded, validated loader.
+            .filter(|path| path.file_name().is_none_or(|name| name != "finished-answers.json"))
             .filter_map(|path| std::fs::read(path).ok())
             .filter_map(|bytes| serde_json::from_slice(&bytes).ok())
             .collect();
