@@ -163,8 +163,9 @@ final class SidebarTabRowView: SidebarRowView {
         unreadDot.alphaValue = showClose && !activity.showsGlyph ? 0 : 1
         if unreadDot.state.isUnread {
             let side = SidebarStyle.dotSize
+            // Beside a status, on the next slot (`trailingSlotPitch`), the line a workspace row's chevron takes.
             unreadDot.frame = activity.showsGlyph
-                ? NSRect(x: trailing - side - Metrics.space2, y: cy - side / 2, width: side, height: side)
+                ? NSRect(x: SidebarStyle.trailingSlotCenterX(rowWidth: b.width, slot: 1) - side / 2, y: cy - side / 2, width: side, height: side)
                 : SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: side)
             trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width), unreadDot.frame.minX) - Metrics.space2
         }
