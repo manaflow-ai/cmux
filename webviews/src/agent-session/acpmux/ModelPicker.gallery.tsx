@@ -7,6 +7,7 @@ import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";
 import { mergeModelCatalog } from "./modelCatalog";
 import { type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
+import { SOL_SEARCH_CATALOG, SOL_SEARCH_QUERY } from "../../gallery/fixtures/modelSearch";
 
 /// The chat's agent CLI update on offer (hq#2569 #12), which the pane hands the chip by context.
 type GalleryProps = ModelPickerProps & { update?: UpdateOffer };
@@ -367,9 +368,19 @@ const typeSearch =
     await ctx.waitFor(() => ctx.document.querySelector(searchField.selector) !== null);
     await ctx.type(text, searchField);
     await ctx.waitFor(
-      () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === `“${text}”`,
+      () =>
+        ctx.document.querySelector<HTMLInputElement>(searchField.selector)?.value === text &&
+        ctx.document.querySelector(".acpmux-quick-found, .acpmux-quick-note") !== null,
     );
   };
+
+/// Lawrence's machine (via Leo 2026-10-28: "lawrence says search feels confusing here in the model
+/// picker"), searched for "sol 6.1", in each search look: `harness` ships.
+const solSearch = (searchGroups: "harness" | "flat", placement?: "left" | "top"): ModelPickerProps => ({
+  ...quick,
+  catalog: SOL_SEARCH_CATALOG,
+  quick: { ...quick.quick, searchGroups, ...(placement ? { harnessPlacement: placement } : {}) },
+});
 
 export default componentEntry<GalleryProps>({
   id: "agent-pane.model-picker",
@@ -559,7 +570,9 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(searchField.selector) !== null);
         await ctx.type("on", searchField);
         await ctx.waitFor(
-          () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === "“son”",
+          () =>
+            ctx.document.querySelector<HTMLInputElement>(searchField.selector)?.value === "son" &&
+            ctx.document.querySelector(".acpmux-quick-found, .acpmux-quick-note") !== null,
         );
       },
     },
@@ -576,6 +589,12 @@ export default componentEntry<GalleryProps>({
     },
     // Typing filters every harness's models in place, each row naming its harness.
     "quick-menu-filter": { props: quick, play: typeSearch("son") },
+    // The search looks for Lawrence's "sol 6.1" (via Leo 2026-10-28). Grouped by harness ships.
+    "search-grouped": { props: solSearch("harness"), play: typeSearch(SOL_SEARCH_QUERY) },
+    "search-grouped-top-rail": { props: solSearch("harness", "top"), play: typeSearch(SOL_SEARCH_QUERY) },
+    "search-flat": { props: solSearch("flat"), play: typeSearch(SOL_SEARCH_QUERY) },
+    // A search that finds nothing says what to do next.
+    "search-empty": { props: solSearch("harness"), play: typeSearch("sol 9.9") },
     "more-models": {
       props: curated,
       play: async (ctx) => {

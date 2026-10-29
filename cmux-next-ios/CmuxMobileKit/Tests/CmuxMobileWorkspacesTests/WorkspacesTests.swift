@@ -35,6 +35,33 @@ import SwiftUI
         return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator))
     }
 
+    /// Close Tabs to the Left / to the Right: the unpinned tabs before or after the tab in its
+    /// own pane on the Mac (`TabStripModel.closedByCloseToLeft`).
+    @Test func closeTabsToTheSideStayInThePane() {
+        func tab(_ id: String, pane: String, pinned: Bool = false) -> WorkspaceTab {
+            var tab = WorkspaceTab(id: id, kind: .terminal, title: id)
+            tab.linkIDs = WorkspaceTab.LinkIDs(pane: pane)
+            if pinned { tab.pinned = true }
+            return tab
+        }
+        let tabs = [tab("p", pane: "1", pinned: true), tab("a", pane: "1"), tab("x", pane: "2"), tab("b", pane: "1"), tab("c", pane: "1")]
+        #expect(WorkspaceTabsSource.closedBySide(of: tabs[3], left: true, in: tabs).map(\.id) == ["a"])
+        #expect(WorkspaceTabsSource.closedBySide(of: tabs[1], left: false, in: tabs).map(\.id) == ["b", "c"])
+        #expect(WorkspaceTabsSource.closedBySide(of: tabs[4], left: false, in: tabs).isEmpty)
+        #expect(WorkspaceTabsSource.closedBySide(of: tabs[2], left: true, in: tabs).isEmpty)
+    }
+
+    @Test func closeTabsToTheRightClosesThemOnTheMac() async {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let tabs = store.workspace(id: "ws-cmux")!.tabs
+        // The terminal's right: the browser tab only (nothing running there, so no question).
+        let first = tabs.first { $0.id == "t-zsh" }!
+        #expect(WorkspaceTabsSource.closedBySide(of: first, left: false, in: tabs).map(\.id) == ["t-docs"])
+        await source.closeSide(of: first.id, left: false)
+        #expect(store.workspace(id: "ws-cmux")!.tabs.map(\.id) == ["t-claude", "t-zsh"])
+    }
+
     /// N2/A1: a shell tab running `sleep` (title "zsh") asks before its close kills it.
     @Test func closingATabWithARunningProgramAsks() async throws {
         let (store, source) = make(backend: ProgramsBackend(programs: ["sleep"]))
@@ -157,9 +184,10 @@ import SwiftUI
         let backend = MockWorkspaceCreationBackend(latency: .zero)
         let (store, source) = make(backend: backend)
         let terminal = source.tabs[1]
-        // The Mac's tab menu: Rename Tab…, Pin Tab, Duplicate Tab | its group rows (TabsKit adds
-        // Close Tab and Close Other Tabs); its More's moves are in the page menu.
-        #expect(source.cardMenu(for: terminal).map { $0.map(\.title) } == [["Rename Tab…", "Pin Tab", "Duplicate Tab"], ["New Tab Group"]])
+        // The Mac's tab menu: Rename Tab…, Pin Tab, Duplicate Tab | its group rows | Close Tabs to the
+        // Left / Right (TabsKit adds Close Tab and Close Other Tabs); its More's moves are in the page menu.
+        #expect(source.cardMenu(for: terminal).map { $0.map(\.title) }
+            == [["Rename Tab…", "Pin Tab", "Duplicate Tab"], ["New Tab Group"], ["Close Tabs to the Left", "Close Tabs to the Right"]])
         let page = source.pageMenu(for: terminal).flatMap { $0 }.map(\.title)
         #expect(page.contains("Move Tab to Workspace…") && page.contains("Move Tab to New Workspace"))
         #expect(source.pageMenu(for: source.tabs[0]).flatMap { $0 }.contains { $0.title == "Rename Tab…" })
