@@ -117,6 +117,8 @@ export const handleCreditsWebhook = async (request: Request, env: Env): Promise<
   if (event.type !== "checkout.session.completed" && event.type !== "checkout.session.async_payment_succeeded") return Response.json({ received: true })
   if (kind === PLAN_KIND) {
     const p = await grantPlanSession(env, object as Parameters<typeof grantPlanSession>[1])
+    // The plan is on but its Chief could not be told: ask the payment service to send the event again.
+    if (!p.ok && p.retry) return Response.json({ received: false, retry: true }, { status: 503 })
     return Response.json({ received: true, granted: p.ok && p.added })
   }
   const r = await grantPaidSession(env, object as Parameters<typeof grantPaidSession>[1])

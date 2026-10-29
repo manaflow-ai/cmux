@@ -73,10 +73,13 @@ export const personalPlanPaid = (plan: string | null) => plan !== null && INFERE
  * plan is written only by web billing, so each paid test session is kept here instead, one row per
  * session with its subscription. A cancelled subscription marks its row revoked; a row is never
  * deleted, so a replayed session (the return page reloaded, a webhook redelivered) never grants again.
- * The plan is the newest unrevoked row. TeamDO honors it only off production (`testGrants`).
+ * A cancellation that arrives before its checkout (webhooks are not ordered) leaves a tombstone in
+ * `test_plan_revoked`, so the later checkout is born revoked. The plan is the newest unrevoked row.
+ * TeamDO honors it only off production (`testGrants`).
  */
 const ensureGrant = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS test_plan_session (session TEXT PRIMARY KEY, plan TEXT NOT NULL, subscription TEXT NOT NULL, granted_at INTEGER NOT NULL, revoked_at INTEGER)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS test_plan_revoked (subscription TEXT PRIMARY KEY, revoked_at INTEGER NOT NULL)`)
 }
 
 /**
@@ -85,14 +88,19 @@ const ensureGrant = (sql: SqlStorage) => {
  */
 export const grantTestPlan = (sql: SqlStorage, plan: string, session: string, subscription: string, now: number): { added: boolean; revoked: boolean } => {
   ensureGrant(sql)
-  const added = sql.exec(`INSERT OR IGNORE INTO test_plan_session (session, plan, subscription, granted_at) VALUES (?, ?, ?, ?)`, session, plan, subscription, now).rowsWritten > 0
+  const tomb = sql.exec<{ revoked_at: number }>(`SELECT revoked_at FROM test_plan_revoked WHERE subscription = ?`, subscription).toArray()[0]?.revoked_at ?? null
+  const added = sql.exec(`INSERT OR IGNORE INTO test_plan_session (session, plan, subscription, granted_at, revoked_at) VALUES (?, ?, ?, ?, ?)`, session, plan, subscription, now, tomb).rowsWritten > 0
   const revoked = sql.exec<{ revoked_at: number | null }>(`SELECT revoked_at FROM test_plan_session WHERE session = ?`, session).one().revoked_at !== null
   return { added, revoked }
 }
 
-/** Marks the grants its subscription made revoked (the subscription was cancelled); true when one was live. */
+/**
+ * The subscription was cancelled: its grants are marked revoked, and a tombstone keeps a checkout of it
+ * that is delivered later from granting. True when a live grant was revoked.
+ */
 export const revokeTestPlan = (sql: SqlStorage, subscription: string, now: number): boolean => {
-  if (!hasGrantTable(sql)) return false
+  ensureGrant(sql)
+  sql.exec(`INSERT OR IGNORE INTO test_plan_revoked (subscription, revoked_at) VALUES (?, ?)`, subscription, now)
   return sql.exec(`UPDATE test_plan_session SET revoked_at = ? WHERE subscription = ? AND revoked_at IS NULL`, now, subscription).rowsWritten > 0
 }
 

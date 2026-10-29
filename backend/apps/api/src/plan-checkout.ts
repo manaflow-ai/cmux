@@ -71,7 +71,8 @@ export const PLAN_PATH = /^\/v1\/billing\/plan\/(done|cancelled|[A-Za-z0-9_-]{8,
 
 type Session = { id?: string; livemode?: boolean; mode?: string; status?: string; payment_status?: string; currency?: string; amount_total?: number; amount_subtotal?: number; subscription?: string | { id: string } | null; metadata?: Record<string, string> | null }
 
-export type PlanGrant = { ok: true; team: string; plan: string; added: boolean } | { ok: false; reason: string }
+/** `retry`: the plan is granted but its Chief was not told; the caller asks for the event again (503). */
+export type PlanGrant = { ok: true; team: string; plan: string; added: boolean } | { ok: false; reason: string; retry?: true; plan?: string }
 
 /** The note that tells the asking Chief the plan is on (its own words, never the person's). */
 export const planGrantedNote = (plan: string): string => {
@@ -101,11 +102,17 @@ export const grantPlanSession = async (env: Env, s: Session): Promise<PlanGrant>
   if ("refused" in r) return { ok: false, reason: r.refused }
   if (r.revoked) return { ok: false, reason: "revoked" }
   if (r.added) console.log(JSON.stringify({ msg: "plan.test_grant", team: m.team, plan: m.plan, session: s.id }))
-  // The brain keys the note by session, so the webhook and the return page tell the Chief once.
+  // Every delivery of a granted session tells its Chief, a replay too: the brain keys the note by
+  // session, so it is queued once, and a note that failed this time goes out on the redelivery.
   if (m.chief && ID.test(m.chief) && m.conversation && ID.test(m.conversation)) {
     // `${chief}/${conversation}` is brain-do.ts brainName (not imported: brain-do imports this module's users).
-    const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${m.chief}/${m.conversation}`)) as unknown as { chiefPlan(n: PlanNotice): Promise<{ ok: boolean }> }
-    await brain.chiefPlan({ session: s.id, team: m.team, plan: m.plan, chief: m.chief, conversation: m.conversation }).catch((e: unknown) => console.warn(JSON.stringify({ msg: "plan.chief_note_failed", error: String(e).slice(0, 160) })))
+    const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${m.chief}/${m.conversation}`)) as unknown as { chiefPlan(n: PlanNotice): Promise<{ ok: boolean; retry?: true }> }
+    const told = await brain.chiefPlan({ session: s.id, team: m.team, plan: m.plan, chief: m.chief, conversation: m.conversation }).catch((e: unknown) => {
+      console.warn(JSON.stringify({ msg: "plan.chief_note_failed", error: String(e).slice(0, 160) }))
+      return { ok: false, retry: true as const }
+    })
+    // A Chief that can never take it (another owner, gone) is not retried; an unreachable one is.
+    if (!told.ok && told.retry) return { ok: false, reason: "chief_unreachable", retry: true, plan: m.plan }
   }
   return { ok: true, team: m.team, plan: m.plan, added: r.added }
 }
@@ -149,6 +156,8 @@ export const handlePlanCheckout = async (request: Request, env: Env, sub: string
       : { ok: false, reason: "bad_session" }
     if (!r.ok) {
       console.warn(JSON.stringify({ msg: "plan.return_not_granted", reason: r.reason }))
+      // The plan is on; only the Chief's note waits for the webhook's redelivery.
+      if (r.retry && r.plan) return page(`${UPSELL_PLANS[r.plan]!.name} is on`, "This is a test-mode checkout: no real charge was made. Your Chief picks up where it stopped shortly. You can close this page.")
       if (r.reason === "revoked") return page("Plan cancelled", "This plan was cancelled after this payment. Ask your Chief for a new link to start it again.", 410)
       return page("Payment not confirmed yet", r.reason === "not_paid" ? "Your payment is still processing. The plan turns on when it completes." : "We could not confirm this payment. If you paid, the plan turns on shortly.", r.reason === "not_paid" ? 202 : 400)
     }
