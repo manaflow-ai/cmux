@@ -76,6 +76,17 @@ import Testing
         }
     }
 
+    /// Host writes whose on is held until the test lands it; an off lands at once.
+    @MainActor final class Landing {
+        var held: [CheckedContinuation<Void, Never>] = []
+
+        func write(_ name: String, _ on: Bool, _ recorder: Recorder) async -> String? {
+            if on { await withCheckedContinuation { held.append($0) } }
+            recorder.sets.append("\(name) \(on)")
+            return nil
+        }
+    }
+
     @MainActor final class Harness {
         let page: SettingsPageProvider
         let recorder: Recorder
@@ -207,14 +218,9 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func anOffDuringAnOnsWriteWins() async throws {
         let h = try await make(owner: FakeOwner())
         defer { h.cleanUp() }
-        var landing: [CheckedContinuation<Void, Never>] = []
-        let write = { (name: String, id: String, on: Bool) async -> String? in
-            if on { await withCheckedContinuation { landing.append($0) } }
-            h.recorder.sets.append("\(name) \(on)")
-            return nil
-        }
-        h.page.setDeviceFullAccess = { await write("device", $0, $1) }
-        h.page.setMachineVmHost = { await write("vm", $0, $1) }
+        let landing = Landing(), recorder = h.recorder
+        h.page.setDeviceFullAccess = { _, on in await landing.write("device", on, recorder) }
+        h.page.setMachineVmHost = { _, on in await landing.write("vm", on, recorder) }
         for op in Switch.allCases {
             let mine = try h.click(0)
             h.ledger.record(mine)
@@ -223,10 +229,10 @@ import Testing
                 try await page.call(op.rawValue, params: ["id": "m1", "on": true],
                                     context: PageCallContext(page: PageDescriptor.settings.id, userGesture: true, gestureEvent: stamp))
             }
-            for _ in 0..<1000 where landing.isEmpty { await Task.yield() }
-            try #require(landing.count == 1, "the on's write is in flight")
+            for _ in 0..<1000 where landing.held.isEmpty { await Task.yield() }
+            try #require(landing.held.count == 1, "the on's write is in flight")
             #expect(try await !h.refused(op, on: false, h.posted()))
-            landing.removeFirst().resume()
+            landing.held.removeFirst().resume()
             _ = try await turningOn.value
         }
         #expect(h.recorder.sets == ["device false", "device true", "device false", "vm false", "vm true", "vm false"])
