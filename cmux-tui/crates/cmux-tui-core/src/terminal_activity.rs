@@ -439,8 +439,9 @@ impl ShellActivity {
     /// Records a foreground check started at `epoch`
     /// ([`Self::foreground_check_due`]): `holds` is whether the terminal's
     /// own shell held the foreground. A mark or input since then drops it.
+    #[cfg(test)]
     pub(crate) fn record_foreground(&mut self, epoch: u64, holds: bool) {
-        self.record_foreground_leader(epoch, holds, None);
+        self.record_foreground_check(epoch, holds, None, None);
     }
 
     /// Drops the last foreground check and starts a new epoch (a reconnect that kept this daemon's state): the
@@ -452,21 +453,13 @@ impl ShellActivity {
         self.epoch = self.epoch.wrapping_add(1);
     }
 
-    /// [`Self::record_foreground`] with the foreground group leader the check
-    /// saw (`None`: the lookup failed).
-    pub(crate) fn record_foreground_leader(
-        &mut self,
-        epoch: u64,
-        holds: bool,
-        leader: Option<u32>,
-    ) {
-        self.record_foreground_check(epoch, holds, leader, None);
-    }
-
-    /// [`Self::record_foreground_leader`] with the check's kernel read of the
-    /// input (`input_read`). When the shell held the foreground and the kernel
-    /// says every byte was read by its line editor, nothing typed is still
-    /// owed a prompt: the count is paid.
+    /// Records a foreground check started at `epoch`
+    /// ([`Self::foreground_check_due`]): `holds` is whether the terminal's own
+    /// shell held the foreground, `leader` the foreground group leader it saw
+    /// (`None`: the lookup failed), and `input_read` its kernel read of the
+    /// input. A mark or input since then drops it. When the shell held the
+    /// foreground and the kernel says every byte was read by its line editor,
+    /// nothing typed is still owed a prompt: the count is paid.
     pub(crate) fn record_foreground_check(
         &mut self,
         epoch: u64,
@@ -846,7 +839,8 @@ mod tests {
         let queued = checked_after(activity, &[2_500], Some(false));
         assert_eq!(queued.idle_since(), None, "the kernel says input waits");
         let activity = checked_after(activity, &[3_000], None);
-        assert_eq!(activity.idle_since(), Some(2_000), "both lines answered");
+        // No `C` here, so the prompt fact keeps its first `A` time.
+        assert_eq!(activity.idle_since(), Some(1_000), "both lines answered");
     }
 
     /// One write with two lines (a paste without bracketed paste, `send`).
@@ -958,7 +952,7 @@ mod tests {
         let unread = checked_after(activity, &[2_000], Some(false));
         assert_eq!(unread.idle_since(), None, "the kernel says input waits");
         let read = checked_after(activity, &[2_000], Some(true));
-        assert_eq!(read.idle_since(), Some(2_000), "every byte was read");
+        assert_eq!(read.idle_since(), Some(1_000), "every byte was read");
         assert_eq!(read.foreground_check(), Some((true, None, Some(true))));
     }
 
