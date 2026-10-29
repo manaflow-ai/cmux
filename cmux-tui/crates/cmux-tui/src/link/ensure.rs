@@ -19,7 +19,9 @@
 //! - `stop --state-dir D`: signals the registered pid (only after a fresh
 //!   connection proved that pid serves D's own socket), waits for that
 //!   connection to end and then for the process to exit. Never by name or
-//!   pattern. `{"ok":true,"stopped":bool}`, or `stop_timeout`.
+//!   pattern. With no live registration, it waits for a link that is still
+//!   ending (it holds `link.lock` until it exits). `{"ok":true,"stopped":bool}`,
+//!   or `stop_timeout`.
 //! - `status --state-dir D`: `{"running":false}`, or `{"running":true}` with
 //!   the link's own `link.status` answer.
 
@@ -191,7 +193,51 @@ fn owns(state: &LinkState, socket: &Path) -> bool {
 /// holds `link.lock` for its lifetime; one file would deadlock `ensure`,
 /// which waits for the `serve` it started while it holds its lock.)
 pub(super) fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
-    let file = super::state::open_lock(&state.dir().join("link.ensure.lock"))?;
+    match lock_within(&state.dir().join("link.ensure.lock"), LOCK_BUDGET)? {
+        Some(file) => Ok(file),
+        None => bail!(
+            "lock_timeout: another cmux link ensure or stop of {} still runs",
+            state.dir().display()
+        ),
+    }
+}
+
+/// Waits until a `serve` of `state` that is ending has exited, at most
+/// `budget`: false when one still holds its lock after `budget`. A `serve`
+/// holds `<state>/link.lock` from before its registration until it exits,
+/// and it removes its registration and socket before it exits, so a link
+/// that is ending has no registration (or a registration of a pid that is
+/// gone) and still holds the lock. Only then does this wait, for the lock
+/// itself (taken and released at once), not for a guessed time: `stop` must
+/// not answer before that link is gone, and a `serve` that `ensure` starts
+/// meanwhile cannot take the lock and exits ("the link did not start").
+/// A registration of a live pid is a running link this caller does not use
+/// (its socket folder is open to others, or it serves another state
+/// folder's socket); it is left alone, as before, with no wait.
+fn ending_link_gone_within(state: &LinkState, budget: Duration) -> anyhow::Result<bool> {
+    if registration::read(&state.registration_dir()).is_some_and(|reg| pid_alive(reg.pid)) {
+        return Ok(true);
+    }
+    Ok(lock_within(&state.dir().join("link.lock"), budget)?.is_some())
+}
+
+/// Whether process `pid` exists (signal 0; EPERM is a process of another user).
+fn pid_alive(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+    if pid <= 0 {
+        return false;
+    }
+    // SAFETY: signal 0 only checks that the process exists.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// The lock file at `path`, locked (exclusive) within `budget`; `None` when
+/// another process still holds it after `budget`.
+fn lock_within(path: &Path, budget: Duration) -> anyhow::Result<Option<std::fs::File>> {
+    let file = super::state::open_lock(path)?;
     // flock has no timed wait: a helper thread takes the lock (blocking)
     // and hands the file over; this waits for that event with a deadline.
     // A lock the helper gets after the deadline is released at once: its
@@ -205,13 +251,10 @@ pub(super) fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
         let answer = if locked { Ok(file) } else { Err(std::io::Error::last_os_error()) };
         let _ = sender.send(answer);
     })?;
-    match crate::blocking::sync::recv_timeout(&receiver, LOCK_BUDGET) {
-        Ok(Ok(file)) => Ok(file),
-        Ok(Err(error)) => Err(error).context("lock the link state directory"),
-        Err(_) => bail!(
-            "lock_timeout: another cmux link ensure or stop of {} still runs",
-            state.dir().display()
-        ),
+    match crate::blocking::sync::recv_timeout(&receiver, budget) {
+        Ok(Ok(file)) => Ok(Some(file)),
+        Ok(Err(error)) => Err(error).with_context(|| format!("lock {}", path.display())),
+        Err(_) => Ok(None),
     }
 }
 
@@ -340,6 +383,13 @@ pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
         stop_live(&state)?;
         restarted = true;
     }
+    // A link that is ending still holds the lock a new one needs.
+    if !ending_link_gone_within(&state, STOP_BUDGET)? {
+        bail!(
+            "link_busy: a link of {} is ending and still holds its lock after {STOP_BUDGET:?}",
+            state.dir().display()
+        );
+    }
     match start(&state, flags)? {
         Some(ready) => {
             print_json(&json!({
@@ -445,6 +495,14 @@ fn stop_live(state: &LinkState) -> anyhow::Result<bool> {
     let Some((live, mut stream)) = registration::connect_live(&state.registration_dir())
         .filter(|(live, _)| owns(state, &live.socket))
     else {
+        // No link answers, but one may still be ending: answer only once it is gone.
+        if !ending_link_gone_within(state, STOP_BUDGET)? {
+            bail!(
+                "stop_timeout: a link of {} is ending and still holds its lock after \
+                 {STOP_BUDGET:?}",
+                state.dir().display()
+            );
+        }
         return Ok(false);
     };
     let deadline = std::time::Instant::now() + STOP_BUDGET;

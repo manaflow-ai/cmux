@@ -1017,3 +1017,42 @@ fn a_long_app_storage_wait_names_the_holder() {
     assert!(wait.waited >= Duration::from_millis(20), "{wait:?}");
     assert_eq!((wait.file, wait.line), (file!(), line));
 }
+
+// MARK: local apps reload
+
+/// A local app saved while a reload reads the folders (the customize
+/// folder's 1.0.1 in cmux-tui::cli apps_store's
+/// the_customize_folder_installs_itself_and_reloads_when_it_changes) is
+/// listed after the reload its own file event causes. The hook writes the
+/// new version right after the reload read the catalog, so the order is
+/// fixed, not raced.
+#[test]
+fn a_local_app_saved_while_a_reload_reads_it_is_listed_after_the_next_reload() {
+    let f = fixture();
+    let manifest = f.state.join("apps/local/spy/cmux-app.json");
+    let version = |list: &Value| app_entry(list, "local/spy")["version"].clone();
+    assert_eq!(version(&f.supervisor.list()), "1.0.0");
+    let prints = f.supervisor.reload_local_apps(&Default::default());
+    let saved = manifest.clone();
+    super::local_reload::AFTER_CATALOG_READ.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move || {
+            let mut text: Value =
+                serde_json::from_str(&std::fs::read_to_string(&saved).unwrap()).unwrap();
+            text["version"] = json!("1.0.1");
+            // Another size too: a rewrite of the same size within one mtime
+            // tick has the same fingerprint, which this test is not about.
+            text["description"] = json!("saved while the reload read it");
+            std::fs::write(&saved, text.to_string()).unwrap();
+        }));
+    });
+    // The reload that runs while the file is saved ...
+    let prints = f.supervisor.reload_local_apps(&prints);
+    // ... and the one the save's file event starts.
+    f.supervisor.reload_local_apps(&prints);
+    assert_eq!(
+        version(&f.supervisor.list()),
+        "1.0.1",
+        "the saved version was never read: {}",
+        std::fs::read_to_string(&manifest).unwrap()
+    );
+}
