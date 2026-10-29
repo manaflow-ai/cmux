@@ -1038,6 +1038,42 @@ import Testing
         #expect(sets.values == ["screen false", "screen true"])
     }
 
+    /// Round 15: the folder made at the first join, with its consent file, in the window right after the
+    /// watch is armed and before its first ask or its loop runs (the `armed` handshake). The watch moved to
+    /// the new folder and its file: a later in-place write of that file, which only the file's own watch
+    /// sees, still asks. A watch armed after that window would have armed no file watch and miss it.
+    @Test func theFolderMadeRightAfterTheWatchArmsIsFollowed() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "cn-machine-consent-arm-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appending(path: "machine-consent")
+        let file = folder.appending(path: "consent.json")
+        var made = false
+        let stream = MachineConsentChanges(folder: folder).events {
+            made = (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil
+                && (try? Data("{}".utf8).write(to: file)) != nil
+        }
+        #expect(made, "the folder and its file were made in the window")
+        let changes = Recorder()
+        let watching = Task {
+            for await _ in stream { changes.values.append("change") }
+        }
+        defer { watching.cancel() }
+        // Lets the first ask and the folder's own element land, then writes the file in place.
+        let first = ContinuousClock.now + .seconds(10)
+        while changes.values.isEmpty, ContinuousClock.now < first { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(!changes.values.isEmpty, "one ask once the watch is armed")
+        try await Task.sleep(for: .milliseconds(500))
+        let seen = changes.values.count
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(" ".utf8))
+        try handle.close()
+        let deadline = ContinuousClock.now + .seconds(10)
+        while changes.values.count == seen, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(changes.values.count > seen, "the file made in the window is watched")
+    }
+
     /// The machine consent folder comes from the user's password entry, never HOME or ACPMUX_HOME. Its
     /// watch asks once as soon as it is armed (so nothing made while it armed is missed), then once per
     /// change: the folder made at the first join, a file made, rewritten in place, replaced by a rename,
