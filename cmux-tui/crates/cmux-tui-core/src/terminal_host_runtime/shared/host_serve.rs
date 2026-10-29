@@ -6,7 +6,6 @@
 
 use crate::panic_free::RecoverPoison;
 use std::borrow::Cow;
-use std::io::Write;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;

@@ -119,14 +119,14 @@ pub(crate) fn write_bounded(
 /// waits for room and for the cancel in one `poll`: nothing polls on a
 /// timer.
 pub(crate) struct WriteCancel {
-    read: std::io::PipeReader,
-    write: std::io::PipeWriter,
+    read: io::PipeReader,
+    write: io::PipeWriter,
     cancelled: std::sync::atomic::AtomicBool,
 }
 
 impl WriteCancel {
     pub(crate) fn new() -> io::Result<Self> {
-        let (read, write) = std::io::pipe()?;
+        let (read, write) = io::pipe()?;
         Ok(Self { read, write, cancelled: std::sync::atomic::AtomicBool::new(false) })
     }
 

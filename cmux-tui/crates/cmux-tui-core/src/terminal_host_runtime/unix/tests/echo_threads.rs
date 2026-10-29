@@ -241,7 +241,7 @@ impl MasterPty for UnreadMaster {
     }
 
     fn as_raw_fd(&self) -> Option<RawFd> {
-        Some(std::os::fd::AsRawFd::as_raw_fd(&self.stream))
+        Some(AsRawFd::as_raw_fd(&self.stream))
     }
 
     fn tty_name(&self) -> Option<PathBuf> {
