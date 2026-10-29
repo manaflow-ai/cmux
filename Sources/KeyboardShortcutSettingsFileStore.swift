@@ -43,6 +43,7 @@ final class CmuxSettingsFileStore {
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
     private let userDefaults: UserDefaults
+    private let settingsFilePrecedencePolicy = SettingsFilePrecedencePolicy()
     private let languageSettingsStore: LanguageSettingsStore?
     private let passwordStore: SocketControlPasswordStore
     /// Whether an MDM configuration profile forces a `UserDefaults` key.
@@ -112,7 +113,7 @@ final class CmuxSettingsFileStore {
         self.onConfigurationIssue = onConfigurationIssue
         importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
         bootstrapPrimaryTemplateIfNeeded()
-        reload(applyLiveDefaultSideEffects: false)
+        reload(applyLiveDefaultSideEffects: false, appliesFileAuthoritativeKeys: true)
         guard startWatching else { return }
         watchers = ([primaryPath] + fallbackPaths).map { FileWatcher(path: $0) }
         watchTasks = watchers.map { watcher in
@@ -120,7 +121,7 @@ final class CmuxSettingsFileStore {
             return Task { @MainActor [weak self] in
                 for await _ in events {
                     guard let self else { break }
-                    self.reload()
+                    self.reload(appliesFileAuthoritativeKeys: true)
                     self.onWatchedFileReload("settings.file_watcher")
                 }
             }
@@ -145,10 +146,17 @@ final class CmuxSettingsFileStore {
     /// Returns whether the reload posted `didChangeNotification`, so callers
     /// that must guarantee a notification can post one without double-firing.
     /// When provided, `notificationSourceURL` identifies the reload's post.
+    /// `appliesFileAuthoritativeKeys` re-applies cmux.json values for
+    /// file-authoritative keys over a diverged Settings value; launch, the
+    /// cmux.json watcher and explicit reload-config pass `true`.
     @discardableResult
-    func reload(notificationSourceURL: URL? = nil) -> Bool {
+    func reload(
+        notificationSourceURL: URL? = nil,
+        appliesFileAuthoritativeKeys: Bool = false
+    ) -> Bool {
         reload(
             applyLiveDefaultSideEffects: true,
+            appliesFileAuthoritativeKeys: appliesFileAuthoritativeKeys,
             notificationSourceURL: notificationSourceURL
         )
     }
@@ -160,6 +168,7 @@ final class CmuxSettingsFileStore {
     @discardableResult
     private func reload(
         applyLiveDefaultSideEffects: Bool,
+        appliesFileAuthoritativeKeys: Bool,
         notificationSourceURL: URL? = nil
     ) -> Bool {
         let previousState = synchronized {
@@ -178,7 +187,8 @@ final class CmuxSettingsFileStore {
             importedManagedDefaults: previousState.importedManagedDefaults,
             changedManagedDefaultKeys: newOrChangedManagedDefaultKeys(
                 previous: previousState.importedManagedDefaults,
-                next: resolved.managedUserDefaults
+                next: resolved.managedUserDefaults,
+                appliesFileAuthoritativeKeys: appliesFileAuthoritativeKeys
             ),
             applyLiveDefaultSideEffects: applyLiveDefaultSideEffects
         )
@@ -316,13 +326,17 @@ final class CmuxSettingsFileStore {
     }
 
     // Only keys present in the next snapshot can force-apply; removed keys restore backups instead.
+    // File-authoritative keys also force-apply when the caller applies file authority (#26540).
     private func newOrChangedManagedDefaultKeys(
         previous: [String: ManagedSettingsValue],
-        next: [String: ManagedSettingsValue]
+        next: [String: ManagedSettingsValue],
+        appliesFileAuthoritativeKeys: Bool
     ) -> Set<String> {
-        Set(next.compactMap { key, value in
-            previous[key] == value ? nil : key
-        })
+        settingsFilePrecedencePolicy.keysToApply(
+            previous: previous,
+            next: next,
+            appliesFileAuthority: appliesFileAuthoritativeKeys
+        )
     }
 
     private func resolveSettings() -> ResolvedSettingsSnapshot {
@@ -1572,6 +1586,7 @@ final class CmuxSettingsFileStore {
         guard !forceApply else { return true }
         guard let importedDefault else { return true }
         // Precedence: user explicit choice (UserDefaults) > cmux.json imported default > built-in default.
+        // File-authoritative keys arrive here with forceApply on launch and explicit reloads.
         guard let current = currentManagedUserDefaultsValue(
             for: defaultsKey,
             matching: value,
