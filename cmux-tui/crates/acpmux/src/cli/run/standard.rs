@@ -228,7 +228,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::Ls { status, pending, tag, limit, fields, since } => {
+        Command::Ls { status, pending, tag, limit, fields, since, with_tools } => {
             let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
             let selected = limit.is_some() || fields.is_some() || since_ms.is_some();
             let fields = fields.as_deref().map(parse_fields).transpose()?;
@@ -237,11 +237,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // possible; a `--since` filter must run before the limit, so that combination reads
             // the complete list and applies both filters locally.
             let daemon_limit = limit.filter(|_| status.is_none() && !pending && tag.is_none());
-            let params = if since_ms.is_none() {
+            let mut params = if since_ms.is_none() {
                 daemon_limit.map_or_else(|| json!({}), |n| json!({"limit": n}))
             } else {
                 json!({})
             };
+            if with_tools {
+                params["withTools"] = json!(true);
+            }
             let mut v = client.request(method::MUX_SESSIONS, params).await?;
             if status.is_some() || pending || tag.is_some() || selected {
                 let mut sessions = match v.get_mut("sessions") {
