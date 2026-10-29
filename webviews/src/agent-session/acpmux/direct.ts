@@ -6206,7 +6206,7 @@ export class AcpmuxDirectClient {
         noProject,
         model,
       );
-      if (generation !== this.selectionGeneration || this.closed) {
+      if (this.closed || (peer && generation !== this.selectionGeneration)) {
         if (sessionId && !this.closed) this.discard(sessionId);
         return undefined;
       }
@@ -6251,7 +6251,12 @@ export class AcpmuxDirectClient {
         this.emit();
       },
     );
-    if (this.pendingPeerTrust !== pending || pending.generation !== this.selectionGeneration || this.closed) {
+    // A deferred local harness switch intentionally leaves the displayed chat at first Send;
+    // HarnessSwitch owns that start's cancellation. Only peer starts use this route fence.
+    if (
+      this.closed ||
+      (pending.peer && (this.pendingPeerTrust !== pending || pending.generation !== this.selectionGeneration))
+    ) {
       if (result?.sessionId && !this.closed) this.discard(String(result.sessionId));
       return undefined;
     }
