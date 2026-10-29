@@ -67,6 +67,9 @@ pub(crate) struct HolderService {
     /// The standalone holder failed to start once: this daemon starts the
     /// holder built into its host executable from then on.
     standalone_failed: AtomicBool,
+    /// This daemon wrote its handoff record ([`cmux_holder::handoff`]), the
+    /// first time it left a terminal to its holder for shutdown.
+    handoff_recorded: AtomicBool,
 }
 
 impl HolderService {
@@ -91,6 +94,7 @@ impl HolderService {
             listed: Mutex::default(),
             superseded: AtomicBool::new(false),
             standalone_failed: AtomicBool::new(false),
+            handoff_recorded: AtomicBool::new(false),
         });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
@@ -323,8 +327,16 @@ impl HolderService {
     }
 
     /// The daemon leaves `chan` running on the holder for its shutdown.
-    /// Never connects.
+    /// Never connects. Before the first one, the daemon records its handoff:
+    /// a holder ends the terminals of an owner that goes without a record,
+    /// so the record must be on disk before this daemon's link ends.
     pub(super) fn detach(&self, chan: u32) {
+        if !self.handoff_recorded.swap(true, Ordering::AcqRel) {
+            if let Err(error) = cmux_holder::handoff::write_record(&self.socket) {
+                self.handoff_recorded.store(false, Ordering::Release);
+                eprintln!("cmux-tui: could not record the holder handoff: {error}");
+            }
+        }
         if let Some(link) = self.open_link() {
             let _ = link.detach(chan);
         }

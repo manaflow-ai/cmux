@@ -42,6 +42,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_holder::SpawnRequest;
 use cmux_holder::client::{Event, HolderClient, inherit_only_stdio, launch_with};
+use cmux_holder::handoff;
 use cmux_holder::holder::error_code;
 use cmux_holder::wire::{self, Kind, Out};
 
@@ -252,6 +253,7 @@ fn base_descriptors(dir: &Path) -> usize {
     assert!(listed.is_empty());
     settle(&mut client, 0);
     let base = open_fds(probe.id() as i32);
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(probe);
     base
@@ -333,6 +335,7 @@ fn a_holder_out_of_descriptors_lists_every_terminal_and_fails_only_the_spawn_it_
     for chan in 1..=TERMINALS {
         client.close(chan, 200).unwrap();
     }
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(holder);
     let _ = std::fs::remove_dir_all(&dir);
@@ -381,6 +384,10 @@ fn a_frame_whose_descriptors_the_holder_cannot_take_ends_the_link_with_an_error_
             (0..BALLAST).map(|_| UnixStream::connect(&socket).unwrap()).collect();
         settle(&mut client, 10 + round);
         assert_eq!(open_fds(holder_pid), limit - 1, "round {round}: not one descriptor left");
+        // The fault ends the link on the holder's side, with no daemon left to
+        // write a record after it: the daemon declares its handoff before the
+        // ADOPT that faults (see owner_exit).
+        handoff::write_record(&socket).unwrap();
         client.adopt_with_ring(9, &[9; 16], (0, 0, 0), &null(), &null(), b"").unwrap();
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
@@ -418,6 +425,7 @@ fn a_frame_whose_descriptors_the_holder_cannot_take_ends_the_link_with_an_error_
     for chan in 1..=TERMINALS {
         client.close(chan, 200).unwrap();
     }
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(holder);
     let _ = std::fs::remove_dir_all(&dir);

@@ -24,6 +24,7 @@ use std::process::Child;
 use std::time::{Duration, Instant};
 
 use cmux_holder::client::{Event, HolderClient, launch, launch_with};
+use cmux_holder::handoff;
 use cmux_holder::holder::error_code;
 use cmux_holder::wire::{self, ACK_EVERY, Kind};
 use cmux_holder::{ExitStatus, NOFILE_SOFT_ENV, SpawnRequest};
@@ -203,7 +204,10 @@ fn shells_survive_a_holder_crash_and_a_daemon_crash_with_their_screens() {
     }
     pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
 
-    // 1. The holder crashes.
+    // 1. The holder crashes. The daemon records its handoff before it lets
+    // go of the link, so the holder keeps the shells (no owner-exit rule
+    // applies: see tests/owner_exit.rs).
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(first);
     for (chan, screen) in &screens {
@@ -233,6 +237,9 @@ fn shells_survive_a_holder_crash_and_a_daemon_crash_with_their_screens() {
         screens.iter().map(|(chan, screen)| (*chan, screen.base)).collect();
     let before: BTreeMap<u32, Vec<u8>> =
         screens.iter().map(|(chan, s)| (*chan, s.bytes.clone())).collect();
+    // The daemon records its handoff before it crashes, so the holder keeps
+    // the shells until the restarted daemon links again.
+    handoff::write_record(&socket).unwrap();
     drop(client);
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     assert_eq!(listed.len(), TERMINALS as usize, "the holder lists every terminal");
@@ -334,6 +341,7 @@ fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
             got.extend(bytes);
         }
     }
+    handoff::write_record(&socket).unwrap();
     drop(client);
     assert!(got.len() < TOTAL, "the dead holder had sent everything; nothing was at stake");
     let second = launch(holder_binary(), &socket, &TOKEN).unwrap();
@@ -357,6 +365,7 @@ fn a_holder_killed_holding_unsent_output_loses_no_byte_through_its_ring() {
     assert!(got == expected, "the output after the crash differs from what the program printed");
     assert!(alive(spawned.pid), "the shell died with its holder");
     client.close(1, 200).unwrap();
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(second);
     let _ = std::fs::remove_dir_all(&dir);
@@ -386,6 +395,7 @@ fn a_stale_ring_segment_is_not_continued_and_output_continues_at_resume() {
         },
     );
     pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(first);
     let received = screens[&1].end();
@@ -405,6 +415,7 @@ fn a_stale_ring_segment_is_not_continued_and_output_continues_at_resume() {
     // `pump_until` checks that every DATA offset continues the screen.
     pump_until(&mut client, &mut screens, |_| "after-stale\r\nafter-stale".to_string());
     client.close(1, 200).unwrap();
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(second);
     let _ = std::fs::remove_dir_all(&dir);
@@ -435,6 +446,8 @@ fn a_holder_that_cannot_continue_a_segment_says_which_ring_it_writes() {
     };
     let mut screens = BTreeMap::from([(1, screen)]);
     pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+    // The daemon declares its handoff before its link ends (see owner_exit).
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(first);
     let mut id = [0u8; 16];
@@ -466,6 +479,7 @@ fn a_holder_that_cannot_continue_a_segment_says_which_ring_it_writes() {
         screens[&1].end(),
         "the answered segment is the one the holder writes"
     );
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(second);
 
@@ -484,6 +498,7 @@ fn a_holder_that_cannot_continue_a_segment_says_which_ring_it_writes() {
     pump_until(&mut client, &mut screens, |_| "on-kept\r\non-kept".to_string());
     assert_eq!(cmux_holder::ring::segment_end(&written).unwrap(), screens[&1].end());
     client.close(1, 200).unwrap();
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(third);
     let _ = std::fs::remove_dir_all(&dir);
@@ -536,6 +551,7 @@ fn a_new_holders_credit_counts_from_what_the_daemon_parsed() {
             got.extend(bytes);
         }
     }
+    handoff::write_record(&socket).unwrap();
     drop(client);
     let received = got.len() as u64;
     assert_eq!(received, wire::CREDIT_WINDOW, "the dead holder sent exactly one window");
@@ -577,6 +593,7 @@ fn a_new_holders_credit_counts_from_what_the_daemon_parsed() {
     let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
     assert!(got == expected, "the output after the crash differs from what the program printed");
     client.close(1, 200).unwrap();
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(second);
     let _ = std::fs::remove_dir_all(&dir);
@@ -626,6 +643,7 @@ fn a_holder_killed_at_its_room_limit_leaves_the_rest_to_the_next_holder() {
     );
     assert_eq!(cmux_holder::ring::interrupted_read(&ring).unwrap(), None);
     kill(first);
+    handoff::write_record(&socket).unwrap();
     drop(client);
     let received = got.len() as u64;
     assert_eq!(received, wire::CREDIT_WINDOW, "the dead holder sent exactly one window");
@@ -654,6 +672,7 @@ fn a_holder_killed_at_its_room_limit_leaves_the_rest_to_the_next_holder() {
     let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
     assert!(got == expected, "the output after the crash differs from what the program printed");
     client.close(1, 200).unwrap();
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(second);
     let _ = std::fs::remove_dir_all(&dir);
@@ -713,6 +732,7 @@ fn a_new_terminal_holds_its_output_until_its_attach() {
     let expected: Vec<u8> = line.iter().copied().cycle().take(TOTAL).collect();
     assert!(got == expected, "the attached stream differs from what the program printed");
     client.close(1, 200).unwrap();
+    handoff::write_record(&socket).unwrap();
     drop(client);
     kill(holder);
     let _ = std::fs::remove_dir_all(&dir);
@@ -744,12 +764,14 @@ fn an_older_daemon_gets_no_ring_segment_and_no_adopted_answer() {
         };
         let mut screens = BTreeMap::from([(1, screen)]);
         pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
+        handoff::write_record(&socket).unwrap();
         drop(client);
         let (client, listed) = HolderClient::connect_as(&socket, &TOKEN, version).unwrap();
         assert_eq!(listed.len(), 1);
         assert!(listed[0].master.is_some(), "version {version}: LISTED's master");
         assert_eq!(listed[0].ring.is_some(), rings, "version {version}: LISTED's segment");
         drop(listed);
+        handoff::write_record(&socket).unwrap();
         drop(client);
         kill(first);
 
@@ -774,6 +796,7 @@ fn an_older_daemon_gets_no_ring_segment_and_no_adopted_answer() {
         assert_eq!(answered, rings, "version {version}: the ADOPTED answer");
         client.close(1, 200).unwrap();
         drop(screens);
+        handoff::write_record(&socket).unwrap();
         drop(client);
         kill(second);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1014,6 +1037,7 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
     // drop: a holder another test forks in this window would keep the
     // socket open past the next connect, and the holder would see a
     // takeover, not a lost link.
+    handoff::write_record(&socket).unwrap();
     client.end();
     // Strike 2: the next one replays the ring, then ends the same way.
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
@@ -1022,6 +1046,7 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
         Event::Data { offset: 0, .. } => {}
         other => panic!("the second daemon did not get the ring: {other:?}"),
     }
+    handoff::write_record(&socket).unwrap();
     client.end();
     // The third gets no ring tail: a GAP to the end, then live output.
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
@@ -1039,6 +1064,7 @@ fn a_terminal_whose_streams_keep_ending_without_detach_restores_without_its_ring
     }
     // A daemon that DETACHes is no strike: the next one gets the whole ring.
     client.detach(1).unwrap();
+    handoff::write_record(&socket).unwrap();
     client.end();
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     client.reattach(1, listed[0].oldest).unwrap();
@@ -1067,6 +1093,7 @@ fn a_snapshot_becomes_the_prologue_a_restarted_daemon_starts_from() {
     let end = screens[&1].end();
     client.snapshot(1, end, b"<screen>").unwrap();
     client.detach(1).unwrap();
+    handoff::write_record(&socket).unwrap();
     drop(client);
     let (mut client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();
     client.reattach(1, listed[0].oldest).unwrap();
@@ -1147,6 +1174,9 @@ fn an_idle_holder_exits_and_a_scripts_sigterm_does_not_end_one_with_terminals() 
     pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
     // SAFETY: SIGTERM to the holder this test started.
     unsafe { libc::kill(holder.id() as i32, libc::SIGTERM) };
+    // The daemon records its handoff before its link ends (a daemon that
+    // exits without one ends its terminals: tests/owner_exit.rs).
+    handoff::write_record(&socket).unwrap();
     drop(client);
     std::thread::sleep(Duration::from_secs(2));
     assert!(holder.try_wait().unwrap().is_none(), "a holder with a terminal exited");
@@ -1160,6 +1190,7 @@ fn an_idle_holder_exits_and_a_scripts_sigterm_does_not_end_one_with_terminals() 
             break;
         }
     }
+    handoff::write_record(&socket).unwrap();
     drop(client);
     drop(screens);
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -1190,7 +1221,8 @@ fn an_orphan_grace_ends_the_terminals_of_a_holder_no_daemon_came_back_to() {
     client.attach(1, 0).unwrap();
     let mut screens = BTreeMap::from([(1, Screen { master, pid, base: 0, bytes: Vec::new() })]);
     pump_until(&mut client, &mut screens, |chan| format!("ready-{chan}"));
-    // A daemon that reconnects within the grace keeps the shell.
+    // A daemon that reconnects within the grace keeps the shell. No handoff
+    // is recorded: this test is the grace path of the rule (`set_orphan_grace`).
     drop(client);
     std::thread::sleep(Duration::from_millis(700));
     let (client, listed) = HolderClient::connect(&socket, &TOKEN).unwrap();

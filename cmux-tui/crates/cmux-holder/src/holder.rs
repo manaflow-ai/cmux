@@ -27,6 +27,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::handoff;
 use crate::ring::Ring;
 use crate::wire::{self, Frame, In, Kind, Out};
 use crate::{ExitStatus, Listed, SpawnRequest, pty};
@@ -357,12 +358,15 @@ pub struct Holder {
     /// No terminal and no link since this time.
     idle_since: Option<Instant>,
     idle_exit: Duration,
-    /// End every terminal once no daemon was linked for this long (a DEV
-    /// build's, debug build's or test's grace, as its terminal hosts get);
-    /// `None`: never (normal installs, decision D1).
+    /// Hang up the terminals this long after their owner went, instead of
+    /// at once (a DEV build's, debug build's or test's knob, not the rule).
+    /// `None`: at once.
     orphan_grace: Option<Duration>,
     /// Terminals and no daemon link since this time.
     orphan_since: Option<Instant>,
+    /// The owner that went away wrote a handoff record ([`handoff`]): its
+    /// terminals stay until a daemon links again.
+    handed_off: bool,
     sigchld: OwnedFd,
 }
 
@@ -458,6 +462,7 @@ impl Holder {
             idle_exit: IDLE_EXIT,
             orphan_grace: None,
             orphan_since: None,
+            handed_off: false,
             sigchld,
         })
     }
@@ -474,8 +479,8 @@ impl Holder {
         self.idle_exit = idle;
     }
 
-    /// End every terminal after `grace` with no daemon link (`None`, the
-    /// default: never).
+    /// Hang up every terminal `grace` after its owner went, instead of at
+    /// once (`None`, the default). A recorded handoff keeps them regardless.
     pub fn set_orphan_grace(&mut self, grace: Option<Duration>) {
         self.orphan_grace = grace;
     }
@@ -622,13 +627,31 @@ impl Holder {
         Ok(())
     }
 
-    /// With an orphan grace: once no daemon was linked for that long, hang
-    /// up every terminal (a CLOSE each, its 2 s SIGKILL grace too); the
-    /// ended ones are forgotten and the holder exits idle.
+    /// The owner rule. With terminals and no daemon link, the owner has
+    /// exited. Unless it wrote a handoff record first (read here, once for
+    /// each time the link ends), every terminal is hung up at once (a CLOSE
+    /// each, its 2 s SIGKILL grace too); the ended ones are forgotten and
+    /// the holder exits idle. A recorded handoff keeps the terminals until a
+    /// daemon links again. [`Self::orphan_grace`] only delays the hang-up.
     fn end_orphans(&mut self, now: Instant) {
         let orphaned = self.link.is_none() && !self.terminals.is_empty();
-        self.orphan_since = if orphaned { Some(self.orphan_since.unwrap_or(now)) } else { None };
-        let (Some(grace), Some(since)) = (self.orphan_grace, self.orphan_since) else { return };
+        if !orphaned {
+            self.orphan_since = None;
+            self.handed_off = false;
+            return;
+        }
+        let since = match self.orphan_since {
+            Some(since) => since,
+            None => {
+                self.handed_off = self.socket.as_deref().is_some_and(handoff::take_record);
+                self.orphan_since = Some(now);
+                now
+            }
+        };
+        if self.handed_off {
+            return;
+        }
+        let grace = self.orphan_grace.unwrap_or(Duration::ZERO);
         if now.saturating_duration_since(since) < grace {
             return;
         }
@@ -660,7 +683,9 @@ impl Holder {
         let orphan = self
             .orphan_since
             .zip(self.orphan_grace)
-            .filter(|_| self.terminals.values().any(|terminal| !terminal.closing))
+            .filter(|_| {
+                !self.handed_off && self.terminals.values().any(|terminal| !terminal.closing)
+            })
             .map(|(since, grace)| since + grace);
         kill.into_iter().chain(handshake).chain(idle).chain(orphan).min()
     }
@@ -760,6 +785,11 @@ impl Holder {
         // that still reads the dead link's last bytes.
         if self.link_ended() {
             self.drop_link(LinkDrop::Lost);
+        }
+        // A record is for the owner that exits, not for a later one: the
+        // daemon that links now takes over any record an older one left.
+        if let Some(socket) = &self.socket {
+            handoff::discard_record(socket);
         }
         if let Some(old) = self.drop_link(LinkDrop::Superseded) {
             let message = "another daemon took this holder";

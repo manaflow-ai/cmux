@@ -11,6 +11,7 @@
 #![cfg(unix)]
 
 pub mod client;
+pub mod handoff;
 pub mod holder;
 pub mod link;
 pub mod pty;
@@ -172,10 +173,11 @@ impl ExitStatus {
 /// every shell. The same name a spawned terminal host reads.
 pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 
-/// The environment variable that gives a holder an orphan grace in
-/// milliseconds: once no daemon was linked for that long it ends every
-/// terminal (a DEV build's, debug build's or test's daemon sets it, as it
-/// gives its terminal hosts one; normal installs never do). An environment
+/// The environment variable that delays the owner rule in milliseconds: a
+/// holder whose daemon went without a handoff record ends its terminals
+/// this long after the link ended, not at once (a DEV build's, debug
+/// build's or test's daemon may set it; normal installs never do). A
+/// recorded handoff keeps the terminals whatever this is. An environment
 /// variable, not an argument, so an older holder that does not know it
 /// still starts.
 pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
