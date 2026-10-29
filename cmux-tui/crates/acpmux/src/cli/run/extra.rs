@@ -346,6 +346,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         which @ (Command::Status { .. } | Command::DaemonStart { .. }) => {
             let start = matches!(which, Command::DaemonStart { .. });
+            if start {
+                crate::daemon::mark_explicit_start();
+            }
             let show_token = match &which {
                 Command::Status { show_token } | Command::DaemonStart { show_token, .. } => {
                     *show_token

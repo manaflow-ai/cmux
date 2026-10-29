@@ -30,6 +30,7 @@ pub(crate) mod login_session;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
 mod handover;
+mod home_watch;
 mod notify;
 mod persist_retry;
 #[cfg(windows)]
@@ -501,6 +502,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
+    // Before the ready line: a launcher may remove the home as soon as it reads it
+    // (`daemon/home_watch.rs`). Ends with this function (dropped at shutdown).
+    let home_gone = home_watch::watch(&home(), &socket_path(), &lock);
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
@@ -582,11 +586,17 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
+                // A normal stop, not a restart handoff: nothing can reach this daemon again.
+                why = home_gone => tracing::warn!("stopping: {why}"),
             }
         }
         #[cfg(not(unix))]
         {
-            tokio::select! { _ = ctrl_c => {}, _ = hub.shutdown.notified() => {} }
+            tokio::select! {
+                _ = ctrl_c => {},
+                _ = hub.shutdown.notified() => {},
+                why = home_gone => tracing::warn!("stopping: {why}"),
+            }
         }
     };
     tokio::select! {
@@ -1009,12 +1019,14 @@ pub fn daemon_prefix() -> Vec<std::ffi::OsString> {
 /// How long a started daemon may take to report that its socket is bound.
 const START_BUDGET: Duration = Duration::from_secs(8);
 
+/// How long a stopping daemon may take to exit: the agents' budget, the router's stop and kill
+/// waits, and a margin.
+pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET.saturating_add(Duration::from_secs(8));
+
 /// Wait until no daemon holds this home's lock (the running one exited),
-/// at most `SHUTDOWN_BUDGET` plus a margin. True when it was released.
+/// at most [`EXIT_BUDGET`]. True when it was released.
 pub async fn wait_for_exit() -> bool {
-    // The agents' budget, the router's stop and kill waits, and a margin.
-    wait_for_lock_release(home().join("daemon.lock"), SHUTDOWN_BUDGET + Duration::from_secs(8))
-        .await
+    wait_for_lock_release(home().join("daemon.lock"), EXIT_BUDGET).await
 }
 
 /// Connect to the daemon, starting one if needed.
@@ -1277,6 +1289,9 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
+    if !EXPLICIT_START.load(std::sync::atomic::Ordering::Relaxed) {
+        check_autostart(path)?;
+    }
     exe_path::check_start()?;
     let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     loop {
@@ -1287,6 +1302,16 @@ where
         };
         if !lock_held(&ready) {
             return Err(not_ready(path, &ready, &error));
+        }
+        // The lock's holder serves this home at another socket: no wait makes it serve this one.
+        if let Some(other) = holder_elsewhere(path).await {
+            return Err(anyhow!(
+                "the acpmux daemon that holds {} serves {}, not {}; unset ACPMUX_SOCKET or set it to {}",
+                home().join("daemon.lock").display(),
+                other.display(),
+                path.display(),
+                other.display()
+            ));
         }
         if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
             return Err(anyhow!(
@@ -1301,6 +1326,66 @@ where
             return Ok(c);
         }
     }
+}
+
+/// Set by `acpmux daemon start`: the person asked for a daemon in this home and at this socket,
+/// so [`check_autostart`] (for commands that start one only to be served) does not apply.
+static EXPLICIT_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// This command is `acpmux daemon start` (see [`EXPLICIT_START`]).
+pub fn mark_explicit_start() {
+    EXPLICIT_START.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Refuses a start whose home or socket cannot be this command's daemon's
+/// ([`crate::config::autostart_refusal`]).
+fn check_autostart(path: &std::path::Path) -> Result<()> {
+    let home = home();
+    let configured =
+        std::env::var_os("ACPMUX_SOCKET").filter(|v| !v.is_empty()).map(|_| path.to_path_buf());
+    #[cfg(unix)]
+    let own = crate::config::socket_path_for(&home, None);
+    // Windows derives its pipe path its own way; only the missing-home rule applies there.
+    #[cfg(not(unix))]
+    let own = path.to_path_buf();
+    match crate::config::autostart_refusal(
+        &home,
+        std::env::var_os("ACPMUX_HOME").is_some(),
+        configured.as_deref(),
+        &own,
+    ) {
+        Some(why) => Err(anyhow!(why)),
+        None => Ok(()),
+    }
+}
+
+/// The socket a daemon holding this home's lock serves, when it is not `path`: the daemon
+/// answering at the home's own socket says so in its status (`home`, `socket`).
+#[cfg(unix)]
+async fn holder_elsewhere(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let home = home();
+    let own = crate::config::socket_path_for(&home, None);
+    if own == path {
+        return None;
+    }
+    let client = Client::connect(&own).await.ok()?;
+    let status = tokio::time::timeout(
+        START_BUDGET,
+        client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let serves = |key: &str| status.get(key).and_then(Value::as_str).map(std::path::PathBuf::from);
+    (serves("home").as_deref() == Some(home.as_path()))
+        .then(|| serves("socket"))
+        .flatten()
+        .filter(|socket| socket != path)
+}
+
+#[cfg(not(unix))]
+async fn holder_elsewhere(_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    None
 }
 
 /// Whether a started daemon's readiness line says another daemon holds the lock.

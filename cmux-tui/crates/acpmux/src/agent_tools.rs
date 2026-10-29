@@ -718,6 +718,7 @@ impl AgentTools {
                 server.env = vec![
                     (key.to_owned(), session_id.to_owned()),
                     ("ACPMUX_SOCKET".to_owned(), socket),
+                    ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
             }
             // The sub-session server acts as the session: its caller token
@@ -732,6 +733,7 @@ impl AgentTools {
                 server.env = vec![
                     (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
                     ("ACPMUX_SOCKET".to_owned(), socket),
+                    ("ACPMUX_HOME".to_owned(), home_env()),
                 ];
                 server.env.extend(
                     crate::hub::person::caller_env(session_id)
@@ -994,3 +996,10 @@ fn nested_cua_helper(inputs: &Inputs) -> Option<PathBuf> {
 #[cfg(all(test, unix))]
 #[path = "agent_tools_tests.rs"]
 mod tests;
+
+/// The daemon's home, next to every `ACPMUX_SOCKET` a server gets: a socket pairs only with an
+/// explicit home (`config::autostart_refusal`), so the server's command starts no daemon in
+/// another home for it.
+fn home_env() -> String {
+    crate::config::home().to_string_lossy().into_owned()
+}

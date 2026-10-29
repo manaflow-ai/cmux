@@ -31,6 +31,44 @@ pub fn default_home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }
 
+/// Whether a command may start a daemon in `home`, given this process's `ACPMUX_HOME` and
+/// `ACPMUX_SOCKET` (`explicit_home`, `configured_socket`) and `home`'s own socket
+/// (`own_socket`, [`socket_path_for`] with no configured path). `None` when it may, else why
+/// not. A daemon's lock and socket always come from one home:
+///
+/// - A missing home is created only when it is the default one or this build's own
+///   ([`set_home_override`]). Any other missing `ACPMUX_HOME` is most likely a test's removed
+///   temporary folder: recreating it started a second daemon beside one still running on the
+///   deleted files (cosmic-gray, 2026-10-29).
+/// - `ACPMUX_SOCKET` pairs only with an explicit `ACPMUX_HOME`, as in the app
+///   (`AcpmuxEnvironment.swift`). Without one, a socket that is not the home's own names
+///   another home's daemon: a start here would take this home's lock for that socket, and the
+///   command waited out the whole handover budget on a lock another daemon held.
+pub(crate) fn autostart_refusal(
+    home: &Path,
+    explicit_home: bool,
+    configured_socket: Option<&Path>,
+    own_socket: &Path,
+) -> Option<String> {
+    let built_in =
+        home == default_home() || HOME_OVERRIDE.get().is_some_and(|own| own.as_path() == home);
+    if !built_in && std::fs::symlink_metadata(home).is_err() {
+        return Some(format!(
+            "the acpmux home {} does not exist, and acpmux never creates a missing ACPMUX_HOME to start a daemon there (a removed test folder looks the same); create it, or unset ACPMUX_HOME",
+            home.display()
+        ));
+    }
+    match configured_socket {
+        Some(socket) if !explicit_home && socket != own_socket => Some(format!(
+            "no acpmux daemon answers at {} (ACPMUX_SOCKET), and it is not the socket of this command's home {} ({}): acpmux starts a daemon only where its lock and socket share one home; set ACPMUX_HOME to that daemon's home, or unset ACPMUX_SOCKET",
+            socket.display(),
+            home.display(),
+            own_socket.display()
+        )),
+        _ => None,
+    }
+}
+
 /// Make one acpmux state directory owner-only, including an existing directory
 /// created by an older build under a permissive umask. Refuse links and a
 /// directory owned by another user before changing its permissions.
@@ -381,6 +419,42 @@ fn socket_inputs(
     };
     let configured = configured.map(|c| absolute(Path::new(c)).to_string_lossy().into_owned());
     (configured, absolute(home))
+}
+
+#[cfg(all(test, unix))]
+mod autostart_pair_tests {
+    use super::*;
+
+    /// A removed test home is never made again for a daemon; the default home still is.
+    #[test]
+    fn only_the_default_home_is_created_for_a_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("tmp7uxt3tq_/.acpmux");
+        let own = gone.join("acpmux.sock");
+        let why = autostart_refusal(&gone, true, None, &own).expect("a missing home is refused");
+        assert!(why.contains("does not exist"), "{why}");
+        assert!(!gone.exists());
+        let default = default_home();
+        let own = default.join("acpmux.sock");
+        assert_eq!(autostart_refusal(&default, false, None, &own), None);
+        assert_eq!(autostart_refusal(dir.path(), true, None, &dir.path().join("s.sock")), None);
+    }
+
+    /// `ACPMUX_SOCKET` pairs only with an explicit `ACPMUX_HOME` (or is the home's own): the
+    /// Chief's socket with no home must not start a daemon under `~/.acpmux`'s lock.
+    #[test]
+    fn a_socket_pairs_only_with_an_explicit_home_or_its_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let own = home.join("acpmux.sock");
+        let chief = Path::new("/Users/me/.cmux/chief/default/acpmux/acpmux.sock");
+        let why = autostart_refusal(home, false, Some(chief), &own).expect("unpaired");
+        assert!(why.contains(&chief.display().to_string()), "{why}");
+        assert!(why.contains(&own.display().to_string()), "{why}");
+        assert_eq!(autostart_refusal(home, true, Some(chief), &own), None);
+        assert_eq!(autostart_refusal(home, false, Some(&own), &own), None);
+        assert_eq!(autostart_refusal(home, false, None, &own), None);
+    }
 }
 
 #[cfg(all(test, unix))]
