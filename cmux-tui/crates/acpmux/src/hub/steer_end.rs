@@ -34,6 +34,20 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     on_sent: F,
 ) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
+    // Before transport handoff, an ordinary completion belongs only to prompts the old
+    // turn actually received. An unsent steer must take the existing no-turn fallback.
+    // Once delivery begins it may already have reached a translator, so do not retry it.
+    let delivery_started = std::sync::atomic::AtomicBool::new(false);
+    let settled = |answer: Value| {
+        if steer
+            && !delivery_started.load(std::sync::atomic::Ordering::SeqCst)
+            && answer["stopReason"] != "cancelled"
+        {
+            Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN))
+        } else {
+            Ok(answer)
+        }
+    };
     // A turn acpmux ended already (a Stop the agent never answered, `cancel.rs`) gets no prompt.
     if !steer
         && let Some((turn, answer)) = ended.borrow_and_update().clone()
@@ -51,8 +65,9 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
         if let Some((turn, answer)) = session.steer_end.borrow().clone()
             && turn == turn_id
         {
-            return Ok(answer);
+            return settled(answer);
         }
+        delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
         child
             .request_with_hook(method::SESSION_PROMPT, params, fence, move || {
                 drop(input_handoff);
@@ -80,7 +95,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
                 if let Some((turn, answer)) = by_steer
                     && turn == turn_id
                 {
-                    return Ok(answer);
+                    return settled(answer);
                 }
             }
         }

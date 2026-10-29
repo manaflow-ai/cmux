@@ -28,6 +28,12 @@ impl Translator {
                 // to deliver; the boundary below is the point at which Claude
                 // can take another prompt. Failed compactions end at result.
                 if line.get("compact_result").and_then(Value::as_str) != Some("success") {
+                    // Failed compaction has no boundary. Its failure status is
+                    // nevertheless the old compaction's terminal output, not
+                    // evidence that an echoed replacement produced an answer.
+                    if self.cancelled_compaction.load(Ordering::SeqCst) {
+                        self.cancelled_compaction_boundary.store(true, Ordering::SeqCst);
+                    }
                     self.compacting.store(false, Ordering::SeqCst);
                 }
             }

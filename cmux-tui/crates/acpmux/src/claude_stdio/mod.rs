@@ -475,8 +475,8 @@ pub struct Translator {
     /// can follow the next prompt's echo, so that output cannot identify the
     /// result as belonging to the new prompt (`abandoned` holds the old IDs).
     cancelled_compaction: AtomicBool,
-    /// A cancelled compaction produced its boundary after a later prompt began; the following
-    /// zero-turn result belongs to that abandoned compaction, not the later prompt.
+    /// A cancelled compaction produced its terminal output (boundary or failure status)
+    /// after a later prompt began; its following result belongs to the abandoned compaction.
     cancelled_compaction_boundary: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
