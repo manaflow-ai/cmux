@@ -119,6 +119,66 @@ fn a_private_endpoint_file_of_this_user_reaches_the_helper_with_the_secret() {
     assert_eq!(first, json!({"secret": SECRET}));
 }
 
+fn machine_state(dir: &Path, screen: &str, control: &str) {
+    for (name, body) in [
+        (
+            "machine-credential.json",
+            json!({"credential":"cmm_test", "machine_id":"test", "team_id":"team", "name":"test", "hub_origin":"https://example.com", "last_heartbeat":null,"revoked":false,"wgPublicKey":"key"}),
+        ),
+        ("consent.json", json!({"screen":screen,"control":control})),
+    ] {
+        let path = dir.join(name);
+        std::fs::write(&path, body.to_string()).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+}
+
+/// The connection predates join and remains open through grants and revocation.
+/// A control grant must never implicitly grant screen capture, including a
+/// screenshot returned after a click or a future unknown operation.
+#[test]
+fn an_open_bridge_rechecks_independent_screen_consent_on_every_call() {
+    let dir = Dir::new("consent");
+    let _received = stand_in(&dir.0, 0o600);
+    let mut child = daemon_env::acpmux(&dir.0)
+        .arg("cua-mcp")
+        .env("CMUX_NEXT_CUA_V2_DIR", &dir.0)
+        .env("ACPMUX_HOME", &dir.0)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    let mut id = 0;
+    let mut call = |name: &str| {
+        id += 1;
+        writeln!(input, "{}", json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":{}}})).unwrap();
+        input.flush().unwrap();
+        let mut line = String::new();
+        output.read_line(&mut line).unwrap();
+        serde_json::from_str::<Value>(&line).unwrap()
+    };
+    assert_ne!(call("screenshot")["result"]["isError"], true);
+    machine_state(&dir.0, "none", "granted");
+    for name in ["screenshot", "get_desktop_state", "click", "future_capture_action"] {
+        let result = call(name);
+        assert_eq!(result["result"]["isError"], true, "{name}: {result}");
+        assert!(result.to_string().contains("consent_required"));
+    }
+    machine_state(&dir.0, "granted", "none");
+    assert_ne!(call("screenshot")["result"]["isError"], true);
+    assert_eq!(call("click")["result"]["isError"], true);
+    machine_state(&dir.0, "granted", "granted");
+    assert_ne!(call("click")["result"]["isError"], true);
+    machine_state(&dir.0, "none", "granted");
+    assert_eq!(call("click")["result"]["isError"], true);
+    drop(call);
+    drop(input);
+    assert!(child.wait().unwrap().success());
+}
+
 #[test]
 fn target_scope_cannot_come_from_bridge_env_or_model_arguments() {
     for scope in [Some("com.cmuxterm.app.debug.guard-test,com.apple.Terminal"), None] {
@@ -190,63 +250,4 @@ async fn in_memory_target_scope_cannot_come_from_the_bridge_or_arguments() {
         request,
         json!({"id": 1, "method": "tools/call", "name": "click", "arguments": arguments})
     );
-}
-
-fn machine_state(dir: &Path, screen: &str, control: &str) {
-    for (name, body) in [
-        (
-            "machine-credential.json",
-            json!({"credential":"cmm_test", "machine_id":"test", "team_id":"team", "name":"test", "hub_origin":"https://example.com", "last_heartbeat":null,"revoked":false,"wgPublicKey":"key"}),
-        ),
-        ("consent.json", json!({"screen":screen,"control":control})),
-    ] {
-        let path = dir.join(name);
-        std::fs::write(&path, body.to_string()).unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
-}
-
-/// The connection predates join and remains open through grants and revocation.
-/// A control grant must never implicitly grant screen capture, including a
-/// screenshot returned after a click or a future unknown operation.
-#[test]
-fn an_open_bridge_rechecks_independent_screen_consent_on_every_call() {
-    let dir = Dir::new("consent");
-    let _received = stand_in(&dir.0, 0o600);
-    let mut child = daemon_env::acpmux(&dir.0)
-        .arg("cua-mcp")
-        .env("CMUX_NEXT_CUA_V2_DIR", &dir.0)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
-    let mut input = child.stdin.take().unwrap();
-    let mut output = BufReader::new(child.stdout.take().unwrap());
-    let mut id = 0;
-    let mut call = |name: &str| {
-        id += 1;
-        writeln!(input, "{}", json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":{}}})).unwrap();
-        input.flush().unwrap();
-        let mut line = String::new();
-        output.read_line(&mut line).unwrap();
-        serde_json::from_str::<Value>(&line).unwrap()
-    };
-    assert_ne!(call("screenshot")["result"]["isError"], true);
-    machine_state(&dir.0, "none", "granted");
-    for name in ["screenshot", "get_desktop_state", "click", "future_capture_action"] {
-        let result = call(name);
-        assert_eq!(result["result"]["isError"], true, "{name}: {result}");
-        assert!(result.to_string().contains("consent_required"));
-    }
-    machine_state(&dir.0, "granted", "none");
-    assert_ne!(call("screenshot")["result"]["isError"], true);
-    assert_eq!(call("click")["result"]["isError"], true);
-    machine_state(&dir.0, "granted", "granted");
-    assert_ne!(call("click")["result"]["isError"], true);
-    machine_state(&dir.0, "none", "granted");
-    assert_eq!(call("click")["result"]["isError"], true);
-    drop(call);
-    drop(input);
-    assert!(child.wait().unwrap().success());
 }
