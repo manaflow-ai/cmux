@@ -58,7 +58,7 @@ struct FeedCollection: UIViewRepresentable {
 }
 
 /// The Feed's collection view. It is its screen's content scroll view, so
-/// the navigation bar's scroll edge and the tab bar's minimize on scroll follow it.
+/// the navigation bar's scroll edge follows it.
 final class FeedCollectionView: UICollectionView {
     var onWidthChange: ((CGFloat) -> Void)?
     private var lastWidth: CGFloat = 0

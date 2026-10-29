@@ -26,7 +26,9 @@ public nonisolated enum ColumnLayoutSettings {
     public static let pagesHandleCommandScrollPath = ["layout", "pagesHandleCommandScroll"]
 
     public static let splitSizingFallback: SplitSizing = .even
-    public static let newColumnWidthFallback: NewColumnWidthMode = .matchCurrent
+    /// `layout.newColumnWidth` defaults to fixed at `layout.defaultColumnWidth` (two thirds): a
+    /// new column is never full width just because the column beside it is (Lawrence 2026-10-28).
+    public static let newColumnWidthFallback: NewColumnWidthMode = .fixed
     public static let dockEdgeFallback: DockDefaultEdge = .nearest
     public static let dockModeFallback: DockDefaultMode = .docked
     public static let frameOrientationFallback: FrameOrientation = .columnMajor

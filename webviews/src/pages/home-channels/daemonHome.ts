@@ -15,6 +15,7 @@ import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import { DaemonPeople } from "./daemonPeople";
 import {
   HomeOps,
+  MESSAGE_PARTS,
   type HomeAttachment,
   type HomeChiefNames,
   type HomeConversation,
@@ -752,10 +753,11 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.send: {
         const text = String(params.text ?? "").trim();
         const files = Array.isArray(params.attachments) ? params.attachments.map(wireAttachment) : [];
-        if (files.length > 10) throw pageError("cmux.page.invalid_params", "attachments");
         if ((!text && files.length === 0) || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
         const key = this.key(params, options);
         const parts: Json[] = [...(text ? [{ type: "text", text }] : []), ...files];
+        // One message's protocol bound; the store sends more files as several messages (messageGroups).
+        if (parts.length > MESSAGE_PARTS) throw pageError("cmux.page.invalid_params", "attachments");
         const send: Json = { kind: "message.send", client_msg_id: key, parts };
         if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
         // The reply's parent at any depth (conversation-tree-v1): the owner keeps the top root.
