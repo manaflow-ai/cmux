@@ -111,6 +111,10 @@ impl Translator {
                         let uuid = uuid::Uuid::now_v7().to_string();
                         let line = json!({"type": "user", "uuid": uuid, "message": {"role": "user", "content": content}});
                         self.in_turn.store(true, Ordering::SeqCst);
+                        // A new prompt starts a fresh logical turn. A cancelled compaction may
+                        // never emit its boundary/result, so clear its live compaction state here
+                        // while retaining the separate late-result attribution marker.
+                        self.compacting.store(false, Ordering::SeqCst);
                         self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
@@ -333,6 +337,9 @@ impl Translator {
             Message::Notification { method: m, .. } => {
                 if m == method::SESSION_CANCEL {
                     self.cancelled.store(true, Ordering::SeqCst);
+                    if self.is_compacting() {
+                        self.cancelled_compaction.store(true, Ordering::SeqCst);
+                    }
                     let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                     Outbound::Lines(vec![
                         json!({"type": "control_request", "request_id": format!("int-{n}"), "request": {"subtype": "interrupt"}}),
