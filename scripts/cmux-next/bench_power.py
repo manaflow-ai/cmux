@@ -70,8 +70,11 @@ _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libproc.proc_pidinfo.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_int]
 _libproc.proc_pidinfo.restype = ctypes.c_int
 MB = 1048576.0
-# <sys/proc_info.h>: PROC_PIDLISTTHREADIDS (28) lists the 64-bit thread ids that PROC_PIDTHREADID64INFO
-# (15) takes. PROC_PIDLISTTHREADS (6) lists thread handles, which PROC_PIDTHREADINFO (5) takes instead.
+# PROC_PIDLISTTHREADIDS (28) is XNU's private flavor (bsd/sys/proc_info_private.h, not in the public
+# SDK header): proc_info.c lists the threads with thuniqueid = true, so it returns the 64-bit thread
+# ids that PROC_PIDTHREADID64INFO (15, public) reads. PROC_PIDLISTTHREADS (6) lists thread handles,
+# which pair with PROC_PIDTHREADINFO (5) instead. A kernel that refused 28 makes proc_pidinfo return 0,
+# and main_thread_ns then returns None: the report shows main_thread_pct null, never a wrong number.
 PROC_PIDLISTTHREADIDS = 28
 PROC_PIDTHREADID64INFO = 15
 
