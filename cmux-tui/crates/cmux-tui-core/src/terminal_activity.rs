@@ -1049,6 +1049,26 @@ mod tests {
         assert_eq!(activity.idle_since(), None, "`sleep 600` still waits");
     }
 
+    /// A right prompt that paid a line would leave the count one low: with
+    /// three lines typed ahead, the prompt after the second would read idle
+    /// while the third (`sleep 600`) waits unread.
+    #[test]
+    fn shell_idle_a_right_prompt_leaves_the_count_whole() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\rsleep 1\rsleep 600\r");
+        activity.observe(ShellMark::CommandStart, 1_050);
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_060);
+        activity.observe(ShellMark::PromptStart, 1_100);
+        check_at_b(&mut activity, 1_101);
+        activity.observe(ShellMark::parse(b"A;k=r").unwrap(), 1_102);
+        check_at_b(&mut activity, 1_103);
+        activity.observe(ShellMark::CommandStart, 1_200);
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 1_210);
+        activity.observe(ShellMark::PromptStart, 1_300);
+        check_at_b(&mut activity, 1_301);
+        assert_eq!(activity.idle_since(), None, "`sleep 600` still waits");
+    }
+
     #[test]
     fn shell_idle_a_check_that_raced_a_mark_or_input_is_dropped() {
         let mut activity = ShellActivity::default();
