@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // The Inspector never lies over the transcript's text (inspector/ChatInspector.tsx `pushes`, Leo
 // 2026-10-21: "a popup or dropdown-looking thing that DOESN'T close when you click out of it and
 // DOESN'T shift the layout. OR it shifts the layout if there isn't enough space"). In a wide pane it

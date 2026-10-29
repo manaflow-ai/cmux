@@ -200,6 +200,9 @@ class OwnedVerify(unittest.TestCase):
     """
 
     OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image")
+    # The cmux NIGHTLY-identity verify, also secret-free, keeps its own picker's Blacksmith labels after
+    # the owned pick: on 2026-10-28 it queued 20+ min on blacksmith-6vcpu-macos-26 while 12 vCPU was stalled.
+    LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy",)
     OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
 
     def test_verify_jobs_read_the_owned_pick_only_for_the_attempt_it_was_made_for(self) -> None:
@@ -220,12 +223,31 @@ class OwnedVerify(unittest.TestCase):
                               "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
                 self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
 
+    def test_the_legacy_verify_reads_the_owned_pick_then_its_own_labels(self) -> None:
+        jobs = WORKFLOW["jobs"]
+        for name in self.LEGACY_OWNED_JOBS:
+            with self.subTest(job=name):
+                job = jobs[name]
+                self.assertNotIn("environment", job)
+                self.assertNotIn("secrets.", yaml.safe_dump(job))
+                self.assertIn("pick-nightly-sign-runner", job["needs"])
+                # A skipped or failed pick must not skip the verify.
+                self.assertTrue(job["if"].startswith("!cancelled()"))
+                self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
+                              "|| github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate "
+                              "|| needs.legacy-identity-target.outputs.sign_runner "
+                              "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'", str(job["runs-on"]))
+                xcode = job["env"]["CMUX_CI_XCODE_APP"]
+                self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
+                              "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
+                self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
+
     def test_no_job_that_holds_a_secret_reads_the_owned_pick(self) -> None:
         for name, job in WORKFLOW["jobs"].items():
             if self.OWNED not in str(job.get("runs-on", "")):
                 continue
             with self.subTest(job=name):
-                self.assertIn(name, self.OWNED_JOBS)
+                self.assertIn(name, self.OWNED_JOBS + self.LEGACY_OWNED_JOBS)
                 self.assertFalse(job.get("environment"))
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
 
