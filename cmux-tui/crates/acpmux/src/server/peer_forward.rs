@@ -364,7 +364,6 @@ async fn forward_inner(
         if m == method::MUX_ATTACH
             && peer.link_epoch() == link
             && params.get("beforeSeq").is_none_or(Value::is_null)
-            && params.get("kinds").is_none_or(Value::is_null)
         {
             // The mirror cursor is the greatest record actually returned in
             // this page. `lastSeq` may include filtered records, so Peer derives

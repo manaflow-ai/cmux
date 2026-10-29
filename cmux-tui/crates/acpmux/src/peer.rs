@@ -1506,20 +1506,24 @@ impl Peer {
                     // Before the frame is marked: a link a wake check drops never had it.
                     check_wake!();
                     // Marked before the write: a frame that is partly written may still run.
-                    if let Some(key) = key {
+                    let prompt_key = key.as_ref();
+                    if let Some(key) = prompt_key {
                         self.on_wire.lock_or_recover().insert(key.clone());
-                        // Once the prompt frame reaches the socket, the remote may have
-                        // accepted it even if its acceptance notification is still queued
-                        // behind the frame that caused this link to drop. Retain it for the
-                        // durable outcome lookup across reconnects.
-                        if let Some(prompt) = self.prompts.lock_or_recover().get_mut(&key) {
-                            prompt.accepted = true;
-                        }
                     }
                     let text = line.trim_end_matches('\n').to_owned();
                     let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
                     match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
-                        Ok(Ok(())) => {}
+                        Ok(Ok(())) => {
+                            // Once the prompt frame reaches the socket, the remote may have
+                            // accepted it even if its acceptance notification is still queued
+                            // behind the frame that caused this link to drop. Retain it for the
+                            // durable outcome lookup across reconnects.
+                            if let Some(key) = prompt_key
+                                && let Some(prompt) = self.prompts.lock_or_recover().get_mut(key)
+                            {
+                                prompt.accepted = true;
+                            }
+                        }
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(write_late(budget, wake_probe)),
                     }
