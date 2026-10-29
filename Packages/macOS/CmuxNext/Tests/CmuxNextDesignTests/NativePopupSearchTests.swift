@@ -96,6 +96,23 @@ import Testing
         #expect(submitted == nil && content.selectionReason == "none")
     }
 
+    @Test func clearBeforeDescriptorEchoResetsTypingHistory() throws {
+        let content = NativePopupContent()
+        var next = try model(policy: "first")
+        content.update(next)
+        let search = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        for value in ["typed", ""] {
+            search.stringValue = value
+            content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: search))
+        }
+        next.search?.value = "prefilled"
+        content.update(next)
+        var submitted: String?
+        content.emit = { type, id, _ in if type == .submit { submitted = id } }
+        _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+        #expect(submitted == nil && content.selectionReason == "none")
+    }
+
     @Test func alwaysHighlightsInitiallyButDisabledAndMarkedTextNeverSubmit() throws {
         let content = NativePopupContent()
         var next = try model(policy: "always")

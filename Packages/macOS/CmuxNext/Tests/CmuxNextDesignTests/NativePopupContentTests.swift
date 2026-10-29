@@ -47,6 +47,30 @@ import Testing
         #expect(shorterEditor.selectedRange() == NSRange(location: 1, length: 2))
     }
 
+    @Test func accessoryActionKeepsFocusAndActivationAcrossDescriptorRebuild() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let content = NativePopupContent()
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        var model = Self.model()
+        model.rows[0].actions = [NativePopupAction(id: "accessory", label: "Accessory", keepOpen: true)]
+        content.update(model)
+        let original = try #require(Self.descendants(of: content).compactMap { $0 as? NSButton }.first)
+        #expect(window.makeFirstResponder(original))
+        var picked: [String?] = []
+        content.emit = { type, id, _ in if type == .pick { picked.append(id) } }
+        original.performClick(nil)
+        model.title = "Changed title"
+        content.update(model)
+        let replacement = try #require(Self.descendants(of: content).compactMap { $0 as? NSButton }.first)
+        #expect(replacement !== original && window.firstResponder === replacement)
+        let focused = try #require(window.firstResponder as? NSButton)
+        focused.performClick(nil)
+        #expect(picked == ["accessory", "accessory"])
+    }
+
     @Test func documentTracksAClampedViewport() {
         let viewport = NSClipView(frame: NSRect(x: 0, y: 0, width: 180, height: 120))
         let content = NativePopupContent(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
