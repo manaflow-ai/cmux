@@ -190,6 +190,25 @@ async fn compact_ends_its_prompt_and_reports_the_compaction() {
     );
 }
 
+#[tokio::test]
+async fn a_subagent_result_does_not_clear_main_compaction() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&json!({
+        "type": "system",
+        "subtype": "status",
+        "status": "compacting"
+    }))
+    .await;
+    assert!(t.is_compacting());
+    t.inbound(&json!({
+        "type": "result",
+        "parent_tool_use_id": "tool-subagent",
+        "subtype": "success"
+    }))
+    .await;
+    assert!(t.is_compacting(), "a subagent result cleared the main compaction flag");
+}
+
 /// A `/compact` that fails: the compacting status, then a status clearing it
 /// with a failed `compact_result`, and the same zero-turn success result. The
 /// failed status is the turn's output, so the result ends the prompt rather

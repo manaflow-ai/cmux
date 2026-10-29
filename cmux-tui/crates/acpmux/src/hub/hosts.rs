@@ -82,6 +82,10 @@ pub(super) struct OpenWork {
     /// What that turn does, from its logged updates under this incarnation: its tool calls in
     /// flight, its latest tool and its plan step (`hub/activity.rs`).
     doing: super::activity::TurnActivity,
+    /// Whether the adopted host's main Claude turn was compacting when the
+    /// previous controller stopped. Recovered from its logged `compaction`
+    /// updates so Stop keeps the prompt-first path after a restart.
+    compacting: bool,
 }
 
 /// What the host records say (`Hub::read_host_records`).
@@ -845,6 +849,7 @@ impl Hub {
                 }
                 ("mux", "turn_result") => {
                     work.turn = None;
+                    work.compacting = false;
                     // No turn, no turn state: an ended turn's records are not read
                     // (`open_work_reads`), so none of them may outlive it here.
                     work.heard_at = 0;
@@ -859,6 +864,13 @@ impl Hub {
                     if current && work.turn.is_some() && !subagents_own =>
                 {
                     work.doing.note(&e.msg["params"]["update"]);
+                }
+                ("in", "compaction") if current && work.turn.is_some() && !subagents_own => {
+                    match e.msg.pointer("/params/update/state").and_then(Value::as_str) {
+                        Some("running") => work.compacting = true,
+                        Some("completed") | Some("failed") => work.compacting = false,
+                        _ => {}
+                    }
                 }
                 ("mux", "permission_request") if current => {
                     if let (Some(pid), Some(aid)) = (
@@ -1025,6 +1037,7 @@ impl Hub {
         work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
+        session.compacting.store(work.compacting, Ordering::SeqCst);
         self.rebuild_processes(session);
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone() {
             // A steer whose logged answer ended the turn settles it like the turn's own answer.
