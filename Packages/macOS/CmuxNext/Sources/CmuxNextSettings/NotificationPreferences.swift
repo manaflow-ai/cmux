@@ -48,4 +48,10 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     public func postsDesktop(for source: NotificationSource) -> Bool {
         sources[source]?.desktop ?? true
     }
+
+    /// Reads a machine-qualified mute. A bare id is legacy local-machine state and is never
+    /// applied to a remote machine with the same workspace id.
+    public func workspaceMuted(machine: String, workspace: String, localMachine: String) -> Bool {
+        mutedWorkspaces.contains(NotificationWorkspaceKey.settingsKey(machine: machine, workspace: workspace, localMachine: localMachine))
+    }
 }

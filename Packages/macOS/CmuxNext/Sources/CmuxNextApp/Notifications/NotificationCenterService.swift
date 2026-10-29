@@ -674,7 +674,7 @@ final class NotificationCenterService {
 extension NotificationCenterService {
     /// The marked tabs changed (``AttentionTabsWatch``): banners for new requests, per policy, and
     /// none left for a mark that cleared.
-    func attentionMarksChanged(_ items: [AgentPaneAttentionTabs.Item]) {
+    func attentionMarksChanged(_ items: [AgentPaneAttentionTabs.Item], eligibleRequests: Set<String>? = nil) {
         let firstList = attentionSeen == nil
         let changes = AttentionBannerLifecycle.attentionChanges(previous: attentionSeen, current: items)
         attentionSeen = items
@@ -693,7 +693,7 @@ extension NotificationCenterService {
             })
         }
         guard desktopPostingEnabled else { return }
-        for item in changes.post { postAttention(item) }
+        for item in changes.post where eligibleRequests?.contains(item.tabId) ?? true { postAttention(item) }
     }
 
     func attentionDecision(_ item: AgentPaneAttentionTabs.Item) -> NotificationPolicy.Decision {
@@ -703,6 +703,8 @@ extension NotificationCenterService {
     }
 
     private func postAttention(_ item: AgentPaneAttentionTabs.Item) {
+        guard let services, AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons,
+                                                      machine: { $0.machineID }, store: { $0.store }, expectedAtMs: item.atMs) != nil else { return }
         let decision = attentionDecision(item)
         note("attention \(item.tabId) \(decision)")
         if decision.desktop {
@@ -729,10 +731,12 @@ extension NotificationCenterService {
             arrival.paneIsViewed = isViewed(tab, onMachine: daemon.machineID)
             if let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model),
                let workspace = daemon.store.workspace(containing: pane.handle) {
-                arrival.workspaceMuted = preferences.mutedWorkspaces.contains(workspace.id)
+                arrival.workspaceMuted = preferences.workspaceMuted(machine: daemon.machineID, workspace: workspace.id,
+                                                                    localMachine: services.machines.local.machineID)
                 (arrival.soundEvent, arrival.soundScope) = soundGate.classify(
                     level: "warning", source: .agent, agent: model.agentSession?.harness ?? model.agent?.agent,
-                    workspace: workspace.id)
+                    workspace: NotificationWorkspaceKey.settingsKey(machine: daemon.machineID, workspace: workspace.id,
+                                                                   localMachine: services.machines.local.machineID))
             }
         }
         if arrival.soundEvent == nil { arrival.soundEvent = .needsInput }

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextRemote
 import CmuxNextSettings
 import Foundation
@@ -97,6 +98,9 @@ struct AttentionBannerTests {
     /// in workspaces of their own. Muting the SSH machine's workspace silences only its tab's
     /// banner: each row's key sends the policy to the tab on its own machine.
     @Test func theBannerReadsMutedOnTheRowsOwnMachine() throws {
+        let previousAttention = DesignSettings.shared.attention
+        defer { DesignSettings.shared.attention = previousAttention }
+        DesignSettings.shared.attention = AttentionSettings()
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let host = try SSHHost(destination: SSHDestination(parsing: "leo@lab.tail1.ts.net")).named("lab")
@@ -114,20 +118,43 @@ struct AttentionBannerTests {
             return (workspace, tab)
         }
         let (hereWorkspace, hereTab) = try marked(services.daemon.store, WorkspaceSnapshot(id: 1, key: nil, name: "here", screens: [screen]))
-        let (labWorkspace, labTab) = try marked(ssh.daemon.store, WorkspaceSnapshot(id: 2, key: nil, name: "lab", screens: [screen]))
-        #expect(hereTab.id == labTab.id && hereWorkspace.id != labWorkspace.id)
+        let (labWorkspace, labTab) = try marked(ssh.daemon.store, WorkspaceSnapshot(id: 1, key: nil, name: "lab", screens: [screen]))
+        #expect(hereTab.id == labTab.id && hereWorkspace.id == labWorkspace.id)
         let items = AttentionTabsWatch.items(in: [(hereWorkspace, machine: "local"), (labWorkspace, machine: ssh.machineID)])
         let here = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: "local", tab: hereTab.id, atMs: 1_000) })
         let lab = try #require(items.first { $0.tabId == AttentionTabsWatch.key(machine: ssh.machineID, tab: labTab.id, atMs: 1_000) })
         let notifications = services.notifications
-        notifications.preferences.mutedWorkspaces = [labWorkspace.id]
+        notifications.preferences.mutedWorkspaces = [NotificationWorkspaceKey.qualified(machine: ssh.machineID, workspace: labWorkspace.id)]
         #expect(notifications.attentionArrival(lab).workspaceMuted, "the SSH machine's muted workspace did not silence its tab's banner")
         #expect(!notifications.attentionArrival(here).workspaceMuted, "muting the SSH workspace silenced this Mac's tab")
-        notifications.preferences.mutedWorkspaces = [hereWorkspace.id]
+        notifications.preferences.mutedWorkspaces = [hereWorkspace.id] // legacy local key remains readable
         #expect(notifications.attentionArrival(here).workspaceMuted)
         #expect(!notifications.attentionArrival(lab).workspaceMuted, "muting this Mac's workspace silenced the SSH machine's tab")
+        let remoteKey = NotificationWorkspaceKey.qualified(machine: ssh.machineID, workspace: labWorkspace.id)
+        #expect(notifications.attentionArrival(lab).soundScope.workspace == remoteKey,
+                "sound rules were not qualified by machine")
         #expect(!NotificationPolicy(prefs: notifications.preferences).decide(notifications.attentionArrival(here)).desktop,
                 "a muted workspace's tab still posts a banner")
+        #expect(notifications.attentionMarks(for: hereWorkspace).isEmpty)
+        #expect(!notifications.attentionMarks(for: labWorkspace).isEmpty, "legacy local mute hid the remote ring")
+        notifications.preferences.mutedWorkspaces = [remoteKey]
+        #expect(NotificationWorkspaceKey.workspaceIDs([hereWorkspace.id], machine: ssh.machineID, localMachine: "local").isEmpty)
+        #expect(NotificationWorkspaceKey.workspaceIDs([remoteKey], machine: ssh.machineID, localMachine: "local") == [labWorkspace.id])
+        #expect(notifications.attentionMarks(for: labWorkspace).isEmpty)
+        #expect(!notifications.attentionMarks(for: hereWorkspace).isEmpty, "remote mute hid the local ring")
+        notifications.preferences.mutedWorkspaces = []
+        notifications.preferences.sounds.events[.needsInput] = "Ping"
+        notifications.preferences.sounds.workspaces[hereWorkspace.id] = NotificationSoundRule(sound: "Hero")
+        let hereScope = notifications.attentionArrival(here).soundScope
+        let labScope = notifications.attentionArrival(lab).soundScope
+        #expect(notifications.preferences.sounds.choice(for: .needsInput, in: hereScope, fallback: "default")?.name == "Hero")
+        #expect(notifications.preferences.sounds.choice(for: .needsInput, in: labScope, fallback: "default")?.name == "Ping",
+                "a legacy local sound rule affected the cloned remote workspace")
+        notifications.preferences.sounds.workspaces[remoteKey] = NotificationSoundRule(sound: "Basso", volume: 0.25)
+        #expect(notifications.preferences.sounds.choice(for: .needsInput, in: labScope, fallback: "default")?.name == "Basso")
+        #expect(notifications.preferences.sounds.choice(for: .needsInput, in: labScope, fallback: "default")?.volume == 0.25)
+        #expect(notifications.preferences.sounds.choice(for: .needsInput, in: hereScope, fallback: "default")?.name == "Hero")
+
     }
 
     @Test func launchReconciliationWithdrawsOldRequestsButKeepsConcurrentNewBanners() {

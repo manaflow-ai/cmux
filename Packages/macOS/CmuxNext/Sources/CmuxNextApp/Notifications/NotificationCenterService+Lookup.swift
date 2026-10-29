@@ -144,7 +144,11 @@ extension NotificationCenterService {
     func attentionMarks(for workspace: WorkspaceModel,
                         shownTab: @MainActor (PaneModel) -> String? = { _ in nil }) -> [LayoutPaneID: AttentionMark] {
         let attention = DesignSettings.shared.attention
-        guard attention.style != .none, !preferences.mutedWorkspaces.contains(workspace.id) else { return [:] }
+        let machine = services?.machines.daemons.first { $0.store.workspace(id: workspace.id) === workspace }?.machineID
+        let muted = machine.map {
+            preferences.workspaceMuted(machine: $0, workspace: workspace.id, localMachine: services?.machines.local.machineID ?? "local")
+        } ?? preferences.mutedWorkspaces.contains(workspace.id)
+        guard attention.style != .none, !muted else { return [:] }
         let sameSession = dismissedHighlightSession == services?.daemon.identity?.session
         let dismissed = sameSession ? dismissedHighlights[workspace.id] ?? 0 : 0
         var marks: [LayoutPaneID: AttentionMark] = [:]

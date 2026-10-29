@@ -8,7 +8,14 @@ extension AppServices: NotificationSoundHost {
     var soundPreferences: NotificationPreferences { notifications.preferences }
     func applySoundPreferences(_ sounds: NotificationSoundPreferences) { notifications.preferences.sounds = sounds }
     func writeSoundSetting(_ path: [String], _ value: CmuxNextSettings.JSONValue?, by writer: SettingWriter) async -> ActionWorkFailure? { await AppActionContext(services: self).writeSettingNow(path, value, by: writer) }
-    func soundWorkspace(_ invocation: ActionInvocation) throws -> String { try AppActionContext(services: self).workspace(invocation).model.id }
+    func soundWorkspace(_ invocation: ActionInvocation) throws -> String {
+        let workspace = try AppActionContext(services: self).workspace(invocation).model
+        guard let daemon = machines.daemons.first(where: { $0.store.workspace(id: workspace.id) === workspace }) else {
+            throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
+        }
+        return NotificationWorkspaceKey.settingsKey(machine: daemon.machineID, workspace: workspace.id,
+                                                    localMachine: machines.local.machineID)
+    }
     func soundGroup(_ invocation: ActionInvocation) throws -> NotificationSoundScope.Group { try AppActionContext(services: self).soundGroup(invocation) }
     func soundGroups(ofWorkspace id: String) -> [NotificationSoundScope.Group] { AppActionContext(services: self).soundGroups(ofWorkspace: id) }
     var soundAgentKinds: [String] { AppActionContext(services: self).soundAgentKinds }

@@ -10,20 +10,68 @@ import Foundation
 /// wakes nothing.
 @MainActor
 public final class AttentionTabsWatch {
-    /// The observation loop. ``AppServices/attentionTabsWatch`` owns this watch; letting it go
-    /// (or the services going) cancels the loop, which ends the stream.
+    /// One machine's observed state, including readiness so an empty initial snapshot still
+    /// wakes the consumer. Tab attention arrives on the session stream, after or before the tree.
+    public nonisolated struct Snapshot: Hashable, Sendable {
+        public var machine: String
+        public var epoch: Int
+        public var stateGeneration: UInt64
+        public var storeID: ObjectIdentifier
+        public var ready: Bool
+        public var items: [AgentPaneAttentionTabs.Item]
+
+        @MainActor public init(machine: String, store: DaemonStore) {
+            self.machine = machine
+            epoch = store.connectionEpoch
+            stateGeneration = store.session.snapshotGeneration
+            storeID = ObjectIdentifier(store)
+            // Observe connection state too: connectionEpoch intentionally is not observed.
+            let connected: Bool
+            if case .connected = store.connectionState { connected = true } else { connected = false }
+            ready = connected && store.isLoaded && !store.isProvisional
+                && store.liveTreeEpoch == epoch && store.session.known
+                && (!store.servesStateResources || store.session.hasCurrentSnapshot)
+            items = AttentionTabsWatch.items(in: store.workspaces.map { ($0, machine: machine) })
+        }
+    }
+
+    /// Each machine establishes its own baseline. An offline remote never suppresses a new
+    /// local request. Store replacement, reconnect and session-stream replay all rebaseline.
+    public nonisolated struct SnapshotBaseline: Sendable {
+        private var previous: [String: Snapshot] = [:]
+
+        public init() {}
+
+        public mutating func eligibleRequests(_ snapshots: [Snapshot]) -> Set<String> {
+            var eligible: Set<String> = []
+            for snapshot in snapshots {
+                if snapshot.ready, let old = previous[snapshot.machine], old.ready,
+                   old.storeID == snapshot.storeID, old.epoch == snapshot.epoch,
+                   old.stateGeneration == snapshot.stateGeneration {
+                    eligible.formUnion(snapshot.items.map(\.tabId))
+                }
+            }
+            previous = Dictionary(snapshots.map { ($0.machine, $0) }, uniquingKeysWith: { _, last in last })
+            return eligible
+        }
+    }
+
+    /// The observation loop. AppServices owns the watch; releasing it cancels the stream.
     private let task: Task<Void, Never>
 
-    /// Starts one observation stream; nil workspaces means its composition-root owner is gone.
+    /// Nil snapshots means the composition-root owner is gone. Every list reaches the lifecycle
+    /// callback, with posting disabled while loading and for each connection's initial baseline.
     public init(tabs: AgentPaneAttentionTabs,
-                workspaces: @escaping @MainActor () -> [(WorkspaceModel, machine: String)]?,
-                onChange: @escaping @MainActor ([AgentPaneAttentionTabs.Item]) -> Void) {
-        // task-owner: AppServices.attentionTabsWatch; cancelled in deinit, or when workspaces returns nil
+                snapshots: @escaping @MainActor () -> [Snapshot]?,
+                onChange: @escaping @MainActor ([AgentPaneAttentionTabs.Item], Set<String>) -> Void) {
+        // task-owner: AppServices.attentionTabsWatch; cancelled in deinit, or when snapshots returns nil
         task = Task {
-            for await marked in ObservationStream({ workspaces().map(Self.items(in:)) }) {
-                guard let marked else { return }
+            var baseline = SnapshotBaseline()
+            for await snapshots in ObservationStream(snapshots) {
+                guard let snapshots else { return }
+                let marked = snapshots.flatMap(\.items).sorted { $0.atMs > $1.atMs }
                 tabs.items = marked
-                onChange(marked)
+                onChange(marked, baseline.eligibleRequests(snapshots))
             }
         }
     }

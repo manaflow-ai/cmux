@@ -24,9 +24,11 @@ extension AppServices {
                                 actions: CrashContext.actions(runs, now: Date(), nowUptimeNanos: ActionBudgetMonitor.now()))
         }
         // Needs you's marked tabs (tab-attention-v1) for every agent page and the palette.
-        attentionTabsWatch = AttentionTabsWatch(tabs: attentionTabs, workspaces: { [weak self] in
-            self?.machines.allWorkspaces.map { ($0.0, machine: $0.1.machineID) }
-        }, onChange: { [weak self] in self?.notifications.attentionMarksChanged($0) })
+        attentionTabsWatch = AttentionTabsWatch(tabs: attentionTabs, snapshots: { [weak self] in
+            self?.machines.daemons.map { AttentionTabsWatch.Snapshot(machine: $0.machineID, store: $0.store) }
+        }, onChange: { [weak self] items, eligibleRequests in
+            self?.notifications.attentionMarksChanged(items, eligibleRequests: eligibleRequests)
+        })
         DebugTimings.markLaunch("launch.non_paint_services")
     }
 

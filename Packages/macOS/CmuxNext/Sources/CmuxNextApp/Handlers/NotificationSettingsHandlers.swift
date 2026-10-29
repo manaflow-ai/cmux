@@ -10,15 +10,21 @@ import CmuxNextSettings
 enum NotificationSettingsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let notifications = context.services.notifications
-        registry.bind("notifications.toggleWorkspaceMute", run: { invocation in
+        registry.bindEffect("notifications.toggleWorkspaceMute", effect: { invocation in
             guard let workspace = context.scope(invocation).workspace else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
             }
+            guard let daemon = context.services.machines.daemons.first(where: { $0.store.workspace(id: workspace.id) === workspace }) else {
+                throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
+            }
+            let key = NotificationWorkspaceKey.settingsKey(machine: daemon.machineID, workspace: workspace.id,
+                                                            localMachine: context.services.machines.local.machineID)
             var muted = notifications.preferences.mutedWorkspaces
-            if muted.remove(workspace.id) == nil { muted.insert(workspace.id) }
+            if muted.remove(key) == nil { muted.insert(key) }
             notifications.preferences.mutedWorkspaces = muted
             let list = JSONValue.array(muted.sorted().map(JSONValue.string))
             context.writeSetting("mute workspace", ["notifications", "mutedWorkspaces"], list, reloadOnFailure: true)
+            return .done
         })
         // Dismiss Highlight (cx-epgo): hides the workspace's attention rings
         // until a newer notification; presentation only, nothing is written.
