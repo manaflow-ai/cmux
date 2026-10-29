@@ -645,7 +645,11 @@ export class HomeChannelsStore {
   discard(key: string): void {
     this.set({ pending: this.snapshot.pending.filter((entry) => entry.key !== key) });
     for (const [head, rest] of this.heldAfter) {
-      if (rest.includes(key)) this.heldAfter.set(head, rest.filter((held) => held !== key));
+      if (rest.includes(key))
+        this.heldAfter.set(
+          head,
+          rest.filter((held) => held !== key),
+        );
     }
     this.release(key);
   }
