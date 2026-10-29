@@ -1047,6 +1047,7 @@ impl Hub {
             cancel_forced_turn: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
             compacting: AtomicBool::new(false),
+            compaction_metadata_fenced: AtomicBool::new(false),
             status_writes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
@@ -1179,7 +1180,23 @@ impl Hub {
         self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
-        let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
+        // Record a harmless mux receipt instead of ambiguous completion metadata.
+        // Hosted delivery must persist host_seq before acknowledging the entry; a
+        // silent drop would lose its durable cursor and allow replay after reconnect.
+        let fenced = dir == "in"
+            && msg.pointer("/params/update").is_some_and(|u| session.fences_compaction_update(u));
+        let record = if fenced {
+            EventRecord {
+                seq,
+                at,
+                dir: "mux".into(),
+                kind: "compaction_metadata_fenced".into(),
+                msg: json!({"sourceKind": kind}),
+                host_seq,
+            }
+        } else {
+            EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq }
+        };
         // The agent message runaway guard reads progress from here, not the store.
         if agent_pairs::progress_record(&record) {
             session.last_progress.store(seq, Ordering::SeqCst);
