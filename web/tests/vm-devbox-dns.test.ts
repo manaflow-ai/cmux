@@ -48,7 +48,7 @@ describe("cmux-dns resolver", () => {
 def exchange(server, query, timeout, tcp):
     calls.append(server)
     return reply(query, 0, 1)
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda *a: calls.append("doh"))
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda *a: calls.append("doh"))
 out = r.resolve(q("api.anthropic.com"))
 print(dns.rcode(out), out[-4:].hex(), calls)
 `)).toEqual(["0 0a20001c ['10.32.0.28']"]);
@@ -60,7 +60,7 @@ state = {"down": False}
 def exchange(server, query, timeout, tcp):
     calls.append("platform")
     return reply(query, 2) if state["down"] else reply(query, 0, 1)
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda *a: calls.append("doh"))
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda *a: calls.append("doh"))
 r.resolve(q("api.anthropic.com", ident=1))
 state["down"] = True
 calls.clear()
@@ -74,20 +74,20 @@ print(dns.rcode(out), struct.unpack("!H", out[:2])[0], out[-4:].hex(), calls)
 def doh(host, path, query, timeout):
     calls.append(host)
     return reply(query, 0, 1)
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda *a: None, doh_exchange=doh)
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=lambda *a: None, doh_exchange=doh)
 out = r.resolve(q("github.com", ident=9))
 print(dns.rcode(out), struct.unpack("!H", out[:2])[0], calls)
-nodata = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda *a: None, doh_exchange=lambda h, p, query, t: reply(query, 0, 0))
+nodata = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=lambda *a: None, doh_exchange=lambda h, p, query, t: reply(query, 0, 0))
 print(dns.rcode(nodata.resolve(q("github.com", qtype=28))))
 `)).toEqual(["0 9 ['1.1.1.1']", "0"]);
   });
 
   test("a fallback NXDOMAIN or a total outage answers SERVFAIL, never a missing name", async () => {
     expect(await python(String.raw`
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(query, 2), doh_exchange=lambda h, p, query, t: reply(query, 3))
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(query, 2), doh_exchange=lambda h, p, query, t: reply(query, 3))
 out = r.resolve(q("coderouter.cmux.internal"))
 print(dns.rcode(out), out[3] & 0x80 != 0, out[12:] == q("coderouter.cmux.internal")[12:])
-dead = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda *a: None, doh_exchange=lambda *a: None)
+dead = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=lambda *a: None, doh_exchange=lambda *a: None)
 print(dns.rcode(dead.resolve(q("github.com"))))
 `)).toEqual(["2 True True", "2"]);
   });
@@ -125,7 +125,7 @@ print(dns.platform_steering(sys.argv[2]), dns.platform_steering(sys.argv[3]))
 
   test("the platform's NXDOMAIN is an answer, not a failure", async () => {
     expect(await python(String.raw`
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(query, 3), doh_exchange=lambda *a: calls.append("doh"))
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(query, 3), doh_exchange=lambda *a: calls.append("doh"))
 print(dns.rcode(r.resolve(q("missing.example"))), calls)
 `)).toEqual(["3 []"]);
   });
@@ -135,7 +135,7 @@ print(dns.rcode(r.resolve(q("missing.example"))), calls)
 def exchange(server, query, timeout, tcp):
     calls.append(server)
     return None if ":" in server else reply(query, 3)
-r = dns.Resolver(upstreams=lambda: dns.DEFAULT_UPSTREAMS, exchange=exchange, doh_exchange=lambda *a: calls.append("doh"))
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: dns.DEFAULT_UPSTREAMS, exchange=exchange, doh_exchange=lambda *a: calls.append("doh"))
 print(dns.rcode(r.resolve(q("missing.example"))), calls)
 `)).toEqual(["3 ['8.8.8.8']"]);
   });
@@ -149,7 +149,7 @@ servers = ["8.8.8.8"]
 state = {"down": False}
 def exchange(server, query, timeout, tcp):
     return None if state["down"] else reply(query, 0, 1)
-r = dns.Resolver(upstreams=lambda: servers, exchange=exchange, doh_exchange=lambda *a: None)
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: servers, exchange=exchange, doh_exchange=lambda *a: None)
 r.resolve(q("api.openai.com"))
 servers[:] = ["10.32.0.28"]
 state["down"] = True
@@ -166,7 +166,7 @@ def exchange(server, query, timeout, tcp):
 def doh(host, path, query, timeout):
     now[0] += timeout
     calls.append((host, round(timeout, 2)))
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], clock=lambda: now[0], exchange=exchange, doh_exchange=doh)
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], clock=lambda: now[0], exchange=exchange, doh_exchange=doh)
 r.resolve(q("github.com"))
 print(calls, now[0] <= dns.QUERY_BUDGET)
 `)).toEqual(["[1.0, 1.0, ('1.1.1.1', 1.5)] True"]);
@@ -177,7 +177,7 @@ print(calls, now[0] <= dns.QUERY_BUDGET)
 import socket
 def exchange(server, query, timeout, tcp):
     return reply(query, 0, 1, tc=not tcp)
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda *a: None)
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda *a: None)
 udp, tcp = dns.serve(r, host="127.0.0.1", port=0)
 import threading; threading.Thread(target=udp.serve_forever, daemon=True).start()
 c = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); c.settimeout(5)
@@ -196,7 +196,7 @@ import os, socket, threading
 notify = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
 notify.bind(sys.argv[2]); notify.settimeout(10)
 os.environ["NOTIFY_SOCKET"] = sys.argv[2]
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(query, 0, 1))
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(query, 0, 1))
 real_serve = dns.serve
 servers = []
 def serve(resolver):
@@ -229,6 +229,23 @@ assert not thread.is_alive()
 });
 
 describe("cmux-dns resolver edge cases", () => {
+  test("question matching preserves binary record types and classes", async () => {
+    expect(await python(String.raw`
+https = q("GitHub.COM", qtype=65)
+other = q("github.com", qtype=97)
+other_class = https[:-2] + b"\x00\x21"
+print(dns.question_key(https) == dns.question_key(other))
+print(dns.answers(reply(other, 0, 1), https), dns.answers(reply(other_class, 0, 1), https))
+state = {"down": False}
+def exchange(server, query, timeout, tcp):
+    return None if state["down"] else reply(query, 0, 1)
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda *a: None)
+r.resolve(https)
+state["down"] = True
+print(dns.rcode(r.resolve(other)))
+`)).toEqual(["False", "False False", "2"]);
+  });
+
   test("names that differ only in label boundaries never share a cache entry", async () => {
     // "github.com" as one label and github + com are different questions.
     expect(await python(String.raw`
@@ -237,7 +254,7 @@ print(dns.question_key(one_label) == dns.question_key(q("github.com")), dns.ques
 state = {"down": False}
 def exchange(server, query, timeout, tcp):
     return None if state["down"] else reply(query, 3)
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda h, p, query, t: reply(query, 0, 1))
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda h, p, query, t: reply(query, 0, 1))
 r.resolve(one_label)
 state["down"] = True
 print(dns.rcode(r.resolve(q("github.com"))))
@@ -253,7 +270,7 @@ stamp = [1]
 state = {"down": False}
 def exchange(server, query, timeout, tcp):
     return None if state["down"] else reply(query, 0, 1)
-r = dns.Resolver(source=lambda: (stamp[0], ["10.32.0.28"]), clock=lambda: now[0], exchange=exchange, doh_exchange=lambda *a: None)
+r = dns.Resolver(steering=lambda: False, source=lambda: (stamp[0], ["10.32.0.28"]), clock=lambda: now[0], exchange=exchange, doh_exchange=lambda *a: None)
 r.resolve(q("api.openai.com"))
 state["down"] = True
 print("same write", dns.rcode(r.resolve(q("api.openai.com"))))
@@ -293,7 +310,7 @@ import threading
 release = threading.Event()
 def hang(*args):
     release.wait()
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=hang, doh_exchange=hang)
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=hang, doh_exchange=hang)
 result = []
 done = threading.Event()
 def resolve():
@@ -313,7 +330,7 @@ print(dns.rcode(result[0]))
 
   test("a reply for another question is discarded", async () => {
     expect(await python(String.raw`
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(q("evil.example", ident=0x1234), 0, 1), doh_exchange=lambda *a: None)
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(q("evil.example", ident=0x1234), 0, 1), doh_exchange=lambda *a: None)
 print(dns.rcode(r.resolve(q("github.com"))))
 `)).toEqual(["2"]);
   });
@@ -332,7 +349,7 @@ print(len(big) > 512, dns.rcode(cut), cut[2] & 0x02 != 0, cut[12:] == plain[12:]
 
   test("a response or a query without exactly one question gets no answer", async () => {
     expect(await python(String.raw`
-r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda *a: calls.append("platform"), doh_exchange=lambda *a: None)
+r = dns.Resolver(steering=lambda: False, upstreams=lambda: ["10.32.0.28"], exchange=lambda *a: calls.append("platform"), doh_exchange=lambda *a: None)
 none = struct.pack("!HHHHHH", 5, 0x0100, 0, 0, 0, 1) + b"\x00\x00\x29\x10\x00\x00\x00\x00\x00\x00\x00"
 response = reply(q("github.com"), 0, 1)
 print(r.resolve(none), r.resolve(response), calls)
@@ -397,6 +414,7 @@ describe("cmux-dns image contract", () => {
       "/etc/systemd/system/cmux-dns.service",
     ]);
     expect(DEVBOX_DNS_UNITS["/etc/systemd/system/cmux-dns.service"]).toContain(`ExecStart=/usr/bin/python3 ${DEVBOX_DNS_PATH} serve`);
+    expect(DEVBOX_DNS_UNITS["/etc/systemd/system/cmux-dns.service"]).toContain("Type=notify");
     expect(DEVBOX_DNS_UNITS["/etc/systemd/system/cmux-dns-guard.path"]).toContain("PathChanged=/etc/resolv.conf");
     expect(devboxDnsCheckCommand).toContain("127.0.0.2");
   });
