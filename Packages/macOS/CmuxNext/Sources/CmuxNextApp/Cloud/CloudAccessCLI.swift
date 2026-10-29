@@ -79,18 +79,18 @@ nonisolated struct CloudAccessCLI: Sendable {
 
     /// `upload`: copies `files` (in this Mac's temporary `cmux-pastes`) to the machine, each under `remoteRoot`.
     func upload(socket: String, remoteRoot: String, files: [String]) async throws -> Answer {
-        // Upload emits a heartbeat after every remote chunk. The idle bound catches a wedged link,
-        // while the generous overall bound permits arbitrarily large files without a 120s cap.
+        // Upload emits a heartbeat after every remote chunk. Only a silent link times out;
+        // elapsed time while bytes keep moving never imposes a file-size ceiling.
         // The staged path owns one transfer. Keep the older multi-file call's existing contract.
         guard files.count == 1 else {
             return try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot] + files,
-                                 timeout: .seconds(60 * 60), progressIdle: .seconds(30))
+                                 progressIdle: .seconds(30))
         }
         let id = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
         let answer: Answer
         do {
             answer = try await run(["link", "access", "upload", "--socket", socket, "--remote-root", remoteRoot, "--upload-id", id] + files,
-                                   timeout: .seconds(60 * 60), progressIdle: .seconds(30))
+                                   progressIdle: .seconds(30))
         } catch {
             try await cleanupUpload(socket: socket, remoteRoot: remoteRoot, id: id)
             throw error
@@ -124,7 +124,7 @@ nonisolated struct CloudAccessCLI: Sendable {
 
     private func run(_ arguments: [String], stdin: Data? = nil, timeout: Duration? = nil, progressIdle: Duration? = nil) async throws -> Answer {
         let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil, stdin: stdin,
-                                                 timeout: timeout ?? self.timeout, progressIdle: progressIdle, clock: ContinuousClock())
+                                                 timeout: progressIdle == nil ? (timeout ?? self.timeout) : timeout, progressIdle: progressIdle, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],

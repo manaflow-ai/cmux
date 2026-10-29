@@ -16,18 +16,17 @@ const CHUNK_BYTES = 512 * 1024;
 const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
 
 /// How long one staging step (begin or one chunk) may wait for the host. The native finish keeps its
-/// own progress heartbeat while it streams the staged file, so it gets a separate overall bound.
+/// own bounded idle/per-chunk deadline while streaming, so elapsed transfer time has no page cap.
 export const UPLOAD_STEP_DEADLINE_MS = 30_000;
-export const UPLOAD_FINISH_DEADLINE_MS = 60 * 60 * 1_000;
 export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
 
-/// `call`, refused with UPLOAD_TIMED_OUT when the host does not answer within `ms`.
-export function callWithin(call: Call, ms = UPLOAD_STEP_DEADLINE_MS, signal?: AbortSignal): Call {
+/// `call`, refused when the host does not answer within `ms`; null delegates its deadline to native.
+export function callWithin(call: Call, ms: number | null = UPLOAD_STEP_DEADLINE_MS, signal?: AbortSignal): Call {
   return (method, params) =>
     new Promise((resolve, reject) => {
       let late = false;
       const stop = () => {
-        clearTimeout(timer);
+        if (timer !== undefined) clearTimeout(timer);
         signal?.removeEventListener("abort", abort);
       };
       const abort = () => {
@@ -35,11 +34,14 @@ export function callWithin(call: Call, ms = UPLOAD_STEP_DEADLINE_MS, signal?: Ab
         stop();
         reject(CANCELLED);
       };
-      const timer = setTimeout(() => {
-        late = true;
-        stop();
-        reject(new Error(UPLOAD_TIMED_OUT));
-      }, ms);
+      const timer =
+        ms === null
+          ? undefined
+          : setTimeout(() => {
+              late = true;
+              stop();
+              reject(new Error(UPLOAD_TIMED_OUT));
+            }, ms);
       signal?.addEventListener("abort", abort, { once: true });
       if (signal?.aborted) {
         abort();
@@ -149,7 +151,7 @@ export async function uploadToMachine(
       if (cancelled(index)) controller.abort();
     });
     const step = callWithin(host, UPLOAD_STEP_DEADLINE_MS, controller.signal);
-    const finishCall = callWithin(host, UPLOAD_FINISH_DEADLINE_MS, controller.signal);
+    const finishCall = callWithin(host, null, controller.signal);
     try {
       if (begin.size !== file.size || !Number.isSafeInteger(begin.chunkSize) || Number(begin.chunkSize) <= 0)
         throw new Error(translate("upload.notStarted"));

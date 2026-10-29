@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import { uploadToMachine } from "../src/agent-session/acpmux/cloudUploads";
 
 function host(chunkSize = 4) {
@@ -171,5 +171,39 @@ test("removing a chip during finish cancels the native transfer before finish an
   } finally {
     releaseFinish({ path: "/session/empty.bin" });
     await uploading;
+  }
+});
+
+test("native progress-owned finish can outlive an hour without a page elapsed cap", async () => {
+  let entered!: () => void;
+  const finishing = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  let release!: (value: unknown) => void;
+  const finish = new Promise<unknown>((resolve) => {
+    release = resolve;
+  });
+  const calls: string[] = [];
+  jest.useFakeTimers();
+  const uploading = uploadToMachine([new File([], "long.bin")], async (method) => {
+    calls.push(method);
+    if (method === "chat.upload.begin") return { token: "long", size: 0, chunkSize: 4 };
+    if (method === "chat.upload.finish") {
+      entered();
+      return finish;
+    }
+    return {};
+  });
+  try {
+    await finishing;
+    // Native owns bounded idle/per-chunk failure. Elapsed time while it is active is not a cap.
+    jest.advanceTimersByTime(2 * 60 * 60 * 1_000);
+    release({ path: "/session/long.bin" });
+    expect(await uploading).toEqual({ paths: ["/session/long.bin"] });
+    expect(calls).toEqual(["chat.upload.begin", "chat.upload.finish"]);
+  } finally {
+    release({ path: "/session/long.bin" });
+    await uploading;
+    jest.useRealTimers();
   }
 });
