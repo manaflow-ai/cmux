@@ -83,7 +83,7 @@ final class DeclarativePopupHost {
         surface.applyTheme()
         guard let placed = popup.show(size: NSSize(width: next.width * scale, height: content.contentHeight),
                                       anchor: anchor, in: window, preferred: next.side == .top ? .above : .below,
-                                      trailing: next.align == .end, makeKey: opening && parent == nil, entrance: false) else { model = nil; return ["shown": false] }
+                                      trailing: next.align == .end, makeKey: opening, entrance: false) else { model = nil; return ["shown": false] }
         if opening { content.focusInitial() }
         return ["shown": true, "popupId": next.id, "revision": next.revision,
                 "frame": [placed.frame.minX, placed.frame.minY, placed.frame.width, placed.frame.height]]

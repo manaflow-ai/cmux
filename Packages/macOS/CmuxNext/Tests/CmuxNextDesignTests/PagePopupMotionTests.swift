@@ -104,6 +104,30 @@ import Testing
         #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
     }
 
+    /// A submenu is a child panel, but still owns keyboard focus while it is open. Hiding it
+    /// returns the keys to its parent so Escape and typeahead remain scoped to the active menu.
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func aChildPopupTakesKeyboardAndReturnsItToItsParent() async throws {
+        let (window, _) = try Self.page()
+        defer { window.orderOut(nil) }
+        let parentPanel = NativePopupPanel(identifier: "cmux.tests.parent-popup")
+        let parentHost = NativePopupHost(panel: parentPanel)
+        let childPanel = NativePopupPanel(identifier: "cmux.tests.child-popup")
+        let childHost = NativePopupHost(panel: childPanel)
+        let size = NSSize(width: 160, height: 80)
+        let anchor = CGRect(x: 300, y: 580, width: 24, height: 24)
+
+        _ = try #require(parentHost.show(size: size, anchor: anchor, in: window, makeKey: true))
+        #expect(parentPanel.isKeyWindow)
+        _ = try #require(childHost.show(size: size, anchor: anchor, in: parentPanel, makeKey: true))
+        #expect(childPanel.isKeyWindow, "the submenu did not take keyboard focus")
+
+        childHost.hide()
+        #expect(await GUIAnimationTestSupport.settle { parentPanel.isKeyWindow }, "hiding the submenu did not restore its parent")
+        parentHost.hide()
+        #expect(await GUIAnimationTestSupport.settle { !parentPanel.isVisible && !childPanel.isVisible })
+    }
+
     /// A window on screen with a page view, and the page menu panel of `host` once shown.
     static func page() throws -> (NSWindow, NSView) {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 300, width: 500, height: 400), styleMask: [.titled],
