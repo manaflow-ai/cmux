@@ -1402,6 +1402,7 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod settings;
 mod machine_catalog;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
