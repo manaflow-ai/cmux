@@ -87,9 +87,11 @@ impl Hub {
                 "remote_control_restored" => ended = false,
                 "remote_floor_cancel" if is_cut => floor_cancelled = true,
                 "auto_resume_scheduled" if is_cut => {
-                    has_retry_marker = true;
                     // daemon_restart records are queued continuations, not waiting retries.
-                    retry = serde_json::from_value(e.msg).ok();
+                    if e.msg["reason"] != "daemon_restart" {
+                        has_retry_marker = true;
+                        retry = serde_json::from_value(e.msg).ok();
+                    }
                 }
                 // Stop records have no turn id; the turn_started reset above makes this
                 // apply only to a stop after the current failed turn began.

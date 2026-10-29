@@ -119,6 +119,9 @@ impl Hub {
                         && rec.msg.get("joinedTurnId").is_some_and(Value::is_string) =>
                 {
                     turn_id = rec.msg["joinedTurnId"].as_str().map(str::to_owned);
+                    // Joined prompts run inside the existing turn and therefore do not
+                    // receive their own turn_started record.
+                    started = true;
                 }
                 _ => {}
             }
