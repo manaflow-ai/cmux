@@ -472,6 +472,7 @@ fn shell_idle_a_directory_report_after_a_silent_foreground_change_does_not_carry
     let leader = wait_for_foreign_foreground(&harness, "a program that took the foreground");
     assert_ne!(leader, Some(shell_pid(&harness, surface)), "the program leads the foreground");
     let _ = fs::remove_dir_all(&target);
+}
 
 /// A continuation prompt (PS2) is not a new prompt. kitty's shell integration
 /// (and any rc that follows the FinalTerm spec) marks PS2 `133;A;k=s`: a
