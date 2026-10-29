@@ -149,7 +149,7 @@ jobs:
             MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
             MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
-        run: python3 scripts/ci/cloud_overflow_switch.py
+        run: bash scripts/ci/python-with-yaml.sh scripts/ci/cloud_overflow_switch.py
 
       # Last, in its own step so the summary above is already saved. If the
       # switch did not observe every probe start (one may still be queued),

@@ -28,6 +28,7 @@ on:
       - scripts/ci/runner_label_policy.py
       - scripts/ci/runs_on_values.py
       - scripts/ci/signing_runner_variables.py
+      - scripts/ci/python-with-yaml.sh
   workflow_dispatch:
 
 permissions:
@@ -99,7 +100,7 @@ jobs:
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
             NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
-        run: python3 scripts/ci/check_repo_variables.py
+        run: bash scripts/ci/python-with-yaml.sh scripts/ci/check_repo_variables.py
 
       # No runs-on waits on one machine through a variable's value
       # (scripts/ci/runs_on_values.py). The workflow text passes
