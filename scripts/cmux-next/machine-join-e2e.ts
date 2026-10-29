@@ -270,11 +270,18 @@ export async function runE2E(
   ]
   const asUser = (args: string[]) => asUserTool([opts.acpmux, ...args])
   const credentialFile = `${opts.home}/.acpmux/machine-credential.json`
-  // lstat (stat without -L): the credential file itself, never what a link names.
+  // lstat (stat without -L) of the state directory and the credential file: the user's own directory (not a
+  // link, so the file is inside the home, whose root-owned parent the user cannot replace) and the user's own
+  // regular file with one link (no hard link to it anywhere else).
   const credentialStat = async () => {
-    const r = await deps.run(asUserTool(["stat", "-c", "%F|%U|%a", "--", credentialFile]), { env: childEnv, timeoutMs: 10_000 })
-    const [kind, owner, mode] = r.stdout.trim().split("|")
-    return { own: r.code === 0 && kind === "regular file" && owner === opts.user, mode: /^[0-7]{3,4}$/.test(mode ?? "") ? mode! : null }
+    const stateDir = `${opts.home}/.acpmux`
+    const r = await deps.run(asUserTool(["stat", "-c", "%n|%F|%U|%h|%a", "--", stateDir, credentialFile]), { env: childEnv, timeoutMs: 10_000 })
+    const [dir, file] = r.stdout.trim().split("\n").map((l) => l.split("|"))
+    const own =
+      r.code === 0 &&
+      dir?.[0] === stateDir && dir[1] === "directory" && dir[2] === opts.user &&
+      file?.[0] === credentialFile && file[1] === "regular file" && file[2] === opts.user && file[3] === "1"
+    return { own, mode: own && /^[0-7]{3,4}$/.test(file?.[4] ?? "") ? file![4]! : null }
   }
   const acpmux = async (args: string[], stdin?: string, signal?: AbortSignal) => {
     // No new process of the disposable user once cleanup has begun (it has stopped them all).
@@ -576,6 +583,7 @@ export async function runE2E(
     })()
     await authing
     say("cmux-api-development access token ready")
+    live()
     await sweepStale()
 
     // 2. Mint.
@@ -618,7 +626,7 @@ export async function runE2E(
     credentialPath = credentialFile
     // The user's own regular file (not a link), read as that user.
     const before = await credentialStat()
-    if (!before.own) throw new Failed("credential file is not the disposable user's own regular file")
+    if (!before.own) throw new Failed("credential file is not the disposable user's own regular file, with one link, in its own state directory")
     evidence.credentialFileMode = before.mode
     const file = await deps.run(asUserTool(["cat", "--", credentialPath]), { env: childEnv, timeoutMs: 10_000 })
     let record: any

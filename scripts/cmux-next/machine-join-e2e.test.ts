@@ -80,8 +80,10 @@ interface Knobs {
   joinMachineId?: string
   /** What status reports as the credential path. */
   statusCredentialPath?: string
-  /** What `stat -c %F|%U|%a` says of the credential file. */
+  /** What `stat -c %F|%U|%h|%a` says of the credential file. */
   credentialStat?: string
+  /** What `stat -c %F|%U|%h|%a` says of the state directory. */
+  stateDirStat?: string
   /** Each kill command takes this long to return. */
   killDelayMs?: number
   /** A held join ends this long after it is told to stop (a kill, or its launcher's signal). */
@@ -309,7 +311,12 @@ function world(k: Knobs = {}) {
         if (k.catFails && cmd[2] !== CRED_PATH) return { code: 1, stdout: "", stderr: "Permission denied" }
         return { code: 0, stdout: files[cmd[2]!] ?? "", stderr: "" }
       }
-      if (cmd[0] === "stat") return { code: 0, stdout: `${k.credentialStat ?? `regular file|${opts.user}|600`}\n`, stderr: "" }
+      if (cmd[0] === "stat")
+        return {
+          code: 0,
+          stdout: `${HOME}/.acpmux|${k.stateDirStat ?? `directory|${opts.user}|2|700`}\n${CRED_PATH}|${k.credentialStat ?? `regular file|${opts.user}|1|600`}\n`,
+          stderr: ""
+        }
       if (cmd[0] === "tar") {
         if (k.catFails) return { code: 2, stdout: "", stderr: "tar: ./.acpmux/config.json: Cannot open: Permission denied" }
         const home = Object.fromEntries(Object.entries(files).filter(([path]) => path.startsWith(`${HOME}/`)))
@@ -603,11 +610,22 @@ describe("failure paths", () => {
     assertNoSecretEscaped(w)
   })
 
+  test("a credential file with a hard link elsewhere, or a state directory that is a link, is never read", async () => {
+    for (const k of [{ credentialStat: `regular file|${opts.user}|2|600` }, { stateDirStat: `symbolic link|${opts.user}|1|777` }]) {
+      const w = world(k)
+      const e = await runE2E(opts, env, w.deps)
+      expect(e.result).toBe("fail")
+      expect(e.reason).toContain("credential file is not the disposable user's own regular file, with one link, in its own state directory")
+      expect(w.runs.filter((r) => r.argv.at(-1) === CRED_PATH && r.argv.at(-3) === "cat")).toEqual([])
+      assertNoSecretEscaped(w)
+    }
+  })
+
   test("a credential file that is a link is never read", async () => {
-    const w = world({ credentialStat: `symbolic link|${opts.user}|777` })
+    const w = world({ credentialStat: `symbolic link|${opts.user}|1|777` })
     const e = await runE2E(opts, env, w.deps)
     expect(e.result).toBe("fail")
-    expect(e.reason).toContain("credential file is not the disposable user's own regular file")
+    expect(e.reason).toContain("credential file is not the disposable user's own regular file, with one link, in its own state directory")
     // The only reads of the credential path are the scan's, after cleanup; none before the check failed.
     const reads = w.runs.filter((r) => r.argv.at(-1) === CRED_PATH && r.argv.at(-3) === "cat")
     expect(reads.length).toBeLessThanOrEqual(1)
