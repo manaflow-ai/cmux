@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4084481203101",
+  "notes": "notes/4084481203101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27325,
+      "title": "cmux-next-ios-sim.sh test: only= and ui= selection, keep test logs and console output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27324,
+      "title": "cmux-next-ios-sim.sh: shots scenes are separate name=WORD,WORD args",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27011,
+      "title": "webviews: bun run test runs each file in its own process, as CI does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27103,
+      "title": "Fix running tray icon and composer spacing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27018,
+      "title": "fix(acpmux): preserve peer ownership for session lifecycle commands",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
