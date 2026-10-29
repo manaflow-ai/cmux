@@ -1085,7 +1085,12 @@ fn the_customize_folder_installs_itself_and_reloads_when_it_changes() {
             if let Some(found) = found {
                 return found;
             }
-            assert!(Instant::now() < deadline, "local/customize {version} never listed: {list}");
+            if Instant::now() >= deadline {
+                // Why the folder did not reload, when the daemon knows
+                // (a file watch it could not make, a rejected package).
+                let why = client.rpc(json!({ "cmd": "apps-logs", "app": "cmux/supervisor" }));
+                panic!("local/customize {version} never listed: {list}\nsupervisor log: {why}");
+            }
             std::thread::sleep(Duration::from_millis(50));
         }
     };

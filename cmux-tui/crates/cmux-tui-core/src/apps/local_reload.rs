@@ -56,8 +56,21 @@ impl Supervisor {
             },
         );
         if let Err(error) = spawned {
-            eprintln!("cmux-tui: apps local reload thread did not start: {error}");
+            self.note_watch_problem(format!("local app reload did not start: {error}"));
         }
+    }
+
+    /// A reason local apps do not reload when their files change, in the
+    /// supervisor's log (`apps-logs cmux/supervisor`), where a rejected local
+    /// package already goes: the daemon's stderr is not kept, so a line only
+    /// there is lost and the customize folder just never reloads.
+    fn note_watch_problem(&self, message: String) {
+        eprintln!("cmux-tui: {message}");
+        let outs = {
+            let mut inner = self.inner.lock().recover_poison();
+            self.log_locked(&mut inner, "cmux/supervisor", "warn", message)
+        };
+        self.emit(outs);
     }
 
     /// Reads the catalog again and applies what changed in local apps since
@@ -207,26 +220,52 @@ fn watch(
     let mut watcher = match watcher {
         Ok(watcher) => watcher,
         Err(error) => {
-            eprintln!("cmux-tui: apps local reload watch unavailable: {error}");
+            if let Some(supervisor) = me.upgrade() {
+                supervisor.note_watch_problem(format!(
+                    "local apps do not reload: the file watch is unavailable: {error}"
+                ));
+            }
             return;
         }
     };
     // The customization folder may not exist yet: its parent is watched for it.
     let mut watched_customize = false;
     let arm = |watcher: &mut notify::RecommendedWatcher, watched_customize: &mut bool| {
-        if let Some(local) = local.as_ref().filter(|dir| dir.is_dir()) {
-            let _ = watcher.watch(local, notify::RecursiveMode::Recursive);
+        let mut failed = Vec::new();
+        if let Some(local) = local.as_ref().filter(|dir| dir.is_dir())
+            && let Err(error) = watcher.watch(local, notify::RecursiveMode::Recursive)
+        {
+            failed.push(format!("{}: {error}", local.display()));
         }
         if let Some(dir) = customize.as_ref() {
             if !*watched_customize && dir.is_dir() {
-                *watched_customize = watcher.watch(dir, notify::RecursiveMode::Recursive).is_ok();
+                match watcher.watch(dir, notify::RecursiveMode::Recursive) {
+                    Ok(()) => *watched_customize = true,
+                    Err(error) => failed.push(format!("{}: {error}", dir.display())),
+                }
             }
-            if let Some(parent) = dir.parent().filter(|parent| parent.is_dir()) {
-                let _ = watcher.watch(parent, notify::RecursiveMode::NonRecursive);
+            if let Some(parent) = dir.parent().filter(|parent| parent.is_dir())
+                && let Err(error) = watcher.watch(parent, notify::RecursiveMode::NonRecursive)
+            {
+                failed.push(format!("{}: {error}", parent.display()));
             }
         }
+        failed
     };
-    arm(&mut watcher, &mut watched_customize);
+    // Once per watch: a re-arm after each burst retries the same folders.
+    let mut reported = false;
+    let mut report = |failed: Vec<String>| {
+        if failed.is_empty() || std::mem::replace(&mut reported, true) {
+            return;
+        }
+        if let Some(supervisor) = me.upgrade() {
+            supervisor.note_watch_problem(format!(
+                "local apps do not reload on a change in {}",
+                failed.join("; ")
+            ));
+        }
+    };
+    report(arm(&mut watcher, &mut watched_customize));
     // Only events inside the watched app folders count: the customize
     // folder's parent also holds cmux.json and other files. FSEvents names
     // the real path, so a folder under a symlink (`/tmp`, a linked
@@ -249,7 +288,7 @@ fn watch(
         prints = supervisor.reload_local_apps(&prints);
         drop(supervisor);
         if !watched_customize {
-            arm(&mut watcher, &mut watched_customize);
+            report(arm(&mut watcher, &mut watched_customize));
             roots = watch_roots([customize.as_deref(), local.as_deref()]);
             // Arming restarts the stream (see above): read what changed
             // while it was down.
