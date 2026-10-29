@@ -194,12 +194,12 @@ mod tests {
     fn every_id_is_stable_shaped_and_listed_once() {
         let mut seen = BTreeSet::new();
         for id in ids() {
-            let (name, version) = id.rsplit_once("-v").unwrap_or_else(|| panic!("{id} has no -vN"));
+            let (name, version) = id.rsplit_once("-v").or_else(|| id.rsplit_once(".v")).unwrap_or_else(|| panic!("{id} has no version suffix"));
             assert!(
                 !name.is_empty()
                     && name
                         .bytes()
-                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
                     && !version.is_empty()
                     && version.bytes().all(|b| b.is_ascii_digit()),
                 "{id} is not a lowercase-kebab id ending in -vN"

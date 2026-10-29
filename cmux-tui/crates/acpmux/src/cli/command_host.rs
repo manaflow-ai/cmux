@@ -67,7 +67,7 @@ pub enum PeerCmd {
         #[arg(long)]
         advertise: Option<String>,
         /// Platform origin for a cloud join; defaults to CMUX_PLATFORM_ORIGIN or development.
-        #[arg(long)]
+        #[arg(long, visible_alias = "origin")]
         hub: Option<String>,
         /// Replace an existing cloud machine credential.
         #[arg(long)]

@@ -500,15 +500,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if status { crate::cli::cloud_join::status(hub, json_out).await } else { crate::cli::cloud_join::join(hub, name, replace, json_out).await }
         }
         Command::Host(PeerCmd::Join { ticket: Some(ticket), name, hub, replace, status, peer_name, advertise }) if ticket.starts_with("cmj_") || hub.is_some() || status => {
+            if ticket.starts_with("cmj_") {
+                return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Usage, "join.malformed", "join token must be provided on stdin").with_exit(2).into());
+            }
             if status { crate::cli::cloud_join::status(hub, json_out).await } else { crate::cli::cloud_join::join(hub, name, replace, json_out).await }
         }
         Command::Host(PeerCmd::Consent { cmd }) => {
-            let surface = match cmd {
-                crate::cli::command_host::ConsentCmd::Grant { screen, control } => if screen { "screen" } else if control { "control" } else { return Err(anyhow!("use --screen or --control")); },
-                crate::cli::command_host::ConsentCmd::Revoke { .. } => return Err(anyhow!("consent revoke is not implemented")),
-            };
-            crate::cli::cloud_join::grant_consent(surface)?;
-            if json_out { print_json(&json!({"granted": surface})); } else { println!("consent granted: {surface}"); }
+            match cmd {
+                crate::cli::command_host::ConsentCmd::Grant { screen, control } => {
+                    let surface = if screen { "screen" } else if control { "control" } else { return Err(anyhow!("use --screen or --control")); };
+                    crate::cli::cloud_join::grant_consent(surface)?;
+                    if json_out { print_json(&json!({"granted": surface})); } else { println!("consent granted: {surface}"); }
+                }
+                crate::cli::command_host::ConsentCmd::Revoke { screen, control } => {
+                    let surface = if screen { "screen" } else if control { "control" } else { return Err(anyhow!("use --screen or --control")); };
+                    crate::cli::cloud_join::revoke_consent(surface)?;
+                    if json_out { print_json(&json!({"revoked": surface})); } else { println!("consent revoked: {surface}"); }
+                }
+            }
             Ok(())
         }
         // A file of this person's: no daemon needed.
