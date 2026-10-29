@@ -74,6 +74,27 @@ test("a restart in flight holds its button", async () => {
   expect([...container.querySelectorAll("button")].every((b) => b.disabled)).toBe(true);
 });
 
+test("a queued Retry holds Restart acpmux until the handshake settles", async () => {
+  const container = installDom();
+  const pressed: string[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <HostUnavailableLine
+        message="socket closed"
+        retrying
+        onRetry={() => pressed.push("retry")}
+        onRestart={() => pressed.push("restart")}
+      />,
+    );
+  });
+  const [restart] = [...container.querySelectorAll<HTMLButtonElement>("button")];
+  expect(restart?.textContent).toBe("Restart acpmux");
+  expect(restart?.disabled).toBe(true);
+  await act(async () => restart?.click());
+  expect(pressed).toEqual([]);
+});
+
 test("a late failure is its message and Retry, with no recovery steps", async () => {
   const container = installDom();
   await act(async () => {

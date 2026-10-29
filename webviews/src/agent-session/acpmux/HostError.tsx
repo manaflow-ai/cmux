@@ -65,7 +65,8 @@ export function HostUnavailableLine({
         {message}
       </p>
       {onRestart ? (
-        <button type="button" onClick={onRestart} disabled={restarting}>
+        // A queued Retry holds Restart acpmux until its handshake settles (#27646).
+        <button type="button" onClick={onRestart} disabled={restarting || retrying}>
           {t(restarting ? "host.restarting" : "host.restart")}
         </button>
       ) : (
