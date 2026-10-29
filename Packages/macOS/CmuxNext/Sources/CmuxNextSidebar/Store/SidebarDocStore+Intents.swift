@@ -29,7 +29,9 @@ extension SidebarDocStore {
             }
             send(ops: adopt + [["op": "move", "items": moving, "to": to]], title: title, undoable: undoable)
         }
-        if let (ops, undoable) = groupOps(intent, room: model.activeProfileID?.rawValue, items: items) {
+        // The acting window's space as its state has it: Space > New Group switches the window first, and the model
+        // hears of the switch a turn later.
+        if let (ops, undoable) = groupOps(intent, room: newItemRoom() ?? model.activeProfileID?.rawValue, items: items) {
             send(ops: adopt + ops, title: Self.moveTitle, undoable: undoable)
             return true
         }
