@@ -225,10 +225,12 @@ final class CEFHostView: NSView, PaneRenderMoveObserving {
 /// A CEF tab's `contentView`. All tabs of a pane share one Chromium window,
 /// so the container only borrows the pane's `CEFHostView` while it is in a
 /// window, and shows a snapshot while the tab is occluded.
-final class CEFTabContentView: NSView, PaneMotionSettling {
+final class CEFTabContentView: NSView, PaneMotionSettling, PaneMotionHolding {
     weak var tab: CEFTab?
     /// The size its pane's spring rests at, held at the top-left until it lands (`CEFTabContentView+SpringResize`).
     var springHold: SpringPageHold?
+    /// `PaneMotionHolding`: the page is held at its pane's rest size.
+    var holdsPaneMotionSize: Bool { springHold != nil }
     /// The pane host it sits in when that pane's pages hold their size in springs (the `pageSpringResizeOnce`
     /// feature, `RestingPlacement.pageResizing`), found once each time it moves (`placeInPane()`); nil
     /// otherwise, so a layout without the feature walks no ancestors.

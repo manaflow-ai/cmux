@@ -88,7 +88,7 @@ These are reports for the migration work, not gates. Both exit 0.
 
 - `gen-features.py --unmigrated` (MQ6): the Bool tunables still declared that no feature's
   `replaces` names, of two kinds: the seed list in the script (`browserResize.layerHosting`,
-  `motion.pane.holdContent`, `sidebar.*slideHoldsContent` and the rest), and every Bool tunable
+  `sidebar.*slideHoldsContent` and the rest), and every Bool tunable
   declared in, or read as `Type.name` from, a file that a Performance Lead workstream owns in
   `plans/cmux-next/OWNERS.md`. Also the daemon env switch `CMUX_TUI_TERMINAL_HOST_MODEL`. A seed
   that matches nothing declared or replaced (renamed or removed) prints a warning.

@@ -63,7 +63,6 @@ HEADER = (
 UNMIGRATED_BOOL_TUNABLES = (
     "browserResize.layerHosting",
     "browserHost.helper",
-    "motion.pane.holdContent",
     "sidebar.*slideHoldsContent",
     "hibernation.compressedSnapshots",
     "hostPressure.enabled",

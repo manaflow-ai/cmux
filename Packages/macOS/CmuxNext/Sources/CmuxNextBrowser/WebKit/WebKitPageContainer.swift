@@ -15,7 +15,7 @@ import CmuxNextDesign
 /// inspector is attached; a container resize reaches it once through
 /// autoresizing, and WebKit re-places both. Device emulation places the web
 /// view itself only while it is alone in the container.
-final class WebKitPageContainer: NSView {
+final class WebKitPageContainer: NSView, PaneMotionHolding {
     /// The web view; WebKit owns its frame (an attached inspector shrinks it).
     private(set) weak var page: NSView?
 
@@ -108,6 +108,8 @@ final class WebKitPageContainer: NSView {
 
     /// The size its pane's spring rests at, held at the top-left until it lands (`WebKitPageContainer+SpringResize`).
     var springHold: SpringPageHold?
+    /// `PaneMotionHolding`: the web view is held at its pane's rest size.
+    var holdsPaneMotionSize: Bool { springHold != nil }
     /// The pane host it sits in when that pane's pages hold their size in springs (the `pageSpringResizeOnce`
     /// feature), found once each time it moves (`placeInPane()`); nil otherwise, so a resize without the
     /// feature walks no ancestors.

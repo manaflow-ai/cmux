@@ -18,7 +18,7 @@ import Testing
         let host: PaneHostView
 
         init() {
-            host = PaneHostView(pane: PaneID("browser"), content: page, holdsContentInMotion: { false })
+            host = PaneHostView(pane: PaneID("browser"), content: page)
             host.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
             host.applyShape(padding: 8, cornerRadius: 10)
             host.layoutSubtreeIfNeeded()

@@ -94,6 +94,16 @@ public protocol PaneMotionTargeting: NSView {
     func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor
 }
 
+/// A view that may hold its content at the size its pane rests at while the pane springs: the terminal's surface hold
+/// (`TerminalHostView`) and a page's spring hold (`CEFHostView`, `WebKitPageContainer`). These are the only final-size
+/// paths of a pane's content (principled audit, row paneHoldsContentInMotion, felt 1d): each is sized from the pane's
+/// current rest size (``PaneMotionTargeting``) and ends at its landing (``PaneMotionSettling``).
+@MainActor
+public protocol PaneMotionHolding: NSView {
+    /// Whether this view holds its content at a size other than its own area now.
+    var holdsPaneMotionSize: Bool { get }
+}
+
 /// The vertical edge a pane's held content rides during a layout spring (``PaneMotionTargeting``).
 public enum PaneMotionAnchor: Sendable {
     /// Pinned at the top (the default).
@@ -132,6 +142,19 @@ public extension NSView {
         var anchor = (self as? PaneMotionTargeting)?.paneMotionWillRest(sizeChange: sizeChange) ?? .top
         for subview in subviews where subview.notifyPaneMotionWillRest(sizeChange: sizeChange) == .bottom { anchor = .bottom }
         return anchor
+    }
+
+    /// The ``PaneMotionHolding`` views in this subtree (this view included) that hold a size now, each with how many
+    /// holding views enclose it inside the subtree (0: none). A DEBUG check reads it (`PaneHostView`); never per frame.
+    func paneMotionHolds() -> [(view: NSView, enclosingHolds: Int)] {
+        var found: [(view: NSView, enclosingHolds: Int)] = []
+        func visit(_ view: NSView, depth: Int) {
+            let holds = (view as? PaneMotionHolding)?.holdsPaneMotionSize == true
+            if holds { found.append((view: view, enclosingHolds: depth)) }
+            for subview in view.subviews { visit(subview, depth: depth + (holds ? 1 : 0)) }
+        }
+        visit(self, depth: 0)
+        return found
     }
 
     /// Tells every ``PaneMotionSettling`` view in this subtree (this view included) that its

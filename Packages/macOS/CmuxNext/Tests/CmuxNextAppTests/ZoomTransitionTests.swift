@@ -42,12 +42,11 @@ struct ZoomTransitionTests {
         let root: LayoutRootView
         let window: NSWindow
 
-        init(holdsContent: Bool = false, reduceMotion: Bool = false) {
+        init(reduceMotion: Bool = false) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(ZoomTransitionTests.tree))],
                                 activeScreenID: "s", focusedPane: "p1")
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = reduceMotion
-            root.holdsContentInMotion = { holdsContent }
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
             window.contentView = root
@@ -165,12 +164,12 @@ struct ZoomTransitionTests {
         #expect((landed ?? .max) <= Self.budgetFrames, "the unzoom landed at frame \(landed.map(String.init) ?? "never"), past \(Self.budgetFrames)")
     }
 
-    /// Lawrence 2026-10-29: terminal panes resize live with the animation, not at its end. With the feature
-    /// `paneHoldsContentInMotion` on (the dogfood set), the zooming pane's content still takes its pane's size in every
-    /// frame of both ways, not its rest size from the first frame (the wipe) or its start size until the landing (the snap).
+    /// Lawrence 2026-10-29: no wipe and no snap. The pane host never holds its content (the feature
+    /// `paneHoldsContentInMotion` and its host-level hold are gone, principled audit R3): the content takes the pane's
+    /// content area in every frame of both ways, and each landing leaves no hold in the subtree.
     @Test(arguments: ["p1", "p3"])
-    func theZoomingPanesContentLaysOutLiveWithHeldContentOn(_ zoomed: String) throws {
-        let screen = Screen(holdsContent: true)
+    func theZoomingPanesHostNeverHoldsItsContent(_ zoomed: String) throws {
+        let screen = Screen()
         let pane = PaneID(zoomed)
         let host = try #require(screen.host(pane))
         func check(_ phase: String) {
@@ -188,6 +187,11 @@ struct ZoomTransitionTests {
         for _ in 1...60 { screen.step() }
         screen.unzoom()
         check("unzoom")
+        for _ in 1...60 { screen.step() }
+        for id in ["p1", "p2", "p3"] {
+            let violations = screen.host(PaneID(id))?.motionHoldViolations ?? []
+            #expect(violations.isEmpty, "\(id): \(violations)")
+        }
     }
 
     /// The panes a zoom covers stay on screen (their content shown, a page included) until the zooming pane covers

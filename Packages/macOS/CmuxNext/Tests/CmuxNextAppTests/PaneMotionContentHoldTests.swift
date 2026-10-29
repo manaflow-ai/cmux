@@ -15,10 +15,10 @@ import Testing
         let page = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         let host: PaneHostView
 
-        init(hostFrame: CGRect = CGRect(x: 0, y: 0, width: 400, height: 300), holdsContent: Bool = false) {
+        init(hostFrame: CGRect = CGRect(x: 0, y: 0, width: 400, height: 300)) {
             screen.wantsLayer = true
             screen.layer?.masksToBounds = true
-            host = PaneHostView(pane: PaneID("panel"), content: page, holdsContentInMotion: { holdsContent })
+            host = PaneHostView(pane: PaneID("panel"), content: page)
             host.frame = hostFrame
             host.applyShape(padding: 8, cornerRadius: 10)
             screen.addSubview(host)
@@ -91,18 +91,18 @@ import Testing
         }
     }
 
-    /// `motion.pane.holdContent` on (Leo's 2026-10-20 hold, kept as an option): a shrinking pane's content keeps
-    /// its starting width until the spring lands, then lays out once at the landed size.
-    @Test func withTheHoldOnAShrinkingPaneKeepsItsContentWidthUntilItLands() {
-        let column = Screen(holdsContent: true)
-        let before = column.page.frame.size
+    /// R3 (principled audit, felt 1d): the host never holds its content; at each landing the content is the clip's
+    /// bounds and no hold remains in its subtree, and while it springs no hold sits inside another.
+    @Test func theHostNeverHoldsAndALandingLeavesNoHold() {
+        let column = Screen()
         column.host.restSize = CGSize(width: 200, height: 300)
-        column.host.restOffset = .zero
         column.host.isOnLayoutSpring = true
+        column.host.announceRest()
         column.host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
-        #expect(column.page.frame.size == before, "held content laid out at the frame's width: \(column.page.frame)")
+        #expect(column.page.frame.size == column.host.contentRect.size, "the host held its content: \(column.page.frame)")
         column.host.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
         column.host.isOnLayoutSpring = false
-        #expect(column.page.frame.width == 184, "one layout at the landed size: \(column.page.frame)")
+        #expect(column.page.frame.size == column.host.contentRect.size)
+        #expect(column.host.motionHoldViolations.isEmpty, "\(column.host.motionHoldViolations)")
     }
 }

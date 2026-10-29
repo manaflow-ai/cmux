@@ -153,7 +153,7 @@ struct PanePlacementSettleTests {
     /// A render-server spring sets the host's frame at rest when it starts: its content hears it is at rest.
     @Test func aRenderServerStartIsAtRest() {
         let follower = Follower()
-        let host = PaneHostView(pane: PaneID("p"), content: follower, holdsContentInMotion: { false })
+        let host = PaneHostView(pane: PaneID("p"), content: follower)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false

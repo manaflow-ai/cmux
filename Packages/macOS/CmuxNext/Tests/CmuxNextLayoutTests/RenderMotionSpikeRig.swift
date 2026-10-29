@@ -181,7 +181,7 @@ final class SpikePane {
     init(_ kind: SpikeLayer, frame: CGRect, cornerRadius: CGFloat, stripClip: Bool, in screen: SpikeScreenView) {
         let content = NSView(frame: .zero)
         content.wantsLayer = true
-        let host = PaneHostView(pane: PaneID("spike"), content: content, holdsContentInMotion: { false })
+        let host = PaneHostView(pane: PaneID("spike"), content: content)
         let container = kind == .motionContainer ? SpikeMotionContainerView(frame: frame, cornerRadius: cornerRadius) : nil
         if let container {
             host.frame = container.bounds

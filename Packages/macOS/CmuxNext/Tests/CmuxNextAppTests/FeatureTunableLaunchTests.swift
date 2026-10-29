@@ -31,39 +31,38 @@ struct FeatureTunableLaunchTests {
 
     @Test func theFileKeepsOnlyTheBoolsAFeatureReplaces() async throws {
         let file = try Self.tunablesFile([
-            "motion.pane.holdContent": .bool(true),
-            "sidebar.slideHoldsContent": .number(0),
+            "sidebar.slideHoldsContent": .bool(false),
+            "agent.chromium": .number(0),
             "motion.renderServer": .bool(true),
         ])
-        #expect(await Self.readOn(file).finished() == ["motion.pane.holdContent": true])
+        #expect(await Self.readOn(file).finished() == ["sidebar.slideHoldsContent": false])
         let missing = file.deletingLastPathComponent().appending(path: "none.json")
         #expect(await Self.readOn(missing).finished() == [:])
     }
 
     @Test func theLaunchResolvesTheTunableOnceWithSourceLocal() async throws {
         var environment = AppEnvironment.current([:])
-        let file = try Self.tunablesFile(["motion.pane.holdContent": .bool(true), "sidebar.slideHoldsContent": .bool(false)])
+        let file = try Self.tunablesFile(["sidebar.slideHoldsContent": .bool(false)])
         let tunables = Self.readOn(file)
         _ = await tunables.finished()
         environment.featureTunableOverrides = tunables
         let features = AppServices.launchFeatures(environment)
         try #require(features.channel.allowsLocalOverrides, "tests take the DEV channel")
-        #expect(features.resolution(of: .paneHoldsContentInMotion) == Feature.Resolution(isEnabled: true, source: .local))
         #expect(features.resolution(of: .sidebarSlideHoldsContent) == Feature.Resolution(isEnabled: false, source: .local))
         #expect(!WindowRootView.slideHoldsContent(in: features)())
     }
 
     @Test func aLabsChoiceBeatsTheTunableItReplaced() async throws {
         var environment = AppEnvironment.current([:])
-        let file = try Self.tunablesFile(["motion.pane.holdContent": .bool(true)])
+        let file = try Self.tunablesFile(["sidebar.slideHoldsContent": .bool(false)])
         let tunables = Self.readOn(file)
-        let labs = LaunchRead(on: Self.work) { FeatureLocalOverrides(values: [Feature.paneHoldsContentInMotion.name: false]) }
+        let labs = LaunchRead(on: Self.work) { FeatureLocalOverrides(values: [Feature.sidebarSlideHoldsContent.name: true]) }
         _ = await tunables.finished()
         _ = await labs.finished()
         environment.featureTunableOverrides = tunables
         environment.featureLocalOverrides = labs
         let features = AppServices.launchFeatures(environment)
         try #require(features.channel.allowsLocalOverrides, "tests take the DEV channel")
-        #expect(features.resolution(of: .paneHoldsContentInMotion) == Feature.Resolution(isEnabled: false, source: .local))
+        #expect(features.resolution(of: .sidebarSlideHoldsContent) == Feature.Resolution(isEnabled: true, source: .local))
     }
 }

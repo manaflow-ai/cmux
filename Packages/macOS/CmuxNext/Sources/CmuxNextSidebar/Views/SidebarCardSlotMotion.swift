@@ -9,8 +9,7 @@ import CmuxNextDesign
 /// (``ScrollEdgeFadeView/shownMask``) springs from where it showed: `appear` while the room opens,
 /// the quicker `disappear` while it closes, in step with the card's own entrance and exit
 /// (``SidebarCardTransition``). A list that shrinks keeps its larger height, clipped at the shown
-/// edge, and lays out once more when the spring lands (the pane motion's hold rule,
-/// feature `paneHoldsContentInMotion`), so its last rows recede under the edge. Rows the clip pushed down
+/// edge, and lays out once more when the spring lands, so its last rows recede under the edge. Rows the clip pushed down
 /// (a list scrolled to its end that grows) slide down with the edge. Chrome commits layout once
 /// and lets the compositor animate (cc/animation/keyframe_model.h, ui/compositor/layer_animator.h).
 ///

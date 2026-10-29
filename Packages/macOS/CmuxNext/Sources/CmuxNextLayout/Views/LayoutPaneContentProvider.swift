@@ -118,9 +118,6 @@ final class LayoutViewContext {
     /// A strip pan on the motion container shows at each display frame's time, resampled
     /// (feature `stripPanResampling`, ``LayoutRootView/resamplesStripPan``).
     var resamplesStripPan = false
-    /// Whether a pane's content keeps its size through a layout spring (feature `paneHoldsContentInMotion`,
-    /// ``LayoutRootView/holdsContentInMotion``), asked by each host at its spring's start.
-    var holdsContentInMotion: () -> Bool = { false }
 
     /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
     /// `MotionBackends` reads it once per change turn, and only with a variant registered.
@@ -164,8 +161,7 @@ final class LayoutViewContext {
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
         let content = provider?.makeContentView(for: pane) ?? NSView()
-        let host = PaneHostView(pane: pane, content: content, holdsContentInMotion: { [weak self] in self?.holdsContentInMotion() ?? false },
-                                pageResizing: provider?.pageSpringResizing)
+        let host = PaneHostView(pane: pane, content: content, pageResizing: provider?.pageSpringResizing)
         hosts[pane] = host
         return host
     }

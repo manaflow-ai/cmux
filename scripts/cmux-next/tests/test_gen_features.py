@@ -701,12 +701,11 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(out.splitlines(), [
             "CMUX_TUI_TERMINAL_HOST_MODEL\tcmux-tui/crates/cmux-tui-core/src/holder_runtime.rs:2",
             "browserResize.layerHosting\tPackages/macOS/CmuxNext/Sources/CmuxNextBrowser/Core/BrowserResizeTunables.swift:3",
-            "motion.pane.holdContent\tPackages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:5",
             "sidebar.slideHoldsContent\tPackages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/SidebarTunables.swift:3",
-            "4 unmigrated",
+            "3 unmigrated",
         ])
         code, out, _ = self.repo(PERF, HOLDER).run("--unmigrated", "--count")
-        self.assertEqual((code, out), (0, "2\n"))
+        self.assertEqual((code, out), (0, "1\n"))
 
     def test_unmigrated_lists_bool_tunables_of_perf_owned_files(self):
         """A Bool tunable added after the seed list still enters MQ6 when a perf-owned file declares or reads it."""
@@ -724,9 +723,9 @@ extension PaneHostView {
                       rows)
         self.assertIn("drop.overlay.unrelated\tPackages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/"
                       "DropOverlayTunables.swift:7", rows, "read from a perf-owned file")
-        self.assertEqual(rows[-1], "6 unmigrated")
+        self.assertEqual(rows[-1], "5 unmigrated")
         repo.write_feature(with_(KILL, replaces=["motion.pane.snapshot", "drop.overlay.unrelated"]))
-        self.assertEqual(repo.run("--unmigrated", "--count")[1], "4\n")
+        self.assertEqual(repo.run("--unmigrated", "--count")[1], "3\n")
 
     def test_unmigrated_warns_about_stale_seeds(self):
         code, _, err = self.repo().run("--unmigrated")
@@ -752,16 +751,15 @@ extension PaneHostView {
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
             gen.main(["--count"])
 
-    def test_unmigrated_lists_motion_pane_hold_content_today(self):
-        """The acceptance check on the real tree, until the feature that replaces the key lands (task 102)."""
+    def test_unmigrated_on_the_real_tree(self):
+        """The acceptance check on the real tree: every MQ6 seed still names a declared tunable or env read.
+        motion.pane.holdContent and its feature paneHoldsContentInMotion were deleted (felt 1d, principled audit)."""
         features, errors, _ = gen.load_features(str(REPO), datetime.date.today())
         self.assertEqual(errors, [])
-        if any("motion.pane.holdContent" in feature.get("replaces", []) for feature in features):
-            self.skipTest("motion.pane.holdContent is a feature now")
         rows, stale = gen.unmigrated(str(REPO), features)
         self.assertEqual(stale, [], "every MQ6 seed still names a declared tunable or env read")
         keys = [key for key, _ in rows]
-        self.assertIn("motion.pane.holdContent", keys)
+        self.assertNotIn("motion.pane.holdContent", keys)
         self.assertNotIn("CMUX_TUI_TERMINAL_HOST_MODEL", keys, "terminalHolder replaces the env switch")
 
 

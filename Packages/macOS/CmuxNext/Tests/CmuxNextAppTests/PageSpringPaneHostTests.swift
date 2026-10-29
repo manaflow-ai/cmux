@@ -21,7 +21,7 @@ import Testing
 
     /// A pane host as the layout makes it, with no padding, around `content`.
     static func host(_ content: NSView, frame: CGRect, pageResizing: PageSpringResizing? = resizing) -> PaneHostView {
-        let host = PaneHostView(pane: PaneID("page"), content: content, holdsContentInMotion: { false }, pageResizing: pageResizing)
+        let host = PaneHostView(pane: PaneID("page"), content: content, pageResizing: pageResizing)
         host.frame = frame
         host.applyShape(padding: 0, cornerRadius: 0)
         host.layoutSubtreeIfNeeded()

@@ -14,7 +14,7 @@ are the reference forms; these functions are the canonical ones, with the plan's
   MQ5   signposts        SignpostName cases with no emitter (`case x = N` declarations, every
                          Signposter / TraceRuntime call form, doc comments skipped)
   MQ6   features         perf-path tunables and env switches not yet a feature (gen-features.py
-                         --unmigrated, loaded by file path, so motion.pane.holdContent is listed)
+                         --unmigrated, loaded by file path, so a seed tunable is listed)
   MQ-B  bench-migration  MQ1 | MQ2 | MQ3 by file: one file is one migration task
   MQ13  bench-gaps       debug methods and env names that bench scripts use and that a
                          `--config bench` build (DEBUG off, CMUX_BENCH_HOOKS on) does not compile

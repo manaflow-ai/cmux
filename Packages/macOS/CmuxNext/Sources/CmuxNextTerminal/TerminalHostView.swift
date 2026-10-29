@@ -11,7 +11,7 @@ import Observation
 /// The surface fills the host, which fills the pane's content border, so
 /// the first cell sits exactly Ghostty's padding inside the border
 /// (`TerminalPadding.cmuxDefault` unless the user set their own).
-public final class TerminalHostView: NSView {
+public final class TerminalHostView: NSView, PaneMotionHolding {
     private weak var current: TerminalSurfaceView?
     /// The session's theme; nil paints the config background.
     var theme: GhosttyThemeConfig? {
@@ -320,6 +320,9 @@ public final class TerminalHostView: NSView {
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
     private var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
+
+    /// `PaneMotionHolding`: the surface is held at its pane's rest size.
+    public var holdsPaneMotionSize: Bool { surfaceHold != nil }
 
     /// Keeps the surface at `size`, the size it will have when its pane's layout spring lands (a split or a
     /// close, Lawrence 2026-10-23): the terminal draws its final grid on every frame of the spring and reflows

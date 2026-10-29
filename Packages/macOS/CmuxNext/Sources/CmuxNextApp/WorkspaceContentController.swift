@@ -172,8 +172,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // Divider, column-edge and row-edge drags move the layout once per frame (`pointerFrameDrags`), drawn resampled (`resampledDrags`).
         layoutView.setDragInput(frames: services.dragFrameInput, resampler: services.dragResampler)
         layoutView.resamplesStripPan = services.features.isEnabled(.stripPanResampling)
-        // Content keeps its size through a pane spring (feature `paneHoldsContentInMotion`).
-        layoutView.holdsContentInMotion = { [features = services.features] in features.isEnabled(.paneHoldsContentInMotion) }
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).

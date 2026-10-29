@@ -227,13 +227,13 @@ class Features(Fixture):
                     os.path.join(self.root, "schemas/features/features.schema.json"))
         self.write("Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Tunables.swift", """
             enum LayoutTunables {
-                public static let holdsContentInMotion = Tunable<Bool>.toggle(
-                    "motion.pane.holdContent", .springs, "Hold", default: false)
+                public static let layerHosting = Tunable<Bool>.toggle(
+                    "browserResize.layerHosting", .springs, "Host", default: false)
                 public static let other = Tunable<Bool>.toggle("unrelated.key", .springs, "Other", default: false)
             }
             """)
         self.write("cmux-tui/crates/core/src/holder.rs", 'let m = std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL");\n')
-        self.assertEqual(self.keys(queues.unmigrated_features), ["CMUX_TUI_TERMINAL_HOST_MODEL", "motion.pane.holdContent"])
+        self.assertEqual(self.keys(queues.unmigrated_features), ["CMUX_TUI_TERMINAL_HOST_MODEL", "browserResize.layerHosting"])
 
 
 class BenchGaps(Fixture):

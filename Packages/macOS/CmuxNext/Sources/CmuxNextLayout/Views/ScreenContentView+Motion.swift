@@ -191,8 +191,7 @@ extension ScreenContentView {
     /// is: the host, its tab strip and its terminal or page take that size now). The strip container
     /// clips the strip beside the docks; a host has a clip of its own only in a scroll area or while a
     /// zoom lifts the container over it. The zooming pane has a resting pane's material (no fill): every other
-    /// pane is cut where it shows over them (``zoomCover``), and the zooming pane's content lays out at its frame
-    /// on every frame (`PaneHostView.followsFrameLive`), felt 1d.
+    /// pane is cut where it shows over them (``zoomCover``), felt 1d.
     ///
     /// Work per frame is O(what changed): a host whose placed frame, alpha and clip are as
     /// they were is not touched, nor is a divider that kept its frame, and a pass that changed
@@ -242,9 +241,6 @@ extension ScreenContentView {
             // A new rest size (a split's new pane has none before its first one) on a running spring.
             let restChanged = host.restSize != rest.size
             if host.restSize != rest.size { host.restSize = rest.size }
-            // The pane a zoom moves lays its content out live (`PaneHostView.followsFrameLive`), before its spring starts.
-            let live = pane == zoomMotion.pane
-            if host.followsFrameLive != live { host.followsFrameLive = live }
             // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
             let springing = frame.rect != frame.targetRect || host.isOnRenderSpring
             if springing { host.isOnLayoutSpring = true }
