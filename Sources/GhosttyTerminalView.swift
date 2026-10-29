@@ -6714,7 +6714,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
         ) else { return false }
-        if let terminalSurface, terminalSurface.ioMode.usesManualIO {
+        if let terminalSurface, terminalSurface.ioMode != .exec {
             // Keep undo behind transport-owned keys already waiting in the lane.
             return terminalSurface.enqueueManualInputBytes(Data([0x1f]))
         }
