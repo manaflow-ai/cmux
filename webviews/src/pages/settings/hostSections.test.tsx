@@ -95,21 +95,31 @@ test("name-derived Settings marks keep their first grapheme and existing whitesp
       path: `/settings/${surface}`,
       setup: (provider) => {
         const rows = examples.map(([name], index) => ({
-          id: `initial-${index}`, title: name, subtitle: null, icon: null, active: false,
+          id: `initial-${index}`,
+          title: name,
+          subtitle: null,
+          icon: null,
+          active: false,
         }));
         provider.setHost({
           ...provider.host,
           rooms: rows,
           machines: rows,
           browser_profiles: rows.map((row) => ({
-            id: row.id, name: row.title, color: null, icon: null, is_default: false, source: null,
+            id: row.id,
+            name: row.title,
+            color: null,
+            icon: null,
+            is_default: false,
+            source: null,
           })),
         });
       },
     });
     const card = surface === "browser" ? "browserProfiles" : surface;
-    expect(Array.from(page.container.querySelectorAll(`[data-card="${card}"] .host-avatar`), (mark) => mark.textContent))
-      .toEqual(examples.map(([, expected]) => expected));
+    expect(
+      Array.from(page.container.querySelectorAll(`[data-card="${card}"] .host-avatar`), (mark) => mark.textContent),
+    ).toEqual(examples.map(([, expected]) => expected));
     page.unmount();
   }
 });

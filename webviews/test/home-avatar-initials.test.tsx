@@ -13,7 +13,10 @@ test("Home avatars limit complete initials at both display sizes", () => {
     ["", "?", "?"],
     ["   ", "?", "?"],
   ]) {
-    for (const [size, expected] of [[20, small], [24, large]] as const) {
+    for (const [size, expected] of [
+      [20, small],
+      [24, large],
+    ] as const) {
       const html = renderToStaticMarkup(
         <Avatar participant={{ id: "person", kind: "human", name: name!, chief: false }} size={size} />,
       );
