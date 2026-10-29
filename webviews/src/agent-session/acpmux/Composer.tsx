@@ -6,7 +6,7 @@ import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import { type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
@@ -76,12 +76,7 @@ import { useComposerLook } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
-import {
-  appendAttachments,
-  attachmentErrorText,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "./composer/attachmentIntake";
+import { appendAttachments, useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
@@ -204,6 +199,10 @@ export type ComposerHandle = {
   wake(state: ComposerWake): void;
 };
 
+/// A capture from the + menu's Attach Screenshot… or Attach Window…: the preview the chip shows and
+/// the model gets, and `original`, where the host saved the capture as taken (on the chat's machine).
+export type CapturedShot = { file: File; original?: string };
+
 export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean; shellText?: string };
 
 type Props = {
@@ -277,9 +276,9 @@ type Props = {
   plusExtensions?: readonly ComposerPlusExtension[];
   onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
-  /// or a window, attached as an image; an error for one too large to attach (shown as the
-  /// composer's note); undefined when the person cancelled the pick.
-  capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
+  /// or a window at any size, attached as an image chip that links the original the host saved in
+  /// the capture's own gesture; undefined when the person cancelled the pick.
+  capture?(mode: "screen" | "window"): Promise<CapturedShot | undefined>;
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
@@ -540,6 +539,15 @@ export function Composer({
   /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
   const openInWindow = useRef(onOpenInWindow);
   openInWindow.current = onOpenInWindow;
+  // Native capture can outlive the chat (or the entire composer). Invalidate its result as
+  // soon as this chat is left, including a switch away and back before the picker completes.
+  const captureScope = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    captureScope.current = {};
+    return () => {
+      captureScope.current = null;
+    };
+  }, [sessionId]);
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // A paste on the prompt or the shell field, and a file drop anywhere (composer/attachmentIntake.tsx).
   // The composer's card, and the chat column around it that a file drag covers (composer/DropOverlay.tsx).
@@ -592,6 +600,9 @@ export function Composer({
     },
     carries: () => carryPrompt.current || Boolean(switching),
   });
+  useLayoutEffect(() => {
+    setAttachError(undefined);
+  }, [sessionId, setAttachError]);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
@@ -1976,12 +1987,26 @@ export function Composer({
                               command: (action, modeId) => {
                                 if (action === "composer.attachFiles") chooser.current?.click();
                                 else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
+                                  const source = captureScope.current;
                                   void capture?.(action === "composer.attachWindow" ? "window" : "screen")
                                     .then(async (shot) => {
-                                      if (shot instanceof File) await attach([shot]);
-                                      else if (shot) setAttachError(attachmentErrorText(shot, t));
+                                      // The host saved the original already: nothing uploads.
+                                      if (shot && source !== null && captureScope.current === source)
+                                        await attach(
+                                          [shot.file],
+                                          false,
+                                          undefined,
+                                          shot.original ? [{ path: shot.original, folder: false }] : undefined,
+                                        );
+                                    })
+                                    .catch((error: unknown) => {
+                                      if (source !== null && captureScope.current === source)
+                                        setAttachError(
+                                          error instanceof Error ? error.message : t("error.requestFailed"),
+                                        );
                                     })
                                     .finally(() => {
+                                      if (captureScope.current !== source) return;
                                       const focused = document.activeElement;
                                       if (!focused || focused === document.body || form.current?.contains(focused))
                                         field.current?.focus();

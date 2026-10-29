@@ -1,33 +1,256 @@
 @testable import CmuxNextAgentPane
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 
-/// What `composer.capture` answers the page for what `screencapture` wrote: a capture named for
-/// when it was taken (so two in one prompt differ), nothing for a cancelled pick, and a capture too
-/// large to attach by name, for the composer's note.
+/// What `composer.capture` answers the page: a capture named for when it was taken (so two in one
+/// prompt differ); the original, as `screencapture` wrote it at any size, saved through the chat's
+/// own upload stager inside the click's one gesture, by its path; and a bounded preview for the
+/// model. The page never sends the bytes back, which would need a second gesture (#26958 review).
+@MainActor
 struct AgentPaneCaptureTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
     private static let taken = DateComponents(calendar: Calendar(identifier: .gregorian), timeZone: .current,
                                               year: 2026, month: 10, day: 11, hour: 14, minute: 32, second: 5).date!
+    /// A 1x1 PNG.
+    private static let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
+    private static let saved = "/Users/dev/Library/Application Support/cmux/Chat Uploads/sessions/s1/u/0/Screenshot.png"
 
-    @Test func aCaptureIsNamedForWhenItWasTaken() throws {
-        let png = Data([0x89, 0x50, 0x4E, 0x47])
-        let answer = AgentPaneCapture.answer(png, taken: Self.taken)
+    /// A pane for chat `session` (nil: a fresh chat, before its first prompt) whose upload stager
+    /// records each request and the session it was asked for, and keeps the bytes it got. Like
+    /// AgentChatUploads' stager, it takes a nil session for a new chat.
+    private final class Rig {
+        let model: AgentPaneModel
+        var requests: [AgentPaneUploadStageRequest] = []
+        var sessions: [String?] = []
+        var received = Data()
+        var captureFile: URL?
+
+        init(stages: Bool = true, session: String? = "s1", finishValue: [String: Any]? = nil, refusing: String? = nil) {
+            model = AgentPaneModel(host: NoHost(), sessionId: session)
+            guard stages else { return }
+            model.onUploadStage = { [weak self] in
+                { request, asked in
+                    guard let self, asked == nil || asked == session else { return AgentPaneReply.failure(code: "upload_failed", message: "") }
+                    self.requests.append(request)
+                    self.sessions.append(asked)
+                    switch request {
+                    case .begin(_, let size, _, _):
+                        if refusing == "begin" { return AgentPaneReply.failure(code: "upload_refused", message: "Refused") }
+                        return AgentPaneReply.success(["token": "t", "size": size, "chunkSize": 512 * 1024])
+                    case .chunk(_, _, let data):
+                        if refusing == "chunk" { return AgentPaneReply.failure(code: "upload_failed", message: "Failed") }
+                        self.received.append(data)
+                        return AgentPaneReply.success(["offset": self.received.count])
+                    case .finish:
+                        if refusing == "finish" { return AgentPaneReply.failure(code: "upload_failed", message: "Failed") }
+                        return AgentPaneReply.success(finishValue ?? ["path": AgentPaneCaptureTests.saved])
+                    case .cancel: return AgentPaneReply.success()
+                    }
+                }
+            }
+        }
+
+        func capture(_ bytes: Data, gesture: Bool = true, picked: Bool = true) async -> [String: Any] {
+            if gesture { model.transport.gestures.record(click: true) }
+            return await AgentPaneCapture.reply(to: "screen", in: model, taken: AgentPaneCaptureTests.taken) { _, file in
+                await MainActor.run { self.captureFile = file }
+                let written = bytes.isEmpty || (try? bytes.write(to: file)) != nil
+                return picked && written
+            }
+        }
+
+        @MainActor func switchChat(to destination: Rig) async {
+            _ = await model.respond(to: .persistSession("s2"))
+            model.onUploadStage = destination.model.onUploadStage
+        }
+    }
+
+    private static func value(_ reply: [String: Any]) -> [String: Any]? { reply["value"] as? [String: Any] }
+    private static func errorCode(_ reply: [String: Any]) -> String? { (reply["error"] as? [String: Any])?["code"] as? String }
+
+    @Test func aCaptureIsNamedForWhenItWasTaken() {
+        #expect(AgentPaneCapture.name(taken: Self.taken) == "Screenshot 2026-10-11 14.32.05.png")
+    }
+
+    /// The review's BLOCK: the capture used the click's only gesture, so the page's own upload of the
+    /// original was refused (`gesture_required`). The host saves the original in the same gesture.
+    @Test func aCaptureSavesItsOriginalWithinItsOneGestureAndAnswersItsPath() async throws {
+        let rig = Rig()
+        let reply = await rig.capture(Self.png)
+        let answer = try #require(Self.value(reply), "\(reply)")
+        let original = try #require(answer["original"] as? [String: Any])
+        #expect(original["path"] as? String == Self.saved)
+        #expect(original["name"] as? String == "Screenshot 2026-10-11 14.32.05.png")
         #expect(answer["name"] as? String == "Screenshot 2026-10-11 14.32.05.png")
         #expect(answer["mimeType"] as? String == "image/png")
-        #expect(answer["data"] as? String == png.base64EncodedString())
+        #expect(answer["data"] as? String == Self.png.base64EncodedString())
+        #expect(rig.requests == [
+            .begin(name: "Screenshot 2026-10-11 14.32.05.png", size: Self.png.count, batchToken: nil, batch: nil),
+            .chunk(token: "t", offset: 0, data: Self.png),
+            .finish(token: "t"),
+        ])
+        #expect(rig.received == Self.png)
+        // One credit: the click's is used, and a capture without a new click is refused before it runs.
+        #expect(!rig.model.transport.gestures.isAvailable)
+        let again = await rig.capture(Self.png, gesture: false)
+        #expect(Self.errorCode(again) == AgentPaneTransportError.gestureRequired.rawValue)
+        #expect(rig.requests.count == 3)
     }
 
-    @Test func aCancelledPickAnswersNothingToAttach() {
-        let answer = AgentPaneCapture.answer(Data(), taken: Self.taken)
-        #expect(answer["cancelled"] as? Bool == true)
-        #expect(answer["data"] == nil)
+    /// The native model can persist another chat while the system picker is open. Both the
+    /// source route and its session (including a fresh chat's nil) belong to the original click.
+    @Test func aPendingPickKeepsItsSourceRouteAndSession() async throws {
+        let png = Self.png
+        for session: String? in ["s1", nil] {
+            let source = Rig(session: session)
+            let destination = Rig(session: "s2")
+            source.model.transport.gestures.record(click: true)
+            let reply = await AgentPaneCapture.reply(to: "screen", in: source.model, taken: Self.taken) { _, file in
+                // reply is suspended inside the picker while the normal native persist handler
+                // changes the chat and its route; no staging has started yet.
+                await source.switchChat(to: destination)
+                return (try? png.write(to: file)) != nil
+            }
+            let answer = try #require(Self.value(reply))
+            #expect((answer["original"] as? [String: Any])?["path"] as? String == Self.saved)
+            #expect(source.model.sessionId == "s2")
+            #expect(source.received == Self.png)
+            #expect(source.sessions == [session, session, session])
+            #expect(destination.requests.isEmpty)
+        }
     }
 
-    @Test func aCaptureTooLargeToAttachIsNamedForTheNote() {
-        // Bytes over the cap that are no image: nothing can scale them under it.
-        let answer = AgentPaneCapture.answer(Data(count: AgentPaneCapture.maxBytes + 1), taken: Self.taken)
-        #expect(answer["tooLarge"] as? Bool == true)
-        #expect(answer["name"] as? String == "Screenshot 2026-10-11 14.32.05.png")
-        #expect(answer["data"] == nil)
+    /// CloudUploads finishes with uploads:[{name,path}], unlike the local stager's path field.
+    @Test func aCloudCaptureKeepsItsOriginalFromTheUploadList() async throws {
+        let rig = Rig(finishValue: ["uploads": [["name": "Screenshot.png", "path": Self.saved]]])
+        let answer = try #require(Self.value(await rig.capture(Self.png)))
+        #expect((answer["original"] as? [String: Any])?["path"] as? String == Self.saved)
+        #expect(rig.received == Self.png)
+        #expect(!rig.requests.contains(.cancel(token: "t")))
+    }
+
+    @Test func aCloudCaptureRefusesAnInvalidOrAmbiguousUploadList() async throws {
+        let invalid: [[[String: String]]] = [
+            [],
+            [["path": Self.saved], ["path": "/another/file.png"]],
+            [["path": "relative.png"]],
+            [["path": ""]],
+            [["name": "Screenshot.png"]],
+        ]
+        for uploads in invalid {
+            let rig = Rig(finishValue: ["uploads": uploads])
+            let reply = await rig.capture(Self.png)
+            #expect(Self.errorCode(reply) == "capture_failed")
+            let file = try #require(rig.captureFile)
+            defer { try? FileManager.default.removeItem(at: file) }
+            #expect(try Data(contentsOf: file) == Self.png)
+            #expect(rig.requests.last == .cancel(token: "t"))
+        }
+    }
+
+    @Test func aFailedOriginalStageReportsFailureAndKeepsRecoverableBytes() async throws {
+        for refusing in ["begin", "chunk", "finish"] {
+            let rig = Rig(refusing: refusing)
+            let reply = await rig.capture(Self.png)
+            let file = try #require(rig.captureFile)
+            defer { try? FileManager.default.removeItem(at: file) }
+            #expect(Self.errorCode(reply) == "capture_failed")
+            let error = try #require(reply["error"] as? [String: Any])
+            #expect((error["details"] as? [String: Any])?["originalPath"] as? String == file.path)
+            #expect((error["userMessage"] as? String)?.contains(file.path) == true)
+            #expect(try Data(contentsOf: file) == Self.png)
+            #expect(rig.requests.contains(.cancel(token: "t")) == (refusing != "begin"))
+        }
+    }
+
+    @Test func successfulAndCancelledCapturesRemoveTheirTemporaryFiles() async throws {
+        for picked in [true, false] {
+            let rig = Rig()
+            let reply = await rig.capture(Self.png, picked: picked)
+            #expect(reply["ok"] as? Bool == true)
+            let file = try #require(rig.captureFile)
+            #expect(!FileManager.default.fileExists(atPath: file.path))
+            if !picked {
+                #expect(Self.value(reply)?["cancelled"] as? Bool == true)
+                #expect(rig.requests.isEmpty)
+            }
+        }
+    }
+
+    /// #26958 review: a fresh chat has no session until its first prompt, and its capture still
+    /// saves the original: the stager is asked for no session, as for the page's own new-chat upload.
+    @Test func aCaptureInAFreshChatSavesItsOriginal() async throws {
+        let rig = Rig(session: nil)
+        #expect(rig.model.sessionId == nil)
+        let answer = try #require(Self.value(await rig.capture(Self.png)))
+        #expect((answer["original"] as? [String: Any])?["path"] as? String == Self.saved)
+        #expect(rig.requests == [
+            .begin(name: "Screenshot 2026-10-11 14.32.05.png", size: Self.png.count, batchToken: nil, batch: nil),
+            .chunk(token: "t", offset: 0, data: Self.png),
+            .finish(token: "t"),
+        ])
+        #expect(rig.sessions == [nil, nil, nil])
+        #expect(rig.received == Self.png)
+    }
+
+    /// Leo, 2026-10-26: "WE NEED ARBITARRILY LARGE FILES OF ANY TYPE". A capture past the preview's
+    /// budget is saved as taken, byte for byte and chunk by chunk; only the preview is scaled.
+    @Test func aLargeCaptureIsSavedAsTakenAndOnlyItsPreviewIsScaled() async throws {
+        let large = try Self.noisePNG(width: 2400, height: 1600)
+        try #require(large.count > AgentPaneCapture.previewMaxBytes)
+        let rig = Rig()
+        let answer = try #require(Self.value(await rig.capture(large)))
+        #expect((answer["original"] as? [String: Any])?["path"] as? String == Self.saved)
+        #expect(rig.received == large)
+        #expect(rig.requests.filter { if case .chunk = $0 { true } else { false } }.count == (large.count + 512 * 1024 - 1) / (512 * 1024))
+        let preview = try #require((answer["data"] as? String).flatMap { Data(base64Encoded: $0) })
+        #expect(preview.count < large.count)
+        let source = try #require(CGImageSourceCreateWithData(preview as CFData, nil))
+        let properties = try #require(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+        let side = max(properties[kCGImagePropertyPixelWidth] as? Int ?? .max, properties[kCGImagePropertyPixelHeight] as? Int ?? .max)
+        #expect(side <= AgentPaneCapture.previewMaxSide)
+    }
+
+    @Test func aCancelledPickAnswersCancelledAndSavesNothing() async {
+        let rig = Rig()
+        let answer = Self.value(await rig.capture(Data()))
+        #expect(answer?["cancelled"] as? Bool == true)
+        #expect(answer?["original"] == nil)
+        #expect(rig.requests.isEmpty)
+    }
+
+    /// A chat whose host saves nothing (no stager): the preview still attaches, with no original.
+    @Test func aChatThatSavesNothingGetsThePreviewOnly() async throws {
+        let rig = Rig(stages: false)
+        let answer = try #require(Self.value(await rig.capture(Self.png)))
+        #expect(answer["data"] as? String == Self.png.base64EncodedString())
+        #expect(answer["original"] == nil)
+    }
+
+    /// A PNG of `width` x `height` noise, which PNG cannot compress.
+    private static func noisePNG(width: Int, height: Int) throws -> Data {
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        let rows = context.bytesPerRow
+        let pixels = try #require(context.data).bindMemory(to: UInt8.self, capacity: rows * height)
+        var seed: UInt32 = 0x2545_F491
+        for row in 0..<height {
+            for column in 0..<(width * 4) {
+                seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5
+                pixels[row * rows + column] = UInt8(truncatingIfNeeded: seed)
+            }
+        }
+        let image = try #require(context.makeImage())
+        let out = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        try #require(CGImageDestinationFinalize(destination))
+        return out as Data
     }
 }

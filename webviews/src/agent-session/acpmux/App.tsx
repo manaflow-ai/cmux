@@ -138,7 +138,7 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
-import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
+import { type CapturedShot, Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import {
   linkAttachment,
   linkItems,
@@ -5030,17 +5030,28 @@ function AcpmuxPane() {
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
-  // that would not fit the image cap answers `tooLarge` with its name.
-  const captureScreen = useCallback(async (mode: "screen" | "window") => {
-    const shot = await callNative<{ name?: string; mimeType?: string; data?: string; tooLarge?: boolean } | null>(
-      "composer.capture",
-      { mode },
-    ).catch(() => null);
-    if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
-    if (!shot?.data) return undefined;
+  // screencapture's own pick, saves the capture as taken in the chat's uploads within the click's
+  // one gesture (AgentPaneCapture.swift), and answers a bounded preview with where it saved the
+  // original. The page never sends the bytes back: that would need a second gesture. A cancelled
+  // pick answers nothing to attach.
+  const captureScreen = useCallback(async (mode: "screen" | "window"): Promise<CapturedShot | undefined> => {
+    const shot = await callNative<{
+      name?: string;
+      mimeType?: string;
+      data?: string;
+      original?: { path?: unknown };
+    } | null>("composer.capture", { mode });
+    const path = shot?.original?.path;
+    const original = typeof path === "string" && path.startsWith("/") ? path : undefined;
+    if (!shot?.data && !original) return undefined;
+    const name = shot?.name ?? "Screenshot.png";
+    // No preview (the capture is no image the host could read): the original goes as a file.
+    if (!shot?.data) return { file: new File([], name, { type: "application/octet-stream" }), original };
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
-    return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
+    return {
+      file: new File([bytes], name, { type: shot.mimeType ?? "image/png" }),
+      ...(original ? { original } : {}),
+    };
   }, []);
   const uploadFiles = useCallback(
     (files: File[], cancelled?: (index: number) => boolean) => uploadToMachine(files, callNative, cancelled),

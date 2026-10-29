@@ -23,6 +23,23 @@ export function agentPaneFontCSS(font: string, size: number): string {
 
 const UPLOAD_STEPS = new Set(["chat.upload.begin", "chat.upload.chunk", "chat.upload.finish", "chat.upload.cancel"]);
 
+/// How long a gesture's credit lasts (AgentPaneUserGestures.lifetime).
+const GESTURE_LIFETIME_MS = 30_000;
+/// The events that are the person's gesture in the pane, as the app records one: a key or a click in
+/// the page (a paste is ⌘V), or a file drop on it.
+const GESTURE_EVENTS = ["pointerdown", "mousedown", "keydown", "paste", "drop"] as const;
+/// Whether `message` uses the person's gesture, as the app's host checks it: a capture
+/// (AgentPaneCapture), the one-frame upload (AgentPaneUpload.respond) and a staged upload's first
+/// begin (AgentPaneModel's `.uploadStage`; a batch's later files present its token instead).
+function needsGesture(message: Message): boolean {
+  const method = message.method;
+  if (method === "composer.capture" || method === "chat.upload") return true;
+  return method === "chat.upload.begin" && message.params?.batchToken === undefined;
+}
+
+/// The app's refusal of a call that needed a gesture the pane no longer has.
+const GESTURE_REQUIRED = { ok: false, error: { code: "transport.gesture_required", origin: "native" } };
+
 export async function mountAgentPane(state: AgentPaneVariant, context: StageContext): Promise<void> {
   const strings = (await import("../../agent-session/acpmux/generated/strings.json")).default as unknown as Record<
     string,
@@ -42,6 +59,26 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   });
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
+  // The person's gesture, as the app keeps it (AgentPaneUserGestures): each gesture gives one credit,
+  // and the first call that needs one uses it, so a second such call needs a new gesture. A host
+  // that takes no such call refuses it before the credit is used (`unsupported`).
+  let gestureAt: number | undefined;
+  const recordGesture = () => {
+    gestureAt = performance.now();
+  };
+  for (const type of GESTURE_EVENTS) document.addEventListener(type, recordGesture, true);
+  const useGesture = () => {
+    const at = gestureAt;
+    gestureAt = undefined;
+    return at !== undefined && performance.now() - at <= GESTURE_LIFETIME_MS;
+  };
+  const refusedUnused = (value: unknown) =>
+    Boolean(
+      value &&
+      typeof value === "object" &&
+      "nativeError" in value &&
+      (value as { nativeError?: { code?: unknown } }).nativeError?.code === "unsupported",
+    );
   // The app's staged upload (cloudUploads.ts: begin, base64 chunks, finish, cancel), so a pasted
   // file goes through the path the app runs. A variant that answers or delays a step in `native` /
   // `nativeDelayMs` takes it over (a refused begin is an older host: the pane uses `chat.upload`).
@@ -117,6 +154,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   };
   const handle = (message: Message) => {
     context.log(message.method ?? "?", message.params);
+    if (needsGesture(message) && !refusedUnused(state.native?.[message.method ?? ""]) && !useGesture())
+      return GESTURE_REQUIRED;
     next(message.method);
     switch (message.method) {
       case "ready":

@@ -61,6 +61,10 @@ const startedChat = (harness: "claude" | "codex" = "claude") =>
     harness === "codex" ? { harness, model: "gpt-6-astra" } : {},
   );
 
+/// Where the host saved a fresh chat's capture as taken (AgentChatUploads: a chat with no session yet).
+const FRESH_CAPTURE =
+  "/Users/you/Library/Application Support/cmux/Chat Uploads/2f0c1d7e/0/Screenshot 2026-10-11 14.32.05.png";
+
 const LOG = (ctx: PlayContext) =>
   (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] }).cmuxGalleryLog;
 
@@ -141,6 +145,37 @@ export default agentPaneEntry({
         await ctx.waitFor(() => doc.querySelector(".acpmux-attachment-pasted"));
         await ctx.press("Enter");
         await ctx.waitFor(() => LOG(ctx).some(({ method }) => method === "acpmux session/prompt"), { capMs: 10_000 });
+      },
+    },
+    "first-send-capture": {
+      note: "Play: on the real client, before the chat has a session, + > Attach Screenshot… (the host saves the capture as taken in the click's gesture and answers a preview with its path), type and send: the first prompt carries the preview and a link to the original.",
+      ready: { transport: "mock", newSession: true, workspaceContext: true },
+      snapshot: noChat([]),
+      checks: {
+        anchorMovePx: { value: 160, reason: "The capture's chip grows the card, then the first send clears it." },
+        layoutShiftMax: { value: 0.2, reason: "The hero leaves and the first turn mounts on the send." },
+        longFrameFailMs: { value: 150, reason: "The mock daemon's first session and the first turn share a frame." },
+      },
+      native: {
+        "composer.capture": {
+          name: "Screenshot 2026-10-11 14.32.05.png",
+          mimeType: "image/png",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          // A new chat's upload goes under Chat Uploads itself (AgentChatUploads: no session yet).
+          original: { path: FRESH_CAPTURE, name: "Screenshot 2026-10-11 14.32.05.png" },
+        },
+      },
+      play: async (ctx) => {
+        const doc = ctx.document;
+        await ctx.waitFor(() => doc.querySelector(".acpmux-model"));
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
+        await ctx.waitFor(() => doc.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+        await ctx.type("What is wrong in this capture?", { selector: ".acpmux-md" });
+        await ctx.press("Enter");
+        await ctx.waitFor(() => LOG(ctx).some(({ method }) => method === "acpmux session/prompt"), { capMs: 10_000 });
+        const sentBack = LOG(ctx).find(({ method }) => method === "chat.upload.begin" || method === "chat.upload");
+        if (sentBack) throw new Error(`the page sent the capture back: ${sentBack.method}`);
       },
     },
     started: {
