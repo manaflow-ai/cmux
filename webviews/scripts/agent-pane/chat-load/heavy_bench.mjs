@@ -71,6 +71,8 @@ function shim() {
     }
   };
   window.webkit = { messageHandlers: { agentSession: { postMessage: (request) => Promise.resolve(reply(request)) } } };
+  // The mock daemon logs each request it answers here (mock.ts `answer`): the requests per method.
+  window.cmuxGalleryLog = [];
 }
 
 const browser = await pw.chromium.launch();
@@ -109,7 +111,13 @@ const medians = (rows, keys) =>
 const results = { harness: "heavy_bench.mjs", load: { turns, subsessions, childTurns, ...run }, runs: [] };
 for (let i = 0; i < repeat; i += 1) {
   const { context, page, seed } = await openLoaded();
-  const stream = await page.evaluate((options) => window.cmuxAcpmuxDebug.loadRun(options), run);
+  const stream = await page.evaluate(async (options) => {
+    const from = window.cmuxGalleryLog.length;
+    const result = await window.cmuxAcpmuxDebug.loadRun(options);
+    const methods = {};
+    for (const entry of window.cmuxGalleryLog.slice(from)) methods[entry.method] = (methods[entry.method] ?? 0) + 1;
+    return { ...result, requests: methods };
+  }, run);
   // A fresh page for each open: the stream above left the parent's queue and rows grown.
   await context.close();
   const idle = await openLoaded();
@@ -145,6 +153,7 @@ results.median = {
 };
 console.log(JSON.stringify({ median: results.median }, null, 1));
 console.log(JSON.stringify({ longest_frames: results.runs.at(-1).stream.longest?.slice(0, 6) }));
+console.log(JSON.stringify({ requests_during_stream: results.runs.at(-1).stream.requests, seconds: run.seconds }));
 
 if (has("profile")) {
   const { context, page } = await openLoaded();
@@ -161,11 +170,45 @@ if (has("profile")) {
     const key = `${f.functionName || "(anon)"} ${f.url.split("/").pop()}:${f.lineNumber + 1}`;
     self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[i] ?? 0) / 1000);
   });
+  // Who calls a native frame (no URL): its JS caller's self time, for the hottest ones.
+  const parents = new Map();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parents.set(child, node.id);
+  const keyOf = (f) => `${f.functionName || "(anon)"} ${f.url.split("/").pop()}:${f.lineNumber + 1}`;
+  const callers = new Map();
+  profile.samples.forEach((id, i) => {
+    const f = byId.get(id).callFrame;
+    if (f.url || ["(idle)", "(program)", "(garbage collector)", "(root)"].includes(f.functionName)) return;
+    let parent = parents.get(id);
+    const chain = [];
+    while (parent !== undefined && chain.length < 4) {
+      const pf = byId.get(parent).callFrame;
+      if (pf.url) chain.push(keyOf(pf));
+      parent = parents.get(parent);
+    }
+    const key = `${keyOf(f)} <- ${chain.join(" <- ")}`;
+    callers.set(key, (callers.get(key) ?? 0) + (profile.timeDeltas[i] ?? 0) / 1000);
+  });
   const total = [...self.values()].reduce((a, b) => a + b, 0);
   const top = [...self.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40);
+  // The bundle's source line of each hot frame in it (heavy_run.sh builds it unminified).
+  const lines = new Map();
+  const source = (key) => {
+    const match = /^(.*) ([\w.-]+\.js):(\d+)$/.exec(key);
+    if (!match) return "";
+    const file = path.join(paneDir, match[2]);
+    if (!lines.has(file)) lines.set(file, fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n") : []);
+    const at = Number(match[3]) - 1;
+    const near = lines.get(file).slice(Math.max(0, at - 40), at + 1).reverse();
+    const marker = near.find((line) => /^\/\/ src\//.test(line.trim()));
+    return `${(lines.get(file)[at] ?? "").trim().slice(0, 100)}${marker ? `   [${marker.trim()}]` : ""}`;
+  };
+  console.log("== native frames by JS caller");
+  for (const [key, value] of [...callers.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12))
+    console.log(`${value.toFixed(1).padStart(9)} ms  ${key}`);
+  results.callers = [...callers.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
   results.profile = { sampled_ms: Math.round(total), top: top.map(([k, v]) => [k, Math.round(v * 10) / 10]) };
   console.log(`== profile stream: ${Math.round(total)} ms sampled`);
-  for (const [key, value] of top) console.log(`${value.toFixed(1).padStart(9)} ms  ${key}`);
+  for (const [key, value] of top) console.log(`${value.toFixed(1).padStart(9)} ms  ${key}  ${source(key)}`);
   await context.close();
 }
 

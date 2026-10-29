@@ -19,8 +19,9 @@ if [[ "${HEAVY_MINIFY:-}" != 1 ]]; then
   restore() { cp "$work/bundle.mjs.orig" "$root/webviews/scripts/agent-pane/bundle.mjs"; rm -rf "$work"; }
   trap restore EXIT
 fi
-"$root/scripts/cmux-next/build-agent-pane-web.sh" --out "$work/pane"
+# The pane stays in OUT_DIR/pane, so later runs can reuse it (node heavy_bench.mjs --pane OUT_DIR/pane).
+"$root/scripts/cmux-next/build-agent-pane-web.sh" --out "$out/pane"
 # The webviews browser snapshot's browsers when the VM has them, else Playwright's own install.
 if [[ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" && -d /opt/pw-webviews/browsers ]]; then export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-webviews/browsers; fi
-(cd "$root/webviews" && node "$here/heavy_bench.mjs" --pane "$work/pane" --out "$out/heavy.json" "$@") | tee "$out/heavy.txt"
+(cd "$root/webviews" && node "$here/heavy_bench.mjs" --pane "$out/pane" --out "$out/heavy.json" "$@") | tee "$out/heavy.txt"
 echo "results in $out"
