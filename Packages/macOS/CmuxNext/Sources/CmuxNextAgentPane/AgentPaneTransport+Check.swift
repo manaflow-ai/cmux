@@ -226,7 +226,6 @@ extension AgentPaneTransport {
         else { return nil }
         let session = named as? String
         // Other params that name a session must name one of the pane's too (`_acpmux/side`'s chat).
-        let params = object["params"] as? [String: Any]
         let othersHeld = AcpmuxPaneMethods.scopedSessionParams[method, default: []]
             .allSatisfy { (params?[$0] as? String).map(sessions.contains) == true }
         // Ones that may name a session (an accepted offer's child): none is fine, a named one
