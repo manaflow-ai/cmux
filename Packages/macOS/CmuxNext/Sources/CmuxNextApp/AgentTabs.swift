@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextPages
@@ -184,6 +185,10 @@ final class AgentTabStore {
     var firstPageTokens: [WorkspaceHandle: String] = [:]
     /// A first page took a key-hold token (the hold then waits for that page's readiness).
     var onFirstPageToken: ((String) -> Void)?
+    /// A New Tab page that carries a key-hold token will never report its field ready (its load failed, it crashed
+    /// past its reload budget, or its tab went): the hold of that token ends with the reason, whichever opening
+    /// (Cmd-T, Cmd-N, a split) made it (`NewTabInputCoordinator.pageFailed`).
+    var onNewTabInputEnded: ((String, WindowInputQueue.DropReason) -> Void)?
     /// The tab resuming each outside chat (`harness:agentSessionId`), so
     /// picking the same chat again shows that tab instead of a second one.
     private static let adoptionsDefaultsKey = "cmux.agent-tabs.outside-adoptions"
@@ -465,6 +470,7 @@ final class AgentTabStore {
         model.onRunAttach = { [weak self] request in guard let self, let runAttach else { throw AgentPaneHostError.daemonStopped }; try await runAttach(resolve(provisional), request) }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
+        model.onNewTabInputFailed = { [weak self] token in self?.onNewTabInputEnded?(token, .targetFailed) }
         model.onRememberNewTab = { [weak self, weak model] pick in
             if let model { AgentPaneNewTabFrame.shared.modelChanged(pick, by: model) }
             self?.pageHandler(provisional)?.remember(pick)

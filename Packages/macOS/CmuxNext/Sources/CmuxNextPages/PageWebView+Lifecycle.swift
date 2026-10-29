@@ -136,12 +136,28 @@ extension PageWebView {
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
         loadState.set(loading: false, page: self)
         resumeLoadWaiters()
+        if !Self.isBenignInterruption(error) { documentFailed() }
     }
 
     // crash-allow: WebKit delegate signature uses nullable navigation handles.
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         loadState.set(loading: false, page: self)
         resumeLoadWaiters()
+        if !Self.isBenignInterruption(error) { documentFailed() }
+    }
+
+    /// A main-frame load failed for real (either engine): the host hears it (``onLoadFailed``), since the document it
+    /// waits on (a New Tab page's field readiness) will not come.
+    func documentFailed() {
+        onLoadFailed?()
+    }
+
+    /// A load a newer navigation replaced (`NSURLErrorCancelled`), or one the navigation policy stopped (WebKit's "frame
+    /// load interrupted", 102): the page goes on, so neither is a failure.
+    nonisolated static func isBenignInterruption(_ error: any Error) -> Bool {
+        let error = error as NSError
+        return (error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled)
+            || (error.domain == "WebKitErrorDomain" && error.code == 102)
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

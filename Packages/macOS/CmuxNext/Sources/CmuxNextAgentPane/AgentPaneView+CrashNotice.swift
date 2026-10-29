@@ -9,7 +9,17 @@ extension AgentPaneView {
     func pageCrashed(reloading: Bool) {
         // The composer that held the session's words is gone.
         dictation.handle(.cancel)
-        if !reloading { showCrashNotice() }
+        guard !reloading else { return } // the reloaded page reports its field ready again
+        showCrashNotice()
+        newTabPageFailed()
+    }
+
+    /// The New Tab page will not report its field ready (its load failed, or it crashed past its reload budget): the
+    /// opening that holds keys for that field hears it now, so the keys drop instead of waiting for a field that
+    /// never comes.
+    func newTabPageFailed() {
+        guard let token = model.newTab?.inputToken else { return }
+        model.onNewTabInputFailed?(token)
     }
 
     private func showCrashNotice() {

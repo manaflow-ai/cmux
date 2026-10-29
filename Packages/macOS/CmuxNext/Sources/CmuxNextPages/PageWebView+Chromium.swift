@@ -281,6 +281,8 @@ extension PageWebView {
             chromiumSession.bridge.replay(held)
         case .finished:
             documentFinished()
+        case .loadFailed:
+            documentFailed()
         case .crashed:
             chromiumSession.hang.end()
             contentProcessTerminated()

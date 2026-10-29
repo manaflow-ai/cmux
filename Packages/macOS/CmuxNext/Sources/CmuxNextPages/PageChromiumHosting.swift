@@ -331,6 +331,8 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     case committed(URL?)
     /// The document finished loading.
     case finished
+    /// The main frame's load failed (Chromium's load error); a load a newer one replaced is not reported.
+    case loadFailed
     /// The page's render process ended.
     case crashed
     /// The page's renderer stopped handling input for Chromium's hang delay

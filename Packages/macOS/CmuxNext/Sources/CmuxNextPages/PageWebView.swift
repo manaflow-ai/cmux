@@ -181,6 +181,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// A main-frame document finished loading, in either engine (WebKit's `didFinish`, Chromium's
     /// load end): after the page's scripts ran, and again after each reload.
     public var onLoaded: (() -> Void)?
+    /// A main-frame load failed, in either engine (WebKit's `didFail`/`didFailProvisionalNavigation`, Chromium's load
+    /// error): the document will not come unless something loads it again. A load a newer one replaced, or one the
+    /// navigation policy stopped, is not a failure and does not call it.
+    public var onLoadFailed: (() -> Void)?
     /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
     /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
     /// `data-*` attributes of `<html>` the host keeps current (`setDocumentAttribute`): set again

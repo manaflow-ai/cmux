@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFocusUI
 import CmuxNextSignposts
 import CmuxNextWakeups
 import Foundation
@@ -315,6 +316,8 @@ extension AgentTabStore {
 
     /// Stops tab `key`'s page and forgets its view state.
     func release(_ key: String) {
+        // A New Tab page that goes before its field reported ready: the keys held for that field drop, never go on.
+        if let token = newTabPages[key]?.page.inputToken ?? views[key]?.model.newTab?.inputToken { onNewTabInputEnded?(token, .targetClosed) }
         createTabs?.released(key) // a chat closed (or refused) before its first paint: create.tab ends as closed
         if let view = views.removeValue(forKey: key) {
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a

@@ -42,6 +42,9 @@ public final class AgentPaneModel {
     @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
     /// Receives the current opening’s focused-field acknowledgement.
     @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
+    /// The opening's field will never acknowledge: the page's load failed or it crashed past its reload budget
+    /// (``AgentPaneView/newTabPageFailed()``). The token names the opening whose held keys drop.
+    @ObservationIgnored public var onNewTabInputFailed: ((String) -> Void)?
     /// The new tab page chose a terminal or browser (`tab.open`).
     @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
     /// A redeemed Run attempt asks the App to open its enrolled worker's terminal (`run.attach`).

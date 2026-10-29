@@ -16,6 +16,8 @@ import CmuxNextDesign
 /// - its pane no longer shows a New Tab page (the page was left or became a chat) or left the
 ///   window, or the window closed,
 /// - its creation failed or its page closed before it existed,
+/// - its page failed (a load error, a crash past its reload budget) or its tab went before the field was ready
+///   (``pageFailed(_:_:)``),
 /// - the person moved on: another opening (its keys stay with the first page unless a held key opened it),
 ///   Escape, a click on another pane, a key window that is not the shell's.
 /// A close key (Cmd-W) acts at once and drops the keys. Any other app command (a key bound to a cmux action, a menu key
@@ -202,6 +204,15 @@ final class NewTabInputCoordinator {
         note("ready incoming \(key)", entry)
         entry.buffer.acknowledge(token)
         flush(in: window)
+    }
+
+    /// The New Tab page that carries `token` will never report its field ready: its load failed or it crashed past its
+    /// reload budget (`targetFailed`), or its tab went (`targetClosed`). The hold that gave it the token, in whatever
+    /// window, ends now and its keys drop with `reason`: nothing else ends a hold whose field never comes, and the keys
+    /// never go to another view. A token whose hold already ended changes nothing.
+    func pageFailed(_ token: String, _ reason: WindowInputQueue.DropReason) {
+        guard let entry = buffers.values.first(where: { $0.buffer.token == token }) else { return }
+        end(entry, reason, why: reason == .targetClosed ? "page closed before ready" : "page failed before ready")
     }
 
     /// `event` as typed into `window` (a key held in one window and replayed in another).

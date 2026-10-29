@@ -20,6 +20,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
     /// Follows the tab's renderer exit while the page listens (``listen()``).
     private var crashWatch: ServiceObservation<Bool>?
+    /// Follows the tab's main-frame load failure while the page listens (``PageChromiumEvent/loadFailed``).
+    private var loadWatch: ServiceObservation<Bool>?
     /// The app's main-thread scheduler: the crash watch flushes on it.
     private let mainWork: MainWorkScheduler
     /// Follows the tab's hang while the host listens (``PageChromiumEvent/unresponsive``).
@@ -99,6 +101,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
             tab.agentRelay.set(onMessage: nil, onEnd: nil)
             crashWatch?.cancel()
             crashWatch = nil
+            loadWatch?.cancel()
+            loadWatch = nil
             hangWatch?.cancel()
             hangWatch = nil
             hangReported = false
@@ -125,6 +129,17 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
                     guard let self, self.crashWatch != nil, tab.state.processExit != nil else { return }
                     self.onEvent?(.crashed)
                 }
+            }
+        }
+        if loadWatch == nil {
+            // The tab's state machine takes Chromium's main-frame load error as the navigation's failure; a load a
+            // newer one replaced is a benign interruption, not a failure. The host hears each new failure once.
+            loadWatch = ServiceObservation(.visible, owner: "pages.chromium.loadFailed", on: mainWork) { () -> Bool in
+                if case .failed(let error) = tab.state.phase { return !error.isBenignInterruption }
+                return false
+            } apply: { [weak self] failed in
+                guard failed, let self, self.loadWatch != nil else { return }
+                self.onEvent?(.loadFailed)
             }
         }
         if let hangWork, hangWatch == nil {
@@ -270,6 +285,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         closed = true
         crashWatch?.cancel()
         crashWatch = nil
+        loadWatch?.cancel()
+        loadWatch = nil
         hangWatch?.cancel()
         hangWatch = nil
         tab.agentRelay.onPageHostPost = nil

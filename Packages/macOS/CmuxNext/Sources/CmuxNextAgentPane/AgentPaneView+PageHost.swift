@@ -24,6 +24,7 @@ extension AgentPaneView {
         }
         page.onCrash = { [weak self] _, reloading in self?.pageCrashed(reloading: reloading) }
         page.onLoaded = { [weak self] in self?.pageLoaded() }
+        page.onLoadFailed = { [weak self] in self?.newTabPageFailed() }
         pageEvents.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
             guard let self else { return [] }
