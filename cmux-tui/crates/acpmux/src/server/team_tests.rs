@@ -249,3 +249,41 @@ async fn owner_can_browse_all_but_invalid_callers_and_remote_connections_cannot(
     assert_eq!(*fake.reads.lock().unwrap(), vec![OTHER_MESSAGE.to_owned()]);
     assert_eq!(*fake.acknowledgements.lock().unwrap(), vec![OTHER_MESSAGE.to_owned()]);
 }
+
+#[tokio::test]
+async fn team_legacy_routes_share_authorization_and_status_is_scoped() {
+    let (hub, fake) = setup(true);
+    let status = json!({"deliveryId": format!("mesh:{OWN_MESSAGE}")});
+    for (origin, identity) in [(Origin::Peer, None), (Origin::Local, Some((OWN, false)))] {
+        let mut caller = Rpc::connect(&hub, origin, identity).await;
+        let reply = caller.call(method::MUX_SEND_STATUS, status.clone()).await;
+        assert!(reply.get("error").is_some(), "{reply}");
+        let reply = caller
+            .call(
+                method::MUX_SEND_QUEUE,
+                json!({"request": {
+                    "sessionId": "@team/reviewer", "prompt": [{"type": "text", "text": "hello"}]
+                }}),
+            )
+            .await;
+        assert!(reply.get("error").is_some(), "{reply}");
+    }
+    assert!(fake.sent.lock().unwrap().is_empty());
+    let mut other = Rpc::connect(&hub, Origin::Local, Some((OTHER, true))).await;
+    let refused = other.call(method::MUX_SEND_STATUS, status.clone()).await;
+    assert_eq!(refused["error"]["data"]["reason"], "team.forbidden", "{refused}");
+    // A real sender may see its outgoing receipt even when the resolved recipient differs.
+    let sent =
+        other.call(method::MUX_TEAM_SEND, json!({"to": "@team/reviewer", "body": "hello"})).await;
+    assert!(sent.get("error").is_none(), "{sent}");
+    let reply = other.call(method::MUX_SEND_STATUS, status.clone()).await;
+    assert_eq!(reply["result"]["status"], "delivered", "{reply}");
+    let mut recipient = Rpc::connect(&hub, Origin::Local, Some((OWN, true))).await;
+    let reply = recipient.call(method::MUX_SEND_STATUS, status.clone()).await;
+    assert_eq!(reply["result"]["target"], "@member/coordinator", "{reply}");
+    let mut owner = Rpc::connect(&hub, Origin::Local, None).await;
+    assert!(owner.call(method::MUX_SEND_STATUS, status.clone()).await.get("error").is_none());
+    hub.config.write().await.mesh_relay.as_mut().unwrap().team_messaging = false;
+    let refused = owner.call(method::MUX_SEND_STATUS, status).await;
+    assert_eq!(refused["error"]["data"]["reason"], "team_messaging_disabled", "{refused}");
+}

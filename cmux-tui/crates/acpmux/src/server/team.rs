@@ -13,6 +13,19 @@ pub(super) async fn handle(
     method: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    authorize(hub, conn).await?;
+    let mesh =
+        hub.mesh.get().ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
+    match method {
+        crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, mesh, params).await,
+        crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, mesh, params).await,
+        crate::rpc::method::MUX_TEAM_READ => read(hub, conn, mesh, params).await,
+        crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, mesh, params).await,
+        _ => Err(RpcError::method_not_found(method)),
+    }
+}
+
+pub(super) async fn authorize(hub: &Arc<Hub>, conn: &Arc<Conn>) -> Result<(), RpcError> {
     // A remote daemon may not borrow this daemon's team identity. Local agents use
     // their proven caller session; an owner at the owner-only socket may browse all
     // addresses the platform grants this daemon. Team membership is checked by the hub.
@@ -32,15 +45,7 @@ pub(super) async fn handle(
         )
         .with_data(json!({"reason": "team_messaging_disabled", "labs": true})));
     }
-    let mesh =
-        hub.mesh.get().ok_or_else(|| RpcError::internal("the mesh relay is not configured"))?;
-    match method {
-        crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_READ => read(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, mesh, params).await,
-        _ => Err(RpcError::method_not_found(method)),
-    }
+    Ok(())
 }
 
 async fn send(
@@ -91,10 +96,11 @@ async fn send(
             body,
             // The hub alone decides whether this message may start work.
             mode: Mode::TurnEnd,
-            idempotency_key: id,
+            idempotency_key: sender_key(conn, &id),
         })
         .await
         .map_err(|e| RpcError::invalid_params(format!("the mesh hub refused team message: {e}")))?;
+    remember_sender(hub, conn, &receipt.message_id)?;
     Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
 }
 
@@ -116,7 +122,7 @@ async fn inbox(
 
 /// Local session identity, not a mutable address tag, scopes agent access. The hub
 /// authorizes this daemon's recipient addresses before returning any page or receipt.
-fn may_read(conn: &Conn, to: &Target) -> bool {
+pub(super) fn may_read(conn: &Conn, to: &Target) -> bool {
     conn.is_person() || conn.caller().is_none_or(|id| to.session_id.as_deref() == Some(id))
 }
 
@@ -169,7 +175,7 @@ async fn ack(
     Ok(serde_json::to_value(receipt).unwrap_or(Value::Null))
 }
 
-fn forbidden() -> RpcError {
+pub(super) fn forbidden() -> RpcError {
     RpcError::invalid_params("team message is not addressed to this session")
         .with_data(json!({"reason": "team.forbidden"}))
 }
@@ -187,3 +193,24 @@ fn required(params: &Value, name: &str) -> Result<String, RpcError> {
 #[cfg(test)]
 #[path = "team_tests.rs"]
 mod tests;
+
+/// Ownership comes from the proven connection and a local journal entry, never sender hints.
+pub(super) fn remember_sender(hub: &Hub, conn: &Conn, id: &str) -> Result<(), RpcError> {
+    if let Some(caller) = conn.caller().filter(|_| !conn.is_person()) {
+        let session = hub.resolve(caller).map_err(|_| forbidden())?;
+        if !hub.record_team_send(&session, id) {
+            return Err(RpcError::internal(
+                "team message sent, but sender receipt could not be persisted",
+            )
+            .with_data(json!({"messageId": id})));
+        }
+    }
+    Ok(())
+}
+
+/// Namespace caller-selected retry keys so another session cannot recover a sender's receipt.
+pub(super) fn sender_key(conn: &Conn, id: &str) -> String {
+    let identity = conn.caller().filter(|_| !conn.is_person());
+    let seed = serde_json::to_vec(&(identity, id)).expect("strings serialize");
+    format!("team:{}", crate::sha256::sha256_hex(&seed))
+}

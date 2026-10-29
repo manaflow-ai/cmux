@@ -853,7 +853,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 print_json(&value);
             } else if method == method::MUX_TEAM_INBOX {
                 let messages = value.get("messages").and_then(Value::as_array);
-                if messages.map_or(true, Vec::is_empty) {
+                if messages.is_none_or(Vec::is_empty) {
                     println!("team inbox is empty");
                 } else {
                     for message in messages.into_iter().flatten() {

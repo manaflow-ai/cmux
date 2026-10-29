@@ -54,6 +54,7 @@ pub mod media_read;
 mod mesh_rows;
 pub(crate) mod subagent_transcript;
 mod team_information;
+mod team_sent;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;

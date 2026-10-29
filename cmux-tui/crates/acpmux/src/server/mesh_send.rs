@@ -48,14 +48,7 @@ pub(super) async fn send(
     target: &str,
 ) -> Result<Value, RpcError> {
     if target.starts_with('@') {
-        let enabled =
-            hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
-        if !enabled {
-            return Err(RpcError::invalid_params(
-                "team messaging is disabled; enable meshRelay.teamMessaging in Labs",
-            )
-            .with_data(json!({"reason": "team_messaging_disabled", "address": target})));
-        }
+        super::team::authorize(hub, conn).await?;
         if !valid_team_address(target) {
             return Err(RpcError::invalid_params(
                 "team address must be @member/agent or @team/role",
@@ -111,14 +104,26 @@ pub(super) async fn send(
         kind: Kind::Prompt,
         body: texts.join("\n\n"),
         mode: if field("steer") == Some(&json!(true)) { Mode::Now } else { Mode::TurnEnd },
-        idempotency_key: idempotency_key(&prompt_id),
+        idempotency_key: if target.starts_with('@') {
+            super::team::sender_key(conn, &prompt_id)
+        } else {
+            idempotency_key(&prompt_id)
+        },
     };
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
+    if target.starts_with('@') {
+        super::team::remember_sender(hub, conn, &receipt.message_id)?;
+    }
     Ok(status_of(&receipt, target))
 }
 
 /// `_acpmux/send_status` of a delivery the hub holds: its receipt, read once.
-pub(super) async fn status(mesh: &Arc<dyn MeshHub>, id: &str) -> Result<Value, RpcError> {
+pub(super) async fn status(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    mesh: &Arc<dyn MeshHub>,
+    id: &str,
+) -> Result<Value, RpcError> {
     let message = id.strip_prefix(PREFIX).unwrap_or(id);
     let receipt = mesh.receipt(message).await.map_err(|e| {
         if e.refused {
@@ -131,6 +136,14 @@ pub(super) async fn status(mesh: &Arc<dyn MeshHub>, id: &str) -> Result<Value, R
             )
         }
     })?;
+    if receipt.to.team_address.is_some() {
+        super::team::authorize(hub, conn).await?;
+        if !super::team::may_read(conn, &receipt.to)
+            && !conn.caller().is_some_and(|caller| hub.sent_team_message(caller, message))
+        {
+            return Err(super::team::forbidden());
+        }
+    }
     let target = receipt.to.team_address.clone().unwrap_or_else(|| {
         match (&receipt.to.host, &receipt.to.name) {
             (Some(host), Some(name)) => format!("{host}/{name}"),
