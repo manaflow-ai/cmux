@@ -61,6 +61,8 @@ public final class SidebarView: NSView {
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
+    /// A separate compact chooser control: the + itself remains a one-click workspace action.
+    let newWorkspaceOptionsButton = TitlebarBandButton(symbol: "chevron.down")
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
@@ -72,6 +74,9 @@ public final class SidebarView: NSView {
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
+    /// Menus opened from the hover-revealed titlebar controls that are open now: the chrome
+    /// stays revealed until they close (``chromeMenuOpenChanged(_:)``).
+    var chromeMenuHolds = 0
     /// The pointer over the sidebar now (cx-3wu5).
     private(set) var chromeHover: PointerHover?
     /// Bands minimal mode hides right now (the fade's target, R54).
@@ -116,6 +121,8 @@ public final class SidebarView: NSView {
         super.init(frame: .zero)
         buildHierarchy()
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
+        newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
+        newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
         observe()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
@@ -224,9 +231,18 @@ public final class SidebarView: NSView {
     // MARK: Hierarchy
 
     private func buildHierarchy() {
-        newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }; newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
+        newButton.menuProvider = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newWorkspaceOptionsButton.longPressOpensMenu = false
+        newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.background) }
+        newWorkspaceOptionsButton.target = self
+        newWorkspaceOptionsButton.action = #selector(openNewWorkspaceOptions)
+        newButton.onMenuOpenChange = { [weak self] open in self?.chromeMenuOpenChanged(open) }
+        newWorkspaceOptionsButton.onMenuOpenChange = { [weak self] open in self?.chromeMenuOpenChanged(open) }
         newButton.alphaValue = chromeReveal(revealed: false).newButton
+        newWorkspaceOptionsButton.alphaValue = newButton.alphaValue
         addSubview(newButton)
+        addSubview(newWorkspaceOptionsButton)
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
@@ -262,6 +278,10 @@ public final class SidebarView: NSView {
         buildUpdateAvailable()
     }
 
+    @objc private func openNewWorkspaceOptions() {
+        newWorkspaceOptionsButton.performPressMenu()
+    }
+
     private func clipBoundsChanged() {
         list.realizeVisibleRows()
         // The list updates row hover as rows move. A window-wide refresh here
@@ -290,8 +310,16 @@ public final class SidebarView: NSView {
         let button = SidebarStyle.toolbarButtonSize
         let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
+        newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.minX - Metrics.space1 - button,
+                                                  y: newButton.frame.minY, width: button, height: button)
         let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
-        let titlebarButtonsMinX = layoutPriorityButton(before: newButton.frame)
+        // The chevron is the optional extra (the +'s right-click menu holds the same chooser): on a
+        // sidebar too narrow for it and the Priority button beside the +, it hides before either one
+        // reaches the leading reserve (the toolbar band sits above it there and takes the clicks).
+        let optionsMinX = newWorkspaceOptionsButton.frame.minX - (priorityButton.isHidden ? 0 : Metrics.space1 + button)
+        newWorkspaceOptionsButton.isHidden = optionsMinX < x
+        let titlebarButtonsMinX = layoutPriorityButton(before: newWorkspaceOptionsButton.isHidden ? newButton.frame
+                                                                                                 : newWorkspaceOptionsButton.frame)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
             let width = max(0, min(size.width, titlebarButtonsMinX - Metrics.space2 - x))
@@ -340,6 +368,7 @@ public final class SidebarView: NSView {
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
+        clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
         layoutNeedsYou(over: listFrame)
         scrollView.tile()
@@ -373,7 +402,7 @@ extension SidebarView: TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         let point = convert(windowPoint, from: nil)
         guard point.y < titlebarHeight else { return .staysPut }
-        let controls = [newButton as NSView?, priorityButton, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
+        let controls = [newButton as NSView?, newWorkspaceOptionsButton, priorityButton, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
         return controls.contains { $0.frame.contains(point) } ? .staysPut : .movesWindow
     }
 }

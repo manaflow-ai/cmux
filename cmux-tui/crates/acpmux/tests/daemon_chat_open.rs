@@ -279,6 +279,10 @@ fn a_long_chat_opens_on_its_newest_page_and_scrolls_to_its_first_message() {
     let daemon = Stop(child);
     let mut rpc = Rpc::connect(&socket);
     rpc.call("session/list", json!({}));
+    // The restart's one read of this chat's log (its queue, a cut turn: `hub/log_load.rs`)
+    // runs after the session index loads (#27328), so it is no part of an open: `info`
+    // waits for it.
+    rpc.call("_acpmux/info", json!({"sessionId": id}));
 
     // The pane's open: the newest page, then the open turn's prompt when the page starts mid-turn.
     let before_open = read_bytes(pid);
