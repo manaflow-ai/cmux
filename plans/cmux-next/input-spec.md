@@ -195,8 +195,7 @@ saved journals with `InputReplay`, the offline form of section 5: oracle corpus 
 journal, and `tests/oracle/corpus/journals/` keeps the ones a push replays (its README). The focus, omnibar, `KeyRouter` and palette parts of `InputWorld` need the real
 `FocusCoordinator` and its reducers, which stay in `CmuxNextApp/Focus`, outside the Linux tier. They
 have no runner until those move out of the app, and no p15 task does that yet.
-[oracle-DESIGN.md](oracle-DESIGN.md#8-linux-tier) describes both executables. The text below
-describes the deleted walker.
+The text below describes the deleted walker.
 
 `InputWorld` composes the real `FocusCoordinator` per window (its queue and echo suppression),
 the real omnibar reducer per browser tab, a real `TerminalAttachMachine` per terminal view with

@@ -57,9 +57,7 @@ while IFS= read -r crate; do paths+=("$crate"); done < <(ffi_crates)
 # must not mark the pin stale; the app passes its own token values to the
 # motion C ABI (cmux_motion_resolve), and scripts/cmux-next/motion-parity.py
 # compares them with the spec's.
-# rust-pgo.sh gives build-app-ffi.sh each slice's -Cprofile-use flag, so its
-# rustflags logic decides the published library's code (task 056).
-paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh scripts/cmux-next/pgo/rust-pgo.sh)
+paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
 # --list-inputs prints them (tests/app-ffi-release-paths.test.sh keeps the
 # release workflow's push paths in step with this list).
 if [[ "$list_inputs" -eq 1 ]]; then

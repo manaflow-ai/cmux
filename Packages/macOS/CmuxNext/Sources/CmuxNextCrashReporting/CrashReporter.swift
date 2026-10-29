@@ -84,7 +84,7 @@ public final class CrashReporter: Sendable {
     public let hangTracking: HangTracking
     /// The previous run's crash keys and black box, put on its crash event at this launch (task 079).
     public let previousRun: PreviousRunCrashEvidence?
-    private let sentryHandlers = Mutex<SignalActions?>(nil, rank: .crashReporterSentryHandlers)
+    private let sentryHandlers = Mutex<SignalActions?>(nil)
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// With `CMUX_NEXT_SENTRY_RECORDER=<dir>`, every event goes to a file in `<dir>` instead of Sentry.

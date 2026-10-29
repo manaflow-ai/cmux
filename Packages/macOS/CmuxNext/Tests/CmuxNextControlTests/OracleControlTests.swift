@@ -32,64 +32,37 @@ import Testing
             ["facet": .string(facet.rawValue), "provided": false, "task": .string(facet.task)]
         }
         #expect(list == .array(expected))
-        let reply = try await snapshot(router, ["facets": ["focus", "terminals"]]).get()
+        let reply = try await snapshot(router, ["facets": ["overlays"]]).get()
         #expect(reply == [
-            "focus": ["status": "not-comparable", "reason": "no provider for focus in this build", "task": "p15-oracle-034"],
-            "terminals": ["status": "not-comparable", "reason": "no provider for terminals in this build", "task": "p15-oracle-044"],
+            "overlays": ["status": "not-comparable", "reason": "no provider for overlays in this build", "task": "p15-oracle-038"],
         ])
     }
 
-    @Test func mainActorAndBackgroundFacetsAnswerTogether() async throws {
-        let facets = OracleFacets([
-            OracleFacetSource(.windows, .mainActor { () throws(OracleFacetError) -> OracleValue in ["count": 1] }),
-            OracleFacetSource(.terminals, .background { () async throws(OracleFacetError) -> OracleValue in ["list": []] }),
+    @Test func mainActorAndBackgroundFacetsAnswer() async throws {
+        let main = OracleFacets([OracleFacetSource(.overlays, .mainActor { () throws(OracleFacetError) -> OracleValue in ["count": 1] })])
+        #expect(try await snapshot(router(main), ["facets": ["overlays"]]).get() == ["overlays": ["count": 1]])
+        let background = OracleFacets([
+            OracleFacetSource(.overlays, .background { () async throws(OracleFacetError) -> OracleValue in ["list": []] }),
         ])
-        let reply = try await snapshot(router(facets), ["facets": ["windows", "terminals"]]).get()
-        #expect(reply == ["windows": ["count": 1], "terminals": ["list": []]])
+        #expect(try await snapshot(router(background), ["facets": ["overlays"]]).get() == ["overlays": ["list": []]])
     }
 
     @Test func anUnknownFacetOrANonListIsInvalidParams() async {
-        let typo = await snapshot(router(OracleFacets([])), ["facets": ["focus", "fokus"]])
+        let typo = await snapshot(router(OracleFacets([])), ["facets": ["overlays", "overlay"]])
         #expect(failure(typo)?.code == "invalid_params")
-        let notAList = await snapshot(router(OracleFacets([])), ["facets": "focus"])
+        let notAList = await snapshot(router(OracleFacets([])), ["facets": "overlays"])
         #expect(failure(notAList)?.code == "invalid_params")
-    }
-
-    /// A facet that hashes a path field after the request's `paths` are rewritten (the history facet's title).
-    private struct PathTitle: OracleFacetProvider {
-        var facet: OracleFacet { .history }
-        var capture: OracleFacetCapture { capturing(paths: .unchanged) }
-        func capturing(paths: OraclePaths) -> OracleFacetCapture {
-            .mainActor { () throws(OracleFacetError) -> OracleValue in .string(paths.hash("/Users/me/.cache/o/1/case")) }
-        }
-    }
-
-    /// The runner names the case root and home as it gives them to normalize.py: a root inside the home is `$ROOT`.
-    @Test func theRequestsPathsAreRewrittenBeforeTheHash() async throws {
-        let router = router(OracleFacets([PathTitle()]))
-        let paths: JSONValue = ["root": ["/Users/me/.cache/o/1"], "home": ["/Users/me"]]
-        let reply = try await snapshot(router, ["facets": ["history"], "paths": paths]).get()
-        #expect(reply == ["history": .string(OracleValue.sha256("$ROOT/case"))])
-        let plain = try await snapshot(router, ["facets": ["history"]]).get()
-        #expect(plain == ["history": .string(OracleValue.sha256("/Users/me/.cache/o/1/case"))])
-    }
-
-    @Test func pathsNormalizeWouldRefuseAreInvalidParams() async {
-        for paths: JSONValue in [["root": ["/"]], ["root": ["/a"], "home": ["/a"]], ["root": "/a"], ["web": ["http://x"]], "/a"] {
-            let reply = await snapshot(router(OracleFacets([PathTitle()])), ["facets": ["history"], "paths": paths])
-            #expect(failure(reply)?.code == "invalid_params", "\(paths)")
-        }
     }
 
     @Test func aFailingProviderIsAnInternalErrorNamingItsFacet() async {
         let facets = OracleFacets([
-            OracleFacetSource(.terminals, .background { () async throws(OracleFacetError) -> OracleValue in
-                throw OracleFacetError("vt-state gone")
+            OracleFacetSource(.overlays, .background { () async throws(OracleFacetError) -> OracleValue in
+                throw OracleFacetError("owners gone")
             }),
         ])
-        let result = await snapshot(router(facets), ["facets": ["terminals"]])
+        let result = await snapshot(router(facets), ["facets": ["overlays"]])
         #expect(failure(result)?.code == "internal_error")
-        #expect(failure(result)?.data == ["facet": "terminals"])
+        #expect(failure(result)?.data == ["facet": "overlays"])
     }
 
     @Test func aReleaseRouterRefusesTheOracle() async {

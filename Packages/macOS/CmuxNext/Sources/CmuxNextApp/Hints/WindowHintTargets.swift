@@ -3,10 +3,6 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import WebKit
 import CmuxNextWakeups
-#if DEBUG || CMUX_BENCH_HOOKS
-import CmuxNextControl
-import CmuxNextOracle
-#endif
 
 /// The clickable controls hint mode labels (``WindowHintController``): the
 /// window's accessibility tree, walked in process, keeps each shown element
@@ -248,37 +244,3 @@ final class PageElement: Equatable {
         return true;
         """
 }
-
-#if DEBUG || CMUX_BENCH_HOOKS
-/// The oracle's `ax` facet (``OracleAccessibilityFacet``) over the shown tree hint mode walks.
-extension WindowHintTargets {
-    /// The `ax` walk: the roles hint mode labels, text areas and menu items, with hint mode's page rule.
-    static var oracleWalk: OracleAccessibilityWalk {
-        OracleAccessibilityWalk(roles: Set(clickable.union([.textArea, .menuItem]).map(\.rawValue))) { isRemote($0) }
-    }
-
-    /// The app's provider over `windows`' windows; the string tables are read on `work`'s files lane.
-    static func oracleAccessibilityFacet(windows: WindowManager, work: BackgroundWork) -> OracleAccessibilityFacet {
-        let walk = oracleWalk
-        return OracleAccessibilityFacet { [weak windows] () throws(OracleFacetError) -> [OracleAccessibilityFacet.Window] in
-            guard let windows else { throw OracleFacetError("the window manager is gone") }
-            var read: [OracleAccessibilityFacet.Window] = []
-            for controller in windows.controllers {
-                guard let window = controller.window else { continue }
-                read.append(.init(id: ControlWindowInfo.publicID(forKey: controller.state.id), nodes: try walk.nodes(in: window)))
-            }
-            return read
-        } index: { () async throws(OracleFacetError) -> OracleAccessibilityFacet.StringIndex in
-            do {
-                return try await work.run(.userBlocking, mayBlock: .files) {
-                    try OracleAccessibilityFacet.StringIndex(OracleAccessibilityFacet.StringTable.bundleTables())
-                }
-            } catch let error as OracleFacetError {
-                throw error
-            } catch {
-                throw OracleFacetError("the string tables could not be read: \(error)")
-            }
-        }
-    }
-}
-#endif

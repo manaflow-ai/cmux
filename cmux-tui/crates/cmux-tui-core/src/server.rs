@@ -128,10 +128,6 @@ pub use window_title::window_title_osc;
 mod debug_crash_inject;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
-/// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
-#[cfg(any(debug_assertions, feature = "oracle"))]
-#[path = "server/oracle_state_command.rs"]
-mod oracle_state_command;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
@@ -2476,8 +2472,6 @@ mod resource_waits;
 use resource_waits::start_resource_wait;
 mod resource_clients;
 pub(crate) use resource_clients::public_client_id;
-#[cfg(any(debug_assertions, feature = "oracle"))]
-pub(crate) use resource_clients::resource_session_snapshot_at_cut;
 use resource_clients::{
     browser_cells_for_pixels, browser_pixels_for_cells, prepare_resource_client_detach,
     resource_browser_surface, resource_browser_viewer_release, resource_browser_viewer_resize,
