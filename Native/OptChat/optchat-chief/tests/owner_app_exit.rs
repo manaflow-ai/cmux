@@ -162,3 +162,26 @@ fn the_next_owner_is_another_live_process() {
         Some(77)
     );
 }
+
+/// The app quits (its process is gone and no newer app took the host over).
+fn app_quits(h: &mut Harness) {
+    h.brain.step(Input::OwnerAppExited);
+}
+
+// cp/redesign-quit-helpers (principled audit, R5): on the base an idle host
+// whose conversation link was down waited LINK_WAIT (30 s) after its app
+// quit, a hold limit that decided what is delivered. Nothing is lost by
+// stopping: the person's messages stay in the owner daemon and the brain's
+// outbox is saved with its state, so the next host reads and sends them.
+#[test]
+fn owner_level_an_idle_chief_whose_link_is_down_stops_when_its_app_quits() {
+    let mut h = Harness::new(default_script());
+    h.brain.step(Input::from(AgentEvent::Up(Vec::new())));
+    app_quits(&mut h);
+    assert!(
+        stopped_for_the_quit(&h),
+        "an idle Chief with no live owner and no work still runs: {:?}, held by {:?}",
+        h.brain.fatal(),
+        h.brain.owner_exit_held_by()
+    );
+}

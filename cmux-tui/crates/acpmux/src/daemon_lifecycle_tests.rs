@@ -436,3 +436,29 @@ async fn idle_exit_off_the_owners_quit_ends_an_idle_daemon() {
     settle().await;
     assert!(run.exit.is_finished(), "the feature off, an idle daemon outlived its app's quit");
 }
+
+// cp/redesign-quit-helpers (principled audit, R2/R3): the owner's exit is a
+// level, not an edge latch. On the base, the first deadline after the quit
+// that found live work cleared the latch, so once a Keep Sessions turn ended
+// the daemon waited a full IDLE_EXIT_GRACE (10 min) with a dead owner, no
+// client and no work: the policy says it must exit.
+#[tokio::test]
+async fn idle_exit_owner_level_gone_then_work_ends_exits_within_a_minute() {
+    let run = Run::start(Facts {
+        owner: AtomicBool::new(true),
+        agents: AtomicUsize::new(1),
+        ..Facts::default()
+    });
+    run.owner_exits().await;
+    run.advance(OWNER_EXIT_GRACE).await;
+    assert!(!run.exited(), "exited with a live agent after the owner's exit");
+    // The turn that Keep Sessions Running kept ends.
+    run.facts.agents.store(0, Ordering::SeqCst);
+    run.presence.work_changed();
+    run.advance(Duration::from_secs(60)).await;
+    assert!(
+        run.exited(),
+        "a minute after its last work ended, the daemon still runs with no client, \
+         no live owner and no work"
+    );
+}

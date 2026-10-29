@@ -230,6 +230,50 @@ fn chief_owner_exit_follows_the_newer_app_that_reused_the_owner() {
     }
 }
 
+// cp/redesign-quit-helpers (principled audit, R2/R3): whether an owning
+// app lives is a level, read from current truth. On the base the first app's
+// exit armed a latch for good: a newer app that started after that quit and
+// reused this owner (it wrote the pid file) did not keep it, so the owner
+// stopped under a running app as soon as no client was connected.
+#[test]
+fn chief_owner_exit_owner_level_a_newer_app_after_the_quit_keeps_the_owner() {
+    let dir = tempfile::tempdir().expect("dir");
+    let file = dir.path().join("owner-app.pid");
+    let mut first = std::process::Command::new("sleep").arg("600").spawn().expect("first app");
+    let f = Fixture::start(FakeFacts::default());
+    follow_app(&f, first.id(), &file);
+    first.kill().expect("first app ends");
+    first.wait().expect("reaped");
+    // Lets the kernel report the first app's exit before the newer app
+    // starts (only so the base shows its latch; the level needs no wait).
+    std::thread::sleep(Duration::from_millis(300));
+    let mut second = std::process::Command::new("sleep").arg("600").spawn().expect("second app");
+    std::fs::write(&file, format!("{}\n", second.id())).expect("pid file");
+    // The newer app's Home connects and leaves (a reconnect) while it runs.
+    f.set_clients(1);
+    f.set_clients(0);
+    for _ in 0..10 {
+        f.advance(GRACE);
+        f.not_yet();
+    }
+    second.kill().expect("second app ends");
+    second.wait().expect("reaped");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        f.advance(GRACE);
+        if let Ok(fired) = f.fired.recv_timeout(Duration::from_millis(50)) {
+            assert!(fired);
+            break;
+        }
+        assert!(Instant::now() < deadline, "the newer app's exit never ended the Chief owner");
+    }
+}
+
+/// The owner follows the app `pid` and then the apps `file` names.
+fn follow_app(f: &Fixture, pid: u32, file: &Path) {
+    watch_owner(OwnerApp::parse(Some(&pid.to_string())), Some(file.to_path_buf()), &f.watch);
+}
+
 #[test]
 fn chief_owner_exit_file_is_in_the_chief_home() {
     assert_eq!(

@@ -278,6 +278,27 @@ mod tests {
         fires(&f);
     }
 
+    // cp/redesign-quit-helpers (principled audit, R2/R3): the app's exit is
+    // a level. On the base, `provider_gone` was an edge that a busy read
+    // cleared: the app quit while an agent's session ran, and when that
+    // session ended the host waited its whole delay with no app, no client
+    // and no work, where the policy says it must exit.
+    #[test]
+    fn owner_level_a_host_whose_app_quit_during_a_session_exits_when_it_ends() {
+        let f = fixture(true);
+        app_quits(&f);
+        f.clock.advance(Duration::from_secs(10));
+        not_yet(&f);
+        f.busy.store(false, Ordering::SeqCst);
+        f.idle.changed();
+        fires(&f);
+    }
+
+    /// The app that served the host quit (its provider left, its process is gone).
+    fn app_quits(f: &Fixture) {
+        f.idle.provider_left();
+    }
+
     #[test]
     fn stop_ends_the_wait_without_an_exit() {
         let f = fixture(true);
