@@ -56,13 +56,14 @@ RETRY_JOBS = ("cmux-scheme-compile", "release-compile", "swift-canary")
 def overflow(name: str, placed: bool = True) -> str:
     """The label a bot attempt 2+ takes with no free Blacksmith slot.
 
-    A GUI job whose placement ran keeps the 6 vCPU escape from its gui label (it also covers a gui
-    label with no online runner); with no placement result it waits on the fleet's gui label, never
-    vars.MACOS_RUNNER_26 (12 vCPU, 5+ hour waits on 2026-10-20).
+    A GUI job takes the 6 vCPU escape from its gui label, whether or not its placement ran: a rescue bot's
+    attempt never queues on the fixed gui label it was moved from (#27201: attempt 3 is not watched again, so
+    a bot attempt 3 on the gui label could wait unrescued), and never on vars.MACOS_RUNNER_26 (12 vCPU, 5+ hour
+    waits on 2026-10-20). `placed` is kept for the callers that spell out both cases.
     """
     if name in RETRY_JOBS:
         return SIDE
-    return FALLBACK if placed else GUI
+    return FALLBACK
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
@@ -265,6 +266,25 @@ class Decide(unittest.TestCase):
         self.assertEqual(places, [()])
         self.assertEqual(lines["gui_overflow"], small)
         self.assertIn(" fast-tier ", lines["blacksmith_12_jobs"] + lines["blacksmith_6_jobs"])
+
+    def test_main_weighs_the_session_lane_like_the_role_routes(self):
+        lane = "glaeda-session-light-xcode-26.6"
+        light = [runner(f"mini-{host}-glaeda-2", busy=True, labels=(lane,)) for host in "ab"]
+        small, large = placement.cascade.SMALL, placement.cascade.LARGE
+        for queued, idle, expected in ((5, False, ""), (1, False, lane), (5, True, lane)):
+            with self.subTest(queued=queued, idle=idle), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                fleet = [*light, runner("mini-c-glaeda-2", labels=(lane,))] if idle else light
+                seen = placement.cascade.Seen(waits={}, owned={lane: queued})
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read",
+                                          return_value=({large: 0, small: 0}, {large: 0, small: 0}, seen)), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = fleet
+                    placement.main(env(SESSION_LANE=lane, ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                       GITHUB_OUTPUT=str(output)))
+                lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(lines["session_lane_runner"], expected)
 
     def test_the_rescues_full_rerun_names_the_gui_overflow(self):
         # Its GUI jobs never read gui_runner; with no route written they fell back to the fixed gui label.
@@ -896,6 +916,36 @@ class CmuxNextWiring(unittest.TestCase):
                                                                           gui_overflow=FALLBACK, placed_attempt="1")
                     self.assertEqual(evaluate(runs_on, rerun_lane), SESSION)
                 self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], label_copy(runs_on))
+
+    def test_a_carried_free_role_label_is_not_read_on_a_later_attempt(self):
+        # Review of #27201 at 175560bc: attempt 1's "free" reading may be busy or offline by a person's re-run.
+        jobs = self.workflow()["jobs"]
+        for name in ("generated-files",):
+            rerun = self.context("2", runner=STD)
+            rerun["needs"][self.PLACEMENT]["outputs"].update(free_session_runner=SESSION, free_gui_runner=GUI,
+                                                            placed_attempt="1")
+            self.assertEqual(evaluate(jobs[name]["runs-on"], rerun), on(name, STD))
+            fresh = self.context(runner=STD)
+            fresh["needs"][self.PLACEMENT]["outputs"]["free_session_runner"] = SESSION
+            self.assertEqual(evaluate(jobs[name]["runs-on"], fresh), SESSION)
+
+    def test_the_session_lane_variable_needs_this_attempts_room(self):
+        # Review of #27201 at 175560bc: vars.CI_SESSION_LANE_RUNNER went around the health-checked session route.
+        lane = "glaeda-session-light-xcode-26.6"
+        runs_on = self.workflow()["jobs"]["generated-files"]["runs-on"]
+        deep = self.context(runner=STD)
+        deep["vars"]["CI_SESSION_LANE_RUNNER"] = lane
+        deep["needs"][self.PLACEMENT]["outputs"]["session_lane_runner"] = ""
+        self.assertEqual(evaluate(runs_on, deep), on("generated-files", STD))
+        roomy = self.context(runner=STD)
+        roomy["vars"]["CI_SESSION_LANE_RUNNER"] = lane
+        roomy["needs"][self.PLACEMENT]["outputs"]["session_lane_runner"] = lane
+        self.assertEqual(evaluate(runs_on, roomy), lane)
+        # A person's re-run, placed in attempt 1: no fresh reading, so the variable route as before.
+        rerun = self.context("2", runner=STD)
+        rerun["vars"]["CI_SESSION_LANE_RUNNER"] = lane
+        rerun["needs"][self.PLACEMENT]["outputs"].update(session_lane_runner="", placed_attempt="1")
+        self.assertEqual(evaluate(runs_on, rerun), lane)
 
     def test_bot_retry_uses_a_newly_free_owned_session_runner(self):
         job_spec = self.workflow()["jobs"]["generated-files"]

@@ -2138,9 +2138,11 @@ class ReservedLaneLabels(unittest.TestCase):
 
 # A free owned GUI/session Mac that macos-placement found (7242a82b4a8, #24763: the queue rescue's re-run takes it
 # before any other route after the fork's hosted label).
-FREE_ROLE_CLAUSE = "needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.free_gui_runner || "
+PLACED_THIS_ATTEMPT = "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
+FREE_ROLE_CLAUSE = (PLACED_THIS_ATTEMPT + "needs.macos-placement.outputs.free_session_runner || "
+                    + PLACED_THIS_ATTEMPT + "needs.macos-placement.outputs.free_gui_runner || ")
 SESSION_LANE_CLAUSE = (
-    "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && (needs.macos-placement.outputs.gui_overflow == '' || needs.macos-placement.outputs.placed_attempt != format('{0}', github.run_attempt)) && "
+    "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && (needs.macos-placement.outputs.session_lane_runner != '' || needs.macos-placement.outputs.placed_attempt != format('{0}', github.run_attempt)) && "
     "(github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) && vars.CI_SESSION_LANE_RUNNER || "
 )
 # Generated files' runs-on before CI_SESSION_LANE_RUNNER: with the variable unset it must route exactly so.
@@ -2153,8 +2155,9 @@ GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
     "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && "
     "needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || "
     "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
-    "&& (github.run_attempt <= 3 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
+    "&& (github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)) "
     "&& (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') "
+    "|| contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) && 'blacksmith-6vcpu-macos-26' "
     "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
 )
 

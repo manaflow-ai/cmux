@@ -54,6 +54,9 @@ contains(' <key> ') matches whole keys only:
   is declined above, and on the rescue's full re-run (rerun_main()), whose GUI jobs
   never read gui_runner: before it, that re-run wrote no route and the GUI jobs fell
   through to the fixed glaeda-gui label they were rescued from;
+- `session_lane_runner`: SESSION_LANE (vars.CI_SESSION_LANE_RUNNER, generated files' own glaeda-session-*
+  label) while role_room() holds for it, else empty; generated files take the variable on the attempt this
+  placement ran only when this is set;
 - `watch`: "false" when every job took its fallback, so the run uploads no
   owned-pool-watch marker; "true" otherwise;
 - `blacksmith_12_jobs`, `blacksmith_6_jobs` and `retry_runner`: the jobs no idle
@@ -606,6 +609,10 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     live_gui = gui_route_label(label, runners)
     gui_route = healthy_role_label(live_gui, runners, seen, waiting)
     session_route = healthy_role_label(session_route_label(label, runners), runners, seen, waiting)
+    # Generated files' own session lane (vars.CI_SESSION_LANE_RUNNER, a glaeda-session-* label): written only while
+    # it has room, so the variable never sends the job to a queue deeper than its pool.
+    lane = (env.get("SESSION_LANE") or "").strip()
+    session_lane = healthy_role_label(lane, runners, seen, waiting) if lane.startswith("glaeda-") else ""
     # An empty session route falls through to gui_runner in the workflow, so only a declined gui route overflows.
     gui_overflow = GUI_OVERFLOW if live_gui and not gui_route else ""
     if live_gui and not gui_route:
@@ -649,7 +656,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
                          f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
-                         f"gui_overflow={gui_overflow}\n"
+                         f"gui_overflow={gui_overflow}\nsession_lane_runner={session_lane}\n"
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
                          f"fast_runner={fast}\n"
                          f"fresh_runner={fresh}\nfresh_jobs={delimited(fresh_jobs)}\n"

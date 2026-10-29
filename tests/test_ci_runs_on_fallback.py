@@ -25,6 +25,7 @@ This guard covers every workflow:
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -253,25 +254,53 @@ def evicting(name: str, concurrency: object) -> str | None:
     return None
 
 
-# The gate shapes that are false on a late enough rescue attempt: an attempt bound (`github.run_attempt == 1`,
-# `<= 3`, `< 2`), or the triggering actor not being one of the rescue bots. A bare `github.run_attempt` or
-# `github.triggering_actor` is truthy on every attempt, and `>`/`!=` bounds hold on the re-runs themselves.
-ATTEMPT_GATE = re.compile(r"github\.run_attempt\s*(?:==|<=|<)\s*'?\d+'?"
-                          r"|!\s*contains\(\s*fromJSON\(\s*'\[[^']*\[bot\][^']*\]'\s*\)\s*,\s*github\.triggering_actor\s*\)")
+# The rescue's re-run actors (owned_pool_rescue.RESCUE_ACTOR, pr_runner_pool.RESCUE_ACTORS) and the attempts
+# it can reach. An alternative that names an owned role label must be false for each of them on each attempt
+# after the first, so the rescue never re-queues a job on the pool it moved it from.
+RESCUE_BOTS = ("github-actions[bot]", "cmux-bot[bot]")
+RESCUE_ATTEMPTS = (2, 3, 4, 9, 99)
+ATTEMPT_TEST = re.compile(r"github\.run_attempt\s*(==|!=|<=|>=|<|>)\s*'?(\d+)'?")
+ACTOR_TEST = re.compile(r"(!?)\s*contains\(\s*fromJSON\(\s*'(\[[^']*\])'\s*\)\s*,\s*github\.triggering_actor\s*\)")
+COMPARE = {"==": int.__eq__, "!=": int.__ne__, "<=": int.__le__, ">=": int.__ge__, "<": int.__lt__, ">": int.__gt__}
 
 
-def attempt_gate(term: str) -> bool:
-    """Whether `term` keeps the rescue's re-run off the alternative: every way it can be true is an ATTEMPT_GATE
-    shape (`github.run_attempt == 1 || !contains(<bots>, github.triggering_actor)`). An `||` with any other
-    branch (`github.run_attempt == 1 || vars.X`, `|| github.triggering_actor`) can be true on every attempt."""
+def gate_value(term: str, attempt: int, actor: str) -> bool | None:
+    """`term` on that attempt and actor: True, False, or None when it reads anything else (a variable, an
+    output), which may be either. Covers `||`, `&&`, `!`, parentheses, attempt comparisons and the actor's
+    membership in a fromJSON list; a bare github.run_attempt or github.triggering_actor is a non-empty value."""
     text = unwrap(term)
     alternatives = split_top(text, "||")
     if len(alternatives) > 1:
-        return all(attempt_gate(alternative) for alternative in alternatives)
-    terms = conjuncts(text)
+        values = [gate_value(alternative, attempt, actor) for alternative in alternatives]
+        return True if True in values else (False if all(value is False for value in values) else None)
+    terms = split_top(text, "&&")
     if len(terms) > 1:
-        return any(attempt_gate(inner) for inner in terms)
-    return ATTEMPT_GATE.fullmatch(text) is not None
+        values = [gate_value(inner, attempt, actor) for inner in terms]
+        return False if False in values else (True if all(value is True for value in values) else None)
+    match = ATTEMPT_TEST.fullmatch(text)
+    if match:
+        return COMPARE[match.group(1)](attempt, int(match.group(2)))
+    match = ACTOR_TEST.fullmatch(text)
+    if match:
+        try:
+            listed = actor in json.loads(match.group(2))
+        except ValueError:
+            return None
+        return (not listed) if match.group(1) else listed
+    if text.startswith("!") and not text.startswith("!="):
+        inner = gate_value(text[1:], attempt, actor)
+        return None if inner is None else not inner
+    if text in ("github.run_attempt", "github.triggering_actor"):
+        return True
+    return None
+
+
+def attempt_gate(term: str) -> bool:
+    """Whether `term` is false for every rescue bot on every attempt after the first (gate_value()), so the
+    alternative it guards is never the rescue's re-run route. `github.run_attempt == 1` and
+    `!contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)` are; an attempt
+    bound such as `<= 3`, a list missing a bot, or an `||` with a variable is not."""
+    return all(gate_value(term, attempt, actor) is False for attempt in RESCUE_ATTEMPTS for actor in RESCUE_BOTS)
 
 
 def ungated_role_labels(expression: str, gated: bool = False) -> list[str]:
@@ -442,24 +471,29 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(role_label_problems(
             here, f"${{{{ (github.run_attempt == 1 || vars.X) && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}))
         for bypass in ("github.triggering_actor", "github.run_attempt", "github.run_attempt > 1",
-                       "github.run_attempt != 1", "contains(fromJSON('[\"cmux-bot[bot]\"]'), github.triggering_actor)"):
+                       "github.run_attempt != 1", "contains(fromJSON('[\"cmux-bot[bot]\"]'), github.triggering_actor)",
+                       # Review of #27201 at 175560bc: a bot list that misses a rescue actor, and bounds the re-run meets.
+                       "!contains(fromJSON('[\"github-actions[bot]\"]'), github.triggering_actor)",
+                       "github.run_attempt == 2", "github.run_attempt <= 3", "github.run_attempt <= 99"):
             self.assertTrue(role_label_problems(
                 here, f"${{{{ (github.run_attempt == 1 || {bypass}) && {gui} || 'blacksmith-6vcpu-macos-26' }}}}",
                 {here}), bypass)
         self.assertEqual(role_label_problems(
             here, f"${{{{ (github.run_attempt == 1 || !contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), "
                   f"github.triggering_actor)) && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}), [])
+        self.assertTrue(role_label_problems(
+            here, f"${{{{ github.run_attempt <= 3 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}))
         self.assertEqual(role_label_problems(
-            here, f"${{{{ github.run_attempt <= 3 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}), [])
+            here, f"${{{{ vars.X == '1' && github.run_attempt == 1 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}), [])
         # A Blacksmith last member, but nothing watches the workflow's queue.
         self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", set()))
         self.assertEqual(role_label_problems(
             here, f"${{{{ github.run_attempt == 1 && ({gui}) || vars.X || 'blacksmith-6vcpu-macos-26' }}}}", {here}), [])
         # A placement's gui route without its health-checked overflow.
-        placed = f"${{{{ needs.p.outputs.gui_runner || github.run_attempt <= 3 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}"
+        placed = f"${{{{ needs.p.outputs.gui_runner || github.run_attempt == 1 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}"
         self.assertTrue(role_label_problems(here, placed, {here}))
         self.assertEqual(role_label_problems(here, placed.replace(
-            "|| github.run_attempt <= 3", "|| needs.p.outputs.gui_overflow || github.run_attempt <= 3"), {here}), [])
+            "|| github.run_attempt == 1", "|| needs.p.outputs.gui_overflow || github.run_attempt == 1"), {here}), [])
 
     def test_compile_and_fallback_routes_never_evict_another_head(self) -> None:
         failures = []
