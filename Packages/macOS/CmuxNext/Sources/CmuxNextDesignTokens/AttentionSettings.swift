@@ -82,7 +82,8 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
 public nonisolated struct AttentionMark: Hashable, Sendable {
     /// Per-source color override; nil uses `AttentionSettings.color`.
     public var color: ThemeRGB?
-    /// Changes with every new notification, so the animation restarts.
+    /// The newest event's id. A ring that already shows stays as it is when it changes: attention
+    /// is on or off, not a queue (https://github.com/manaflow-ai/cmux/issues/25662).
     public var generation: UInt64
     /// The pane shows an agent chat: it draws with `AttentionSettings.surface(agentChat: true)`.
     public var agentChat: Bool

@@ -68,17 +68,17 @@ done
 # Exercise the nightly producer and the real installer together: a handoff must
 # include every file --from needs, including the checked-in inspector page.
 mkdir -p "$REPO/scripts/ci"
-cp "$ROOT/scripts/ci/nightly_linux_inputs.py" "$REPO/scripts/ci/"
+cp "$ROOT/scripts/ci/nightly_inputs.py" "$REPO/scripts/ci/"
 git -C "$REPO" add scripts "$INSPECTOR/index.html"
 git -C "$REPO" -c core.hooksPath=/dev/null -c user.name=Test -c user.email=test@example.invalid commit -qm fixture
 key="$(python3 "$REPO/scripts/cmux-next/web-bundle-key.py" "$REPO" --source)"
-python3 "$REPO/scripts/ci/nightly_linux_inputs.py" pack-web "$WORK/handoff" --source-key "$key"
-python3 "$REPO/scripts/ci/nightly_linux_inputs.py" install-web "$WORK/handoff"
+python3 "$REPO/scripts/ci/nightly_inputs.py" pack-web "$WORK/handoff" --source-key "$key"
+python3 "$REPO/scripts/ci/nightly_inputs.py" install-web "$WORK/handoff"
 "$SCRIPT" --verify
 # A changed source must miss instead of installing yesterday's bundles.
 printf '\n# changed input\n' >> "$REPO/scripts/cmux-next/build-web-bundles.sh"
 status=0
-python3 "$REPO/scripts/ci/nightly_linux_inputs.py" install-web "$WORK/handoff" || status=$?
+python3 "$REPO/scripts/ci/nightly_inputs.py" install-web "$WORK/handoff" || status=$?
 [ "$status" = 3 ] || { echo "FAIL: changed inputs must refuse a handoff"; exit 1; }
 git -C "$REPO" checkout -- scripts/cmux-next/build-web-bundles.sh
 

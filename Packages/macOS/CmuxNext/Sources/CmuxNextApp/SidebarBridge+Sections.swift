@@ -85,6 +85,7 @@ extension SidebarBridge {
         let service = services.sidebarLayout
         let apps = services.apps.client
         let store = services.machines.local.store
+        let settings = services.settings
         let refs = WorkspaceLayoutRefs(machines: services.machines)
         // The default Chief's upload, else its pet character (`home.chiefPetMascot`), is the Chief item's picture: a new pick redraws it.
         let chiefPicture = { [weak services] in services?.characterPicture(of: nil) }
@@ -93,16 +94,16 @@ extension SidebarBridge {
         sectionsObservation = Task { [weak self] in
             // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, homeUnread, shortcuts, workspaces, picture) in ObservationStream({
-                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?) in
+            for await (layout, unread, homeUnread, shortcuts, workspaces, picture, previewFeatures) in ObservationStream({
+                () -> (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?, Bool) in
                 _ = (apps.apps, ChiefSidebar.shared.status)
                 return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), chiefPicture())
+                        Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs), chiefPicture(), settings?.snapshot.previewFeatures == true)
             }) {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }
                 // `model.layout` is written with the rows it projects (SidebarBridge.show).
-                let visibleLayout = layout.withoutChats
+                let visibleLayout = SidebarRows.visibleLayout(layout, showAppStore: previewFeatures)
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
                                           unread: unread, homeUnread: homeUnread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
@@ -223,6 +224,11 @@ extension SidebarBridge {
     }
 
     func applyLayoutOp(_ op: SidebarLayoutOp) {
-        PinCommands(context: AppActionContext(services: services)).userBandEdit(op)
+        // `model.layout` is the projected document shown by this window. A
+        // preview-disabled projection omits rows that remain in the stored
+        // legacy document, so expand item indexes before sending the op.
+        let stored = services.sidebarLayout.document
+        let translated = op.translatingHiddenItemIndex(from: model.layout, to: stored)
+        PinCommands(context: AppActionContext(services: services)).userBandEdit(translated)
     }
 }

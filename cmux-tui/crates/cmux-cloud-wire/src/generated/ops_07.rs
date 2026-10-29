@@ -4,6 +4,258 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteAcceptVerifiedParams {
+    pub conversation: ConversationId,
+}
+
+wire_errors! {
+    /// The error codes invite.accept_verified declares.
+    InviteAcceptVerifiedError {
+        AcceptLocked = "accept_locked",
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InviteExpired = "invite_expired",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownInvite = "unknown_invite",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Approve (default) or decline a join that waits for approval (pending_approval).
+    InviteApproveJoinOp {
+        name: "invite.approve_join",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: InviteApproveJoinParams,
+        result: HomeConversationCommit,
+        error: InviteApproveJoinError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteApproveJoinParams {
+    pub conversation: ConversationId,
+    pub invite_id: InviteId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approve: Option<bool>,
+}
+
+wire_errors! {
+    /// The error codes invite.approve_join declares.
+    InviteApproveJoinError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InviteNotPending = "invite_not_pending",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownInvite = "unknown_invite",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Invite an email or phone to the conversation. The Worker normalizes the address, checks limits and suppression, and the invite is sent by email or iMessage/SMS after the commit.
+    InviteCreateOp {
+        name: "invite.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "send-external",
+        principals: [Session, Install],
+        params: InviteCreateParams,
+        result: HomeConversationCommit,
+        error: InviteCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteCreateParamsAddressVariant1 {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteCreateParamsAddressVariant2 {
+    pub phone: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum InviteCreateParamsAddress {
+    Variant1(InviteCreateParamsAddressVariant1),
+    Variant2(InviteCreateParamsAddressVariant2),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteCreateParams {
+    pub conversation: ConversationId,
+    pub address: InviteCreateParamsAddress,
+    pub display_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy_variant: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes invite.create declares.
+    InviteCreateError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        DuplicateInvite = "duplicate_invite",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidInvite = "invalid_invite",
+        InviteLimit = "invite_limit",
+        InviteSelf = "invite_self",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Revoke a pending invite (the inviter or the conversation owner).
+    InviteRevokeOp {
+        name: "invite.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: InviteRevokeParams,
+        result: HomeConversationCommit,
+        error: InviteRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteRevokeParams {
+    pub conversation: ConversationId,
+    pub invite_id: InviteId,
+}
+
+wire_errors! {
+    /// The error codes invite.revoke declares.
+    InviteRevokeError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InviteNotPending = "invite_not_pending",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownInvite = "unknown_invite",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Create a Linear issue in a Linear team as the cmux app.
+    LinearIssueCreateOp {
+        name: "linear.issue.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: LinearIssueCreateParams,
+        result: Value,
+        error: LinearIssueCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LinearIssueCreateParams {
+    pub connection: ConnectionId,
+    pub team_id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes linear.issue.create declares.
+    LinearIssueCreateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationUnavailable = "integration.unavailable",
+        MutationIndeterminate = "mutation.indeterminate",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// List the Linear teams this connection can reach (ids for linear.issue.create).
+    LinearTeamsListOp {
+        name: "linear.teams.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: LinearTeamsListParams,
+        result: LinearTeamsListResult,
+        error: LinearTeamsListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LinearTeamsListParams {
+    pub connection: ConnectionId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LinearTeamsListResultTeamsItem {
+    pub id: String,
+    pub key: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LinearTeamsListResult {
+    pub teams: Vec<LinearTeamsListResultTeamsItem>,
+}
+
+wire_errors! {
+    /// The error codes linear.teams.list declares.
+    LinearTeamsListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
 wire_op! {
     /// Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored.
     MailGetOp {
@@ -647,257 +899,4 @@ wire_op! {
         result: HomeConversationCommit,
         error: ParticipantsAddError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantsAddParams {
-    pub conversation: ConversationId,
-    pub participant: HomeParticipantInput,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<HomeGrantableRole>,
-}
-
-wire_errors! {
-    /// The error codes participants.add declares.
-    ParticipantsAddError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Banned = "banned",
-        DuplicateParticipant = "duplicate_participant",
-        Forbidden = "forbidden",
-        HomeRateLimited = "home.rate_limited",
-        HomeUserNotReady = "home.user_not_ready",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        InvalidRole = "invalid_role",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        NotReachable = "not_reachable",
-        OwnerUnreachable = "owner.unreachable",
-        ReadOnly = "read_only",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Leave (yourself), or remove someone below you (an admin or the owner; a chief's owner for that chief). ban: true (admins and the owner) keeps them out of adds and invites until participants.unban. A removed person's sockets close at once. Removing the last human archives the conversation.
-    ParticipantsRemoveOp {
-        name: "participants.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "destructive",
-        principals: [Session, Install],
-        params: ParticipantsRemoveParams,
-        result: HomeConversationCommit,
-        error: ParticipantsRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantsRemoveParams {
-    pub conversation: ConversationId,
-    pub participant: ParticipantId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ban: Option<bool>,
-}
-
-wire_errors! {
-    /// The error codes participants.remove declares.
-    ParticipantsRemoveError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownParticipant = "unknown_participant",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Set a group member's role: admin (the owner only), member or read_only. You change only people below you; an admin never changes another admin. A read_only member reads, moves its read cursor and leaves, and never writes.
-    ParticipantsSetRoleOp {
-        name: "participants.set_role",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ParticipantsSetRoleParams,
-        result: HomeConversationCommit,
-        error: ParticipantsSetRoleError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantsSetRoleParams {
-    pub conversation: ConversationId,
-    pub participant: ParticipantId,
-    pub role: HomeGrantableRole,
-}
-
-wire_errors! {
-    /// The error codes participants.set_role declares.
-    ParticipantsSetRoleError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParticipant = "invalid_participant",
-        InvalidRole = "invalid_role",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        ReadOnly = "read_only",
-        UnknownConversation = "unknown_conversation",
-        UnknownParticipant = "unknown_participant",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Lift a ban (admins and the owner), so the person may be added or invited again.
-    ParticipantsUnbanOp {
-        name: "participants.unban",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ParticipantsUnbanParams,
-        result: HomeConversationCommit,
-        error: ParticipantsUnbanError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantsUnbanParams {
-    pub conversation: ConversationId,
-    pub participant: ParticipantId,
-}
-
-wire_errors! {
-    /// The error codes participants.unban declares.
-    ParticipantsUnbanError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Register the calling iPhone or iPad install's APNs token (replaces the install's earlier token).
-    PushTargetRegisterOp {
-        name: "push.target.register",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: PushTargetRegisterParams,
-        result: PushTarget,
-        error: PushTargetRegisterError,
-    }
-}
-
-wire_enum! {
-    PushTargetRegisterParamsEnvironment {
-        Development = "development",
-        Production = "production",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PushTargetRegisterParams {
-    pub token: PushToken,
-    pub topic: String,
-    pub environment: PushTargetRegisterParamsEnvironment,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub device_name: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes push.target.register declares.
-    PushTargetRegisterError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Remove an APNs token (sign-out on the device, or the user removes a device).
-    PushTargetRemoveOp {
-        name: "push.target.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: PushTargetRemoveParams,
-        result: PushTargetRemoveResult,
-        error: PushTargetRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PushTargetRemoveParams {
-    pub token: PushToken,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PushTargetRemoveResult {
-    pub token: PushToken,
-    pub removed: bool,
-}
-
-wire_errors! {
-    /// The error codes push.target.remove declares.
-    PushTargetRemoveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Add a tapback or emoji reaction to a message part (one per author, part and kind).
-    ReactionAddOp {
-        name: "reaction.add",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ReactionAddParams,
-        result: HomeConversationCommit,
-        error: ReactionAddError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ReactionAddParams {
-    pub conversation: ConversationId,
-    pub message_id: MessageId,
-    pub part_index: i64,
-    pub reaction: HomeReactionKind,
 }

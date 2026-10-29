@@ -132,7 +132,10 @@ page never pushes them, and no byte travels on the page binding.
   daemon.
 - A token names one upload attempt and gets exactly one terminal `uploads.state`. The page keeps
   the Blob until the prompt is accepted or the person removes the attachment.
-- The prompt names the file by its `uploadId` (section 5).
+- The prompt names the file by its `uploadId` (section 5), with no `owned`, so a refused
+  prompt deletes nothing and a retry names the same finished uploads.
+- Native begins with `forPrompt: true` and keeps each upload's `ownerToken` (section 3); every
+  `file_put_cancel` below carries it.
 
 ### Retrying a failed attachment
 
@@ -265,7 +268,7 @@ The ticket is page-to-native only, and the daemon contract does not change for i
 ### Begin
 
 `_acpmux/file_put_begin {sessionId, fileName, size, forPrompt?}` returns
-`{uploadId, fileName, size}`.
+`{uploadId, fileName, size}`, plus `ownerToken` with `forPrompt: true`.
 
 - `fileName` must be a plain file name: no `/`, no leading `.`, no control or bidi characters.
   Otherwise it is refused with `filePut.name`.
@@ -273,6 +276,9 @@ The ticket is page-to-native only, and the daemon contract does not change for i
 - `forPrompt: true` says the upload is for a prompt that names it. A chat on a peer without
   `promptUploads` is then refused here (`upload.unsupported`), before any byte is sent, rather
   than leaving a finished upload for a prompt the peer would refuse.
+- `ownerToken` (from #25840) is a secret only the sender learns. Keep it natively for the life
+  of the upload: only a cancel that carries it deletes a `forPrompt` upload (Cancel, below), and
+  an `owned` reference carries it (section 5). Never hand it to a page.
 
 ### Data
 
@@ -306,11 +312,13 @@ repeated finish answers the same.
 
 ### Cancel
 
-`_acpmux/file_put_cancel {sessionId, uploadId}` returns `{}`.
+`_acpmux/file_put_cancel {sessionId, uploadId, ownerToken?}` returns `{}`, and it is idempotent.
 
-- It removes the upload, and it is idempotent. From #25840 on it removes a finished upload too
-  (its whole folder), so a sender that will not send the prompt naming an upload leaves
-  nothing behind; a prompt that still names it is then refused with `upload.missing`.
+- An upload begun with `forPrompt: true` (from #25840) is removed, finished or not, only by a
+  cancel that carries its `ownerToken`; any other cancel removes nothing. So a sender that will
+  not send the prompt naming an upload leaves nothing behind, and nobody else's cancel deletes
+  it. A prompt that still names a removed upload is refused with `upload.missing`.
+- Any other upload is removed while it is unfinished.
 
 ### How long uploads stay
 
@@ -344,6 +352,16 @@ Today, an unknown upload, a wrong offset, or a finish before all bytes arrived r
 A client retries every error except `filePut.name`, `filePut.remote` and disk-full. Before it
 retries, it reads the upload's state (status, or its last acknowledged offset).
 
+`acpmux send --attach` and `send_message` (`attach/upload.rs`) retry only what the link lost: a
+peer link that timed out, dropped or is down (`peer_unreachable`), and `upload.offset`. They read
+the upload's status and go on from its offset, until no byte has gone for 10 minutes. The CLI says
+on stderr what it is doing: when the uploads start, every 10 seconds with the bytes sent, the rate
+and the time left, and when they are in. Each upload it begins has an owner-only record under
+`<ACPMUX_HOME>/run/upload-resume/`, keyed by the chat and the file's path, size and modification
+time, and held by one sender at a time. So a sender that was killed, or whose link stayed down,
+leaves its upload for the next send of the same file to the same chat to resume. The record goes
+once the upload is finished or cancelled; an upload nobody resumes goes with the age sweep.
+
 ## 5. The upload-ref block in `session/prompt`
 
 Each file is one block with no bytes, in the place the person put it. There are exactly two
@@ -371,10 +389,13 @@ before it is resolved:
 - An image block has no `data` and no `uri`.
 - The daemon sets `mimeType` from the file's bytes, so a sent `mimeType` is ignored.
 - `inlineParts` display metadata works as before. Point its `blockIndex` at the reference block.
-- `upload.owned: true` (from #25840) says the upload was made for this prompt alone. If the
-  prompt is refused before the chat takes it, the daemon deletes that upload. A prompt the chat
-  takes, a duplicate and a held prompt keep it. Leave it out for an upload that another prompt
-  or a retry may name, such as the app's uploads, which stay finished across retries.
+- `upload.owned: "<ownerToken>"` (from #25840) says the upload was made for this prompt alone;
+  its value is the upload's `ownerToken` from begin, and any other value (`true` included)
+  deletes nothing. If the prompt is refused before the chat takes it, the daemon deletes that
+  upload. A prompt the chat takes, a duplicate and a held prompt keep it. `acpmux send --attach`
+  sets it. Leave it out for an upload that another prompt or a retry may name, such as the
+  app's uploads, which stay finished across retries: the app keeps the token natively and
+  removes an attachment with a token-carrying `file_put_cancel`.
 
 These are refused before anything is recorded:
 
@@ -400,8 +421,17 @@ The daemon that runs the chat replaces each reference before anything reads the 
 - **Any other file, of any size, and any image past those limits** becomes
   `{"type": "resource_link", "uri": "file:///…/uploads/<chat>/<uploadId>/<name>", "name",
   "mimeType", "size"}`. It is never base64, so a 2 GB file adds a few hundred bytes to the prompt.
-  A follow-up PR adds a model-sized copy of a large image (downscaled to the harness's limit, from
-  one table per harness) inline, next to the link to the original.
+- **A model-sized copy** (`model_copies.rs`) goes next to the link to a PNG past those limits.
+  It is made only when the prompt is written to the agent, after the prompt was accepted, so a
+  busy chat still takes it at once:
+  - It is scaled so its long edge fits the harness's model: 1568 px for Claude and any family the
+    table does not name, 2048 px for Codex. It is scaled down again until it fits the inline image
+    size and the prompt's inline room.
+  - The copy is an inline `image`, with a line that names the original's path.
+  - It is saved next to the upload as `.model-<edge>.png`, so a retry reuses it, and it is removed
+    with the upload.
+  - The transcript keeps the prompt as sent.
+  - Another image type, or a PNG it cannot read, keeps only its link.
 - **A context note** lists each file's path, type and size, and says which images are not shown
   inline. It is a text block marked `_meta.acpmux.context`, which the transcript hides. It lists
   as many files as fit the message with the prompt's other blocks; past that it ends with "and N

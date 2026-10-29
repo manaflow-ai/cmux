@@ -284,7 +284,9 @@ class WorkflowTests(unittest.TestCase):
             early = [i for i in later_gh if i < at]
             for i in early:
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
-                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume, (name, steps[i].get("name")))
+                # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
+                app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:

@@ -21,7 +21,7 @@ concurrency:
 jobs:
   version:
     name: derive nightly versions
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:
@@ -101,15 +101,20 @@ jobs:
       # Match stable native packages; the Cloudflare Worker deploys separately.
       # macOS legs build on the light-class minis' side lane (attempt 1),
       # re-runs on Blacksmith macOS, never a hosted Mac (Leo, 2026-10-27);
-      # Linux legs on GitHub-hosted Ubuntu. A literal
+      # Linux legs take the builder's own Blacksmith defaults (empty input:
+      # LINUX_RUNNER for light jobs, 32 vCPU for the builds), never
+      # GitHub-hosted Ubuntu. A literal
       # light label, not vars.CI_SIDE_LANE_RUNNER: the std pools include the
       # benchmark mini cmux11s, which nightlies must never reach (a153,
       # 2026-10-20). See docs/ci-runners.md.
       macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-side-light-xcode-26.6' }}
-      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
-      linux_runner: ubuntu-24.04
-      linux_arm64_runner: ubuntu-24.04-arm
-      windows_runner: windows-2025
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+      linux_runner: ''
+      linux_arm64_runner: ''
+      # Windows legs (include_windows) take the builder's Blacksmith default
+      # (WINDOWS_RUNNER, else blacksmith-4vcpu-windows-2025), never a
+      # GitHub-hosted image (user, 2026-10-28: Blacksmith for everything).
+      windows_runner: ''
       # Pin the exact sha the version job resolved so every matrix leg builds
       # the same commit even if main advances mid-run.
       checkout_ref: ${{ needs.version.outputs.head_sha }}
