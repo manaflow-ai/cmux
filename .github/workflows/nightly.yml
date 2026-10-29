@@ -932,9 +932,9 @@ jobs:
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     # Pull requests are what restore this seed, so track the runner the
-    # admission job picks for `pull_request`, not the merge-queue one. On the
-    # 6 vCPU macOS 26 pool, use its 12 vCPU sibling: same image and Xcode,
-    # no pull-request queue (see seed-derived-data.yml). The macOS 15 pool,
+    # admission job picks for `pull_request`, not the merge-queue one, as is:
+    # its 12 vCPU sibling started no job from 2026-10-28 20:32Z, so the seed
+    # no longer moves there. The macOS 15 pool,
     # which pr_runner_pool.py overflows pull requests to, gets its own cold
     # seed on its own Xcode too, so its per-push seed chain never carries
     # stale intermediates for long either (while this schedule runs; see the
@@ -944,7 +944,7 @@ jobs:
       fail-fast: false
       matrix:
         pool:
-          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
           - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
     runs-on: ${{ matrix.pool }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
@@ -1159,7 +1159,8 @@ jobs:
 
   # The pinned trusted mini only while it can take the build: one live read of the runner
   # carrying both trusted labels (scripts/ci/classic_nightly_build_runner.py). Idle: the pinned
-  # pair. Busy: look again for up to 5 min. Offline or still busy: the moving cloud macOS 26 label.
+  # pair. Busy: look again for up to 5 min. Offline or still busy: blacksmith-6vcpu-macos-26 (ONLY
+  # 6vcpu: the 12 vCPU label started no job from 2026-10-28 20:32Z), on every attempt.
   # Unreadable: the pinned pair, as before. Never another owned label (this build holds the cache
   # writer keys). Every step continues on error and their budgets fit the job's, so it ends green and
   # the jobs after build-nightly-app (implicit success() over the needs chain) are never skipped for it.
@@ -1217,6 +1218,7 @@ jobs:
           SNAPSHOT_TOKEN: ${{ github.token }}
           TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
           TRUSTED_RUNNER: ${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+          ONLY: 6vcpu
           ENABLED: ${{ needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && '1' || '0' }}
         run: python3 scripts/ci/classic_nightly_build_runner.py
 
@@ -1255,12 +1257,12 @@ jobs:
     # or offline mini never holds the nightly. Signing stays on Blacksmith (build-sign-notarize-nightly).
     # Blacksmith runs share the cache warmer's and stable release lane's image
     # and toolchain, which is what the compilation cache is keyed on — OS, arch
-    # and toolchain, never instance size, which is deliberately larger here.
+    # and toolchain, never instance size, so 6 vCPU reads the same entries.
     # An owned mini keys its own lineage (see the cache key step). Fast
     # branch dogfood always uses the dedicated Blacksmith image. A
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -1657,11 +1659,10 @@ jobs:
           echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
 
   # The Blacksmith macOS 26 label the jobs after the build take (prepare, sign and notarize, verify,
-  # deltas): 6 vCPU while its queue moves, else 12 vCPU, by the queue janitor's snapshot and the one
-  # stall rule (scripts/ci/classic_nightly_build_runner.py, ENABLED 0: no trusted pick). Picked once
-  # the build is done, so it reads the queues as they are when signing starts. `alternate` is the
-  # other label, which a re-run takes so it never queues again on the label that stalled. Signing
-  # stays on Blacksmith: never an owned label. Every step continues on error, so the job ends green.
+  # deltas): blacksmith-6vcpu-macos-26 for the pick and for `alternate`, the label a re-run takes
+  # (scripts/ci/classic_nightly_build_runner.py, ONLY 6vcpu, ENABLED 0: no trusted pick). The 12 vCPU
+  # label it could move to started no job from 2026-10-28 20:32Z. Signing stays on Blacksmith: never
+  # an owned label. Every step continues on error, so the job ends green.
   pick-classic-sign-runner:
     needs: [decide, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
@@ -1693,6 +1694,9 @@ jobs:
         env:
           SNAPSHOT_TOKEN: ${{ github.token }}
           FIRST: 6vcpu
+          # 6 vCPU for the pick and the re-run alternate: the 12 vCPU macOS 26 label started no job
+          # from 2026-10-28 20:32Z (run 40834485210 waited on it from 07:47Z).
+          ONLY: 6vcpu
           ENABLED: '0'
         run: python3 scripts/ci/classic_nightly_build_runner.py
 

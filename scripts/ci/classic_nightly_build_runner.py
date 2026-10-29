@@ -22,7 +22,11 @@ FIRST (a label among those two, or its size, `6vcpu` or `12vcpu`) puts that labe
 and verify jobs of main's nightly
 and the DEV publisher's Mac jobs keep 6 vCPU, their old pinned default, while it moves. With
 ENABLED unset the trusted pick is skipped and only `cloud` is read. `alternate` is the other label,
-for a re-run.
+for a re-run. ONLY (a candidate label or its size) makes that label both `cloud` and `alternate`,
+whatever the snapshot says: the sign and verify picks of main's nightly and the DEV daily use 6vcpu.
+blacksmith-12vcpu-macos-26 started no job from 2026-10-28 20:32Z (main's run 40834485210 held
+build-sign-notarize-nightly on it from 07:47Z after a re-run took the 12 vCPU `alternate`), and the
+snapshot cannot see a label with no capacity while nothing waits on it.
 `classic_nightly_build_runner.py prepare` prints only `trusted`, read once with no wait, and false
 when the list cannot be read: prepare-nightly-variant (no secrets) takes the same pinned tuple while
 that mini is idle right after the build, else its Blacksmith label. Its three legs ran about 1 min
@@ -200,14 +204,19 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
                     snapshot = None
         except Exception as error:  # noqa: BLE001 - the default label keeps its say
             print(f"::warning title=classic nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
-    blacksmith, blacksmith_why = blacksmith_route(snapshot, now, (env.get("FIRST") or "").strip())
+    only = SIZES.get((env.get("ONLY") or "").strip(), (env.get("ONLY") or "").strip())
+    if only in CANDIDATES:
+        blacksmith, blacksmith_why, other = only, f"`{only}` only (ONLY), for the pick and a re-run", only
+    else:
+        blacksmith, blacksmith_why = blacksmith_route(snapshot, now, (env.get("FIRST") or "").strip())
+        other = alternate(blacksmith)
     lines = [f"trusted: {'yes' if trusted else 'no'} ({trusted_why})", f"blacksmith: {blacksmith} ({blacksmith_why})"]
     for line in lines:
         print(f"classic nightly build runner: {line}")
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
             handle.write(f"trusted={'true' if trusted else 'false'}\ncloud={blacksmith}\n"
-                         f"alternate={alternate(blacksmith)}\nattempt={(env.get('GITHUB_RUN_ATTEMPT') or '1').strip()}\n")
+                         f"alternate={other}\nattempt={(env.get('GITHUB_RUN_ATTEMPT') or '1').strip()}\n")
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
             handle.write("\nNightly build runner:\n" + "".join(f"- {line}\n" for line in lines))
