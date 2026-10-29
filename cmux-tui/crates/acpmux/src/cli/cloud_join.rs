@@ -95,7 +95,7 @@ pub async fn join(hub: Option<String>, name: Option<String>, replace: bool, json
     let identity = load().ok().flatten().map(|r| r.mesh_identity).unwrap_or_else(mesh_identity);
     let platform = if cfg!(target_os = "macos") { "macos" } else { "linux" };
     let response = reqwest::Client::new().post(format!("{hub}/v1/machines/join-tokens/redeem"))
-        .json(&json!({"token": token, "platform": platform, "hostname": name, "meshIdentity": identity}))
+        .json(&json!({"token": token, "platform": platform, "hostname": name, "name": name, "meshIdentity": identity}))
         .send().await.map_err(|_| crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "join.hub", "hub unreachable").with_exit(4))?;
     let status = response.status();
     let body: Value = response.json().await.unwrap_or_else(|_| json!({}));
