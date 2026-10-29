@@ -277,3 +277,32 @@ test("a streaming reply reads only its own row again; an older row that changed 
   const again = referenceScopes([prompt, done, assistant("#9")], cache);
   expect(again(prompt.id).evidence.mentions.get(9)).toEqual([{ at: 1, repo: "x/y" }]);
 });
+
+// Leo 2026-10-29: "these auto render to the pr instead of just #1 #2...". The agent quoted his
+// "what is #1 / #2", and each bare number drew as a chip for cmux's (real, unrelated) pull
+// requests #1 and #2.
+test("Leo's #1 / #2: a quote's bare numbers stay text; explicit references stay chips", async () => {
+  const view = await render(
+    [
+      user("what is #1 / #2"),
+      // The turn names cmux#2 itself (rule a), so only the quote keeps the quoted #2 text.
+      assistant(`> what is #1 / #2\n\nThe options I listed, not pull requests (${CMUX}#2 is unrelated).`),
+    ],
+    [pr(CMUX, 1), pr(CMUX, 2)],
+    { folder: CMUX },
+  );
+  expect(view.chips()).toEqual([[`${CMUX}#2`, pr(CMUX, 2)]]);
+  expect(view.element.querySelector(".cv-quote")?.textContent).toContain("what is #1 / #2");
+});
+
+test("Leo's #1 / #2: a bare number far below the repository's named numbers stays text", async () => {
+  const view = await render(
+    [
+      user(`Land ${pr(CMUX, 27262)}, then what is #1 / #2`),
+      assistant('You asked "what is #1 / #2": #1 is the sidebar fix, #2 the composer one. #27262 is green.'),
+    ],
+    [pr(CMUX, 1), pr(CMUX, 2), pr(CMUX, 27262)],
+    { folder: CMUX },
+  );
+  expect(view.chips()).toEqual([["#27262", pr(CMUX, 27262)]]);
+});
