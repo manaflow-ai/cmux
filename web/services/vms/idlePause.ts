@@ -435,16 +435,34 @@ def cmdline(pid):
         return None
     return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
 
+SHELL_OPTION_OPERANDS = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
+
 def shell_runs_command(pid):
     # A shell that is itself the command: -c (alone or in a cluster like -lc),
-    # or a script argument (a non-flag argument after the shell's name). A
-    # login or interactive shell (-bash, bash, zsh -l, bash -i) is a prompt.
-    for arg in (cmdline(pid) or [])[1:]:
+    # or a script argument (the first operand after its options; an option's
+    # own operand, like --rcfile FILE or -o emacs, is not one). A login or
+    # interactive shell (-bash, bash, zsh -l, bash -i) or one reading commands
+    # from stdin (-s, -) is a prompt.
+    args = (cmdline(pid) or [])[1:]
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in SHELL_OPTION_OPERANDS:
+            i += 2
+            continue
+        if arg == "--":
+            return i + 1 < len(args)
+        if arg == "-":
+            return False
         if arg.startswith("--"):
+            i += 1
             continue
         if arg.startswith("-") or arg.startswith("+"):
             if "c" in arg[1:]:
                 return True
+            if "s" in arg[1:]:
+                return False
+            i += 1
             continue
         return True
     return False
