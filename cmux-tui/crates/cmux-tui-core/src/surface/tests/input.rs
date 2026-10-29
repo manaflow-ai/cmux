@@ -186,3 +186,122 @@ fn send_key_encodes_command_chords_from_authoritative_keyboard_modes() {
         b"\x1b[99;9u\x1b[122;9u\x1b[122;10u\x1b[97;9u"
     );
 }
+
+/// The real master of a local terminal's PTY, written as the terminal's own
+/// writer is (a descriptor of the same open master), that says when its first
+/// write starts: from then on the write is in progress in the input turn.
+#[cfg(unix)]
+struct MasterWriteStarted {
+    master: std::fs::File,
+    started: Option<std::sync::mpsc::Sender<()>>,
+}
+
+#[cfg(unix)]
+impl Write for MasterWriteStarted {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if let Some(started) = self.started.take() {
+            let _ = started.send(());
+        }
+        self.master.write(bytes)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.master.flush()
+    }
+}
+
+/// A local PTY write waits while the child does not read its input; it must
+/// not hold the runtime lock while it waits (`LocalWriter`), or a resize, the
+/// foreground check behind `shell_idle` and closing the terminal all wait on a
+/// child that does not read. The child turns its PTY raw (a full input queue
+/// blocks the master write, as a cooked one with no newline would not) and
+/// never reads; the input is far larger than any PTY input queue, so the write
+/// cannot return while the child lives. Every wait ends on an event; `BOUND`
+/// only stops a hang.
+#[cfg(unix)]
+#[test]
+fn local_pty_write_blocked_on_a_child_that_does_not_read_leaves_the_runtime_lock_free() {
+    const BOUND: Duration = Duration::from_secs(20);
+    let mux = Mux::new_for_test("local-pty-write-blocked", SurfaceOptions::default());
+    let surface = Surface::spawn(
+        4301,
+        SurfaceOptions {
+            command: Some(vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "stty raw -echo && printf LOCAL-WRITER-READY && exec sleep 600".into(),
+            ]),
+            ..SurfaceOptions::default()
+        },
+        Arc::downgrade(&mux),
+    )
+    .unwrap();
+
+    // The PTY is raw once the child printed its marker.
+    let deadline = Instant::now() + BOUND;
+    loop {
+        let text = surface.try_with_terminal(|terminal| terminal.viewport_text()).unwrap().unwrap();
+        if text.contains("LOCAL-WRITER-READY") {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the child never turned its PTY raw: {text:?}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    let master = {
+        let pty = surface.as_pty().unwrap();
+        let runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Local { master: Some(master), holder: None, .. } = &*runtime else {
+            panic!("the test needs a local terminal whose PTY the daemon writes itself");
+        };
+        let fd = master.as_raw_fd().expect("a unix PTY master has a descriptor");
+        // SAFETY: the runtime keeps `fd` open while its lock is held here; the
+        // borrow ends at the clone, which owns a new descriptor.
+        let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) }.try_clone_to_owned().unwrap();
+        std::fs::File::from(fd)
+    };
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    replace_local_writer(
+        &surface,
+        Box::new(MasterWriteStarted { master, started: Some(started_tx) }),
+    );
+
+    let (written_tx, written_rx) = std::sync::mpsc::channel();
+    std::thread::spawn({
+        let surface = surface.clone();
+        move || {
+            let _ = written_tx.send(surface.write_bytes(&b"x".repeat(1 << 20)));
+        }
+    });
+    started_rx.recv_timeout(BOUND).expect("the PTY write started");
+
+    let (resized_tx, resized_rx) = std::sync::mpsc::channel();
+    std::thread::spawn({
+        let surface = surface.clone();
+        move || {
+            let (cols, rows) = surface.size();
+            let _ = resized_tx.send(surface.resize(cols + 3, rows + 2).map(|_| ()));
+        }
+    });
+    resized_rx
+        .recv_timeout(BOUND)
+        .expect("a resize waited on a PTY write the child does not read (the runtime lock)")
+        .unwrap();
+    let written = written_rx.try_recv();
+    assert!(
+        matches!(written, Err(TryRecvError::Empty)),
+        "the PTY write must still wait for the child when the resize finished: {written:?}"
+    );
+
+    let (killed_tx, killed_rx) = std::sync::mpsc::channel();
+    std::thread::spawn({
+        let surface = surface.clone();
+        move || {
+            surface.kill();
+            let _ = killed_tx.send(());
+        }
+    });
+    killed_rx
+        .recv_timeout(BOUND)
+        .expect("closing the terminal waited on a PTY write the child does not read");
+}
