@@ -1912,6 +1912,10 @@ const OPEN_AT_PAGE_MS = 1500;
 const OPEN_AT_SEEK_MS = 8000;
 /// How soon the transcript asks again for an older page after an ask that brought nothing.
 const OLDER_RECHECK_MS = 500;
+/// How near the first loaded row, in viewports, the view asks for the next older page: far enough
+/// ahead that a page read from acpmux lands before a fast scroll up reaches the top (two viewports
+/// was a fraction of a second of a flick).
+const OLDER_AHEAD_VIEWPORTS = 6;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
 /// above the `inset` px at its foot that the bottom stack covers.
 function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
@@ -3953,7 +3957,7 @@ export function VirtualTranscript({
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
   useLayoutEffect(markTurns, [markTurns, rows, range.first, range.last]);
-  // Older history pages in before the reader reaches it: whenever the view is within two viewports
+  // Older history pages in before the reader reaches it: whenever the view is within six viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
   // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
@@ -3976,7 +3980,7 @@ export function VirtualTranscript({
       olderLoadRequested.current = undefined;
       return;
     }
-    if (node.scrollTop >= node.clientHeight * 2) {
+    if (node.scrollTop >= node.clientHeight * OLDER_AHEAD_VIEWPORTS) {
       // Allow the next visit to the threshold to request the next page, even when the first row
       // did not change while the reader was away from the top.
       olderLoadRequested.current = undefined;
