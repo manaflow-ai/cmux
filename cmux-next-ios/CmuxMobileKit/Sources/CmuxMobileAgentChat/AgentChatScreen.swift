@@ -94,6 +94,24 @@ public final class AgentChatSurface {
     }
     /// Mirrors the composer's focus (the composer's `@FocusState` follows it).
     public var composerFocused = false
+
+    /// Edit and Resend from a user bubble: the message goes into the composer to edit and
+    /// is sent from there. Returns false, changing nothing, while the composer holds a
+    /// draft (the bubble asks before replacing it).
+    func editAndResend(_ turn: AgentTurn, store: AgentChatStore) -> Bool {
+        guard let prompt = store.editAndResend(turn, draft: text) else { return false }
+        loadForEditing(prompt, permissionPending: store.pendingPermission != nil)
+        return true
+    }
+
+    /// Puts a message in the composer, focused. With permission choices up, the composer
+    /// takes their place as a follow-up, as for a draft typed before the permission arrived,
+    /// never as "Reply instead", which would answer the request.
+    func loadForEditing(_ prompt: String, permissionPending: Bool) {
+        text = prompt
+        if permissionPending { permissionDeferred = true }
+        composerFocused = true
+    }
     /// Screen y of the top of the floating bottom stack (tab mode), so the
     /// transcript's bottom margin follows the composer and the keyboard.
     public internal(set) var bottomStackTop: CGFloat?
@@ -770,18 +788,11 @@ struct TurnView: View {
     /// A draft in the composer is never replaced without asking.
     private func editAndResend() {
         guard let surface else { return }
-        if let text = store.editAndResend(turn, draft: surface.text) {
-            surface.text = text
-            surface.composerFocused = true
-        } else {
-            confirmingReplace = true
-        }
+        if !surface.editAndResend(turn, store: store) { confirmingReplace = true }
     }
 
     private func editInComposer() {
-        guard let surface else { return }
-        surface.text = turn.prompt
-        surface.composerFocused = true
+        surface?.loadForEditing(turn.prompt, permissionPending: store.pendingPermission != nil)
     }
 
     @ViewBuilder

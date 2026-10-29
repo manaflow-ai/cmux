@@ -45,4 +45,39 @@ import Testing
         #expect(sent.id != "p1")
         #expect(!sent.resend)
     }
+
+    /// The bubble's path: the composer gets the message, focused, and nothing is sent.
+    @Test func bubbleEditFillsAndFocusesTheComposer() {
+        let (source, store, turn) = lastTurn()
+        let sentBefore = source.sent.count
+        let surface = AgentChatSurface()
+        #expect(surface.editAndResend(turn, store: store))
+        #expect(surface.text == "fix the build")
+        #expect(surface.composerFocused)
+        #expect(source.sent.count == sentBefore)
+    }
+
+    /// With a draft, the bubble's path changes nothing (it asks first).
+    @Test func bubbleEditKeepsADraft() {
+        let (source, store, turn) = lastTurn()
+        let sentBefore = source.sent.count
+        let surface = AgentChatSurface()
+        surface.text = "draft B"
+        #expect(!surface.editAndResend(turn, store: store))
+        #expect(surface.text == "draft B")
+        #expect(!surface.composerFocused)
+        #expect(source.sent.count == sentBefore)
+    }
+
+    /// With permission choices up, the composer replaces them as a follow-up, never as
+    /// "Reply instead" (which would deny the request), so the edit is never hidden.
+    @Test func editDuringAPermissionShowsTheComposer() {
+        let surface = AgentChatSurface()
+        #expect(!surface.permissionBarHidden)
+        surface.loadForEditing("fix the build", permissionPending: true)
+        #expect(surface.permissionBarHidden)
+        #expect(!surface.replyInsteadOfPermission)
+        #expect(surface.text == "fix the build")
+        #expect(surface.composerFocused)
+    }
 }
