@@ -329,7 +329,9 @@ def light_argv(piece: str) -> list[str] | None:
 
 def light_script(package: ScriptPackage, argv: list[str]) -> bool:
     """ARGV runs a source-check script: `python3 [-I] PATH.py ARGS` or `bun PATH.ts ARGS`, PATH (relative to the
-    package) inside a `scripts/` folder under one of the package's `executed` paths."""
+    package) inside a `scripts/` folder, and a path the hook refuses to lint when a push changes it: the same
+    executed_changes() test the hook applies, so a script under the package's src/, test/ or tests/ (which a push
+    may change and still be linted) is never light (review of bead8b5: `bun src/scripts/evil.ts`)."""
     tool = LIGHT_SCRIPT_TOOLS.get(argv[0]) if argv else None
     if tool is None:
         return False
@@ -343,7 +345,7 @@ def light_script(package: ScriptPackage, argv: list[str]) -> bool:
         return False
     path = posixpath.normpath(posixpath.join(package.directory, rest[0]))
     return (not path.startswith("../") and "scripts" in path.split("/")[:-1]
-            and under(path, package.executed))
+            and executed_changes(package, [path]) == [path])
 
 
 def is_light(piece: str, package: ScriptPackage) -> bool:

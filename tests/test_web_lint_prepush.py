@@ -751,7 +751,11 @@ class WebLintPrePushTests(unittest.TestCase):
                       "python3 check.py", "python3 src/check.py", "python3 /tmp/scripts/x.py",
                       "python3 ../../x/scripts/x.py", "python3 ../web/scripts/x.py", "python3 scripts/x.sh",
                       "python3 scripts/", "bun", "bun scripts/x.js", "bun -e scripts/x.ts",
-                      "bun ../escape/scripts/x.ts", "bun x.ts", "bun scripts/../x.ts"):
+                      "bun ../escape/scripts/x.ts", "bun x.ts", "bun scripts/../x.ts",
+                      # Review of bead8b5: under src/, test/ or tests/ a push may change the script and still be
+                      # linted, so the hook would run the changed code.
+                      "bun src/scripts/evil.ts", "python3 test/scripts/x.py", "bun tests/scripts/x.ts",
+                      "python3 -I src/lint/scripts/x.py"):
             with self.subTest(piece=piece):
                 self.assertFalse(lint.is_light(piece, webviews))
         for piece in ("python3 scripts/check.py", "python3 -I scripts/check.py --root ..",
@@ -759,6 +763,19 @@ class WebLintPrePushTests(unittest.TestCase):
                       "bun scripts/lint/x.ts"):
             with self.subTest(piece=piece):
                 self.assertTrue(lint.is_light(piece, webviews))
+
+    def test_every_light_script_is_one_the_hook_refuses_to_lint_when_a_push_changes_it(self):
+        lint = load_lint(self.repo)
+        for package in lint.SCRIPT_PACKAGES:
+            for piece in ("bun scripts/a.ts", "bun src/scripts/a.ts", "python3 test/scripts/a.py",
+                          "python3 ../scripts/cmux-next/a.py", "bun dev-server/scripts/a.ts"):
+                argv = lint.light_argv(piece)
+                if not lint.light_script(package, argv):
+                    continue
+                path = lint.posixpath.normpath(lint.posixpath.join(package.directory, argv[-1]))
+                with self.subTest(package=package.directory, piece=piece):
+                    plan = lint.make_plan(self.repo, [path], guard_executed=True, exists=lambda rel: True)
+                    self.assertIn(package.directory, [directory for directory, _ in plan.untrusted], path)
 
     def test_a_light_prefix_cannot_carry_another_command(self):
         lint = load_lint(self.repo)
