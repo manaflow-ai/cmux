@@ -89,6 +89,9 @@ impl Api for FakeServer {
                 let rows: Vec<_> = sessions.iter().filter(|(id, _)| id.as_str() > after)
                     .take(501).collect();
                 let has_more = rows.len() > 500;
+                if has_more && body["page_protocol"] != 2 {
+                    return refuse(409, "cloud.trajectory.pagination_required", Value::Null);
+                }
                 let page: Vec<Value> = rows.into_iter().take(500).map(|(id, k)| json!({
                     "session": id,
                     "generation": k.generation,
