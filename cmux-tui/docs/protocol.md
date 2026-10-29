@@ -159,7 +159,8 @@ to time matching or unconditional clearing. Older daemons do not advertise
 this capability. Older builds can still read the additive JSON; if they replace
 it without a token, the next upgrade issues a fresh identity. No FFI ABI change
 is needed: native consumers must use a daemon release containing this capability
-and follow the normal release/repin process before enabling their actions.
+before enabling their actions. These core/protocol files are outside the derived
+CCmuxAppFFI inputs, so this change needs no app FFI release or binary-target repin.
 
 
 `workspace-description-v1` adds `description` (string, 1-4096 characters, line

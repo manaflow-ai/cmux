@@ -80,8 +80,9 @@ fn attention_request_identity_survives_fixed_clock_clear_reissue_and_rollback() 
 
 #[test]
 fn attention_request_identity_persists_and_legacy_backfill_is_idempotent() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("state.sqlite");
+    let temp = crate::state::tests::Session::new("attention-identity");
+    std::fs::create_dir_all(&temp.root).unwrap();
+    let path = temp.root.join("state.sqlite");
     let original;
     {
         let mut connection = Connection::open(&path).unwrap();
