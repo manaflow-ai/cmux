@@ -115,10 +115,17 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     /// A group's own auto-archive rule (`extra.auto_archive`; plans/cmux-next/auto-archive-DESIGN.md);
     /// nil when it follows the setting.
     public var autoArchive: SidebarDocAutoArchiveRule?
+    /// The space the item was made in: a group's `profile`, another item's `extra.room`. Nil: made before items
+    /// carried one, read as the default space (spaces.md: each space owns its pins and groups).
+    public var room: String?
+
+    /// The id of the default space (`ProfileID.defaultProfile`): where an item with no stored space belongs.
+    public static let defaultRoom = "default"
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
                 label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false, archived: Bool = false,
-                autoArchive: SidebarDocAutoArchiveRule? = nil) {
+                autoArchive: SidebarDocAutoArchiveRule? = nil, room: String? = nil) {
+        self.room = room
         self.iconURL = iconURL
         self.autoArchive = autoArchive
         self.pinnedInGroup = pinnedInGroup && parent != nil

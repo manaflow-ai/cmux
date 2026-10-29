@@ -105,8 +105,9 @@ public final class SidebarDocSections {
     /// Home row and above every group (``placesNewRowsFirst``), else last. One
     /// placed in another section (Pinned, a custom section) lists only as a
     /// member of its group there. `unplacedOrder` orders those rows (the App's
-    /// personal order, newest first under `top`); it runs only when there are some.
-    public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel],
+    /// personal order, newest first under `top`); it runs only when there are some. `room`: the window's space; a
+    /// group with no workspace at all lists only in its own space (`Group.lists(inRoom:)`), nil lists it everywhere.
+    public func sections(_ projection: SidebarDocProjection, session: String, workspaces: [WorkspaceModel], room: String? = nil,
                          unplacedOrder: ([WorkspaceModel]) -> [WorkspaceModel] = { $0 }) -> [CmuxNextDaemon.SidebarSection] {
         let byResource = Dictionary(workspaces.compactMap { w in w.resourceID.map { ($0.rawValue, w) } }, uniquingKeysWith: { first, _ in first })
         var sections: [CmuxNextDaemon.SidebarSection] = []
@@ -124,9 +125,9 @@ public final class SidebarDocSections {
                 listed.insert(workspace.id)
             case .group(let group):
                 let members = group.members.compactMap { byResource[$0.workspaceID] }
-                // A group lists where it lists a live workspace, or everywhere with none at all; its link, tab and app
-                // members follow it (`SidebarDocProjection.arrange`).
-                guard !members.isEmpty || group.members.isEmpty else { continue }
+                // A group lists where it lists a live workspace, or in its own space with none at all; its link, tab and
+                // app members follow it (`SidebarDocProjection.arrange`).
+                guard !members.isEmpty || (group.members.isEmpty && group.lists(inRoom: room)) else { continue }
                 flush()
                 listed.formUnion(members.map(\.id))
                 sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))

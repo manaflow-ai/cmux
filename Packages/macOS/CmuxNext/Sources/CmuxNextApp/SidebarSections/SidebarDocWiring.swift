@@ -17,7 +17,7 @@ enum SidebarDocWiring {
     static func sections(of daemon: DaemonService, room: ProfileID, machines: MachineRegistry) -> [CmuxNextDaemon.SidebarSection]? {
         guard let shown = SidebarDocStore.current?.shown, let session = daemon.store.registryID else { return nil }
         return docSections.sections(shown, session: session, workspaces: WindowProfiles.workspaces(of: daemon, in: room, machines: machines),
-                                    unplacedOrder: { PersonalSidebar.personalOrder($0, of: daemon, machines: machines) })
+                                    room: room.rawValue, unplacedOrder: { PersonalSidebar.personalOrder($0, of: daemon, machines: machines) })
     }
 
     /// The document has applied a change `shown` does not show yet (rebuilt a hop later), and `shown` does not place
@@ -41,6 +41,7 @@ enum SidebarDocWiring {
             (services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback) == .top
         }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
+        store.newItemRoom = { [weak services] in services?.windows.active?.state.profileID.rawValue }
         store.onUndoPending = { [weak services] title in PinUndoStep.filling != nil ? nil : services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }
         store.onUndoable = { [weak services] (title: String, origin: AnyObject?, undo: @escaping @MainActor () -> Void) in
             // The inverse runs with its undo step as the origin, so the change it sends fills that step (the redo).

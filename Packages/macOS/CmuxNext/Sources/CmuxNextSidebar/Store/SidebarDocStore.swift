@@ -40,6 +40,9 @@ public final class SidebarDocStore {
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
     /// A refusal or failure to show (the refusal HUD).
     @ObservationIgnored public var onRefused: @MainActor (String) -> Void = { _ in }
+    /// The space a band edit is made in (the acting window's): a link, tab or app pinned to Pinned stores it
+    /// (`extra.room`) and draws only in that space (spaces.md). Nil stores none.
+    @ObservationIgnored public var newItemRoom: @MainActor () -> String? = { nil }
     /// Posted when a change was refused (by the mirror or the daemon), with its `key` in userInfo:
     /// a list holding that drop's look lets it go.
     nonisolated public static let refusedNotification = Notification.Name("cmux.sidebar.docRefused")

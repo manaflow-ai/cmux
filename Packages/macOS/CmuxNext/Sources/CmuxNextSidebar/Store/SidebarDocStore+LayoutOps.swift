@@ -25,7 +25,7 @@ extension SidebarDocStore {
     /// bands as shown). Anchors follow the earlier ops of the same list,
     /// so several adds at consecutive indexes keep their order.
     public func docOps(for ops: [SidebarLayoutOp], layout: SidebarLayoutDocument) throws(LayoutOpGap) -> [[String: Any]] {
-        var planner = LayoutOpPlanner(records: records, shown: shown, layout: layout)
+        var planner = LayoutOpPlanner(records: records, shown: shown, layout: layout, room: newItemRoom())
         var out: [[String: Any]] = []
         for op in ops { out += try planner.ops(for: op) }
         return out
@@ -48,11 +48,14 @@ private struct LayoutOpPlanner {
     let records: SidebarDocRecords
     let shown: SidebarDocProjection?
     let layout: SidebarLayoutDocument
+    /// The space a new Pinned item is made in (`SidebarDocStore.newItemRoom`).
+    let room: String?
     /// The top-level item ids of each band section in shown order, as the planned ops leave them.
     var siblings: [String: [String]]
     typealias Gap = SidebarDocStore.LayoutOpGap
 
-    init(records: SidebarDocRecords, shown: SidebarDocProjection?, layout: SidebarLayoutDocument) {
+    init(records: SidebarDocRecords, shown: SidebarDocProjection?, layout: SidebarLayoutDocument, room: String? = nil) {
+        self.room = room
         self.records = records
         self.shown = shown
         self.layout = layout
@@ -182,6 +185,8 @@ private struct LayoutOpPlanner {
         guard section != Self.workspaces else { throw .unsupported }
         var wire: [String: Any] = ["id": item.id.rawValue, "body": Self.body(item), "shows_label": item.showsLabel]
         if let span = item.span { wire["span"] = span }
+        // A link, tab or app pinned in one space is that space's (spaces.md); other bands are not per space.
+        if section == SidebarLayoutDocument.pinnedSectionID, let room = item.room ?? room { wire["extra"] = ["room": room] }
         return [["op": "item.add", "item": wire, "to": target(section.rawValue, index: index, moving: item.id.rawValue)]]
     }
 

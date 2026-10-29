@@ -21,6 +21,9 @@ public struct SidebarDocDrag {
     /// Whether another window lists this open workspace (the App's window registry): a Pinned or custom group
     /// holding it belongs to that window and is not drawn here (#25776). Without a window: every open one.
     public var listedElsewhere: (SidebarDocWorkspaceRef) -> Bool = { _ in true }
+    /// The window's space (`ProfileID`): a group no open workspace here lists draws only in its own space
+    /// (`SidebarDocProjection.Group.lists(inRoom:)`, spaces.md). Nil: every such group draws.
+    public var room: String?
 
     public init(item: @escaping (SidebarRowKey) -> String?, section: @escaping (SectionID) -> String?,
                 begin: @escaping ([String]) -> [String: SidebarDocAcceptance], drop: @escaping ([String], SidebarDocTarget) -> Void,
