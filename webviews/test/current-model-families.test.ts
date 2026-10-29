@@ -105,6 +105,51 @@ test("identity-only current releases stay offline until a live account reports t
   expect(ids(profile.harnesses.find((entry) => entry.id === "codex-sr")!.models)).not.toContain("gpt-6.1-terra");
 });
 
+test("a live profile owns its reported list even while the host catalog is provisional", () => {
+  const catalog = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      {
+        id: "codex",
+        family: "codex",
+        name: "Codex",
+        models: [{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol" }],
+      },
+      {
+        id: "codex-sr",
+        family: "codex-sr",
+        name: "Codex profile",
+        models: [{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol" }],
+      },
+    ],
+    session: { harness: "codex" },
+    provisional: true,
+  });
+  for (const id of ["codex", "codex-sr"]) {
+    const models = catalog.harnesses.find((entry) => entry.id === id)!.models;
+    expect(ids(models)).not.toContain("gpt-6.1-terra");
+    expect(ids(models)).not.toContain("gpt-6.1-luna");
+  }
+});
+
+test("a reported current release keeps its catalog family metadata", () => {
+  const catalog = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      {
+        id: "codex",
+        family: "codex",
+        name: "Codex",
+        models: [{ id: "gpt-6.1-terra", name: "GPT-6.1 Terra" }],
+      },
+    ],
+    session: { harness: "codex" },
+    provisional: true,
+  });
+  const terra = catalog.harnesses.find((entry) => entry.id === "codex")!.models.find((model) => model.id === "gpt-6.1-terra");
+  expect(terra?.family).toBe("Terra");
+});
+
 test("Retry keeps the running unavailable model and excludes unavailable alternatives", () => {
   const sections = retryModelSections(
     [

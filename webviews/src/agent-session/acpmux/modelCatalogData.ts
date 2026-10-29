@@ -407,7 +407,7 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   const runs = chosen?.id === session?.harness ? runningModel(session, live) : undefined;
   const listed =
     harness.modelSource === "catalog"
-      ? harness.models.filter((model) => join.provisional || model.id === runs || !isIdentityOnlyCurrentModel(model))
+      ? harness.models.filter((model) => includeCatalogIdentity(model, probed, runs, join))
       : [];
   const reported = reportedNames(probed, live);
   const hiddenReleases = hiddenReleaseIds(harness.id, harness.id, reported, join);
@@ -459,7 +459,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   // is not one of this profile's releases (applyUserLayer drops it so from its own harness).
   const listed = (kin?.models ?? []).filter(
     (model) =>
-      (join.provisional || model.id === runs || !isIdentityOnlyCurrentModel(model)) &&
+      includeCatalogIdentity(model, entry.models, runs, join) &&
       ![...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(entry.id, id, join)) &&
       ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
   );
@@ -725,16 +725,38 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
 function probedModel(probe: AcpmuxModel, harnessId: string, join: Join): PickerModel {
   const info = join.catalog.models[probe.id];
   const provider = probe.id.includes("/") ? probe.id.slice(0, probe.id.indexOf("/")) : undefined;
-  const name = info?.name ?? probe.name ?? probe.id;
+  const catalogModel = catalogIdentity(probe.id, join);
+  const name = info?.name ?? catalogModel?.name ?? probe.name ?? probe.id;
   const base: HarnessModel = {
     id: probe.id,
-    ...(info ? { ref: probe.id } : {}),
+    ...(catalogModel?.ref ? { ref: catalogModel.ref } : info ? { ref: probe.id } : {}),
     name,
-    shortName: name,
-    ...(provider ? { provider } : {}),
-    ...(info?.family ? { family: info.family } : {}),
+    shortName: catalogModel?.shortName || name,
+    ...(catalogModel?.family || info?.family ? { family: catalogModel?.family || info?.family } : {}),
+    ...(catalogModel?.provider || provider ? { provider: catalogModel?.provider || provider } : {}),
   };
   return pickerModel(layeredModel(base, harnessId, probe, join), join.catalog, probe.unavailable);
+}
+
+/** A live profile owns its reported model list. Bundled identity-only releases are a fallback only
+ * until that profile has answered; a running model remains reachable through an empty probe. */
+function includeCatalogIdentity(
+  model: HarnessModel,
+  probed: readonly AcpmuxModel[],
+  runs: string | undefined,
+  join: Join,
+): boolean {
+  if (!isIdentityOnlyCurrentModel(model)) return true;
+  if (model.id === runs) return true;
+  return join.provisional && probed.length === 0 && runs === undefined;
+}
+
+/** Recover family/provider metadata for a reported release that was filtered from `listed`. */
+function catalogIdentity(id: string, join: Join): HarnessModel | undefined {
+  for (const harness of join.sourceCatalog.harnesses)
+    for (const model of harness.models)
+      if (model.id === id || model.aliases?.includes(id)) return model;
+  return undefined;
 }
 
 function isHiddenByUser(harnessId: string, modelId: string, join: Join): boolean {
