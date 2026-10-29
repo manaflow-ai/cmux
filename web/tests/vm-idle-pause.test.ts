@@ -1092,7 +1092,7 @@ describe("legacy daemon fallback", () => {
   });
 
   test("the probe line's legacy daemon parses; a legacy machine idle for the whole timeout pauses, tagged", () => {
-    const line = JSON.stringify({ v: 1, daemon: { legacy: true }, acpmux: { busy_sessions: 0, last_updated_at_ms: null }, busy_terminals: 0, ssh_sessions: 0, inbound_connections: 0 });
+    const line = JSON.stringify({ v: 1, daemon: { legacy: true }, acpmux: { busy_sessions: 0, last_updated_at_ms: null }, busy_terminals: 0, ssh_sessions: 0, inbound_connections: 0, cpu_busy_ms: CPU0 });
     const probe = parseVmIdleProbe(line);
     expect(probe?.daemon).toBe("legacy");
     const { pausedAfterMinutes, decision } = runCron(() => probe, 60);
