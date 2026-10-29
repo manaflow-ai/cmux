@@ -2814,23 +2814,7 @@ impl WorkspaceRegistry {
         }
         if migrate_existing_registry {
             connection.execute_batch("PRAGMA foreign_keys=ON;")?;
-            let violation = connection
-                .query_row(
-                    "SELECT \"table\", rowid, parent, fkid
-                     FROM pragma_foreign_key_check
-                     LIMIT 1",
-                    [],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<i64>>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, i64>(3)?,
-                        ))
-                    },
-                )
-                .optional()?;
-            if violation.is_some() {
+            if registry_state_has_foreign_key_violation(&connection)? {
                 anyhow::bail!(
                     "saved session data could not be loaded; start a new session or restore this session from a backup"
                 );
@@ -3821,6 +3805,47 @@ const JOURNAL_HISTORY_TABLES: [&str; 7] = [
 const MUTATION_LEDGER_TABLES: [&str; 3] =
     ["mutations", "projection_mutations", "terminal_mutations"];
 
+/// Journal receipt ledgers: one row per accepted ingress append, read only
+/// by its `(producer, origin, idempotency key)` for a retry. A long-lived
+/// machine holds hundreds of thousands (588k, about 5.5 s of a cold
+/// quick_check on a 41 GB nightly registry), so the open-time checks skip
+/// them like the mutation ledgers.
+const RECEIPT_LEDGER_TABLES: [&str; 1] = ["journal_ingress_receipts"];
+
+/// Tables the open-time checks leave alone: journal history, idempotency
+/// ledgers and quarantined ledgers grow with use and are validated when read.
+fn skipped_by_open_check(table: &str) -> bool {
+    JOURNAL_HISTORY_TABLES.contains(&table)
+        || MUTATION_LEDGER_TABLES.contains(&table)
+        || RECEIPT_LEDGER_TABLES.contains(&table)
+        || mutation_ledger_retention::is_quarantined_ledger(table)
+}
+
+/// True when a registry state table holds a row whose foreign key names a
+/// missing parent. The open migrates state tables with foreign keys off, so
+/// it checks them; an unscoped `pragma_foreign_key_check` also walked every
+/// receipt ledger (about 4 s cold on a 41 GB registry) while the daemon's
+/// socket waited.
+fn registry_state_has_foreign_key_violation(connection: &Connection) -> anyhow::Result<bool> {
+    let tables = {
+        let mut statement = connection.prepare(
+            "SELECT DISTINCT m.name FROM sqlite_master AS m, pragma_foreign_key_list(m.name)
+             WHERE m.type = 'table' ORDER BY m.name",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
+        let query = format!(
+            "SELECT 1 FROM pragma_foreign_key_check('{}') LIMIT 1",
+            table.replace('\'', "''")
+        );
+        if connection.query_row(&query, [], |_| Ok(())).optional()?.is_some() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Structural check of the registry state on open. An unscoped quick_check
 /// reads every page of the file, so its cost tracked total journal history;
 /// checking each state table and its indexes keeps startup proportional to
@@ -3834,12 +3859,7 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         )?;
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
-    let skipped = |table: &str| {
-        JOURNAL_HISTORY_TABLES.contains(&table)
-            || MUTATION_LEDGER_TABLES.contains(&table)
-            || mutation_ledger_retention::is_quarantined_ledger(table)
-    };
-    for table in tables.iter().filter(|table| !skipped(table.as_str())) {
+    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
@@ -3865,6 +3885,16 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
             continue;
         }
         for order in ["rowid DESC", "origin DESC, mutation_id DESC"] {
+            let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
+            let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
+        }
+    }
+    // The receipt ledgers likewise: their newest row and newest key.
+    for table in RECEIPT_LEDGER_TABLES {
+        if !tables.iter().any(|name| name.as_str() == table) {
+            continue;
+        }
+        for order in ["rowid DESC", "producer_id DESC, origin DESC, idempotency_key DESC"] {
             let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
             let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
         }
