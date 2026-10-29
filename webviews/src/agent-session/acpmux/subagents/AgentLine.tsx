@@ -120,7 +120,7 @@ export function AgentLine({
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
       </span>
-{trayColumns ? (
+      {trayColumns ? (
         <>
           <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
             {time}
@@ -146,7 +146,6 @@ export function AgentLine({
             </span>
           )}
         </>
-      )}
       )}
     </button>
   );

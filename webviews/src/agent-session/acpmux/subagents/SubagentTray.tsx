@@ -288,7 +288,7 @@ export const SubagentTray = memo(function SubagentTray({
             <Icon name="agent.session" size={14} />
           </span>
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={title} />
-<span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
+          <span className="acpmux-summary-meta acpmux-running-tray__time" aria-hidden={starts.length === 0}>
             {starts.length > 0 ? formatDuration(Math.max(0, now - Math.min(...starts))) : undefined}
           </span>
           <span className="acpmux-running-tray__status">
