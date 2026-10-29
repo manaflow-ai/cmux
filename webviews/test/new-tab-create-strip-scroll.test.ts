@@ -34,7 +34,9 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
       const { port } = vite!.httpServer!.address() as { port: number };
       const page = await browser!.newPage({ viewport: { width: 900, height: 360 }, reducedMotion: "reduce" });
       try {
-        await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-picker.html?template=threads&crowdedSuggestions`);
+        await page.goto(
+          `http://127.0.0.1:${port}/test/browser/new-tab-picker.html?template=threads&crowdedSuggestions`,
+        );
         await page.addStyleTag({ content: utilities });
         await page.locator(".nt-field").waitFor();
         await page.evaluate(() => document.getElementById("root")!.classList.add("acpmux-shell"));
@@ -45,17 +47,30 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
         expect(await page.locator(".nt-create-strip-item").count()).toBe(3);
         const initial = await page.evaluate(() => {
           const list = document.querySelector<HTMLElement>(".nt-rows")!;
-          return { overflow: list.scrollHeight - list.clientHeight, pageScroll: document.querySelector(".nt-screen")!.scrollTop };
+          return {
+            overflow: list.scrollHeight - list.clientHeight,
+            pageScroll: document.querySelector(".nt-screen")!.scrollTop,
+          };
         });
         expect(initial.overflow).toBeGreaterThan(24);
         for (let index = 0; index < ordinary - 1; index++) await page.keyboard.press(key);
         for (let index = 0; index < 3; index++) {
           await page.keyboard.press(key);
-          await page.waitForFunction((selectedIndex) => document.querySelector(".nt-create-strip-item.is-selected") === document.querySelectorAll(".nt-create-strip-item")[selectedIndex], index);
+          await page.waitForFunction(
+            (selectedIndex) =>
+              document.querySelector(".nt-create-strip-item.is-selected") ===
+              document.querySelectorAll(".nt-create-strip-item")[selectedIndex],
+            index,
+          );
           const geometry = await page.evaluate(() => {
             const list = document.querySelector(".nt-rows")!.getBoundingClientRect();
             const selected = document.querySelector(".nt-create-strip-item.is-selected")!.getBoundingClientRect();
-            return { top: selected.top - list.top, bottom: list.bottom - selected.bottom, focused: document.activeElement?.classList.contains("nt-field"), pageScroll: document.querySelector(".nt-screen")!.scrollTop };
+            return {
+              top: selected.top - list.top,
+              bottom: list.bottom - selected.bottom,
+              focused: document.activeElement?.classList.contains("nt-field"),
+              pageScroll: document.querySelector(".nt-screen")!.scrollTop,
+            };
           });
           console.log("create-strip-scroll", key, index, JSON.stringify(geometry));
           if (index === 0 && key === "ArrowDown" && process.env.CMUX_CAPTURE_STRIP) {
