@@ -10,6 +10,7 @@ public final class HomeChatColorsPanel {
     private let store: HomeChatColorStore
     private let design: DesignSettings
     private var panel: NSPanel?
+    var window: NSPanel? { panel }
 
     /// - Parameters:
     ///   - store: the chats' colours (the Home service's).
