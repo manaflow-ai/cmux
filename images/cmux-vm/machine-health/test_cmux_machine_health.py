@@ -318,7 +318,7 @@ class HealthTests(unittest.TestCase):
         host.failed = {"leo": ["acpmux.service"]}
         host.peers = [{"name": f"p{i}", "connected": False, "downSince": None, "error": "x"} for i in range(9)]
         h = run(host)
-        self.assertEqual([p["check"] for p in h["problems"]], ["acpmux", "dns", "disk"] + ["peer"] * 5)
+        self.assertEqual([p["check"] for p in h["problems"]], ["disk", "acpmux", "dns"] + ["peer"] * 5)
 
     def test_failed_unit_flood_keeps_critical_disk_and_each_other_check_visible(self):
         host = FakeHost()
