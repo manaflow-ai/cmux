@@ -45,8 +45,8 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
 ///   - pid: Receives the child's process id.
 ///   - path: The executable.
 ///   - fileActions: `posix_spawn` file actions.
-///   - attributes: `posix_spawn` attributes, which receive the clamp; nil spawns with attributes of the
-///     seam's own that carry only the clamp.
+///   - attributes: `posix_spawn` attributes, which receive the clamp and the signal defaults; nil spawns with
+///     attributes of the seam's own that carry only those.
 ///   - argv: The arguments, ending with nil.
 ///   - envp: The environment, ending with nil.
 ///   - priority: How much a person waits for the child.

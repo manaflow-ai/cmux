@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import ObjectiveC
 
 /// Counts the repaint requests a view makes on itself: `needsDisplay = true` and `setNeedsDisplay(_:)`.
@@ -44,30 +45,41 @@ final class DisplayRequestCounter {
 
     private struct WeakCounter { weak var counter: DisplayRequestCounter? }
     private static var counters: [WeakCounter] = []
-    private static var installed = false
 
-    private typealias FlagIMP = @convention(c) (NSView, Selector, ObjCBool) -> Void
-    private typealias RectIMP = @convention(c) (NSView, Selector, NSRect) -> Void
-
-    fileprivate static func record(_ view: NSView) {
-        guard Thread.isMainThread else { return }
-        MainActor.assumeIsolated {
-            counters.removeAll { $0.counter == nil }
-            for entry in counters { entry.counter?.note(view) }
-        }
+    /// A view asked for a repaint on the main thread: every live counter that watches it counts it.
+    fileprivate static func note(_ view: NSView) {
+        counters.removeAll { $0.counter == nil }
+        for entry in counters { entry.counter?.note(view) }
     }
 
     private static func install() {
-        guard !installed else { return }
-        installed = true
+        DisplayRequestHook.installOnce()
+    }
+}
+
+/// The NSView IMP replacement, nonisolated as the product's InputDirtyHooks: this test target defaults to the main
+/// actor, and a main-actor block would carry an isolation check that traps when AppKit asks a view for a repaint off
+/// the main thread anywhere in the test process. The blocks call the original IMP first in every case and count only
+/// main-thread calls.
+nonisolated private enum DisplayRequestHook {
+    private typealias FlagIMP = @convention(c) (NSView, Selector, ObjCBool) -> Void
+    private typealias RectIMP = @convention(c) (NSView, Selector, NSRect) -> Void
+    private static let installed = Mutex(false)
+
+    static func installOnce() {
+        let first = installed.withLock { done -> Bool in
+            defer { done = true }
+            return !done
+        }
+        guard first else { return }
         let flag = #selector(setter: NSView.needsDisplay)
-        // SAFETY (both hooks): each IMP is NSView's own implementation of the selector it is cast for, read once
-        // here and called with that selector's arguments; the blocks replace it for the test process and stay.
+        // SAFETY (both hooks): each IMP is NSView's own implementation of the selector it is cast for, read once here
+        // and called with that selector's arguments; the blocks replace it for the test process and stay.
         if let method = unsafe class_getInstanceMethod(NSView.self, flag) {
             let original = unsafe unsafeBitCast(method_getImplementation(method), to: FlagIMP.self)
             let block: @convention(block) (NSView, ObjCBool) -> Void = { view, value in
-                if value.boolValue { DisplayRequestCounter.record(view) }
                 original(view, flag, value)
+                if value.boolValue { record(view) }
             }
             unsafe method_setImplementation(method, imp_implementationWithBlock(block))
         }
@@ -75,10 +87,15 @@ final class DisplayRequestCounter {
         if let method = unsafe class_getInstanceMethod(NSView.self, rect) {
             let original = unsafe unsafeBitCast(method_getImplementation(method), to: RectIMP.self)
             let block: @convention(block) (NSView, NSRect) -> Void = { view, dirty in
-                DisplayRequestCounter.record(view)
                 original(view, rect, dirty)
+                record(view)
             }
             unsafe method_setImplementation(method, imp_implementationWithBlock(block))
         }
+    }
+
+    private static func record(_ view: NSView) {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated { DisplayRequestCounter.note(view) } // main-proof: checked on the line above
     }
 }

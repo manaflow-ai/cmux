@@ -4,6 +4,7 @@ import CmuxNextCompat
 import ObjectiveC
 import QuartzCore
 import Testing
+import CmuxNextTestSupport
 
 /// RenderStats: render work counted per owner class only while armed, for the
 /// counting benches (`debug.frames` with `render: true`, `debug.damage`), and RenderFrameLog, its

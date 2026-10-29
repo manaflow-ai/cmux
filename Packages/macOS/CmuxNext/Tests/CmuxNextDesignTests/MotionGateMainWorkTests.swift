@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesignTokens
 import QuartzCore
 import Testing
+import CmuxNextTestSupport
 
 /// The main-thread writes a gate's view motion makes per frame.
 ///
