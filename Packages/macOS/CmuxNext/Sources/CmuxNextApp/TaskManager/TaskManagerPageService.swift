@@ -166,8 +166,8 @@ final class TaskManagerPageService: InternalPageProvider {
         dropModelWhenUnused()
     }
 
-    /// The row of `rows` (in the table's order) shown whole at the top of the table in `content` (the one the
-    /// restore scrolls back to the top); nil with no table or no row there.
+    /// The row of `rows` (in the table's order) at the top of the table in `content`: the first row shown, while more
+    /// than half of it shows, else the next (the one the restore scrolls back to the top); nil with no table or no row.
     static func topRow(in content: NSView, rows: [TaskManagerRow]) -> ProcessKey? {
         var queue: [NSView] = [content]
         var index = 0
@@ -178,13 +178,15 @@ final class TaskManagerPageService: InternalPageProvider {
                 // The clip's bounds start above the document by its top inset (the header) at the top.
                 let clip = scroll.contentView
                 let top = max(0, clip.bounds.minY + clip.contentInsets.top)
-                let shown = NSRect(x: clip.bounds.minX, y: top, width: clip.bounds.width, height: max(0, clip.bounds.maxY - top))
-                // The first row shown whole: an inset table pads above its first row, so the point at the top can be
-                // padding (at the top) or the row above (scrolled). A row cut by the top edge is the last one before it.
+                // At least one point tall: a clip no taller than its header still has a top to read.
+                let shown = NSRect(x: clip.bounds.minX, y: top, width: clip.bounds.width, height: max(1, clip.bounds.maxY - top))
+                // The rows the clip shows, not the row at the top point: an inset table pads above its first row, so
+                // that point can be padding (at the top) or a row mostly scrolled away. The first shown row is the
+                // saved row while more than half of it shows below the top, else the next one.
                 let range = tableView.rows(in: shown)
                 guard range.length > 0 else { return nil }
-                let row = (range.location..<range.location + range.length).first { tableView.rect(ofRow: $0).minY >= top - 0.5 }
-                    ?? range.location
+                let first = tableView.rect(ofRow: range.location)
+                let row = (first.maxY - top) * 2 > first.height || range.length == 1 ? range.location : range.location + 1
                 return rows.indices.contains(row) ? rows[row].id : nil
             }
             queue.append(contentsOf: next.subviewsIncludingGated)
