@@ -15,6 +15,7 @@ name = "cmux-server"
 path = "src/main.rs"
 
 [dependencies]
+cmux-json.workspace = true
 base64.workspace = true
 cmux-server-core = { path = "../cmux-server-core" }
 futures-util.workspace = true

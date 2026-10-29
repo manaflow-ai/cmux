@@ -36,6 +36,7 @@
 //! creates at the cap every one past it is warned.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::OnceLock;
 
 /// `data.reason` of a refusal; the CLI exits 5 on it (`cli/errors.rs`).
@@ -535,7 +536,7 @@ impl Hub {
         );
         let mut warning = json!({"warning": text, "live": over.live, "maxLanes": over.max});
         if let Some(host) = host {
-            warning["suggestedHost"] = json!(host);
+            warning.set("suggestedHost", json!(host));
         }
         warning
     }
