@@ -30,6 +30,16 @@ struct S7ActivationProbeTests {
             + "frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil")")
     }
 
+    /// Every on-screen window above the normal level (layer > 0), with its owner: a system alert (UserNotificationCenter
+    /// at layer 8) that holds the front may keep any other process from becoming active.
+    private func windowsAbove(_ label: String) {
+        let list = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? [])
+            .filter { ($0[kCGWindowLayer as String] as? Int ?? 0) > 0 }
+            .map { "\($0[kCGWindowOwnerName as String] ?? "?")@\($0[kCGWindowLayer as String] ?? "?")"
+                + "(\($0[kCGWindowName as String] ?? ""))" }
+        say("\(label) windows above layer 0 (\(list.count)): \(list.joined(separator: ", "))")
+    }
+
     private func animationCompletes(_ window: NSWindow) -> String {
         let started = Date()
         var done: Date?
@@ -53,6 +63,7 @@ struct S7ActivationProbeTests {
         window.orderFrontRegardless()
         pump(0.3)
         state("as-is", window)
+        windowsAbove("as-is")
         say("animation as-is: \(animationCompletes(window))")
 
         // Hypothesis 1: finish launching and dispatch NSApp's events.
@@ -65,14 +76,17 @@ struct S7ActivationProbeTests {
         NSApp.activate(ignoringOtherApps: true)
         pump(0.5)
         state("activate(ignoringOtherApps:)", window)
+        windowsAbove("activate(ignoringOtherApps:)")
         if #available(macOS 14.0, *) {
             NSApp.activate()
             pump(0.5)
             state("activate() (cooperative)", window)
+        windowsAbove("activate() (cooperative)")
         }
         _ = NSRunningApplication.current.activate(options: [.activateAllWindows])
         pump(0.5)
         state("NSRunningApplication.activate", window)
+        windowsAbove("NSRunningApplication.activate")
         window.makeKeyAndOrderFront(nil)
         pump(0.5)
         state("makeKeyAndOrderFront", window)
