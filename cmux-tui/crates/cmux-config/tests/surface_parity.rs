@@ -15,7 +15,7 @@ const CLI_AND_SOCKET: &[&str] = &[
 const MCP_READ: &[&str] = &["settings.list", "settings.get"];
 const MCP_WRITE: &[&str] = &["settings.set", "settings.reset", "settings.unset"];
 
-fn operations(row: &Value, surface: &str) -> Vec<&str> {
+fn operations<'a>(row: &'a Value, surface: &str) -> Vec<&'a str> {
     row["surfaces"][surface]["operations"]
         .as_array()
         .unwrap_or_else(|| panic!("{} has no {surface}.operations", row["key"]))
