@@ -9,6 +9,10 @@ empty screen) on hosts with a 1-minute load of 7-12; none repeated on a quieter 
    the lease back and waits for the host to go under 4, for at most 10 minutes, then drives anyway and marks
    the run load-invalid.
 2. Each journey's result.json has the load at its start and its end.
+4. The lease holds the mini's host.lock exclusively (a whole-host lease, the lock the proof runs' exclusive
+   steps hold): the controller places no build on that Mac until the lease ends (cmux21 ran fleet Swift
+   compiles at load 26 during an A/B beside a shared slot lease). Journeys draw the app's own window, so the
+   lease needs no CuaDriver grant.
 3. A failed journey with a start or end load of 4 or more stays a fail in the summary, with "(loaded host)"
    added as a fact (loaded_host, and the reason). It is never a pass or a skip: a person's Mac is always loaded.
 """
@@ -40,7 +44,7 @@ class Fleet:
     def __init__(self, loads, journey_load=None, status="pass"):
         self.loads = {host: list(values) for host, values in loads.items()}
         self.journey_load, self.status = journey_load, status
-        self.clock, self.events, self.leases = 0.0, [], 0
+        self.clock, self.events, self.leases, self.acquires = 0.0, [], 0, []
         self.out = None
 
     def monotonic(self):
@@ -50,9 +54,10 @@ class Fleet:
         self.events.append(("sleep", seconds))
         self.clock += seconds
 
-    def run(self, argv, *, input=None, timeout=None, check=True):
+    def run(self, argv, *, input=None, timeout=None, check=True, env=None):
         verb = argv[1]
         if verb == "acquire":
+            self.acquires.append((list(argv), env))
             self.leases += 1
             prefer = argv[argv.index("--prefer") + 1] if "--prefer" in argv else None
             self.events.append(("acquire", prefer))
@@ -118,6 +123,24 @@ class LoadGate(unittest.TestCase):
         self.assertNotIn("sleep", kinds)
         self.assertFalse(result["load_invalid"], result)
         self.assertEqual(result["lease_load"]["start"], 1.5, result)
+
+    def test_the_lease_holds_the_hosts_lock_exclusively(self):
+        fleet = Fleet({"cmux19": [1.0]})
+        result = self.lease(fleet)["ctrl-d"]
+        argv, env = fleet.acquires[0]
+        self.assertNotIn("--slot", argv)
+        self.assertEqual((env or {}).get("CAPTURE_HOST_REMOTE_CUA_DRIVER"), "", env and {k: v for k, v in env.items() if k.startswith("CAPTURE")})
+        self.assertTrue(result["lease_load"]["exclusive"], result)
+
+    def test_a_shared_slot_lease_is_marked_not_exclusive(self):
+        fleet = Fleet({"cmux19": [1.0]})
+        fleet.out, fleet.ids = self.out, ["ctrl-d"]
+        RUN.run, RUN.remote, RUN.subprocess.run = fleet.run, fleet.remote, fleet.subprocess_run
+        RUN.time.monotonic, RUN.time.sleep, RUN.kit_tar = fleet.monotonic, fleet.sleep, lambda specs: b""
+        result = RUN.run_lease([{"id": "ctrl-d", "priority": "P0"}], {"id": "job", "tag": "t"}, self.out, 1.0,
+                               exclusive=False)["ctrl-d"]
+        self.assertIn("--slot", fleet.acquires[0][0])
+        self.assertFalse(result["lease_load"]["exclusive"], result)
 
     def test_a_loaded_host_is_given_back_until_it_is_quiet(self):
         fleet = Fleet({"cmux19": [9.0, 7.0, 3.0]})
