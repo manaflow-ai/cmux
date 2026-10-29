@@ -83,6 +83,8 @@ import Testing
             }
             for id in [T.open, T.sub] {
                 let header = try #require(h.list.rowViews[.group(id)] as? GroupHeaderRowView)
+                // The harness wires no +; the app's headers offer one, so the + takes slot 2 (and the overlap check runs).
+                header.onAdd = {}
                 header.isHovered = true
                 header.layoutSubtreeIfNeeded()
                 defer { header.isHovered = false; header.layoutSubtreeIfNeeded() }
