@@ -110,6 +110,9 @@ def measure(variant: str | None, folder: Path, page: str = "probe", hz: float = 
         refresh = next((float(d.get("refresh_ms") or 0) for d in data.get("drags") or [] if float(d.get("refresh_ms") or 0) > 0),
                        1000 / 60)
         report.update(split_resize.judge(data, refresh))
+        if not report.get("measured"):
+            # Why nothing was measured: what the split and the page open answered (the step returns one file).
+            report["why"] = {key: json.dumps(data.get(key), default=str)[:1500] for key in ("error", "split", "opened")}
         report["log"] = driver.log
         # The recording goes back inside the report (the step returns one file).
         report["strip"] = [{"step": shot["step"], "error": (shot.get("result") or {}).get("error"),
