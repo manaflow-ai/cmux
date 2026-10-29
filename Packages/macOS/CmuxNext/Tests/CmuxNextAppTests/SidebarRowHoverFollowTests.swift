@@ -49,12 +49,12 @@ import Testing
         }
     }
 
-    /// A row stops short of the sidebar's right edge: more room than its left inset.
+    /// Leo 2026-10-27: the row's fill ends 1.5 pt from the sidebar's right edge (#26378).
     @Test func aRowEndsShortOfTheSidebarsRightEdge() throws {
         let (list, window, rows) = Self.list()
         defer { window.close() }
         let frame = list.frame(for: try #require(rows.first))
-        let left = frame.minX, right = list.bounds.maxX - frame.maxX
-        #expect(right >= left + 8, "the row ends \(right) pt from the right edge, \(left) pt from the left")
+        let right = list.bounds.maxX - frame.maxX
+        #expect(abs(right - 1.5) < 0.01, "the row ends \(right) pt from the right edge; expected 1.5 pt")
     }
 }
