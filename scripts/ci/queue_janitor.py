@@ -295,7 +295,8 @@ LOST_RERUNS_KEY = "lost_reruns"
 LOST_PREVIOUS_SNAPSHOTS = 3
 # A pending re-run older than this is dropped: the cancel never settled, or the
 # lookups kept failing, and the pull request has had hours to move on.
-LOST_RERUN_TTL = dt.timedelta(hours=6)
+# An owed re-run is never dropped by age (janitor_guard.py): past this it is only named in a warning.
+LOST_RERUN_ALARM = dt.timedelta(hours=6)
 # Pending re-runs read (one run request each) and re-runs posted per sweep.
 LOST_PENDING_MAX = 25
 LOST_RERUN_MAX = 10
@@ -1766,7 +1767,7 @@ def plan_lost_reruns(
     run id -> the runs listed at its workflow, event, branch and head) is
     dropped. A run not readable this sweep, a cancel not settled yet, or a
     branch or head not looked up is kept for the next sweep, until
-    LOST_RERUN_TTL. A push or dispatch run is current at a live branch's
+    its outcome is confirmed, however old (an entry past LOST_RERUN_ALARM is named in a warning). A push or dispatch run is current at a live branch's
     head (`branch_heads`, lost_pr_state()); one whose branch head was not read
     is kept too. An entry that needs an App's re-run (`app_actor`, a
     Blacksmith leg) is kept while this sweep has none (`app_token`).
@@ -1776,11 +1777,14 @@ def plan_lost_reruns(
     for entry in pending:
         run_id = entry.get("run_id") if isinstance(entry, Mapping) else None
         if not isinstance(run_id, int) or isinstance(run_id, bool):
+            # Never dropped by time or shape: kept, and named in the snapshot (janitor_guard.malformed()).
+            decisions.append(LostRerun(entry if isinstance(entry, Mapping) else {"entry": entry}, "keep",
+                                       "malformed entry; kept for a person"))
             continue
         cancelled = parse_time(str(entry.get("cancelled_at") or ""))
-        if cancelled is None or now - cancelled > LOST_RERUN_TTL:
-            decisions.append(LostRerun(entry, "drop", "expired"))
-            continue
+        if cancelled is not None and now - cancelled > LOST_RERUN_ALARM:
+            print(f"::warning title=Owed re-run::run {run_id} has been owed a re-run since {entry.get('cancelled_at')}; "
+                  "it is kept until its outcome is confirmed")
         run = runs_now.get(run_id)
         if not run:
             decisions.append(LostRerun(entry, "keep", "run not readable this sweep"))
@@ -1791,6 +1795,9 @@ def plan_lost_reruns(
             continue
         if run.get("status") != "completed":
             decisions.append(LostRerun(entry, "keep", f"cancel not settled ({run.get('status')})", run))
+            continue
+        if not run.get("conclusion"):
+            decisions.append(LostRerun(entry, "keep", "completed with no conclusion read", run))
             continue
         if run.get("conclusion") != "cancelled":
             decisions.append(LostRerun(entry, "drop", f"finished {run.get('conclusion')}", run))
@@ -2348,8 +2355,11 @@ def skip_superseded_delivery(
     max_cancels: int = SUPERSEDED_MAX_CANCELS,
     now: dt.datetime | None = None,
     hold: Callable[[], str | None] = lambda: None,
+    execute: bool = True,
 ) -> tuple[list[SupersededDecision], int]:
-    """Cancel each candidate delivery_workflows.superseded_unstarted() allows, re-reading its jobs first."""
+    """Cancel each candidate delivery_workflows.superseded_unstarted() allows, re-reading its jobs first. With
+    `execute` False (the sweep's phase 1) every read and check is made and a run that passes is returned as action
+    "cancel" with no cancel made: phase 2 (cancel_superseded()) cancels it."""
     decisions: list[SupersededDecision] = []
     failures = 0
     listed: dict[tuple[Any, str], list[Mapping[str, Any]]] = {}
@@ -2469,6 +2479,10 @@ def skip_superseded_delivery(
             decisions.append(SupersededDecision(run, "keep", f"on re-read, at the head of open PR "
                                                 f"#{at_head.get('number')}; {OPEN_HEAD_RULE}"))
             continue
+        if not execute:
+            decisions.append(SupersededDecision(current, "cancel", f"planned: {why}"))
+            cancels += 1
+            continue
         try:
             github.cancel(run_id)
         except RuntimeError as error:
@@ -2479,6 +2493,42 @@ def skip_superseded_delivery(
         decisions.append(SupersededDecision(run, "cancel", f"cancelled: {why}"))
         cancels += 1
     return decisions, failures
+
+
+def cancel_superseded(github: "GitHub", decisions: Sequence[SupersededDecision],
+                      hold: Callable[[], str | None] = lambda: None) -> tuple[list[SupersededDecision], int]:
+    """Phase 2 for the superseded pass: cancel each run phase 1 planned, after a recheck of the run alone (still in
+    flight, at the attempt and head phase 1 read). hold() is asked before each."""
+    out: list[SupersededDecision] = []
+    failures = 0
+    for decision in decisions:
+        if decision.action != "cancel":
+            out.append(decision)
+            continue
+        run, run_id = decision.run, decision.run["id"]
+        why_held = hold()
+        if why_held:
+            out.append(SupersededDecision(run, "keep", f"held: {why_held}"))
+            continue
+        try:
+            current = github.run(run_id)
+        except RuntimeError as error:  # recorded in READS by GitHub.request(): it stops the rest of phase 2
+            failures += 1
+            out.append(SupersededDecision(run, "keep", f"recheck failed: {error}"))
+            continue
+        if (current.get("status") not in IN_FLIGHT_RUN_STATUSES or current.get("run_attempt") != run.get("run_attempt")
+                or current.get("head_sha") != run.get("head_sha")):
+            out.append(SupersededDecision(run, "keep", "on recheck: it finished, moved or was re-run"))
+            continue
+        try:
+            github.cancel(run_id)
+        except RuntimeError as error:
+            if not _cancel_refused(error):
+                failures += 1
+            out.append(SupersededDecision(run, "keep", f"cancel failed: {error}"))
+            continue
+        out.append(SupersededDecision(run, "cancel", decision.note.replace("planned: ", "cancelled: ", 1)))
+    return out, failures
 
 
 def render_superseded_summary(decisions: Sequence[SupersededDecision]) -> str:
@@ -2607,12 +2657,18 @@ def _force_cancel(github: "GitHub", orphan: Orphan, why: str) -> str:
 def cancel_plan(
     github: "GitHub",
     candidates: Sequence[Candidate],
+    hold: Callable[[], str | None] = lambda: None,
 ) -> tuple[dict[int, str], int]:
-    """Cancel planned runs, treating GitHub's uncancellable-run race as benign."""
+    """Cancel planned runs, treating GitHub's uncancellable-run race as benign. Before each, hold() (the sweep's
+    read log) is asked: once any read failed, this one's recheck included, nothing more is cancelled."""
     results: dict[int, str] = {}
     failures = 0
     for candidate in candidates:
         run_id = candidate.run["id"]
+        why_held = hold()
+        if why_held:
+            results[run_id] = f"held: {why_held}"
+            continue
         try:
             # The inventory is seconds old; drop anything that finished, moved
             # to a new head or was re-run (a new attempt) in between.
@@ -2626,9 +2682,9 @@ def cancel_plan(
             if int(current.get("run_attempt") or 1) != int(candidate.run.get("run_attempt") or 1):
                 results[run_id] = f"skipped (now attempt {current.get('run_attempt')})"
                 continue
-        except RuntimeError as error:
+        except RuntimeError as error:  # GitHub.request() noted it in READS: the next hold() stops the rest
             failures += 1
-            results[run_id] = f"failed: {error}"
+            results[run_id] = f"recheck failed: {error}"
             continue
         try:
             github.cancel(run_id)
@@ -2658,6 +2714,7 @@ def cancel_orphans(
     *,
     sleep: Any = None,
     recheck_seconds: float = ORPHAN_RECHECK_SECONDS,
+    hold: Callable[[], str | None] = lambda: None,
 ) -> tuple[dict[int, str], int]:
     """Cancel, then force-cancel what a normal cancel leaves in flight.
 
@@ -2674,6 +2731,10 @@ def cancel_orphans(
             continue
         orphan = decision.orphan
         run_id = orphan.run["id"]
+        why_held = hold()
+        if why_held:
+            results[run_id] = f"held: {why_held}"
+            continue
         try:
             current = github.run(run_id)
             if current.get("status") not in IN_FLIGHT_RUN_STATUSES:
@@ -2693,6 +2754,10 @@ def cancel_orphans(
         (sleep or time.sleep)(recheck_seconds)
     for orphan in pending:
         run_id = orphan.run["id"]
+        why_held = hold()
+        if why_held:
+            results[run_id] = f"cancel asked; force-cancel held: {why_held}"
+            continue
         try:
             status = github.run(run_id).get("status")
         except RuntimeError as error:
@@ -2862,8 +2927,19 @@ class GitHub:
         }
 
     def request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
-        """One API call. A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is
-        made again after each RETRY_DELAYS delay; a write is not, since it may have taken effect."""
+        """One API call, and the one path every read of the sweep takes. A read that fails (after its retries, a
+        rate limit included; a 404 is an answer, not a failure) is recorded in janitor_guard.READS, which holds
+        every cancel for the rest of the sweep."""
+        try:
+            return self._request_retrying(method, path, body, app_only=app_only)
+        except RuntimeError as error:
+            if (method == "GET" or path == "/graphql") and "(404)" not in str(error):
+                READS.failed(f"{method} {path.split('?')[0]}", error)
+            raise
+
+    def _request_retrying(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
+        """A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is made again after each
+        RETRY_DELAYS delay; a write is not, since it may have taken effect."""
         retry = method == "GET" or path == "/graphql"
         for delay in (*RETRY_DELAYS, None):
             try:
@@ -2903,7 +2979,7 @@ class GitHub:
                 self._token = self.fallback_token
                 self.fallback_token = ""
                 self.app_token = False
-                return self.request(method, path, body)
+                return self._request_retrying(method, path, body)
             if error.code in RETRY_STATUSES:
                 raise _Transient(str(error.code)) from error
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
@@ -2973,6 +3049,7 @@ class GitHub:
             query, variables = graphql_query(owner, name, chunk)
             response = self.request("POST", "/graphql", {"query": query, "variables": variables})
             if response.get("errors"):
+                READS.failed("a GraphQL pull request lookup", response["errors"][:1])
                 raise RuntimeError(f"GraphQL errors: {response['errors'][:1]}")
             result.update(parse_graphql_prs(response, chunk))
         return result
@@ -3071,6 +3148,7 @@ class GitHub:
         try:
             return PoolClient(self._token, self.repo).download(artifact)
         except OSError as error:  # urllib's HTTPError and URLError
+            READS.failed("an artifact download", error)
             raise RuntimeError(f"artifact download failed ({error})") from error
 
 
@@ -3294,7 +3372,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 owed_reruns = previous_dead_reruns(github)
             except Exception as error:  # noqa: BLE001 optional state never fails a sweep
                 READS.failed("the dead-label re-run state", repr(error))
-        store = janitor_guard.OwedStore({LOST_RERUNS_KEY: pending, dead_labels.OBLIGATIONS_KEY: owed_reruns})
+        store = janitor_guard.OwedStore({LOST_RERUNS_KEY: pending, dead_labels.OBLIGATIONS_KEY: owed_reruns},
+                                        LOST_PENDING_MAX)
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
         orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
@@ -3430,54 +3509,46 @@ def main(argv: Sequence[str] | None = None) -> int:
                 handle.write(summary)
         return 0
 
+    # ---- Phase 1: every read and every decision. No cancel is made here; any read that fails (GitHub.request()
+    # records it in READS) holds every cancel of phase 2. Re-runs of what earlier sweeps owe are made here: they
+    # cancel nothing.
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,
         threshold=threshold, max_cancels=max_cancels, pull_request_policy=args.pull_request_policy,
         now=now, lost=lost, rerun_state=store.known, unclaimed=unclaimed, branch_heads=branch_heads,
         app_rerun=github.app_token,
     )
-    # The guards over categories a-f: never an owed run, a re-run owed only with room in the one store, and
-    # nothing at all after a failed listing (janitor_guard.py).
-    hold_plan(plan, store, READS.hold())
-
-    results: dict[int, str] = {}
+    # The guards over categories a-f: never an owed run, and a re-run owed only with room in the one store.
+    hold_plan(plan, store, None)
     failures = 0
-    if not args.dry_run:
-        results, failures = cancel_plan(github, plan.to_cancel())
 
     def save_store() -> None:
         if snapshot is not None and args.pool_load:
             store.stamp(snapshot)
             args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
-    # Category e re-runs: one run request per pending entry, then at most
-    # LOST_RERUN_MAX re-runs. What is still pending, plus this sweep's cancels
-    # that asked for a re-run, goes into the snapshot for the next sweep.
+    # What earlier sweeps owe (category e and f): one read per entry, then at most LOST_RERUN_MAX re-runs. An entry
+    # is struck only on a confirmed outcome (plan_lost_reruns()); never by age.
     rerun_decisions: list[LostRerun] = []
     rerun_results: dict[int, str] = {}
     if pending is not None:
-        # Saved before anything else can fail: this sweep's cancels are
-        # already made, and an entry read twice is harmless (plan_lost_reruns()).
-        fresh = [] if args.dry_run else new_lost_reruns(plan.to_cancel(), results, now=now)
-        store.set(LOST_RERUNS_KEY, [*pending, *fresh])
-        save_store()
         runs_now: dict[int, Mapping[str, Any]] = {}
         for entry in pending:
             run_id = entry.get("run_id")
             if isinstance(run_id, int) and run_id not in runs_now:
                 try:
                     runs_now[run_id] = github.run(run_id)
-                except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
-                    READS.failed(f"pending re-run of run {run_id}", repr(error))
-        # One listing per settled cancel: a newer run at its head that took
-        # over (even one finished since) means no re-run.
+                except Exception as error:  # noqa: BLE001 the entry is kept; GitHub.request() noted the failed read
+                    print(f"queue-janitor: pending re-run of run {run_id}: {error!r}", file=sys.stderr)
+        # One listing per settled cancel: a newer run at its head that took over (even one finished since) means no
+        # re-run.
         head_runs: dict[int, list[Mapping[str, Any]]] = {}
         for run_id, run in runs_now.items():
             if run.get("status") == "completed" and run.get("conclusion") == "cancelled":
                 try:
                     head_runs[run_id] = [*github.runs_at_head(run), *runs]
                 except Exception as error:  # noqa: BLE001 the entry is kept for the next sweep
-                    READS.failed(f"runs at the head of run {run_id}", repr(error))
+                    print(f"queue-janitor: runs at the head of run {run_id}: {error!r}", file=sys.stderr)
         # A settled push or dispatch cancel is re-run only while its branch is live.
         settled = [run for run in runs_now.values()
                    if run.get("status") == "completed" and run.get("conclusion") == "cancelled"]
@@ -3486,39 +3557,43 @@ def main(argv: Sequence[str] | None = None) -> int:
         rerun_decisions = plan_lost_reruns(pending, runs_now, prs_by_branch, now=now, head_runs=head_runs,
                                            branch_heads=branch_heads, app_token=github.app_token)
         if args.dry_run:
-            # Nothing acted on, so only an expired entry goes.
-            still_pending = [dict(decision.entry) for decision in rerun_decisions
-                             if not (decision.action == "drop" and decision.note == "expired")]
+            still_pending = [dict(decision.entry) for decision in rerun_decisions]
         else:
             still_pending, rerun_results, rerun_failures = rerun_lost(github, rerun_decisions)
             failures += rerun_failures
-        store.set(LOST_RERUNS_KEY, [*still_pending, *fresh])
+        store.set(LOST_RERUNS_KEY, still_pending)
+        save_store()
+
+    # The dead-label pass's owed re-runs, the same way (dead_labels.resume()).
+    resumed_results: dict[int, str] = {}
+    if owed_reruns is not None and not args.dry_run:
+        try:
+            remaining, resumed_results, resumed_failures = dead_labels.resume(
+                github, store.entries(dead_labels.OBLIGATIONS_KEY), now=time.time())
+            failures += resumed_failures
+            store.set(dead_labels.OBLIGATIONS_KEY, remaining)
+        except RuntimeError as error:  # a rate limit: the store keeps every entry, and phase 2 is held
+            print(f"queue-janitor: dead-label owed re-runs: {error}", file=sys.stderr)
         save_store()
 
     orphan_decisions = build_orphan_plan(
         orphans, prs_by_branch, max_cancels=max_orphan_cancels,
         exclude_ids={candidate.run["id"] for candidate in plan.to_cancel()} | store.ids(), now=now,
     )
-    orphan_decisions = hold_orphans(orphan_decisions, READS.hold())
-    orphan_results: dict[int, str] = {}
-    if not args.dry_run:
-        orphan_results, orphan_failures = cancel_orphans(github, orphan_decisions)
-        failures += orphan_failures
-
     owed_ids = store.ids()
     try:
         superseded_decisions, superseded_failures = skip_superseded_delivery(
             github, [run for run in superseded if run["id"] not in owed_ids], runs, delivery_jobs, prs_by_branch,
-            dry_run=args.dry_run, hold=READS.hold)
-    except RuntimeError as error:  # a rate limit: what was cancelled before it is in the next sweep's inventory
+            dry_run=args.dry_run, hold=READS.hold, execute=False)
+    except RuntimeError as error:  # a rate limit: recorded in READS, so phase 2 cancels nothing
         print(f"queue-janitor: superseded delivery runs: {error}", file=sys.stderr)
         superseded_decisions, superseded_failures = [], 1
     failures += superseded_failures
 
     # Dead labels (dead_labels.py): a job queued past DEAD_AFTER on a label that started nothing while its family
-    # served, or on a member its RUNNER_POOLS pool moved off, is force-cancelled and re-run only when its own
-    # runs-on takes its label from fromJSON(vars.RUNNER_POOLS) and the pool points elsewhere now
-    # (dead_labels.rerun_route()), and never a started nightly, DEV or promote build (protected_reason()).
+    # served, or on a member its RUNNER_POOLS pool moved off, is moved only when its own runs-on takes its label from
+    # fromJSON(vars.RUNNER_POOLS) and the pool points elsewhere now (dead_labels.rerun_route()), and never a started
+    # nightly, DEV or promote build (protected_reason()). Its workflow files are read here, in phase 1.
     acted = ({candidate.run["id"] for candidate in plan.to_cancel()}
              | {decision.orphan.run["id"] for decision in orphan_decisions if decision.action == "cancel"}
              | {decision.run["id"] for decision in superseded_decisions if decision.action == "cancel"})
@@ -3536,22 +3611,54 @@ def main(argv: Sequence[str] | None = None) -> int:
     if pools is None and dead:
         print(f"queue-janitor: dead-label re-dispatch moves nothing: {pools_why}", file=sys.stderr)
     redispatch_decisions: list[dead_labels.Redispatch] = []
-    resumed_results: dict[int, str] = {}
+    try:
+        redispatch_decisions = dead_labels.plan(runs, dead_inventory, dead, values=runner_values, repo=args.repo,
+                                                pools=pools, workflow_text=github.workflow_file,
+                                                exclude=acted | store.ids(), max_runs=max_redispatch)
+    except RuntimeError as error:  # a rate limit: recorded in READS
+        print(f"queue-janitor: dead-label plan: {error}", file=sys.stderr)
+
+    # ---- Phase 2: cancels only, in order, from phase 1's decisions. Nothing is cancelled once any read of the
+    # sweep failed. The only reads here are of the run being acted on: its recheck right before its cancel, and,
+    # after its own cancel, whether that cancel took (an orphan's force-cancel, a dead-label move's re-run). A read
+    # that fails stops the rest (GitHub.request() records it in READS, and every executor asks READS.hold() first).
+    why_held = READS.hold()
+    if why_held:
+        print(f"queue-janitor: phase 2 held: {why_held}", file=sys.stderr)
+    results: dict[int, str] = {}
+    to_cancel = plan.to_cancel()
+    if not args.dry_run and why_held is None:
+        # Category e and f's re-runs are owed before their cancels (with room checked in phase 1, hold_plan()).
+        intended = new_lost_reruns(to_cancel, {c.run["id"]: "cancelled" for c in to_cancel}, now=now)
+        if intended and store.known:
+            store.set(LOST_RERUNS_KEY, [*store.entries(LOST_RERUNS_KEY), *intended])
+            save_store()
+        results, cancel_failures = cancel_plan(github, to_cancel, hold=READS.hold)
+        failures += cancel_failures
+        # A run whose cancel was never asked (held, or its recheck showed it moved) owes nothing; one whose cancel
+        # answered an error may have been cancelled, so it stays owed until its outcome is read.
+        never = {run_id for run_id, result in results.items()
+                 if result.startswith(("held", "skipped", "recheck failed"))}
+        if intended and never:
+            store.set(LOST_RERUNS_KEY, [e for e in store.entries(LOST_RERUNS_KEY)
+                                        if not (e in intended and e.get("run_id") in never)])
+            save_store()
+    elif why_held:
+        results = {c.run["id"]: f"held: {why_held}" for c in to_cancel}
+
+    orphan_results: dict[int, str] = {}
+    if not args.dry_run:
+        orphan_results, orphan_failures = cancel_orphans(github, orphan_decisions, hold=READS.hold)
+        failures += orphan_failures
+        superseded_decisions, superseded_failures = cancel_superseded(github, superseded_decisions, hold=READS.hold)
+        failures += superseded_failures
+    else:
+        superseded_decisions = [SupersededDecision(d.run, d.action, d.note.replace("planned: ", "would cancel: ", 1))
+                                for d in superseded_decisions]
+
     redispatch_results: dict[int, str] = {}
     redispatch_failures = 0
     try:
-        if owed_reruns is not None and not args.dry_run:
-            remaining, resumed_results, resumed_failures = dead_labels.resume(
-                github, store.entries(dead_labels.OBLIGATIONS_KEY), now=time.time())
-            failures += resumed_failures
-            store.set(dead_labels.OBLIGATIONS_KEY, remaining)  # only confirmed outcomes left it
-            save_store()
-        why_held = READS.hold()
-        redispatch_decisions = dead_labels.plan(runs, dead_inventory, dead if why_held is None else [],
-                                                values=runner_values, repo=args.repo, pools=pools,
-                                                workflow_text=github.workflow_file, exclude=acted | store.ids(),
-                                                max_runs=max_redispatch)
-
         def save_dead(entries: Sequence[Mapping[str, Any]]) -> None:
             store.set(dead_labels.OBLIGATIONS_KEY, entries)
             save_store()
@@ -3562,6 +3669,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"queue-janitor: dead-label re-dispatch: {error}", file=sys.stderr)
         redispatch_failures += 1
     failures += redispatch_failures
+    save_store()
+    if store.malformed():
+        print(f"::warning title=Owed re-runs::{len(store.malformed())} owed re-run entr(y/ies) cannot be read; kept "
+              f"in the snapshot under {janitor_guard.MALFORMED_KEY} for a person")
 
     summary = render_summary(plan, dry_run=args.dry_run, now=now, results=results)
     summary += render_lost_reruns(rerun_decisions, dry_run=args.dry_run, results=rerun_results)

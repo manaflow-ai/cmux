@@ -10,11 +10,15 @@ cancel: category e and f's carried re-runs (LOST_KEY, plan_lost_reruns() settles
 cut. A run either list names is never cancelled again by any pass. The store is stamped into every snapshot the
 sweep publishes (stamp()), as read, before anything is acted on; a list that could not be read is stamped as unread
 (`<key>_unread`), never as empty, and read_store() passes over unread and missing copies to the newest one that has
-it. While either list is unknown nothing that owes a re-run is cancelled.
+it. While either list is unknown nothing that owes a re-run is cancelled. An entry is cleared only by a confirmed
+outcome of its run (a later attempt, or a read conclusion other than cancelled), never by age; one that cannot be
+read (no run id) is kept and named under MALFORMED_KEY.
 
-One read log (ReadLog, READS). Any listing that fails anywhere in the sweep (a run's jobs, evidence runs, a branch
-head, a delivery run's listing, the store itself) is noted; a pass about to cancel asks READS.hold() and, while
-anything failed, cancels nothing: an unread run may be the one that would have shown a cancel wrong.
+One read log (ReadLog, READS). Every read the janitor makes goes through queue_janitor.GitHub.request() (and its
+artifact download and GraphQL), which records any failure here, so no read path can forget it. The sweep runs in two
+phases: phase 1 makes every read and every decision; phase 2 cancels, in order, only while READS.hold() is None,
+and makes no read but each run's own recheck right before its cancel. A recheck that fails is a failed read too,
+so it stops phase 2.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ from typing import Any
 LOST_KEY = "lost_reruns"
 DEAD_KEY = "dead_label_reruns"
 UNREAD_SUFFIX = "_unread"
+MALFORMED_KEY = "owed_reruns_malformed"
 # One cap across every list: category e's own bound (queue_janitor.LOST_PENDING_MAX), now shared.
 CAP = 25
 SNAPSHOT_UNREADABLE = (ValueError, KeyError, EOFError, NotImplementedError, zipfile.BadZipFile, zlib.error)
@@ -91,8 +96,18 @@ class OwedStore:
     def set(self, key: str, entries: Iterable[Mapping[str, Any]]) -> None:
         self.lists[key] = [dict(entry) for entry in entries]
 
+    def malformed(self) -> list[dict[str, Any]]:
+        """Entries with no readable run id: kept, never dropped, and named in the snapshot (MALFORMED_KEY)."""
+        return [dict(entry) for entries in self.lists.values() for entry in entries or () if _run_id(entry) is None]
+
     def stamp(self, snapshot: dict[str, Any]) -> None:
-        """Write every list into the snapshot as it stands: a known list whole, an unknown one as unread."""
+        """Write every list into the snapshot as it stands: a known list whole, an unknown one as unread, and any
+        malformed entry named under MALFORMED_KEY for a person."""
+        broken = self.malformed()
+        if broken:
+            snapshot[MALFORMED_KEY] = broken
+        else:
+            snapshot.pop(MALFORMED_KEY, None)
         for key, entries in self.lists.items():
             if entries is None:
                 snapshot.pop(key, None)

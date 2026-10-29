@@ -598,6 +598,16 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(store.lists[janitor_guard.DEAD_KEY], [{"run_id": 3}])
         self.assertEqual(fetched, [0, 1])
 
+    def test_a_malformed_entry_is_kept_and_named_in_the_snapshot(self) -> None:
+        # cmux#27114 review (60ef2b4): never dropped, surfaced for a person.
+        store = janitor_guard.OwedStore({janitor_guard.LOST_KEY: [{"run_id": "x"}, {"run_id": 4}],
+                                         janitor_guard.DEAD_KEY: []})
+        snapshot = {}
+        store.stamp(snapshot)
+        self.assertEqual(snapshot[janitor_guard.LOST_KEY], [{"run_id": "x"}, {"run_id": 4}])
+        self.assertEqual(snapshot[janitor_guard.MALFORMED_KEY], [{"run_id": "x"}])
+        self.assertEqual(store.count(), 2)  # it still takes room under the cap
+
     def test_the_read_log_holds_after_any_failure(self) -> None:
         log = janitor_guard.ReadLog()
         self.assertIsNone(log.hold())
