@@ -9,7 +9,8 @@ typealias ZoomStripID = CmuxNextTabs.TabID
 
 /// #25624, cmux classic's pane zoom: double-clicking a tab zooms its pane to fill the workspace
 /// (Toggle Pane Zoom, Cmd-Shift-Return's action) and again restores the layout; while the pane is
-/// zoomed its tab bar shows a lit zoom button, pinned or not, whose click restores the layout.
+/// zoomed its selected tab shows the zoom indicator, whose click restores the layout. The indicator
+/// is inside the tab, so a zoom never narrows the strip and no tab moves.
 @MainActor @Suite(.serialized) struct TabDoubleClickZoomTests {
     final class StripHarness {
         let model: TabStripModel
@@ -52,6 +53,21 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         func doubleClick(_ point: CGPoint, modifiers: NSEvent.ModifierFlags = []) {
             click(point, modifiers: modifiers)
             click(point, clickCount: 2, modifiers: modifiers)
+        }
+
+        /// The pane zooms or restores: the App's `PaneController.apply` sets the model, the strip syncs.
+        func setZoomed(_ zoomed: Bool) {
+            model.zoomsSelected = zoomed
+            strip.syncFromModel()
+            strip.layoutSubtreeIfNeeded()
+        }
+
+        /// Tab `id`'s zoom indicator, in window coordinates.
+        func zoomButton(_ id: ZoomStripID) throws -> CGPoint {
+            let cell = try #require(strip.cells[id])
+            let rect = try #require(cell.zoomButtonRect)
+            let point = CGPoint(x: cell.frame.minX + rect.midX, y: cell.frame.minY + rect.midY)
+            return strip.convert(strip.convert(point, from: strip.tabsClip), to: nil)
         }
 
         var zooms: [ZoomStripID] { intents.compactMap { if case .toggleZoom(let id) = $0 { id } else { nil } } }
@@ -112,7 +128,56 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         #expect(invocation.origin == .user)
     }
 
-    // MARK: The indicator
+    // MARK: The indicator on the selected tab
+
+    /// Zoomed: the selected tab, and only it, shows the indicator; it follows the selection and goes
+    /// with the zoom.
+    @Test func theSelectedTabOfAZoomedPaneShowsTheIndicator() throws {
+        let harness = StripHarness()
+        defer { harness.tearDown() }
+        let cells = harness.strip.cells
+        #expect(cells.values.allSatisfy { $0.zoomButtonRect == nil }, "no indicator while the pane is not zoomed")
+
+        harness.setZoomed(true)
+        #expect(cells[ZoomStripID("tab0")]?.zoomButtonRect != nil, "the selected tab shows the zoom indicator")
+        #expect(cells[ZoomStripID("tab1")]?.zoomButtonRect == nil)
+        #expect(cells[ZoomStripID("tab2")]?.zoomButtonRect == nil)
+
+        harness.model.selectedID = ZoomStripID("tab2")
+        harness.strip.syncFromModel()
+        harness.strip.layoutSubtreeIfNeeded()
+        #expect(cells[ZoomStripID("tab0")]?.zoomButtonRect == nil)
+        #expect(cells[ZoomStripID("tab2")]?.zoomButtonRect != nil, "the indicator follows the selection")
+
+        harness.setZoomed(false)
+        #expect(cells.values.allSatisfy { $0.zoomButtonRect == nil }, "the indicator goes with the zoom")
+    }
+
+    /// A click on the indicator asks once to toggle the zoom (the App restores the layout); it
+    /// neither selects again nor starts a drag.
+    @Test func clickingTheIndicatorRestoresTheLayout() throws {
+        let harness = StripHarness()
+        defer { harness.tearDown() }
+        harness.setZoomed(true)
+        let tab = ZoomStripID("tab0")
+        harness.click(try harness.zoomButton(tab))
+        #expect(harness.zooms == [tab], "\(harness.intents)")
+        #expect(!harness.intents.contains(.select(tab)))
+    }
+
+    /// The bug: zooming moved every tab. The strip's tabs keep their frames across a zoom and back.
+    @Test func aZoomMovesNoTab() {
+        let harness = StripHarness()
+        defer { harness.tearDown() }
+        let frames = { harness.strip.cells.mapValues(\.frame) }
+        let before = frames()
+        harness.setZoomed(true)
+        #expect(frames() == before)
+        harness.setZoomed(false)
+        #expect(frames() == before)
+    }
+
+    // MARK: The pane's toolbar
 
     final class Toolbar {
         let registry = ActionRegistry.standard()
@@ -125,57 +190,42 @@ typealias ZoomStripID = CmuxNextTabs.TabID
         }
     }
 
-    /// Unzoomed with nothing pinned: no buttons. Zoomed: a lit zoom button shows without hover, and
-    /// "…"'s menu does not offer the zoom a second time.
-    @Test func aZoomedPaneShowsALitZoomButton() throws {
+    /// The bug: a zoom added a toolbar button, which took its width from the strip, so every tab
+    /// moved and moved back. A zoom keeps the toolbar's width; "…" is lit, and its menu still offers
+    /// Toggle Pane Zoom.
+    @Test func aZoomKeepsTheToolbarsWidth() throws {
         let harness = Toolbar()
         let toolbar = harness.toolbar
-        toolbar.update(target: "tab0", kind: .terminal)
-        #expect(toolbar.view.buttons.isEmpty)
-        #expect(!toolbar.view.lit)
+        toolbar.update(target: "tab0", kind: .terminal, paneKinds: [.terminal])
+        let width = toolbar.view.intrinsicContentSize.width
+        #expect(toolbar.view.reservedCount == 1)
 
-        toolbar.update(target: "tab0", kind: .terminal, zoomed: true)
-        #expect(toolbar.view.items.map(\.id) == ["toggleSplitZoom"])
-        #expect(toolbar.view.items.first?.lit == true)
-        #expect(toolbar.view.items.first?.symbol == "arrow.down.right.and.arrow.up.left")
+        toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
+        #expect(toolbar.view.buttons.isEmpty, "the indicator is on the tab, not a toolbar button")
+        #expect(toolbar.view.reservedCount == 1)
+        #expect(toolbar.view.intrinsicContentSize.width == width, "the strip keeps its width")
         #expect(toolbar.view.lit)
-        #expect(!toolbar.view.reveal.isEnabled, "shown at rest, not only on hover")
-        #expect(toolbar.view.reservedCount == 2, "room for the zoom button and \"…\"")
         let menu = try #require(toolbar.view.moreMenu?())
-        #expect(!menu.items.contains { ActionRegistry.menuRun(of: $0)?.id == "toggleSplitZoom" })
-
-        toolbar.update(target: "tab0", kind: .terminal)
-        #expect(toolbar.view.buttons.isEmpty, "the indicator goes with the zoom")
+        #expect(menu.items.contains { ActionRegistry.menuRun(of: $0)?.id == "toggleSplitZoom" })
     }
 
-    /// The indicator's click runs Toggle Pane Zoom on the shown tab's pane: the layout comes back.
-    @Test func clickingTheIndicatorRestoresTheLayout() throws {
+    /// A chat selected in a zoomed pane keeps the same room: selecting it moves no tab.
+    @Test func aZoomedPaneKeepsItsRoomWhicheverTabIsSelected() {
         let harness = Toolbar()
         let toolbar = harness.toolbar
-        toolbar.update(target: "tab0", kind: .terminal, zoomed: true)
-        let button = try #require(toolbar.view.buttons.first)
-        button.performClick(nil)
-        #expect(harness.zooms.count == 1)
-        #expect(harness.zooms.first?.target == ActionTargetRef(kind: .tab, id: "tab0"))
+        toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
+        #expect(toolbar.view.reservedCount == 1)
+        toolbar.update(target: "chat", kind: nil, zoomed: true, paneKinds: [.terminal])
+        #expect(toolbar.view.items.isEmpty)
+        #expect(toolbar.view.reservedCount == 1, "the strip's width does not follow the selection")
     }
 
     /// Pinned zoom keeps its one button, lit while zoomed.
-    @Test func aPinnedZoomButtonIsNotDoubled() {
+    @Test func aPinnedZoomButtonIsLitWhileZoomed() {
         let harness = Toolbar()
         let toolbar = harness.toolbar
         toolbar.update(target: "tab0", kind: .terminal, zoomed: true, pinned: ["splitRight", "toggleSplitZoom"])
         #expect(toolbar.view.items.map(\.id) == ["splitRight", "toggleSplitZoom"])
         #expect(toolbar.view.items.map(\.lit) == [false, true])
-    }
-
-    /// A chat selected in a zoomed pane shows no zoom button but keeps its room: selecting it moves no tab.
-    @Test func aZoomedPaneKeepsTheIndicatorsRoomWhicheverTabIsSelected() {
-        let harness = Toolbar()
-        let toolbar = harness.toolbar
-        toolbar.update(target: "tab0", kind: .terminal, zoomed: true, paneKinds: [.terminal])
-        #expect(toolbar.view.reservedCount == 2)
-        toolbar.update(target: "chat", kind: nil, zoomed: true, paneKinds: [.terminal])
-        #expect(toolbar.view.items.isEmpty)
-        #expect(toolbar.view.reservedCount == 2, "the strip's width does not follow the selection")
     }
 }
