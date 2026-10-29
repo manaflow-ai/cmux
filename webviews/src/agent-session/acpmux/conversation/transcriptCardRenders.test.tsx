@@ -65,13 +65,14 @@ const plan: AcpmuxPlanEntry[] = [
 ];
 const ignoreReply = () => {};
 
-/// A turn: the cards above, then the reply that streams one token per update.
-function Turn({ children, push }: { children: ReactNode; push: (next: (token: number) => void) => void }) {
+/// A turn: the cards above, then the reply that streams one token per update. The cards are made
+/// again on every render, as the transcript's rows are, so only their memo keeps them still.
+function Turn({ cards, push }: { cards: () => ReactNode; push: (next: (token: number) => void) => void }) {
   const [tokens, setTokens] = useState(0);
   push(setTokens);
   return (
     <article>
-      {children}
+      {cards()}
       <p className="reply">{"token ".repeat(tokens)}</p>
     </article>
   );
@@ -86,7 +87,7 @@ async function stream(cards: (count: (id: string) => void) => ReactNode) {
   await act(async () =>
     root.render(
       <Profiler id="turn" onRender={() => count("turn")}>
-        <Turn push={(next) => (setTokens = next)}>{cards(count)}</Turn>
+        <Turn push={(next) => (setTokens = next)} cards={() => cards(count)} />
       </Profiler>,
     ),
   );
