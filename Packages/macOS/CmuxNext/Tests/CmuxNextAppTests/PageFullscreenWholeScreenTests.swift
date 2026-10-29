@@ -49,12 +49,10 @@ struct PageFullscreenWholeScreenTests {
     }
 
     @Test func aLonePanesPageTakesTheWholeWindow() async throws {
+        // Setup can throw after opening its window; register the owned-window cleanup first.
+        defer { AppHarnessWindows.closeThoseThisTestOpened() }
         let fixture = try await Fixture(keys: ["k0", "k1"])
-        defer {
-            fixture.close()
-            // The page's Page Info and Extensions bubbles live as long as its chrome, which the app keeps.
-            AppHarnessWindows.closeThoseThisTestOpened()
-        }
+        defer { fixture.close() }
         // A real full screen transition would outlast the test; the decision to enter is what counts.
         fixture.controller.window?.collectionBehavior = [.fullScreenNone]
         let root = fixture.controller.root
@@ -77,12 +75,10 @@ struct PageFullscreenWholeScreenTests {
     }
 
     @Test func aPageBesideAnotherPaneStaysInItsPane() async throws {
+        // Setup can throw after opening its window; register the owned-window cleanup first.
+        defer { AppHarnessWindows.closeThoseThisTestOpened() }
         let fixture = try await Fixture(keys: ["k0", "k1"])
-        defer {
-            fixture.close()
-            // The page's Page Info and Extensions bubbles live as long as its chrome, which the app keeps.
-            AppHarnessWindows.closeThoseThisTestOpened()
-        }
+        defer { fixture.close() }
         fixture.controller.window?.collectionBehavior = [.fullScreenNone]
         fixture.controller.showWorkspace(requested: "k1") // two panes side by side
         fixture.frame()
@@ -99,12 +95,10 @@ struct PageFullscreenWholeScreenTests {
     }
 
     @Test func switchingAwayEndsThePagesFullscreen() async throws {
+        // Setup can throw after opening its window; register the owned-window cleanup first.
+        defer { AppHarnessWindows.closeThoseThisTestOpened() }
         let fixture = try await Fixture(keys: ["k0", "k1"])
-        defer {
-            fixture.close()
-            // The page's Page Info and Extensions bubbles live as long as its chrome, which the app keeps.
-            AppHarnessWindows.closeThoseThisTestOpened()
-        }
+        defer { fixture.close() }
         fixture.controller.window?.collectionBehavior = [.fullScreenNone]
         let root = fixture.controller.root
         let inset = root.contentHost.frame
@@ -122,12 +116,10 @@ struct PageFullscreenWholeScreenTests {
     /// A top page (Settings, a create page) parks the workspace before it hides it: the page that
     /// had the screen leaves fullscreen then too, not only its window's chrome coming back.
     @Test func aTopPageEndsThePagesFullscreen() async throws {
+        // Setup can throw after opening its window; register the owned-window cleanup first.
+        defer { AppHarnessWindows.closeThoseThisTestOpened() }
         let fixture = try await Fixture(keys: ["k0", "k1"])
-        defer {
-            fixture.close()
-            // The page's Page Info and Extensions bubbles live as long as its chrome, which the app keeps.
-            AppHarnessWindows.closeThoseThisTestOpened()
-        }
+        defer { fixture.close() }
         fixture.controller.window?.collectionBehavior = [.fullScreenNone]
         let (tab, _) = try page(in: fixture)
         tab.simulate(.contentFullscreenChanged(true))
