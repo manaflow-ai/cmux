@@ -256,11 +256,17 @@ final class ScriptedChiefMac: @unchecked Sendable {
         if case .refused = session.engineProblem {} else { Issue.record("expected a refusal, got \(String(describing: session.engineProblem))") }
     }
 
-    @Test func tryAgainSendsTheMessageTheFailedTurnAnswered() async throws {
+    @Test(arguments: ["text", "photo", "photo-only", "file", "file-only"])
+    func tryAgainSendsTheMessageTheFailedTurnAnswered(kind: String) async throws {
         let mac = ScriptedChiefMac([(true, ScriptedChiefMac.report)])
         let session = try await session(mac, preferences: ChiefPreferences(defaults: defaults()), macID: "mac-1")
         try await waitUntil("Chief to connect") { session.isConnected }
-        session.send(ConversationComposeMessage(text: "summarize the open PRs"))
+        let text = kind.hasSuffix("-only") ? "" : "summarize the open PRs"
+        let photo = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aDZkAAAAASUVORK5CYII=")!
+        let file = Data("a,b\n1,2".utf8)
+        session.store.send(text: text,
+                           images: kind.hasPrefix("photo") ? [(photo, 1, 1, "image/png")] : [],
+                           files: kind.hasPrefix("file") ? [ConversationPendingFile(data: file, name: "table.csv")] : [])
         // The fake Chief answers "On it."; then its next turn fails on the model.
         try await waitUntil("Chief's reply") { session.store.messages.contains(where: { $0.text == "On it." }) }
         mac.daemon.queueChiefMessage(gatewayOutage)
@@ -276,10 +282,21 @@ final class ScriptedChiefMac: @unchecked Sendable {
         #expect(failure.kind == .modelBusy)
 
         session.retryFailedTurn()
+        session.retryFailedTurn() // A second tap must not send another copy.
         try await waitUntil("Try Again to resend") { mac.daemon.ops.filter({ $0["kind"] as? String == "message.send" }).count >= 2 }
         let sends = mac.daemon.ops.filter { $0["kind"] as? String == "message.send" }
-        let resent = (sends.last?["parts"] as? [[String: Any]])?.first?["text"] as? String
-        #expect(resent == "summarize the open PRs")
+        #expect(sends.count == 2)
+        let parts = try #require(sends.last?["parts"] as? [[String: Any]])
+        let resent = parts.first(where: { $0["type"] as? String == "text" })?["text"] as? String ?? ""
+        #expect(resent == text)
+        let attachments = parts.filter { $0["type"] as? String == "attachment" }
+        #expect(attachments.count == (kind == "text" ? 0 : 1))
+        if let attachment = attachments.first {
+            let hash = try #require(attachment["hash"] as? String)
+            #expect(mac.daemon.stored[hash] == (kind.hasPrefix("photo") ? photo : file))
+            if kind.hasPrefix("photo") { #expect(attachment["mime_type"] as? String == "image/png") }
+            if kind.hasPrefix("file") { #expect(attachment["name"] as? String == "table.csv") }
+        }
         // Once tried again, the bar no longer offers it.
         if case .failure? = session.barItem { Issue.record("Try Again offered twice") }
     }
