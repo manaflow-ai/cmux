@@ -162,6 +162,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_bun_workspaces.py
 
+      - name: Validate fast checks pin and launch their Playwright browsers
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_browsers.py
+
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
