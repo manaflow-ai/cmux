@@ -958,6 +958,7 @@ button.acpmux-chat-inspector-port:focus-visible {
   margin-top: 2px;
 }
 .acpmux-chat-inspector-subagents > .acpmux-chat-inspector-subagents__ended {
+  font-variant-numeric: tabular-nums;
   margin-top: 2px;
   color: var(--agent-muted);
 }
