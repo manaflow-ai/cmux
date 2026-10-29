@@ -46,8 +46,9 @@ impl Client {
     }
 }
 
-/// A daemon of this test, with the terminal host model `model` (`None`:
-/// the default, a host process per terminal).
+/// A daemon of this test, with the terminal host model `model`: `hosts`, a
+/// terminal host process per terminal, or `holder`, the default since the
+/// `terminalHolder` feature (holder_runtime.rs).
 struct Daemon {
     child: Child,
     dir: PathBuf,
@@ -61,7 +62,7 @@ struct Daemon {
 }
 
 impl Daemon {
-    fn start(model: Option<&str>) -> Self {
+    fn start(model: &str) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-trace-ctl-{}-{stamp}", std::process::id()));
@@ -87,15 +88,14 @@ impl Daemon {
             .env("XDG_STATE_HOME", &xdg_state)
             .env_remove("CMUX_TRACE_FLOWS")
             .env_remove("CMUX_BUNDLE_ID")
-            .env_remove("CMUX_TUI_TERMINAL_HOST_MODEL")
+            .env("CMUX_TUI_TERMINAL_HOST_MODEL", model)
+            .env_remove("CMUX_ENABLE_FEATURES")
+            .env_remove("CMUX_DISABLE_FEATURES")
             .env_remove("SSH_CONNECTION")
             .env_remove("SSH_CLIENT")
             .env_remove("SSH_TTY")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        if let Some(model) = model {
-            command.env("CMUX_TUI_TERMINAL_HOST_MODEL", model);
-        }
         let child = command.spawn().unwrap();
         let deadline = Instant::now() + Duration::from_secs(60);
         let stream = loop {
@@ -210,7 +210,7 @@ fn start_and_check_the_daemon(daemon: &mut Daemon) -> Value {
 
 #[test]
 fn trace_control_records_the_daemon_and_its_terminal_host() {
-    let mut daemon = Daemon::start(None);
+    let mut daemon = Daemon::start("hosts");
     daemon.new_terminal();
     let started = start_and_check_the_daemon(&mut daemon);
 
@@ -245,7 +245,7 @@ fn trace_control_records_the_daemon_and_its_terminal_host() {
 
 #[test]
 fn trace_control_records_the_daemon_and_its_holder() {
-    let mut daemon = Daemon::start(Some("holder"));
+    let mut daemon = Daemon::start("holder");
     let surface = daemon.new_terminal();
     let holder_pid = parent_of(daemon.shell_pid(surface));
     daemon.cleanup.push(holder_pid);
