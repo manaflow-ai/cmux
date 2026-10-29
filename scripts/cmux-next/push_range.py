@@ -10,7 +10,8 @@ branch, a tag on main), and the integration branch the pushed branch was cut fro
   `git worktree add -b topic origin/perf/chrome-parity` and `git checkout -b topic origin/x` record it, so it
   names any long-lived branch;
 - the known integration refs (INTEGRATION_REFS: origin/perf/chrome-parity, origin/main), for a branch cut with
-  --no-track or whose upstream `git push -u` has since moved to its own name.
+  --no-track or whose upstream `git push -u` has since moved to its own name. A new long-lived integration branch
+  gets an entry in INTEGRATION_REFS, so a branch cut from it without an upstream is not judged over all of it.
 Every one of them is only another `--not` of the walk below, so no rule picks among them: git stops the walk at
 the first commit any of them reaches, which is the nearest integration branch by history, the fact of where the
 branch left it (2026-10-29: a branch cut from perf, 9,426 commits ahead of feat-cmux-next, was judged over all of
