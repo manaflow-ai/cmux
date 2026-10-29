@@ -68,7 +68,7 @@ enum DebugAgentPane {
     }
 
     /// Runs `fn(...args)` on the page and returns its result as JSON text.
-    private static let script = """
+    static let script = """
         let debug = window.cmuxAcpmuxDebug;
         for (let frame = 0; !debug && frame < 120; frame += 1) {
             await new Promise(requestAnimationFrame);
