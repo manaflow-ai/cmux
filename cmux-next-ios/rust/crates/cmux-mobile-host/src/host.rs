@@ -118,6 +118,10 @@ fn registration_lookup(base_url: String, tokens: Arc<Tokens>) -> crate::pairing:
 /// Run until the process is stopped, reconnecting with backoff. Returns `Ok` only when
 /// the owner removed this Mac (`removed`): registering again would undo that.
 pub async fn run(config: HostConfig) -> Result<()> {
+    run_with_changes(config, crate::netwatch::changes()).await
+}
+
+async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::Receiver<u64>) -> Result<()> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let mut services = config.services.clone();
     if let Some(pairing) = services.pairing.as_mut() {
@@ -148,7 +152,7 @@ pub async fn run(config: HostConfig) -> Result<()> {
     }
     let mailbox = mailbox_for(&services);
     // Phones keep their WireGuard sessions when the Mac changes networks.
-    tokio::spawn(crate::netwatch::run());
+    let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
     // Test-only signal hooks, never in a normal install: only when the state
     // folder holds a `test-signals` file a rig created (PR #22555 review).
     if crate::config::default_state_dir().join("test-signals").exists() {
@@ -159,7 +163,16 @@ pub async fn run(config: HostConfig) -> Result<()> {
     loop {
         control::emit(&Event::Connecting);
         let started = std::time::Instant::now();
-        let reason = match connect_once(&config, &tokens, &services, &ice, &mailbox).await {
+        let attempt = tokio::select! {
+            // Process a server removal first if both events are ready.
+            biased;
+            result = connect_once(&config, &tokens, &services, &ice, &mailbox) => result,
+            Ok(()) = changes.changed() => {
+                backoff = Duration::from_secs(1);
+                continue;
+            }
+        };
+        let reason = match attempt {
             Ok(reason) if removed(&reason) => {
                 // Registering again would undo the owner's removal: stop for good.
                 tracing::warn!(reason, "this Mac was removed from the account's devices; stopping");
@@ -187,7 +200,10 @@ pub async fn run(config: HostConfig) -> Result<()> {
             }
         };
         control::emit(&Event::Waiting { reason, retry_in_seconds: backoff.as_secs() });
-        tokio::time::sleep(backoff).await;
+        tokio::select! {
+            () = tokio::time::sleep(backoff) => {},
+            Ok(()) = changes.changed() => { backoff = Duration::from_secs(1); }
+        }
     }
 }
 
@@ -222,6 +238,9 @@ async fn connect_once(
     let signaling = SignalingClient::connect(&config.base_url, &token, &config.team_id, &config.device_id)
         .await
         .context("signaling connect")?;
+    // Cancellation on wake/network change must close the old socket and stop
+    // its auxiliary tasks; dropping a SignalingClient alone does neither.
+    let mut lifetime = ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new() };
     tracing::info!(device_id = config.device_id, "signaling connected");
     // Sessions of the previous socket (WireGuard tunnels outlive it) send
     // their `bye` on this one now.
@@ -229,6 +248,13 @@ async fn connect_once(
     if moved > 0 {
         tracing::info!(moved, "WireGuard sessions moved to the new signaling socket");
     }
+    // Rehome first so refreshed endpoint announcements use the new signaling socket.
+    // Run concurrently with admission: gathering endpoints must not delay a new dial.
+    lifetime.tasks.push(tokio::spawn(async {
+        for (session, timeline) in dial::wireguard::network_changed().await {
+            tracing::info!(session, timings = %timeline.summary(), "roamed");
+        }
+    }));
     control::emit(&Event::Online { device_id: config.device_id.clone(), team_id: config.team_id.clone() });
     let context = AnswerContext {
         owner_user_id: owner,
@@ -239,11 +265,25 @@ async fn connect_once(
         mailbox: mailbox.clone(),
     };
     let refresher = if std::env::var_os("CMUX_MOBILE_BASELINE").is_some() { None } else { ice.keep_fresh() };
-    let reason = serve_signaling(signaling, context).await;
     if let Some(task) = refresher {
-        task.abort();
+        lifetime.tasks.push(task);
     }
-    Ok(reason)
+    Ok(serve_signaling(signaling, context).await)
+}
+
+/// Owns all per-connection work, including when a wake cancels an attempt.
+struct ConnectionLifetime {
+    signaling: SignalingClient,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for ConnectionLifetime {
+    fn drop(&mut self) {
+        self.signaling.close();
+        for task in &self.tasks {
+            task.abort();
+        }
+    }
 }
 
 /// hostd's exit status after the owner removed this Mac (`removed`): a supervisor must not restart it.
@@ -597,3 +637,15 @@ mod tests {
         assert!(!unauthorized(&anyhow::anyhow!("the app sent no access token")));
     }
 }
+
+/// Scope a process watcher to the host loop, including removal and cancellation.
+struct AbortTask(tokio::task::JoinHandle<()>);
+impl Drop for AbortTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+#[cfg(test)]
+#[path = "host_recovery_tests.rs"]
+mod recovery_tests;

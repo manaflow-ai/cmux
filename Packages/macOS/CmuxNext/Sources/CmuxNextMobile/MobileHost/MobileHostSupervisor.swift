@@ -140,6 +140,11 @@ public actor MobileHostSupervisor {
         await task?.value
     }
 
+    /// Refresh signaling and live endpoints after wake, without restarting hostd or its links.
+    public func networkChanged() {
+        process?.send(Data("{\"type\":\"network_changed\"}\n".utf8))
+    }
+
     /// Ends the live links of a phone the owner removed (hostd closes them at once).
     public func drop(phoneDeviceIDs: [String]) {
         for id in phoneDeviceIDs { process?.send(MobileHostLaunch.dropPhoneLine(id)) }
