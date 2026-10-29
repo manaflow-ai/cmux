@@ -33,6 +33,8 @@ mod cursor_requests;
 mod drafts;
 #[path = "hub_integration/full_access_guards.rs"]
 mod full_access_guards;
+#[path = "hub_integration/held_queue.rs"]
+mod held_queue;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]

@@ -84,7 +84,11 @@ async function line(message: { name: string; sessionId?: string }) {
       </SubsessionContext.Provider>,
     ),
   );
-  return { chip: host.querySelector<HTMLButtonElement>("button.cv-received__name"), opened };
+  return {
+    chip: host.querySelector<HTMLButtonElement>("button.cv-received__name"),
+    plain: host.querySelector<HTMLElement>(".cv-received__name.is-plain"),
+    opened,
+  };
 }
 
 test("a peer lane's chip, found by its bare name, opens it and names its machine", async () => {
@@ -104,7 +108,9 @@ test("a chat on this Mac opens by the id its message gives, its tooltip naming n
 });
 
 test("a sender no list names is no button: nothing to open", async () => {
-  const { chip } = await line({ name: "gone-lane" });
+  const { chip, plain } = await line({ name: "gone-lane" });
   expect(chip).toBeNull();
-  expect(host.querySelector(".cv-received__name.is-plain")?.textContent).toBe("gone-lane");
+  expect(plain?.textContent).toBe("gone-lane");
+  await act(async () => plain!.click());
+  expect(host.querySelector(".cv-received")?.getAttribute("data-open")).toBe("true");
 });
