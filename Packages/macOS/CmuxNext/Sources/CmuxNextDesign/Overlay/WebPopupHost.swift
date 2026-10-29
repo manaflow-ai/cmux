@@ -105,6 +105,7 @@ public final class WebPopupHost {
     public func show(_ model: Model) -> [String: Any] {
         if let declaration = model.declaration {
             guard let webView else { return ["shown": false] }
+            if self.model != nil { send(["type": "dismiss"]) }
             self.model = nil
             popup?.hide()
             let host = declarationHost ?? DeclarativePopupHost(webView: webView, zoom: zoom, send: send)

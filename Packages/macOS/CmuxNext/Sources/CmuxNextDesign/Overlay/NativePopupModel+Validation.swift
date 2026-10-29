@@ -34,8 +34,14 @@ extension NativePopupModel {
             }
             if row.kind == .slider {
                 guard let minimum = row.minimum, let maximum = row.maximum,
-                      minimum.isFinite, maximum.isFinite, minimum < maximum,
+                      minimum.isFinite, maximum.isFinite, (minimum < maximum || (row.slider?.stops.count == 1 && minimum == 0 && maximum == 0)),
                       row.step.map({ $0.isFinite && $0 > 0 }) ?? true else { return false }
+            }
+            if let slider = row.slider {
+                let values = slider.stops.map(\.value)
+                guard row.kind == .slider, !values.isEmpty, values.count <= 100,
+                      values.allSatisfy({ !$0.isEmpty }), Set(values).count == values.count,
+                      row.minimum == 0, row.maximum == Double(values.count - 1), row.step == 1 else { return false }
             }
             if row.kind == .choice {
                 let options = row.options ?? []

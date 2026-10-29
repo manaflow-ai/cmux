@@ -21,8 +21,9 @@ public struct NativePopupRow: Codable, Equatable, Sendable {
     public var `minimum`: Double?
     public var `maximum`: Double?
     public var `step`: Double?
+    public var `slider`: NativePopupSlider?
 
-    public init(id: String, kind: NativePopupRowKind, label: String, description: String? = nil, icon: String? = nil, shortcut: String? = nil, disabled: Bool? = nil, disabledReason: String? = nil, checked: Bool? = nil, value: String? = nil, keepOpen: Bool? = nil, placeholder: String? = nil, options: [NativePopupOption]? = nil, actions: [NativePopupAction]? = nil, children: [NativePopupRow]? = nil, minimum: Double? = nil, maximum: Double? = nil, step: Double? = nil) {
+    public init(id: String, kind: NativePopupRowKind, label: String, description: String? = nil, icon: String? = nil, shortcut: String? = nil, disabled: Bool? = nil, disabledReason: String? = nil, checked: Bool? = nil, value: String? = nil, keepOpen: Bool? = nil, placeholder: String? = nil, options: [NativePopupOption]? = nil, actions: [NativePopupAction]? = nil, children: [NativePopupRow]? = nil, minimum: Double? = nil, maximum: Double? = nil, step: Double? = nil, slider: NativePopupSlider? = nil) {
         self.id = id
         self.kind = kind
         self.label = label
@@ -41,5 +42,6 @@ public struct NativePopupRow: Codable, Equatable, Sendable {
         self.minimum = minimum
         self.maximum = maximum
         self.step = step
+        self.slider = slider
     }
 }

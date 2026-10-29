@@ -7,11 +7,15 @@ public struct NativePopupField: Codable, Equatable, Sendable {
     public var `value`: String
     public var `placeholder`: String
     public var `disabled`: Bool?
+    public var `submitOnReturn`: Bool?
+    public var `autoHighlight`: NativePopupAutoHighlight?
 
-    public init(id: String, value: String, placeholder: String, disabled: Bool? = nil) {
+    public init(id: String, value: String, placeholder: String, disabled: Bool? = nil, submitOnReturn: Bool? = nil, autoHighlight: NativePopupAutoHighlight? = nil) {
         self.id = id
         self.value = value
         self.placeholder = placeholder
         self.disabled = disabled
+        self.submitOnReturn = submitOnReturn
+        self.autoHighlight = autoHighlight
     }
 }
