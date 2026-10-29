@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { inlineChatFloor } from "../src/agent-session/acpmux/summary/cardState";
 
 const css = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/summary/summary.css"), "utf8");
 
@@ -20,4 +21,11 @@ test("the pane's shell clips and cannot be scrolled sideways", () => {
   const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
   const shell = /\.acpmux-shell\{position:relative;[^}]*\}/.exec(styles)?.[0] ?? "";
   expect(shell).toContain("overflow:clip");
+});
+
+test("the standard inline-summary floor follows the effective page scale", () => {
+  const scaledFloor = inlineChatFloor("standard", 1.25);
+  const scaledCap = 800 / 1.25;
+  expect(scaledFloor).toBe(528);
+  expect(scaledFloor).toBeLessThan(scaledCap);
 });
