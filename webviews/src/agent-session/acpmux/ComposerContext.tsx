@@ -311,7 +311,7 @@ export function ComposerContext({
       : undefined;
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   return (
-    <div className="acpmux-composer-strip">
+    <div className="acpmux-composer-strip" data-alignment-surface="composer-strip" data-alignment-inset="surface">
       <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
         <div className="acpmux-location-leading">
           {!folderShown ? null : !readOnly && selectedComputer === "local" && projectChoices ? (

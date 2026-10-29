@@ -64,7 +64,13 @@ export function TrustAsk({
     // An open question reads as one (full text, the accent's edge, the primary answer first), not
     // as the quiet receipt it becomes once answered: a dim line was easy to miss while the agent
     // waited on it (Leo, 2026-10-21).
-    <div className="acpmux-trust-ask" data-asking={asking || undefined} aria-live="polite">
+    <div
+      className="acpmux-trust-ask"
+      data-alignment-surface="trust"
+      data-alignment-inset="surface"
+      data-asking={asking || undefined}
+      aria-live="polite"
+    >
       {ask.state === "decided" ? (
         <>
           <span className="acpmux-trust-ask-text">

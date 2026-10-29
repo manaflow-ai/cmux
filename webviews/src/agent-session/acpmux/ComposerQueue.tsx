@@ -682,6 +682,8 @@ export function ComposerQueue({
       <ol
         ref={list}
         className="ui-glass ui-glass-floats acpmux-composer-queue"
+        data-alignment-surface="queue"
+        data-alignment-inset="surface"
         data-unfolded={foldable && !folded ? "" : undefined}
         // The prompts the fold hides, still queued: the transcript keeps no room for them as it
         // does for a card that leaves (VirtualTranscript `noteQueue`).

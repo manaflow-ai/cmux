@@ -125,6 +125,18 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                 trayRight: rect(
                   '[data-alignment-surface="tray"] .acpmux-running-tray__head > [data-alignment-column="right-action"]',
                 ),
+                finished: (() => {
+                  const node = document.querySelector<HTMLElement>(
+                    '[data-alignment-surface="tray"] .acpmux-running-tray__finished',
+                  );
+                  return node ? rectFrom(node) : null;
+                })(),
+                finishedRight: (() => {
+                  const node = document.querySelector<HTMLElement>(
+                    '[data-alignment-surface="tray"] .acpmux-running-tray__finished > [data-alignment-column="right-action"]',
+                  );
+                  return node ? rectFrom(node) : null;
+                })(),
                 plus: rect(
                   '[data-alignment-surface="composer"] [data-alignment-column="left-icon"] .acpmux-picker-button',
                 ),
@@ -208,6 +220,16 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                   );
                   return right ? rectFrom(right) : null;
                 })(),
+                chevrons: [
+                  ...document.querySelectorAll<HTMLElement>(
+                    '[data-alignment-surface="tray"] .acpmux-agent-line__chevron',
+                  ),
+                ].map((node) => ({
+                  box: rectFrom(node),
+                  hasStop: Boolean(
+                    node.closest(".acpmux-agent-line")?.querySelector(".acpmux-agent-line__stop-slot > button"),
+                  ),
+                })),
               };
             });
             if (variant === "alignment-collapsed" && width === 720 && plainFooter && scheme === "dark") {
@@ -404,6 +426,15 @@ await requireBrowserLane("tray-composer-alignment.test.ts", async () => {
                     ),
                   }
                 : {}),
+              ...(result.finishedRight
+                ? { finishedRightColumn: Math.abs(center(result.finishedRight) - center(result.mic)) }
+                : {}),
+              ...Object.fromEntries(
+                result.chevrons.map(({ box, hasStop }, index) => [
+                  `chevronRightColumn${index}`,
+                  Math.abs(center(box) - (center(result.mic) - (hasStop ? 32 : 0))),
+                ]),
+              ),
             };
             console.log(JSON.stringify({ variant, scheme, width, plainFooter, result, checks }));
             const evidenceDir = "/tmp/nx-tray-composer-align";

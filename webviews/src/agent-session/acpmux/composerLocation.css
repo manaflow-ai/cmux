@@ -40,6 +40,11 @@
   container: acpmux-strip / inline-size;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* Every surface over the composer uses its content box as the transcript column. The location
+   strip has no private gutter: its controls begin on the same leading line as the composer. */
+.acpmux-composer > .acpmux-composer-strip[data-alignment-inset="surface"] {
+  margin-inline: 0;
+}
 /* The chat composer's strip (design panel, compact composer): its first and last marks line up
    with the card's content, the folder icon over the prompt's first letter and the branch chevron
    over the prompt's last column, so nothing in the strip reads as a stray indent. The strip itself
@@ -847,6 +852,9 @@
    queue's sides. */
 .acpmux-composer > .acpmux-composer-queue {
   border-radius: var(--acpmux-strip-radius, 18px) var(--acpmux-strip-radius, 18px) 0 0;
+}
+.acpmux-composer > .acpmux-composer-queue[data-alignment-inset="surface"] {
+  margin-inline: 0;
 }
 .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
   border-radius: 0;
