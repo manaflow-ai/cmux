@@ -282,6 +282,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
           spinner: rect(".acpmux-unavailable-spinner"),
           title: rect(".acpmux-unavailable-title"),
           composer: rect(".acpmux-composer-box"),
+          dock: rect(".acpmux-dock"),
           main: rect(".acpmux-main"),
           copy: rect(".acpmux-unavailable-copy"),
         };
@@ -305,6 +306,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       expect(layout.stage.bottom).toBeLessThanOrEqual(layout.composer.top + 1);
       expect(layout.composer.height).toBeGreaterThan(0);
       expect(layout.composer.bottom).toBeLessThanOrEqual(layout.main.bottom + 1);
+      expect(layout.dock.bottom).toBeLessThanOrEqual(layout.main.bottom + 1);
     };
     const settled = () =>
       page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -341,6 +343,7 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       { width: 760, height: 760 },
       { width: 400, height: 360 },
       { width: 400, height: 275 },
+      { width: 400, height: 259 },
     ];
     for (const isDark of [true, false]) {
       const theme = isDark ? "dark" : "light";
@@ -362,9 +365,9 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
         console.info("loading-center", theme, JSON.stringify(layout));
         await capture(`loading-center-${theme}-${size.width}x${size.height}`);
         assertCentered(layout);
-        if (size.height === 275) expect(layout.root.height).toBeLessThanOrEqual(113);
+        if (size.height === 259) expect(layout.root.height).toBeLessThanOrEqual(113);
         await assertActionsReachable();
-        if (size.height === 275) {
+        if (size.height === 259) {
           await shown.getByRole("button", { name: "Close Tab" }).scrollIntoViewIfNeeded();
           await capture(`loading-center-${theme}-minimum-actions`);
           await shown.locator(".acpmux-unavailable-copy").evaluate((node) => (node.scrollTop = 0));
