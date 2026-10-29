@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextFocusUI
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
@@ -52,6 +53,8 @@ final class NewTabInputCoordinator {
         weak var window: NSWindow?
         /// The open put the page's tab on screen (`didShow`).
         var shown = false
+        /// The tab of the page this opening showed (`didShow`): only its field may take the keys without the token.
+        var shownKey: String?
         var deadline: DemandTimer?
         /// A page that does not exist yet (Cmd-N's new workspace, `beginIncoming`): its tab key
         /// comes with its readiness; until then the hold owns its window's keys.
@@ -123,7 +126,15 @@ final class NewTabInputCoordinator {
         release(in: window)
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
-        let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
+        weak var opening: Entry?  // weak: the entry owns the buffer that holds this closure
+        let buffer = NewTabInputBuffer(began: now(), fieldReady: { [weak pane] in
+            // This opening's page (``didShow(in:)``), still shown under its provisional or its daemon key, has its field
+            // focused now (an adopted spare).
+            let tabs = pane?.services.agentTabs
+            guard let pane, let tabs, let key = pane.currentTabKey, let shown = opening?.shownKey,
+                  tabs.resolve(key) == tabs.resolve(shown), tabs.isNewTabPage(key) else { return false }
+            return tabs.existingView(key)?.inputReadiness.isEditableFocused == true
+        }, focusField: { [weak pane, weak window] in
             guard let pane, let window, let key = pane.currentTabKey, pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window,
                   view.isShownForInput else { return false }
@@ -153,6 +164,7 @@ final class NewTabInputCoordinator {
             return window.makeFirstResponder(view.focusTarget)
         }, deliver: deliver(in: window))
         let entry = Entry(buffer: buffer, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
+        opening = entry
         install(entry, in: window)
         note("begin page opened=\(pane.currentTabKey ?? "-")", entry)
         return buffer.token
@@ -168,7 +180,11 @@ final class NewTabInputCoordinator {
         let target = IncomingPage()
         target.followsNewWindow = followsNewWindow
         let services = router.services
-        let buffer = NewTabInputBuffer(began: now(), focusField: { [weak services, weak window] in
+        let buffer = NewTabInputBuffer(began: now(), fieldReady: { [weak services] in
+            // The page made for this hold (``pageMade(_:key:)``) has its field focused in its document.
+            guard let key = target.key else { return false }
+            return (target.view ?? services?.agentTabs.existingView(key))?.inputReadiness.isEditableFocused == true
+        }, focusField: { [weak services, weak window] in
             // The page shows in this window (FirstTabHold), or a New Window's, before it takes keys.
             guard let services, let window, let key = target.key,
                   let view = target.view ?? (services.agentTabs.isNewTabPage(key) ? services.agentTabs.existingView(key) : nil),
@@ -211,6 +227,26 @@ final class NewTabInputCoordinator {
         guard let token, let (number, entry) = buffers.first(where: { $0.value.buffer.token == token }) else { return }
         guard !pageMade || entry.incoming?.claimed != true else { return }
         if entry.window != nil { release(entry, why: "creation made no page") } else { buffers[number] = nil }
+    }
+
+    /// The page for incoming hold `token` was made as tab `key` (`AgentTabStore.showWorkspace`, in the press's turn):
+    /// the hold knows its destination now, and its keys go there once the page shows with its field ready, whether
+    /// or not the page's readiness message comes (an adopted spare's page was ready before this token existed).
+    func pageMade(_ token: String, key: String) {
+        guard let entry = buffers.values.first(where: { $0.buffer.token == token }), let incoming = entry.incoming else { return }
+        incoming.key = key
+        incoming.view = router?.services?.agentTabs.existingView(key)
+        watchField(of: incoming.view, for: entry)
+        note("page made \(key)", entry)
+    }
+
+    /// When `view`'s field takes focus in its document, `entry`'s keys go there (no key or focus settle needed).
+    private func watchField(of view: AgentPaneView?, for entry: Entry) {
+        view?.inputReadiness.onEditableFocus = { [weak self, weak entry, weak view] in
+            view?.inputReadiness.onEditableFocus = nil
+            guard let self, let entry, buffers.values.contains(where: { $0 === entry }) else { return }
+            flush(in: entry.window)
+        }
     }
 
     /// A New Tab page `key` reported its field ready with `token`: the hold that gave it the token
@@ -304,7 +340,14 @@ final class NewTabInputCoordinator {
     }
 
     /// The open put the page's tab on screen: leaving it now ends the hold at once.
-    func didShow(in window: NSWindow?) { if let window { buffers[window.windowNumber]?.shown = true } }
+    func didShow(in window: NSWindow?) {
+        guard let window, let entry = buffers[window.windowNumber] else { return }
+        entry.shown = true
+        // The pane may not show the new tab yet (a remote store selects it when reported): then only the token counts.
+        let key = entry.pane?.currentTabKey
+        entry.shownKey = key != entry.opened ? key : nil
+        watchField(of: entry.shownKey.flatMap { router?.services?.agentTabs.existingView($0) }, for: entry)
+    }
 
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
     func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
@@ -341,8 +384,17 @@ final class NewTabInputCoordinator {
             release(entry, why: expired(entry) ? "limit at key" : "not owned at key (tab \(entry.pane?.currentTabKey ?? "-"))")
             return false
         }
-        note("hold key #\(entry.buffer.count + 1)", entry)  // never characters: desync reports keep this log
-        return entry.buffer.capture(event)
+        // Only a few lines per opening: the log keeps 60, and a burst must not push its begin and ready out.
+        if entry.buffer.count < 3 || (entry.buffer.count + 1) % 20 == 0 { note("hold key #\(entry.buffer.count + 1)", entry) }  // never characters: desync reports keep this log
+        guard entry.buffer.capture(event) else { return false }
+        // The field may be ready by now (a page that showed with its field focused): this key goes behind the held
+        // ones, all through the same replay (their window, a Chromium page's, the agent pane's judgement).
+        if entry.buffer.drain() {
+            note("drained to field at key", entry)
+            entry.deadline?.cancel()
+            remove(entry)
+        }
+        return true
     }
 
     func acknowledge(_ token: String, in window: NSWindow?) {
