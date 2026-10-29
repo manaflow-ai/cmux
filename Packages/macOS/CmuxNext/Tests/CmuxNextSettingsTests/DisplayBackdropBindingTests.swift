@@ -194,6 +194,26 @@ import Testing
         #expect(scope.backdropSelection == .art(.hokusaiGreatWave), "Returning to an inactive display must not renew stale folder contents")
     }
 
+    @Test func slowReadCrossingRotationBoundaryStartsFreshRead() async {
+        let loader = SuspendedBackdropFolderListing()
+        let scope = ThemeScope(level: .room)
+        var date = Date(timeIntervalSince1970: 1_791_938_451)
+        let binding = DisplayBackdropBinding(window: NSWindow(), scope: scope, displayID: { first }, now: { date },
+                                            listFolder: { await loader.list($0) })
+        defer { binding.stop() }
+        binding.apply(["appearance": ["displayBackgrounds": .object([first: "folder:/boundary"]),
+                                      "displayBackgroundRotations": .object([first: "15m"]) ]])
+        await loader.started("/boundary", count: 1)
+        date = date.addingTimeInterval(901)
+        await loader.finish("/boundary", pictures: [.art(.munchScream)])
+        await loader.started("/boundary", count: 2)
+        #expect(scope.backdropSelection == nil, "Expired results must not apply before the fresh read")
+        await loader.finish("/boundary", pictures: [.art(.hokusaiGreatWave)])
+        await binding.folderRefresh?.value
+        #expect(await loader.count("/boundary") == 2)
+        #expect(scope.backdropSelection == .art(.hokusaiGreatWave))
+    }
+
     @Test func defaultsOptOutWorkspacePriorityAndCleanup() async {
         let app = ThemeScope(level: .room)
         app.setBackdropSelection(.art(.munchScream))

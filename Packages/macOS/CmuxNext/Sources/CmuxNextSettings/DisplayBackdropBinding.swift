@@ -2,6 +2,15 @@ public import AppKit
 public import CmuxNextDesign
 import CmuxNextWakeups
 
+/// Keeps destruction's main-actor hop in a small AppKit lifecycle seam.
+private final class DisplayBackdropDeinitAdapter {
+    weak var owner: DisplayBackdropBinding?
+
+    nonisolated func run() {
+        MainActor.assumeIsolated { owner?.teardown() } // main-proof: AppKit owns this binding on the main actor.
+    }
+}
+
 /// Applies a display background between the app and room scopes. Explicit window and workspace
 /// choices still win. The window owner calls ``stop()`` when it tears down.
 @MainActor
@@ -14,6 +23,7 @@ public final class DisplayBackdropBinding {
     private let now: () -> Date
     private let calendar: () -> Calendar
     private let listFolder: @Sendable (String) async -> [BackdropSelection]
+    private let deinitAdapter: DisplayBackdropDeinitAdapter
     private let recordObserver: ((Notification.Name, AnyObject?, OperationQueue?) -> Void)?
     private let recordRemoval: (() -> Void)?
     private let timer = DemandTimer(owner: "display-backdrop")
@@ -32,11 +42,13 @@ public final class DisplayBackdropBinding {
                 recordRemoval: (() -> Void)? = nil) {
         self.scope = scope; self.center = center; self.displayID = displayID; self.now = now; self.calendar = calendar
         self.listFolder = listFolder
+        self.deinitAdapter = DisplayBackdropDeinitAdapter()
         self.recordObserver = recordObserver
         self.recordRemoval = recordRemoval
         inheritedScope = scope.parent ?? .app
         displayScope = ThemeScope(level: .room, parent: inheritedScope)
         scope.setParent(displayScope)
+        deinitAdapter.owner = self
         let names: [Notification.Name] = [NSWindow.didChangeScreenNotification, .NSSystemClockDidChange,
                                          .NSCalendarDayChanged, .NSSystemTimeZoneDidChange]
         for name in names {
@@ -50,7 +62,7 @@ public final class DisplayBackdropBinding {
     }
 
     nonisolated deinit {
-        MainActor.assumeIsolated { teardown() }
+        deinitAdapter.run()
     }
 
     /// Resolves and lists a folder on the global executor, including all symlink and metadata reads.
@@ -138,6 +150,12 @@ public final class DisplayBackdropBinding {
         folderRefresh = Task { [weak self] in
             let pictures = await request.task.value
             guard !Task.isCancelled, let self, !self.stopped, self.generation == requestedGeneration else { return }
+            guard let expires = self.folders[path]?.expires, expires > self.now() else {
+                self.folders.removeValue(forKey: path)
+                self.generation += 1
+                self.refreshFolder(path, rotation: rotation)
+                return
+            }
             self.folders[path]?.pictures = pictures
             self.applyFolder(pictures, rotation: rotation)
         }
