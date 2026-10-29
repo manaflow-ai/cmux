@@ -115,6 +115,7 @@ fn configure_mesh_relay(hub: &str) -> Result<()> {
         url: hub.to_owned(),
         token_command: Vec::new(),
         credential: Some("join".to_owned()),
+        team_messaging: false,
         control_from: Vec::new(),
     });
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))

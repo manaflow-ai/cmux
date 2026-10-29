@@ -153,6 +153,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let id = resolve_id(&client, &session).await?;
             let (k, val) = assignment.split_once('=').ok_or_else(|| anyhow!("use key=value"))?;
             let v = match k {
+                "team-address" | "teamAddress" => {
+                    if !crate::mesh::valid_team_suffix(val) {
+                        return Err(anyhow!(
+                            "team-address must be an agent suffix such as coordinator; the hub supplies your member namespace"
+                        ));
+                    }
+                    client
+                        .request(
+                            method::MUX_TAG,
+                            json!({"sessionId": id, "set": {"teamAddress": val}}),
+                        )
+                        .await?
+                }
                 "mode" => {
                     client
                         .request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": val}))

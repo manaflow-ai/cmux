@@ -203,6 +203,9 @@ mod tests {
             from: Sender::default(),
             body: r#"{"version":1,"params":{}}"#.into(),
             attempt: 1,
+            start_work: None,
+            state: None,
+            subject: None,
         }
     }
 
