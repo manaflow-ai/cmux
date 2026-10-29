@@ -71,7 +71,10 @@ final class TerminalThemeGalleryModel {
         /// Whether picks keep a light/dark pair, decided at the first pick the
         /// way the `cmux themes` picker fixes its target when it opens, so
         /// previewing past the other side's theme does not drop the pair.
-        let keepsPair: Bool
+        var keepsPair: Bool
+        /// The theme value the gallery wrote last. When the block holds
+        /// anything else, it changed elsewhere and `keepsPair` is decided again.
+        var writtenThemeValue: String
     }
 
     @ObservationIgnored private let context: TerminalThemeGalleryContext
@@ -167,6 +170,7 @@ final class TerminalThemeGalleryModel {
     /// appearance; this is the target the `cmux themes` picker chooses by
     /// default. With one theme for both appearances, or none yet, a pick sets
     /// both sides, since Ghostty needs both sides of a light/dark `theme` value.
+    /// A theme change made elsewhere between picks decides this again.
     func select(_ name: String) {
         let current: CmuxTerminalThemePair
         let managedValue: String?
@@ -178,7 +182,12 @@ final class TerminalThemeGalleryModel {
             return
         }
         selection = current
-        let keepsPair = snapshot?.keepsPair ?? Self.holdsPair(current)
+        let keepsPair: Bool
+        if let snapshot, snapshot.writtenThemeValue == managedValue {
+            keepsPair = snapshot.keepsPair
+        } else {
+            keepsPair = Self.holdsPair(current)
+        }
         var next = current
         if keepsPair, current.light != nil, current.dark != nil {
             switch slotInUse {
@@ -200,7 +209,10 @@ final class TerminalThemeGalleryModel {
             return
         }
         if snapshot == nil {
-            snapshot = Snapshot(managedThemeValue: managedValue, keepsPair: keepsPair)
+            snapshot = Snapshot(managedThemeValue: managedValue, keepsPair: keepsPair, writtenThemeValue: rawValue)
+        } else {
+            snapshot?.keepsPair = keepsPair
+            snapshot?.writtenThemeValue = rawValue
         }
         selection = next
         hasPendingChange = true
