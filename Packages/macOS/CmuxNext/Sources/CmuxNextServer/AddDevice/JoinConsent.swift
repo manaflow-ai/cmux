@@ -226,6 +226,14 @@ public final class JoinConsentModel {
         }
         let ok = await line.set(surface, granted: on)
         lastError = ok ? nil : on ? JoinConsentStrings.onFailed : JoinConsentStrings.offFailed
+        // SECURITY: a revoke acpmux took counts here at once, before the read that confirms it: a running
+        // session stops now, and no read that started before it (which may say granted) is kept.
+        if ok, !on, var record = consent {
+            generation += 1
+            if surface == .screen { record.screen = false } else { record.control = false }
+            consent = record
+            changed()
+        }
         await refresh()
         return lastError
     }
@@ -252,9 +260,10 @@ public final class JoinConsentModel {
     /// once acpmux answered (with or without consent support).
     public func allowsMacScreen(control: Bool, requester: String) async -> Bool {
         guard services.enabled() else { return true }
-        // SECURITY: decided from this request's own read, never from what an older read left behind.
+        // SECURITY: decided from this request's own read, never from what an older read left behind, and
+        // only while what this Mac holds now (a newer read, a revoke made meanwhile) allows it too.
         let reading = await readAndKeep()
-        if Self.permits(reading, control: control) { return true }
+        if Self.permits(reading, control: control), permitsMacScreen(control: control) { return true }
         if reading.supported != nil {
             refused(JoinConsentRefusal(requester: requester, surface: reading.consent?.screen == true ? .control : .screen))
         }

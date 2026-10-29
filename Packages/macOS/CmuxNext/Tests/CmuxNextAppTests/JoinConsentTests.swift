@@ -276,6 +276,63 @@ import Testing
         #expect(!model.permitsMacScreen(control: false))
     }
 
+    /// A ticket whose read said granted, answering after a revoke that acpmux already took, never serves.
+    @Test func aGrantReadBeforeARevokeNeverAuthorizesAfterIt() async {
+        let fake = Fake()
+        fake.record.screen = true
+        let base = fake.services()
+        let held = Gate()
+        var holdNext = false, reads = 0
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: {
+                reads += 1
+                if holdNext {
+                    holdNext = false
+                    let answer = await base.status()
+                    await held.wait()
+                    return answer
+                }
+                return await base.status()
+            },
+            openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+        await model.refresh()
+        #expect(model.permitsMacScreen(control: false))
+        holdNext = true
+        let ticket = Task { await model.allowsMacScreen(control: false, requester: "Studio") }
+        for _ in 0..<1000 where reads < 2 { await Task.yield() }
+        #expect(await model.set(.screen, on: false) == nil)
+        fake.record.screen = true // the held read's acpmux answer, from before the revoke
+        held.open()
+        #expect(!(await ticket.value))
+    }
+
+    /// A revoke acpmux took stops a running session before the read that confirms it, even when that read
+    /// hangs or a newer one replaces it.
+    @Test func aRevokeCountsAtOnceBeforeItsConfirmingRead() async {
+        let fake = Fake()
+        fake.record = JoinConsentRecord(screen: true, control: true)
+        let base = fake.services()
+        let held = Gate()
+        var holdReads = false
+        let model = JoinConsentModel(services: JoinConsentServices(
+            status: {
+                if holdReads { await held.wait() }
+                return await base.status()
+            },
+            openLine: base.openLine, enabled: base.enabled, askShown: base.askShown, markAskShown: base.markAskShown))
+        await model.refresh()
+        let changes = Recorder()
+        model.changed = { changes.values.append("\(model.permitsMacScreen(control: true))") }
+        holdReads = true
+        let revoke = Task { await model.set(.control, on: false) }
+        for _ in 0..<1000 where changes.values.isEmpty { await Task.yield() }
+        #expect(changes.values == ["false"], "Full Control stops while the confirming read still waits")
+        #expect(model.permitsMacScreen(control: false) && !model.permitsMacScreen(control: true))
+        held.open()
+        #expect(await revoke.value == nil)
+        #expect(!model.permitsMacScreen(control: true))
+    }
+
     #if DEBUG
     @Test func aCaptureFixtureNeverAuthorizesALiveMacScreenSession() async {
         let fake = Fake()
