@@ -237,6 +237,39 @@ import Testing
         #expect(store.messages.compactMap(\.seq) == Array(41...80))
     }
 
+    @Test(arguments: [20, 200])
+    func interruptedRecoveryAfterEmptyHistoryKeepsOlderMessagesReachable(pageSize: Int) async throws {
+        let backend = ScriptedBackend(total: 0)
+        let store = ConversationStore(backend: backend, pageSize: pageSize)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        #expect(store.older == .exhausted)
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        backend.total = 100
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+        store.apply(.message(backend.makeMessage(seq: 100, sender: "lc"), eventSeq: 1))
+        var merged = false
+        store.addObserver { change in
+            if case .live = change { merged = true }
+        }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { merged }
+        #expect(store.older == .idle)
+        // Recovery retains the live row as the window's anchor, but the
+        // filtered overlap rows and every earlier page must remain reachable.
+        for page in 1...((99 + pageSize - 1) / pageSize) {
+            let oldest = max(1, 100 - page * pageSize)
+            store.loadOlder()
+            try await waitUntil { store.messages.first?.seq == oldest }
+        }
+        #expect(store.messages.compactMap(\.seq) == Array(1...100))
+        #expect(store.older == .exhausted)
+    }
+
     @Test func reconnectRefreshesMissedEditsThroughoutRetainedHistory() async throws {
         let backend = ScriptedBackend(total: 100)
         let store = ConversationStore(backend: backend, pageSize: 20)

@@ -629,6 +629,12 @@ public final class ConversationStore {
                     older = newest.hasMore ? .idle : .exhausted
                 case .loading, .retrying: break
                 }
+            } else if older == .exhausted, let oldestRetained, let oldestPage = pages.last,
+                      oldestPage.hasMore || oldestPage.messages.contains(where: { ($0.seq ?? oldestRetained) < oldestRetained }) {
+                // An initially empty window may receive an isolated live row
+                // before recovery is replaced. The previous exhausted marker
+                // no longer proves there is no history before that row.
+                older = .idle
             }
         } else if !hasLoadedNewest {
             let pending = messages.filter { $0.seq == nil }
