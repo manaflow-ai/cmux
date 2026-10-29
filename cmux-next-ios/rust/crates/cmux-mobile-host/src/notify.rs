@@ -604,11 +604,13 @@ where
     S: futures_util::Sink<Message> + Unpin,
     S::Error: std::fmt::Display,
 {
-    for query in queries {
-        sink.send(Message::Text(query.to_string().into())).await.map_err(|e| e.to_string())?;
-    }
+    // Classification already marked these IDs as seen across reconnects. Hand
+    // them to the reporter before any fallible send of the next recovery lookup.
     for event in events {
         report(event);
+    }
+    for query in queries {
+        sink.send(Message::Text(query.to_string().into())).await.map_err(|e| e.to_string())?;
     }
     Ok(())
 }
