@@ -3818,6 +3818,25 @@ class ReviewEightTests(unittest.TestCase):
             fake.download({"archive_download_url": "u"})
         self.assertIn("DOWNLOAD", janitor.READS.hold())
 
+    def test_corrupt_newest_snapshot_holds_sweeps_without_publishing_empty_obligations(self):
+        stuck, other, jobs = lost_world(age=85, event="push", branch="feature")
+        fake = FakeGitHub({stuck["id"]: dict(stuck), other["id"]: dict(other)}, jobs)
+        fake.prs["feature"] = []
+        fake.branches["feature"] = "aaa"
+        fake.snapshots = [{janitor.LOST_RERUNS_KEY: [], janitor.dead_labels.OBLIGATIONS_KEY: []}, {}]
+        original = fake.download
+        fake.download = lambda artifact: (b"corrupt newest" if artifact["archive_download_url"].endswith("/1")
+                                          else original(artifact))
+        with tempfile.TemporaryDirectory() as temp, redirect_stderr(io.StringIO()):
+            for _ in range(2):
+                LostAssignmentSweepTests.sweep(self, fake, temp)
+                self.assertEqual(fake.posts(), [])
+                self.assertIn("re-run state", janitor.READS.hold())
+                published = fake.snapshots[-1]
+                for key in (janitor.LOST_RERUNS_KEY, janitor.dead_labels.OBLIGATIONS_KEY):
+                    self.assertNotIn(key, published)
+                    self.assertTrue(published[key + janitor.janitor_guard.UNREAD_SUFFIX])
+
     def test_a_corrupt_snapshot_leaves_the_store_unknown_not_empty(self):
         store = janitor.janitor_guard.read_store([{"i": 0}], lambda a: b"not a zip", "macos-pool-load.json")
         self.assertFalse(store.known)

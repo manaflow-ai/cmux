@@ -571,7 +571,9 @@ def recheck(github: Any, decision: Redispatch, pr_check: Callable[[Mapping[str, 
         if current != decision.pools:
             return "RUNNER_POOLS changed since the plan; the next sweep decides from its new routing"
         fresh = github.run(run_id)
-        jobs = github.jobs(run_id)
+        jobs = github.complete_jobs(github.jobs(run_id))
+        if jobs is None:
+            return "its job listing could be truncated; a running sibling may be hidden"
     except RuntimeError as error:
         if _rate_limited(error):
             raise

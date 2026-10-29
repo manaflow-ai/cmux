@@ -119,12 +119,15 @@ class OwedStore:
 
 def entries_in(documents: Iterable[Mapping[str, Any] | None], key: str) -> list[dict[str, Any]] | None:
     """KEY's list from the newest document that carries it. A document marked unread for KEY, or without it (a
-    sweep that ended before writing it), is passed over. None (unknown) when none carries it and one was marked
-    unread; [] when none carries it at all (before any sweep wrote it)."""
+    sweep that ended before writing it), is passed over. A corrupt document or malformed list stops the search
+    with None (unknown); an older copy cannot prove it contains every newer obligation. Otherwise None when no
+    copy carries it and one was marked unread; [] when none carries it at all (before any sweep wrote it)."""
     marked = False
     for document in documents:
         if not isinstance(document, Mapping):
-            continue
+            # A corrupt archive or document may contain newer obligations than every older copy. It is a
+            # barrier, unlike an explicit unread-list marker from a sweep that did not change that list.
+            return None
         if document.get(key + UNREAD_SUFFIX):
             marked = True
             continue
@@ -133,8 +136,8 @@ def entries_in(documents: Iterable[Mapping[str, Any] | None], key: str) -> list[
             # Every entry is kept: one that is not an object is wrapped so it still takes room, is still carried, and
             # is named under MALFORMED_KEY (OwedStore.malformed()).
             return [dict(entry) if isinstance(entry, Mapping) else {"malformed": entry} for entry in entries]
-        if key in document:  # present but not a list: unknown, never empty
-            marked = True
+        if key in document:  # present but not a list: unknown, never an older list
+            return None
     return None if marked else []
 
 
@@ -142,7 +145,7 @@ def read_store(artifacts: Sequence[Mapping[str, Any]], download: Callable[[Mappi
                snapshot_file: str, keys: Sequence[str] = (LOST_KEY, DEAD_KEY), cap: int = CAP) -> OwedStore:
     """The store from the trusted snapshot artifacts (newest first), downloading each at most once and only as far
     back as a key needs. A download that fails raises (the caller then treats the store as unknown); an unreadable
-    archive counts as unread for every key."""
+    archive is an uncertainty barrier for every key and cannot fall back to an older list."""
     cache: list[Mapping[str, Any] | None] = []
 
     def documents() -> Iterable[Mapping[str, Any] | None]:
@@ -153,10 +156,9 @@ def read_store(artifacts: Sequence[Mapping[str, Any]], download: Callable[[Mappi
                     document = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(snapshot_file))
                 except SNAPSHOT_UNREADABLE:
                     document = None
-                # A copy that cannot be read may have held any list: it counts as unread for every key, never as
-                # one without them, so with no older copy that has a list the store stays unknown.
-                cache.append(document if isinstance(document, Mapping)
-                             else {key + UNREAD_SUFFIX: True for key in keys})
+                # None is an opaque corruption barrier, not a deliberate per-list unread marker. Reading any
+                # older list could lose a newer obligation, so entries_in() stops here with unknown state.
+                cache.append(document if isinstance(document, Mapping) else None)
             yield cache[index]
 
     return OwedStore({key: entries_in(documents(), key) for key in keys}, cap)

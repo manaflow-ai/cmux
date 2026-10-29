@@ -3084,6 +3084,10 @@ class GitHub:
                 break
         return names
 
+    def complete_jobs(self, jobs: Sequence[Mapping[str, Any]]) -> Sequence[Mapping[str, Any]] | None:
+        """Use the same pagination-completeness guard as the superseded-delivery pass."""
+        return complete_jobs(jobs)
+
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
         jobs: list[dict[str, Any]] = []
         for page in range(1, MAX_JOB_PAGES + 1):
