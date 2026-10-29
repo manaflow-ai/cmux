@@ -148,9 +148,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                          "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                          "needs.prepare-nightly-variant-primary.result == 'success' && "
                          "(vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404') || "
-                         "!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
-                         "vars.LINUX_RUNNER != 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || "
-                         "'blacksmith-32vcpu-ubuntu-2404' }}")
+                         "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-32vcpu-ubuntu-2404' || "
+                         "'blacksmith-16vcpu-ubuntu-2404' }}")
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
                      "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
                      "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")
