@@ -225,11 +225,18 @@ import Testing
         _ = try #require(reader.read())
         updater.follow(ring: "nightly")
         let latest = try #require(reader.read())
+        // The first read's task runs only once this test suspends, so its fetches must be seen held
+        // at `firstGate` before the network holds the next read at `queuedGate` instead. Without
+        // this wait the first read's own fetches were held at `queuedGate`, which opens only after
+        // the first read ends: the test waited forever.
+        try #require(await firstGate.reached(2), "the first read never reached its fetches")
         let queuedGate = Gate()
         await network.hold(queuedGate)
         await network.set(try fixture.served(#"{"version":1,"default":{"DisabledFeatures":["pr-3"]}}"#))
         await firstGate.release()
         try #require(await Self.finishes(first), "the first read never ended")
+        // Its ring is nightly again, but two later reads were asked: its list must not apply.
+        #expect(switches.off.isEmpty)
         try #require(await queuedGate.reached(1), "the queued read never reached its fetch")
         await queuedGate.release()
         try #require(await Self.finishes(latest), "the queued read never ended")
