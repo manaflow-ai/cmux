@@ -123,7 +123,7 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
               const shell = node as HTMLElement;
               shell.style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
               if (shell.dataset.inspectorChatPlacement === "push")
-                shell.style.setProperty("--acpmux-inspector-top", `${pixels}px`);
+                shell.style.setProperty("--acpmux-inspector-top", pixels > 0 ? `${pixels}px` : "28px");
             }, height);
             await page.locator(".acpmux-artifact").waitFor();
             if (process.env.CMUX_SUMMARY_CAPTURE_DIR) {
@@ -160,8 +160,13 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
       }
     }
   }
-  for (const variant of ["preview-tab-row", "preview-pushed-inspector-tab-row", "inspector-pushed-tab-row"] as const) {
-    for (const height of [28, 40]) {
+  for (const variant of [
+    "preview-tab-row",
+    "preview-pushed-inspector-tab-row",
+    "inspector-pushed-tab-row",
+    "inspector-pushed-no-tab-row",
+  ] as const) {
+    for (const height of variant === "inspector-pushed-no-tab-row" ? [0] : [28, 40]) {
       for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
         test(`${variant} keeps tools at the shell edge at ${height}px (${theme})`, async () => {
           const page = await browser.newPage({
@@ -177,6 +182,10 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
               shell.style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
               if (shell.dataset.inspectorChatPlacement === "push")
                 shell.style.setProperty("--acpmux-inspector-top", `${pixels}px`);
+            }, height);
+            await page.evaluate((pixels) => {
+              const inspector = document.querySelector<HTMLElement>(".acpmux-chat-inspector[data-placement=push]");
+              inspector?.style.setProperty("--acpmux-inspector-top", pixels > 0 ? `${pixels}px` : "28px");
             }, height);
             if (
               process.env.CMUX_SUMMARY_CAPTURE_DIR &&
@@ -218,7 +227,20 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
               };
             });
             expect(actual.toolsWidth).toBeGreaterThan(0);
-            expect(actual.toolsRight).toBe(actual.shellRight);
+            if (variant === "inspector-pushed-no-tab-row") {
+              // Ordinary headers keep their existing 8px trailing inset; the regression is the
+              // Inspector narrowing the header, which would move this edge left by the panel width.
+              expect(actual.toolsRight).toBe(actual.shellRight - 8);
+              await page.locator(".acpmux-header-tools button").evaluate((button) => {
+                button.addEventListener("click", () => button.setAttribute("data-test-clicked", "true"), {
+                  once: true,
+                });
+              });
+              await page.locator(".acpmux-header-tools button").click();
+              expect(await page.locator(".acpmux-header-tools button").getAttribute("data-test-clicked")).toBe("true");
+            } else {
+              expect(actual.toolsRight).toBe(actual.shellRight);
+            }
             expect(actual.panels.every((panel) => panel.top >= height && !panel.intersectsTools)).toBe(true);
           } finally {
             await page.close();

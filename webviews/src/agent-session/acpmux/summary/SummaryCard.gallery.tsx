@@ -50,7 +50,7 @@ function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: 
           "--acpmux-tab-row-height": `${tabRowHeight ?? 0}px`,
           ...(inspectorPush
             ? {
-                "--acpmux-inspector-top": `${tabRowHeight ?? 0}px`,
+                "--acpmux-inspector-top": tabRowHeight ? `${tabRowHeight}px` : "28px",
                 // ChatInspector.tsx writes this as a measured shell px value. The fixture is 1000px
                 // wide, with Preview's 46vw artifact resolving to 460px at that width.
                 "--acpmux-header-room": preview ? "540px" : "1000px",
@@ -60,9 +60,9 @@ function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: 
       }
     >
       <div className="acpmux-main" data-summary="inline">
-        {tabRowHeight && (
+        {tabRowHeight !== undefined && (
           <div className="acpmux-stage">
-            <header className="acpmux-header" data-tab-row="">
+            <header className="acpmux-header" data-tab-row={tabRowHeight ? "" : undefined}>
               <div />
               <div className="acpmux-header-tools">
                 <SummaryButton card={card} />
@@ -77,7 +77,12 @@ function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: 
           data-placement="push"
           data-presence="shown"
           aria-label="Session Info"
-          style={{ width: "220px" }}
+          style={
+            {
+              width: "220px",
+              "--acpmux-inspector-top": tabRowHeight ? `${tabRowHeight}px` : "28px",
+            } as CSSProperties
+          }
         >
           <div className="acpmux-chat-inspector__head">Session Info</div>
           <div className="acpmux-chat-inspector__body">
@@ -202,6 +207,10 @@ export default componentEntry<Props>({
     "inspector-pushed-tab-row": {
       note: "A pushed Session Info card keeps the native tools at the pane edge.",
       props: { tabRowHeight: 32, inspectorPush: true, rows: [] },
+    },
+    "inspector-pushed-no-tab-row": {
+      note: "A pushed Session Info card keeps ordinary header tools in place when no native row is active.",
+      props: { tabRowHeight: 0, inspectorPush: true, rows: [] },
     },
     "shared-tab-row": {
       note: "The inline Summary column beside the chat, under a 32px native tab row. Two commands and a failed subagent keep long counts visible with a right ellipsis, outside the native header holes.",

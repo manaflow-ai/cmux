@@ -61,7 +61,7 @@
 .acpmux-shell[data-inspector-chat-placement="push"] {
   --acpmux-inspector-push: calc(var(--acpmux-header-room, 100%) - 100%);
 }
-.acpmux-shell[data-tab-row] .acpmux-header[data-tab-row] {
+.acpmux-shell .acpmux-header {
   width: calc(
     100% + var(--acpmux-summary-push, 0px) + var(--acpmux-inspector-push, 0px) +
       var(--acpmux-artifact-push, 0px)
