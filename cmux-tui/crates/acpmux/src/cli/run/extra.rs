@@ -450,6 +450,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 let mut cfg = Config::load()?;
                 cfg.set_session_resource(key, value)?;
                 cfg.save()?;
+                // Refresh the local daemon's cached config before reporting success;
+                // a later defaults/token save must retain these resource settings.
+                // Config is local even when the CLI targets a remote peer.
+                if let Ok(client) =
+                    crate::client::Client::connect(&crate::config::socket_path()).await
+                {
+                    client.request(method::MUX_RELOAD_CONFIG, json!({})).await?;
+                }
                 if json_out {
                     print_json(&json!({"path": path, "key": key, "value": value}));
                 } else {
