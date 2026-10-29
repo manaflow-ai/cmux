@@ -19,21 +19,31 @@ import os
 @MainActor
 public final class InvariantRegistry {
     /// The actions a trigger names.
-    public static let actionsKept = 8
+    public nonisolated static let actionsKept = 8
     /// The run time a rule may take at p95, in microseconds; above it the rule is its own violation,
     /// `INV-COST@<id>` (section 4). The fix is a smaller scope, never a throttle.
-    public static let costLimitMicros = 250.0
-    /// The runs of a rule before its cost is judged.
-    static let costMinimumRuns: UInt64 = 20
+    public nonisolated static let costLimitMicros = 250.0
+    /// The run time a whole pass may take at p95, in microseconds (the `perf-hot` budget of ``runTurn()``, memo
+    /// builds included); above it the pass is its own violation, `INV-COST@pass`.
+    public nonisolated static let passLimitMicros = 1_000.0
+    /// The runs of a rule (or passes) before its cost is judged.
+    nonisolated static let costMinimumRuns: UInt64 = 20
+
+    /// One violation new in this pass, with the rule's read state as the read gave it: the app journals it, and
+    /// encodes the state with the report off the main thread.
+    public struct NewViolation: Sendable {
+        public let violation: InvariantViolation
+        /// The rule's read state as sorted-key JSON; nil for an inline report. Call it off the main thread.
+        public let state: @Sendable () -> Data?
+    }
 
     public let mode: InvariantMode
     /// `app` or `daemon`: part of every signature.
     public let host: String
     public let ledger = InvariantLedger()
-    /// Called once per new violation, after it is in the ledger, with the rule's whole read state (the ledger keeps
-    /// at most ``InvariantViolation/stateLimit`` bytes of it): the app journals it and writes its report after the
-    /// frame.
-    public var onReport: ((InvariantViolation, Data?) -> Void)?
+    /// Called once per pass that found new violations (and once per inline report), after they are in the ledger:
+    /// the app journals them and writes one report for the batch after the frame, off the violating turn.
+    public var onReports: (([NewViolation]) -> Void)?
     public private(set) var rules: [InvariantRule] = []
     /// Passes run by turns (idle turns are not passes).
     public internal(set) var turnsChecked: UInt64 = 0
@@ -45,17 +55,21 @@ public final class InvariantRegistry {
     /// What this turn touched, by key.
     var touched: [InvariantKey: Set<InvariantSubject>] = [:]
     /// The actions of this turn.
-    var turnActions: [InvariantActionCause] = []
+    var turnActions = InvariantActionRing(capacity: InvariantRegistry.actionsKept)
     /// The last actions in any turn (a check's or an inline report's trigger names them).
-    var recentActions: [InvariantActionCause] = []
+    var recentActions = InvariantActionRing(capacity: InvariantRegistry.actionsKept)
     var actionCount: UInt64 = 0
     /// The liveness deadline fired: the next turn checks the liveness rules.
     var livenessDue = false
     var livenessDeadline: ContinuousClock.Instant?
     /// Rules reported as `INV-COST` and not yet back under the limit.
     var costReported: Set<Int> = []
+    /// The pass was reported as `INV-COST@pass` and is not yet back under its limit.
+    var passCostReported = false
+    /// The violations of the running pass, handed to ``onReports`` together at its end.
+    var unflushed: [NewViolation] = []
     var turn: UInt64 = 0
-    var passTiming = InvariantTiming()
+    var passTiming = InvariantTiming(limitMicros: InvariantRegistry.passLimitMicros)
     let now: @MainActor () -> ContinuousClock.Instant
     let schedule: @MainActor (Duration, @escaping @MainActor () -> Void) -> Void
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.invariants")
@@ -107,24 +121,24 @@ public final class InvariantRegistry {
     }
 
     /// An action is about to run (`ActionRegistry.willRunObservers`): the `.afterAction` rules run on this turn's
-    /// commit, and a violation names it. Builds no string: `id` and `origin` are the action's own raw values.
+    /// commit, and a violation names it. Builds no string and allocates nothing: `id` and `origin` are the action's
+    /// own raw values, written into fixed rings.
     public func noteAction(_ id: String, origin: String) {
         actionCount += 1
         let cause = InvariantActionCause(id: id, origin: origin, index: actionCount)
         recentActions.append(cause)
-        if recentActions.count > Self.actionsKept { recentActions = Array(recentActions.suffix(Self.actionsKept)) }
         guard mode.isArmed else { return }
         turnActions.append(cause)
-        if turnActions.count > Self.actionsKept { turnActions = Array(turnActions.suffix(Self.actionsKept)) }
     }
 
     /// A call-site checker found `id` broken (``InvariantProbe/fail(_:_:_:fileID:line:)``): reported at once, every
-    /// time, with trigger kind `inline`.
+    /// time, with trigger kind `inline`. Armed or not: a call-site check costs nothing until it fails, and an unarmed
+    /// bench build still lists what its own checks caught.
     public func fail(_ id: InvariantID, _ subject: InvariantSubject, _ detail: String,
                      fileID: StaticString = #fileID, line: UInt = #line) {
-        guard mode.isArmed else { return }
         report(id: id, subject: subject, detail: detail, state: nil,
-               trigger: InvariantTrigger(kind: .inline, actions: recentActions, turn: turn, fileID: "\(fileID)", line: line))
+               trigger: InvariantTrigger(kind: .inline, actions: recentActions.ordered, turn: turn, fileID: "\(fileID)", line: line))
+        flushReports()
     }
 
     /// One rule's counts and run times, nil for an id nobody declared.
@@ -138,22 +152,29 @@ public final class InvariantRegistry {
     /// Forgets which signatures were reported (`debug.invariants {clear: true}`), so a broken rule is reported again
     /// at its next run. The ledger's sequence numbers go on.
     public func clearReported() {
-        for index in records.indices {
-            records[index].reported = []
-            records[index].suspected = []
-        }
+        for index in records.indices { records[index].reported = [] }
         costReported = []
+        passCostReported = false
     }
 
-    /// Puts one violation in the ledger, logs it and hands it to ``onReport``.
-    func report(id: InvariantID, subject: InvariantSubject, detail: String, state: Data?, trigger: InvariantTrigger) {
-        let kept = state.flatMap { $0.count <= InvariantViolation.stateLimit ? $0 : nil }
+    /// Puts one violation in the ledger and logs it; ``flushReports()`` hands it to ``onReports`` with the rest of
+    /// its pass.
+    func report(id: InvariantID, subject: InvariantSubject, detail: String, state: (@Sendable () -> Data?)?,
+                trigger: InvariantTrigger) {
         let host = host
         let violation = ledger.append { seq in
-            InvariantViolation(seq: seq, id: id, host: host, subject: subject, detail: detail, trigger: trigger, state: kept)
+            InvariantViolation(seq: seq, id: id, host: host, subject: subject, detail: detail, trigger: trigger, state: nil)
         }
         logger.fault("invariant \(id.rawValue, privacy: .public) \(subject.description, privacy: .public): \(detail, privacy: .public)")
-        onReport?(violation, state)
+        unflushed.append(NewViolation(violation: violation, state: state ?? { nil }))
+    }
+
+    /// Hands the pass's new violations to ``onReports`` as one batch.
+    func flushReports() {
+        guard !unflushed.isEmpty else { return }
+        let batch = unflushed
+        unflushed = []
+        onReports?(batch)
     }
 }
 #endif

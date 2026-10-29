@@ -14,7 +14,7 @@ import CmuxNextSettings
 /// winning drop target and the outcome a release would commit.
 enum DebugTabDrag {
     /// What DP1 reads of one tab strip in a window: the tabs it shows and the tabs its pane holds.
-    nonisolated struct Strip: Equatable, Encodable {
+    nonisolated struct Strip: Equatable, Encodable, Sendable {
         var window: String
         var pane: String
         var shown: [String]

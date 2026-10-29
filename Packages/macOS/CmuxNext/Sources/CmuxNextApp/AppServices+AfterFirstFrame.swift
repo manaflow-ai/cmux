@@ -22,7 +22,7 @@ extension AppServices {
     /// to S10). `init` keeps their wiring: the updater's and the tips' closures, the Restart cmux-tui… binding,
     /// the no-activate keyboard guard and the notifications' `services`.
     func serviceStartPosts() -> LaunchServicePosts {
-        LaunchServicePosts.serviceStarts(windowOcclusion: { [weak self] in self?.surfaceInvariant.observeWindowOcclusion() },
+        LaunchServicePosts.serviceStarts(windowOcclusion: { [weak self] in self?.input.observeWindowOcclusion() },
                                          inputVerification: { [weak self] in if let self { input.start(services: self) } },
                                          notifications: { [weak self] in self?.notifications.start() },
                                          updaterWork: { [weak self] in if let self { updater.startAttachedWork(appEvents: appEvents) } },

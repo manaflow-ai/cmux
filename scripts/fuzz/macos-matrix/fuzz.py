@@ -22,7 +22,11 @@ plan offline.
 
 After every step it pings the app (a hang is a ping over --hang-ms) and checks
 for new crash reports. On a hang it samples the main thread; on a crash it
-copies the .ips, takes a VNC screenshot and relaunches the app.
+copies the .ips, takes a VNC screenshot and relaunches the app. On a build that
+checks its invariants (a Debug or armed bench build: plans/cmux-next/invariants-DESIGN.md)
+it also reads the app's invariant ledger after every step (scripts/journeys/invariants.py,
+a full check): each new violation is an `invariant` finding, and the run exits 1. A build
+that does not check (Release) is recorded as `invariants: not run`, never as clean.
 
 With --diag NAME (diag.py: gmalloc, scribble, probguard, mtc, coop-strict, asan, tsan, ubsan) the
 app runs under that check; summary.json's "diag" records the launch environment, the Chromium
@@ -48,7 +52,10 @@ import time
 from typing import Callable, Iterator
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The journeys' invariant cursor: the same contract as every journey step (scripts/journeys/invariants.py).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "journeys"))
 import diag  # noqa: E402
+import invariants  # noqa: E402
 from rfb import RFB  # noqa: E402
 
 # Shortcuts the user named, sent as real keys whatever the action table says.
@@ -145,6 +152,14 @@ class Guest:
             return None if v < 0 else v
         except (ValueError, IndexError):
             return None
+
+    def rpc(self, method: str, params: dict) -> dict:
+        """One debug control method over the guest's CLI (`cmux app call METHOD JSON`, Debug builds only: the CLI
+        refuses any other bundle); raises on no answer."""
+        r = self.cmux(["app", "call", method, json.dumps(params)], timeout=60)
+        if r.returncode != 0:
+            raise RuntimeError(f"{method}: exit {r.returncode}: {(r.stderr or r.stdout).strip()[-300:]}")
+        return json.loads(r.stdout)
 
     def pid(self) -> int | None:
         # The app process itself (argv[0] is the binary), not a shell whose command line names it.
@@ -588,6 +603,18 @@ def run_step(step: dict, g: Guest, vnc: RFB) -> tuple[str, str | None]:
     return "ok", None
 
 
+class InvariantBroken(Exception):
+    """A step after which the app's invariant ledger had a new violation (invariants.assert_clean)."""
+
+
+def invariant_cursor(g: Guest) -> tuple[invariants.Cursor | None, str | None]:
+    """The app's invariant cursor from its launch, or None and why the run is not checked (a Release build)."""
+    try:
+        return invariants.Cursor(g.rpc, g.pid, from_start=True), None
+    except invariants.NotArmed as e:
+        return None, str(e)
+
+
 def workspace_count(g: Guest) -> int:
     try:
         return len(json.loads(g.cmux(["workspace", "list"]).stdout))
@@ -918,6 +945,9 @@ def main() -> int:
     coverage_started: float | None = None
     run_id = os.getpid()  # in live-sample names: a reused guest never matches an older file
     last_pid = g.pid()
+    cursor, unchecked = invariant_cursor(g)
+    summary["invariants"] = "checked" if cursor else f"not run: {unchecked}"
+    summary["invariant_violations"] = 0
     for i, step in enumerate(steps):
         now = time.time()
         if coverage_started is not None:
@@ -965,6 +995,14 @@ def main() -> int:
         pid = g.pid()
         dead_pid = last_pid if pid is None else None
         last_pid = pid if pid is not None else last_pid
+        if cursor and pid is not None and ms is not None and ms <= o.hang_ms:
+            # Every rule on every subject after the step; a relaunched app's new ledger starts at 0 (Cursor.new).
+            try:
+                invariants.assert_clean(cursor, f"step {i} ({step.get('kind')} {step.get('id', '')})".strip(), InvariantBroken,
+                                        check=True)
+            except InvariantBroken as e:
+                summary["invariant_violations"] += 1
+                finding("invariant", i, step, {"invariants": str(e)[-4000:]})
         if ms is not None and ms > o.hang_ms and pid:
             summary["hangs"] += 1
             # The live sample appears only complete (renamed after 5 s and symbolication): wait for it, bounded.
@@ -1064,7 +1102,8 @@ def main() -> int:
         summary.update(diag_summary(g, d, env, runtime_left, snapshots, diag_reports, o.zones_tool))
     json.dump(summary, open(os.path.join(o.out, "summary.json"), "w"), indent=2)
     print(json.dumps(summary))
-    return 0
+    # The fuzz fails on any invariant violation (plans/cmux-next/invariants-DESIGN.md section 5.3).
+    return 1 if summary["invariant_violations"] else 0
 
 
 if __name__ == "__main__":

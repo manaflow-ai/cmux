@@ -387,10 +387,12 @@ def dig(value, path):
 # ---- one journey ---------------------------------------------------------------------------
 
 class Journey:
-    def __init__(self, spec, app, out, deadline, frame_interval, check_invariants=True):
+    def __init__(self, spec, app, out, deadline, frame_interval, invariant_mode="fail"):
         self.spec, self.app, self.deadline = spec, app, deadline
-        # The app's invariant ledger cursor (invariants.py), set when the journey starts; None: played unchecked.
-        self.check_invariants, self.invariants = check_invariants, None
+        # The app's invariant ledger (invariants.py): "fail" fails a step on a new violation, "shadow" records it in
+        # the result's `invariants` and goes on (the sweep before the hard fail), "skip" plays unchecked. The cursor is
+        # the app process's (one per App, carried across journeys), set when the journey starts; None: unchecked.
+        self.invariant_mode, self.invariants, self.invariant_findings = invariant_mode, None, []
         self.id = spec["id"]
         self.out = Path(out) / self.id
         if self.out.exists():
@@ -1065,6 +1067,8 @@ class Journey:
         with its launch variables (the slot's HOME, socket and settings file). Then every named terminal is
         found again in the restored topology; the journey's checks say what came back."""
         how = step.get("how", "quit")
+        # The old process's ledger ends with it: read it, the last step's turns included, before the quit.
+        self.read_invariants("before the relaunch", check=True)
         app, old = self.app, self.app.pid
         env = app.launch_env()
         record = {"how": how, "old_pid": old}
@@ -1467,11 +1471,13 @@ class Journey:
         try:
             # The app checks every invariant after each action and turn; each step reads the ledger since the last
             # (invariants.py). An app that does not check cannot pass a journey: it is "not run".
-            if self.check_invariants:
+            if self.invariant_mode != "skip":
                 try:
-                    self.invariants = invariants.Cursor(self.app.rpc, lambda: self.app.pid, from_start=not PLAYED)
+                    self.invariants = self.app_cursor()
                 except invariants.NotArmed as error:
-                    raise NotRun(f"{error} (driver.py --skip-invariants plays it unchecked)") from error
+                    if self.invariant_mode == "fail":
+                        raise NotRun(f"{error} (driver.py --invariants skip plays it unchecked)") from error
+                    self.invariant_findings.append({"step": "start", "problem": str(error)})
             for index, step in enumerate(self.spec["steps"]):
                 if now() > self.deadline:
                     raise Deadline(f"the lease deadline came before step {index + 1} ({step['do']})")
@@ -1485,8 +1491,9 @@ class Journey:
                 t = now()
                 try:
                     record["result"] = handler(step)
-                    if self.invariants is not None:
-                        invariants.assert_clean(self.invariants, f"step {index + 1} ({step['do']})", StepError)
+                    # Every rule on every subject after the step (its waits already ran): the turn rules' ledger since
+                    # the last read, and the rules that run only where a harness waited (W4, G1).
+                    self.read_invariants(f"step {index + 1} ({step['do']})", check=True)
                     record["ok"] = True
                     if step.get("as"):
                         # Names the current terminal for later `use` steps and conditions.
@@ -1522,12 +1529,16 @@ class Journey:
                     os.unlink(path)
                 except OSError:
                     pass
-        if status == "pass" and self.invariants is not None:
-            # Every rule once more on every subject, the harness-only ones too, before the judge.
+        if self.invariants is not None:
+            # Every rule once more on every subject, the harness-only ones too, before the judge. A journey that
+            # already failed reads them too, so the next journey on this app does not inherit them.
             try:
-                invariants.assert_clean(self.invariants, "the last step (full check)", StepError, check=True, ipc=True)
+                self.read_invariants("the last step (full check)", check=True, ipc=True)
             except StepError as error:
-                status, reason = "fail", str(error)[-1200:]
+                if status == "pass":
+                    status, reason = "fail", str(error)[-1200:]
+                else:
+                    reason = (reason + " | " + str(error))[-1800:]
         if status == "pass":
             kinds = {e["kind"] for e in self.evidence if e["pass"]}
             missing = [k for k in REQUIRED_KINDS if k not in kinds]
@@ -1539,9 +1550,31 @@ class Journey:
         result = {"id": self.id, "priority": self.spec.get("priority"), "title": self.spec.get("title"),
                   "status": status, "reason": reason, "started_at": wall, "seconds": round(now() - started, 2),
                   "nonce": self.nonce, "terminal": self.term, "pane": self.pane, "host_pid": self.host_pid,
-                  "frames": frames.count, "clip_frames": clip, "steps": self.steps, "evidence": self.evidence}
+                  "frames": frames.count, "clip_frames": clip, "steps": self.steps, "evidence": self.evidence,
+                  "invariant_mode": self.invariant_mode, "invariants": self.invariant_findings}
         (self.out / "result.json").write_text(json.dumps(result, indent=1, default=str) + "\n")
         return result
+
+    def app_cursor(self):
+        """The app process's invariant cursor, made by its first journey (which owns the violations of the launch when
+        no journey played before it) and carried across journeys, so a violation between two journeys is read."""
+        cursor = getattr(self.app, "invariant_cursor", None)
+        if cursor is None:
+            cursor = invariants.Cursor(self.app.rpc, lambda: self.app.pid, from_start=not PLAYED)
+            self.app.invariant_cursor = cursor
+        return cursor
+
+    def read_invariants(self, step, check=False, ipc=False):
+        """Reads the ledger since the last read: in "fail" mode a new violation raises StepError; in "shadow" mode it
+        is recorded in the result's `invariants` and the journey goes on."""
+        if self.invariants is None:
+            return
+        try:
+            invariants.assert_clean(self.invariants, step, StepError, check=check, ipc=ipc)
+        except StepError as error:
+            if self.invariant_mode == "fail":
+                raise
+            self.invariant_findings.append({"step": step, "problem": str(error)[-1800:]})
 
     def clip_frames(self):
         """The frames scaled to CLIP_WIDTH (sips, stock macOS) in clip/: what run.py fetches for the clip."""
@@ -1590,8 +1623,10 @@ def main(argv=None):
     ap.add_argument("--ocr", required=True, help="the compiled scripts/ci/pr_media_ocr.swift")
     ap.add_argument("--deadline-seconds", type=float, default=480)
     ap.add_argument("--frame-interval", type=float, default=FRAME_INTERVAL)
-    ap.add_argument("--skip-invariants", action="store_true",
-                    help="play without reading the app's invariant ledger (a build that has no debug.invariants)")
+    ap.add_argument("--invariants", choices=("fail", "shadow", "skip"), default="shadow",
+                    help="the app's invariant ledger after every step: fail the step on a new violation, record it "
+                         "in the result and go on (shadow: until the P0 sweep's findings are fixed or named), or skip "
+                         "(a build that has no debug.invariants)")
     a = ap.parse_args(argv)
     deadline = now() + a.deadline_seconds
     out = Path(a.out)
@@ -1616,7 +1651,7 @@ def main(argv=None):
         if now() > deadline:
             results.append({"id": spec["id"], "status": "not run", "reason": "the lease deadline came first"})
             continue
-        result = Journey(spec, app, out, deadline, a.frame_interval, check_invariants=not a.skip_invariants).run()
+        result = Journey(spec, app, out, deadline, a.frame_interval, invariant_mode=a.invariants).run()
         PLAYED.append(result["id"])
         results.append(result)
         print(f"journey {result['id']}: {result['status']} {result['reason']}", flush=True)

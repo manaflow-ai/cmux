@@ -18,13 +18,13 @@ enum ChildPageGeometry {
     static func hasPageWindows(_ backend: BrowserBackend) -> Bool { backend == .inProcess }
 
     /// One pane showing a Chromium page, and where its page must be.
-    nonisolated struct Host: Equatable, Encodable {
+    nonisolated struct Host: Equatable, Encodable, Sendable {
         var pane: String
         var screenRect: CGRect
     }
 
     /// What G1 reads of one window: its Chromium hosts and its page windows.
-    nonisolated struct WindowSample: Equatable, Encodable {
+    nonisolated struct WindowSample: Equatable, Encodable, Sendable {
         var window: String
         var hosts: [Host]
         var pages: [CGRect]
@@ -91,22 +91,26 @@ enum ChildPageGeometry {
 #if DEBUG || CMUX_BENCH_HOOKS
 extension ChildPageGeometry {
     /// Declares G1 (input-spec.md 2.6) in `registry`: every Chromium page window covers its pane in screen
-    /// coordinates. A window in a live resize does not apply (the fork follows each step). The fork places page
-    /// windows after a reply, and no in-flight ledger names that wait yet, so a mismatch is reported only when the
-    /// next check point finds it again (`interim`).
+    /// coordinates. The fork places page windows after a reply, and no in-flight ledger names that wait yet, so G1 is
+    /// a harness rule for now (`interim`): `debug.invariants {check: true}` runs it after each journey step, once the
+    /// step waited for its condition, never inside a turn. A window in a live resize is not checked (the fork follows
+    /// each step): its signature stays as it was until a check sees the window at rest. A window with no Chromium
+    /// host and no page window is checked and clean, so a G1 from before its pages closed clears.
     static func declareInvariants(in registry: InvariantRegistry, services: AppServices) {
         registry.declare(InvariantRule(
             id: "G1", statement: InputInvariant.chromiumGeometry.summary, owner: "Windows",
-            reads: [.paneFrame, .presentation], points: [.afterAction, .afterTurn], cost: .walk, parity: false,
-            interim: "confirms at the next check point until the Chromium geometry in-flight ledger exists",
-            confirmsAtNextCheck: true,
-            read: { [weak services] (_: InvariantPass) -> [WindowSample]? in
-                let samples = (services?.windows.controllers ?? []).compactMap { controller -> WindowSample? in
-                    guard controller.window?.inLiveResize != true else { return nil }
+            reads: [.paneFrame, .presentation], points: .harness, cost: .walk, parity: false,
+            interim: "harness only (after each journey step) until the Chromium geometry in-flight ledger exists",
+            read: { [weak services] (pass: InvariantPass) -> [WindowSample]? in
+                guard let services else { return nil }
+                return services.windows.controllers.compactMap { controller -> WindowSample? in
+                    guard controller.window?.inLiveResize != true else {
+                        pass.skip(.window(controller.state.id))
+                        return nil
+                    }
                     let (hosts, pages) = sample(controller)
-                    return hosts.isEmpty && pages.isEmpty ? nil : WindowSample(window: controller.state.id, hosts: hosts, pages: pages)
+                    return WindowSample(window: controller.state.id, hosts: hosts, pages: pages)
                 }
-                return samples.isEmpty ? nil : samples
             },
             check: { samples in
                 samples.flatMap { window in

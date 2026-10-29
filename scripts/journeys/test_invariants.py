@@ -11,7 +11,9 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+HERE = Path(__file__).resolve().parent
+sys.path[:0] = [str(HERE), str(HERE.parent / "cmux-next")]
+import driver as D  # noqa: E402
 import invariants  # noqa: E402
 
 
@@ -101,6 +103,54 @@ class CursorTests(unittest.TestCase):
         cursor = self.cursor(app)
         invariants.assert_clean(cursor, "the last step", Failed, check=True, ipc=True)
         self.assertEqual(app.calls[-1], ("debug.invariants", {"since": 0, "check": True, "ipc": True}))
+
+
+class DriverTests(unittest.TestCase):
+    """The driver's use of the cursor: one per app process, the mode, and a relaunch's read of the old ledger."""
+
+    def journey(self, app, mode="fail"):
+        journey = object.__new__(D.Journey)
+        journey.app, journey.invariant_mode, journey.invariant_findings = app, mode, []
+        journey.invariants = journey.app_cursor()
+        return journey
+
+    def test_the_cursor_belongs_to_the_app_process_so_a_violation_between_two_journeys_is_read(self):
+        app = FakeApp()
+        first = self.journey(app)
+        first.read_invariants("the last step (full check)")
+        app.add("LO11", "window w2 has 0 workspaces")  # after journey 1's last read, before journey 2's first
+        second = self.journey(app)
+        self.assertIs(second.invariants, first.invariants)
+        with self.assertRaises(D.StepError) as caught:
+            second.read_invariants("step 1 (key)")
+        self.assertIn("LO11", str(caught.exception))
+
+    def test_shadow_mode_records_each_violation_and_goes_on(self):
+        app = FakeApp()
+        journey = self.journey(app, mode="shadow")
+        app.add("W2", "layout pane_b != model pane_a")
+        journey.read_invariants("step 3 (key)")
+        journey.read_invariants("step 4 (key)")
+        self.assertEqual(len(journey.invariant_findings), 1)
+        self.assertIn("W2", journey.invariant_findings[0]["problem"])
+        self.assertEqual(journey.invariant_findings[0]["step"], "step 3 (key)")
+
+    def test_a_relaunch_reads_the_old_ledger_before_it_quits(self):
+        app = FakeApp()
+        journey = self.journey(app)
+        app.add("VS2", "pane p1 selects t1, shows -")
+
+        class Quit(Exception):
+            pass
+
+        def launch_env():
+            raise Quit()
+
+        app.launch_env = launch_env
+        with self.assertRaises(D.StepError) as caught:
+            journey.step_relaunch({"how": "quit"})
+        self.assertIn("before the relaunch", str(caught.exception))
+        self.assertEqual(app.calls[-1][1].get("check"), True)
 
 
 if __name__ == "__main__":

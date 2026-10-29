@@ -249,7 +249,7 @@ def launch_facts(text):
     return facts
 
 
-def run_lease(specs, build, out, frame_interval, skip_invariants=False):
+def run_lease(specs, build, out, frame_interval, invariant_mode="shadow"):
     """Plays `specs` in one slot; {id: result} (driver results, or not run with the reason)."""
     ch = capture_host()
     ids = [s["id"] for s in specs]
@@ -293,7 +293,7 @@ def run_lease(specs, build, out, frame_interval, skip_invariants=False):
                              f"--app {q(facts.get('app', app))} --home {q(root + '/home')} "
                              f"--journeys {q(work + '/kit/journeys.json')} --out {q(work + '/out')} --ocr {ocr} "
                              f"--deadline-seconds {budget} --frame-interval {frame_interval}"
-                             + (" --skip-invariants" if skip_invariants else ""),
+                             + f" --invariants {q(invariant_mode)}",
                        timeout=budget + 90, check=False)
         for line in drove.stdout.decode(errors="replace").splitlines():
             log(f"[{host}] {line}")
@@ -435,9 +435,11 @@ def main(argv=None):
     ap.add_argument("--hosts", help="capture hosts to lease from, spaces between (sets CAPTURE_HOST_SLOT_HOSTS)")
     ap.add_argument("--frame-interval", type=float, default=1.0, help="seconds between clip frames (>= 0.25)")
     ap.add_argument("--build-wait-minutes", type=float, default=90, help="how long to wait for a running build")
-    ap.add_argument("--skip-invariants", action="store_true",
-                    help="play without the app's invariant ledger (a build from before debug.invariants); without it, "
-                         "every step fails on a new violation and an app that does not check is 'not run'")
+    ap.add_argument("--invariants", choices=("fail", "shadow", "skip"), default="shadow",
+                    help="the app's invariant ledger after every step: 'fail' fails the step on a new violation and an "
+                         "app that does not check is 'not run'; 'shadow' (the default until the P0 sweep's findings are "
+                         "fixed or named) records each violation in the result; 'skip' plays a build from before "
+                         "debug.invariants")
     ap.add_argument("--list", action="store_true", help="print the journeys and exit")
     ap.add_argument("--check", action="store_true", help="validate the journey files and exit")
     opts = ap.parse_args(argv)
@@ -478,7 +480,7 @@ def main(argv=None):
         results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
     else:
         for group in batches(chosen):
-            results.update(run_lease(group, build, out, opts.frame_interval, opts.skip_invariants))
+            results.update(run_lease(group, build, out, opts.frame_interval, opts.invariants))
 
     lines = []
     for spec in chosen:

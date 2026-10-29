@@ -1,6 +1,6 @@
 # One invariant framework (CmuxNextInvariants)
 
-Status: design, with migration steps 1 to 3 implemented on `cp/invariant-framework` (section 11). Basis:
+Status: design, with migration steps 1 to 5 implemented in part on `cp/invariant-framework` (section 11). Basis:
 origin/perf/chrome-parity 8a1900b22f0. The design builds on the focus checker (ab42359a79ce, 7c951d417af8,
 train 328). All cost numbers are targets and nobody has measured them.
 
@@ -549,8 +549,9 @@ extension PaneHosts {
 
 ## 11. Implementation on `cp/invariant-framework`
 
-This branch implements steps 1, 2 (without the shadow sweep) and 3, the M1 part of step 4, and the `driver.py` and
-`run.py` part of step 5. Where the code differs from sections 2 to 7, this list says why.
+This branch implements steps 1 to 3, step 4 except the BlockingDetector sink (VS2, LO11 and M1 are declared;
+`SurfaceInvariantMonitor` and its 500 ms settle are deleted), and step 5 for journeys and the macOS fuzz
+(`invariants.py`, `driver.py`, `run.py`, `fuzz.py`). Where the code differs from sections 2 to 7, this list says why.
 
 - **Turn observer in the package.** `InvariantTurnObserver` is in `CmuxNextInvariants`, not the App: the
   `app-size` guardrail refuses a new App file that is not a move, and the observer needs only
@@ -560,15 +561,45 @@ This branch implements steps 1, 2 (without the shadow sweep) and 3, the M1 part 
   `ChildPageGeometry.declareInvariants(in:services:)`; DP1 by `DebugTabDrag.declareInvariants(in:services:)`;
   H1 by `HoverCardCoordinator.declareInvariants(in:)` (CmuxNextDesign, the owner, over the pure
   `HoverCardFacts.violations`).
+- **The registry is built in `AppServices.init`** (`InputVerificationService.makeInvariants`, the composition
+  root), with every rule declared, so `debug.invariants` answers `armed` from the first request. The
+  `InputVerification.start` post only wires the signals and the turn observer.
+- **Coverage, not intersection.** A signature clears only when a run looked at its subject: a `read` that asks
+  `pass.dirty(key)` covers only those subjects, `pass.checked(_:)` names the ones it read, `pass.skip(_:)` leaves
+  one out (a window in a live resize), and a read that asks nothing covers every subject. A liveness wait keeps its
+  start until a run looks at its subject. A liveness limit runs a full pass.
+- **No confirm at the next check point.** W4 and G1 compare the model with Chromium, whose replies are async, and
+  no in-flight ledger names that wait yet: they are `.harness` rules (`interim`), run by `debug.invariants {check:
+  true}` after each journey and fuzz step, where the step already waited, and never in a turn.
+- **Deferred states are level state.** A pane whose content is owed (`TabContentCache.pendingBrowsers`: a Ctrl-`
+  stand-in's page after its first frame commits, or a page waiting for its engine; or a Chromium browser not
+  created yet, `CEFPaneHost.createAfterCommit`) is `InputObservation.Window.owed`: its window is unsettled, so
+  W1-W4 and W8 do not read it and W9 bounds the wait. The P0 shadow sweep lists any deferral this misses.
+- **One world check per pass.** All input rules read `pass.memo("input.world")` and take their own id's share.
+  `InputInvariants.violations(of:in:)` and its switch are deleted; an id the world check reports that no rule
+  declares is `INV-UNDECLARED`, never dropped. The observation rebuilds only the windows a turn touched, the key
+  window and the active one; the producers touch the real subject (the key window, the moved window, the panes
+  that present a changed tab).
+- **Reports off the violating turn.** A pass hands its new violations over as one batch; the rule state stays
+  typed. One `.background` main task after the frame reads the facets once for every waiting violation, and the
+  files lane encodes the states and the report and writes it; the ledger names the report (and keeps a state of
+  at most 4 KB) only once the file exists.
+- **Cost of the pass.** The pass's p95, memo builds included, above 1 ms is `INV-COST@pass`. A rule's p95 test
+  is one comparison (a count of runs over the limit). The ledger is a ring that overwrites one slot; the action
+  causes are fixed rings, so `noteAction` allocates nothing in an unarmed bench build. The pass runs inside the
+  turn meter's `debugCheck` span (`debug.main_budget` `turn_ms.debug_check_total`), so it is neither render nor
+  unattributed time.
 - **The probe is injected, not global.** A global probe sink is a stateful static (the arch ratchet's
   `stateful_singletons` row). `InvariantProbe(registry:)` is a value the composition root hands to each producer
   (`DaemonStore.invariants` through `MachineRegistry.invariants`, `HoverCardCoordinator.invariants`,
   `InputVerificationService.probe`); in Release it is an empty struct and `InvariantProbe()` is its only
   initializer. `InvariantReleaseTests` checks its size is 0 in a Release test build;
   `scripts/cmux-next/check-invariants-release-symbols.sh APP` is the `nm` check of section 6.
-- **No shadow step.** The task order was to delete the old monitor in the same change (no second path). The first
-  journey sweep on this branch is the shadow sweep: a finding that the 200 ms settle used to hide now fails the
-  journey and must be fixed in the model or with a level precondition.
+- **No shadow step in the app.** The task order was to delete the old monitor in the same change (no second
+  path). The shadow step is in the harness: `driver.py --invariants shadow` (the default until the P0 sweep's
+  findings are fixed or named) records each violation in the journey's result and goes on; `--invariants fail`
+  fails the step. The cursor belongs to the app process (carried across journeys), and a relaunch step reads the
+  old ledger before the quit.
 - **W9 (presentation settles) is a liveness rule** with the old settle as its limit (200 ms): an unsettled window
   is a pending state, and reporting it per turn would report every switch. W1-W3 and W8 skip an unsettled window
   (level precondition, as before).
@@ -582,6 +613,20 @@ This branch implements steps 1, 2 (without the shadow sweep) and 3, the M1 part 
   subject (`InvariantPass.isFull`).
 - **Action causes** carry the action id, its origin and the registry's own run index; `ActionRegistry.willRunObservers`
   does not pass the entrypoint, and a `.waiting` action's cause is not kept until its reply's turn yet.
+- **W11 runs only through the registry** (`InputVerificationService.expectationRule`); `FocusExpectationAges.check`
+  is deleted and the W11 tests drive the rule through a registry with their own clock.
+- **VS2 is a liveness rule** (500 ms, the old settle as its limit): a blank pane is pending while its content
+  attaches or paints, and only a pane still blank at its limit is a violation. `debug.surfaces`
+  `invariant_violations` and `invariant_checks` read `rules[VS2]`.
+- **LO11** checks the window invariants after each action and each turn a membership transition touched. A
+  Release or unarmed bench build keeps the log at the transition (decision 1, default).
+- **M1 in an unarmed bench build:** a call-site report goes to the ledger armed or not.
+- **The Release check** (`check-invariants-release-symbols.sh`) reads the symbols and every string (type
+  descriptor names survive stripping), requires the Release types (`InvariantsControl`, `InvariantProbe`,
+  `debug.invariants`) as a positive control, fails on a read error, and with `--control DEBUG_APP` proves it
+  finds the checker in a Debug build.
+- **The named keys** are `@_alwaysEmitIntoClient` computed values and the Release journal tap passes no press
+  closure, so a Release probe call reads no global.
 - **`frame_seq` is null**: no `DisplayClock.displayDidFire` adapter yet.
 - **`debug.invariants` before the registry starts** (the `InputVerification.start` launch post may come after the
   control methods are registered) answers `{"armed": false, "mode": "starting"}`.
@@ -596,7 +641,7 @@ This branch implements steps 1, 2 (without the shadow sweep) and 3, the M1 part 
   build from before `debug.invariants` unchecked. `run.py` does not set `CMUX_NEXT_INVARIANTS`: capture-host's
   `launch --env` accepts only `ACPMUX_HOME` and `XDG_CONFIG_HOME`. Fleet journey builds are Debug builds
   (`cmux-ci build cmux` without `--release`), which are armed by default; a bench build is "not run".
-- **Not done:** SurfaceInvariantMonitor (VS2), WindowInvariants (LO11), the BlockingDetector sink (ID6),
-  `ext_focus.py` (not on the base), the daemon registry, the R4 tool, `invariants-catalog.md`, the
-  `DisplayClock` frame adapter, the per-subject adapters of section 3.3 beyond focus, presentation, frames, tabs
-  and hover, and the three invariants of section 8.
+- **Not done:** the BlockingDetector sink (ID6), `ext_focus.py` (not on the base), the daemon registry, the R4
+  tool, `invariants-catalog.md`, the `DisplayClock` frame adapter, the per-subject adapters of section 3.3 for
+  motion and grid, the Chromium in-flight ledgers (W4 and G1 back to per-turn rules), trap mode, and the three
+  invariants of section 8.

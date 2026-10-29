@@ -57,6 +57,31 @@ import Testing
         #expect(snapshot.turnsOverStall == 1, "a 6 ms turn is over the 4 ms stall line")
     }
 
+    @Test func aDebugCheckInTheRenderPhaseIsItsOwnTimeNotRenderOrUnattributed() {
+        // The invariant pass runs as a before-waiting observer after the commit (InvariantTurnObserver): its time is
+        // neither the render pass the frame budget plans from nor unattributed main-thread time.
+        let clock = TurnClock()
+        let turns = MainTurnMeter(uptimeNanos: clock.read)
+        turns.loopWoke()
+        clock.advance(ms: 1)
+        turns.loopWillWait()
+        clock.advance(ms: 2)
+        turns.debugCheck { clock.advance(ms: 0.5) }
+        clock.advance(ms: 1)
+        turns.loopDidRender()
+        let snapshot = turns.snapshot()
+        #expect(snapshot.debugCheckNanos == 500_000)
+        #expect(snapshot.renderNanos == 3 * Self.ms)
+        #expect(snapshot.unattributedNanos == Self.ms)
+        #expect(snapshot.busyNanos == 4_500_000)
+        #expect(budgetFields(snapshot)["debug_check_total"] != nil, "debug.main_budget reports it, to subtract it")
+    }
+
+    private func budgetFields(_ snapshot: MainTurnMeter.Snapshot) -> [String: JSONValue] {
+        guard case .object(let turn)? = snapshot.reportFields["turn_ms"] else { return [:] }
+        return turn
+    }
+
     @Test func nestedTasksChargeTheInnermostSpanOnce() {
         let clock = TurnClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)

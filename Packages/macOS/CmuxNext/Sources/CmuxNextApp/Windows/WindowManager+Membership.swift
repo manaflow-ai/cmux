@@ -6,6 +6,9 @@ import CmuxNextLaunch
 import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextInvariants
+#endif
 
 // Window membership transitions. Every change goes through `transition`,
 // which applies one `WindowRegistry` step and then `sync`s controllers and
@@ -121,8 +124,12 @@ extension WindowManager {
         if let next { bringToFront(next) }
     }
 
-    /// Counts and logs any broken window invariant after a transition.
+    /// After a transition: in Debug and armed bench builds the registry checks LO11 at this turn's commit; a Release
+    /// or unarmed bench build counts and logs any broken window invariant now.
     private func checkInvariants() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let registry = services.input.invariants, registry.isArmed { return registry.touch(.windows, .app) }
+        #endif
         let problems = WindowInvariants.problems(self)
         guard !problems.isEmpty else { return }
         noteInvariantViolations(problems)

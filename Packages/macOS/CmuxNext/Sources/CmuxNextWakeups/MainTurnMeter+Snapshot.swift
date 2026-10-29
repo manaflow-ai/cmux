@@ -17,6 +17,9 @@ extension MainTurnMeter {
         public var scheduledNanos: UInt64 = 0
         /// Busy time in input dispatch, in nanoseconds.
         public var inputNanos: UInt64 = 0
+        /// Busy time in a Debug or armed bench build's own checks (``MainTurnMeter/Span/debugCheck``), in
+        /// nanoseconds: 0 in Release and in an unarmed bench build.
+        public var debugCheckNanos: UInt64 = 0
         /// Busy time in render passes (layout, display, commit), in nanoseconds.
         public var renderNanos: UInt64 = 0
         /// Busy time no scheduled task, input dispatch or render pass explains, in nanoseconds.

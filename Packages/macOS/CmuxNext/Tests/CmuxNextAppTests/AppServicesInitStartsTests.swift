@@ -17,6 +17,8 @@ struct AppServicesInitStartsTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         #expect(services.browserHost == nil, "the browser host is the BrowserHost.start post's")
         #expect(!services.input.isStarted, "input verification is the InputVerification.start post's")
+        #expect(services.input.invariants != nil,
+                "the invariant registry and its rules are the composition root's: debug.invariants answers before any post")
         #expect(!services.notifications.isStarted, "the banners are the Notifications.start post's")
         #expect(services.notifications.services === services, "the launch turn's Chief pet and a click's read find the app")
         #expect(services.registry.isBound(ActionID(rawValue: "palette.restartServer")),
@@ -43,7 +45,6 @@ struct AppServicesInitStartsTests {
         #expect(!services.input.isStarted && !services.notifications.isStarted, "one post starts one service")
         run("InputVerification.start")
         #expect(services.input.isStarted, "the InputVerification.start post starts input verification")
-        #expect(services.input.invariants != nil, "the InputVerification.start post makes the invariant registry")
         run("Notifications.start")
         #expect(services.notifications.isStarted, "the Notifications.start post follows the store")
     }

@@ -50,6 +50,9 @@ public final class MainTurnMeter {
         case scheduled
         /// AppKit dispatching one event (`sendEvent`).
         case input
+        /// A Debug or armed bench build's own checks (the invariant registry's pass, ``debugCheck(_:)``): neither
+        /// render time, which the frame budget plans from, nor unattributed time; ``Snapshot/debugCheckNanos``.
+        case debugCheck
     }
 
     /// A turn longer than this emits `stall.main_turn` (the fixed target: turn p99 <= 4 ms).
@@ -74,9 +77,11 @@ public final class MainTurnMeter {
     private var parkedLoops: UInt64 = 0
     // The spans the innermost running level hides.
     private var visibleBase = 0
-    // Open spans: bit i set when the span at depth i + 1 is input dispatch.
+    // Open spans: bit i set when the span at depth i + 1 is input dispatch (`inputSpans`) or a debug check
+    // (`checkSpans`); neither bit: a scheduled task.
     private var spanDepth = 0
     private var inputSpans: UInt64 = 0
+    private var checkSpans: UInt64 = 0
     /// The number of the turn in progress (or of the last one), counted from 1 as each turn begins: work
     /// that must not outlive its turn (a window's layout depth an exception left open) compares it.
     public private(set) var turnNumber: UInt64 = 0
@@ -87,6 +92,7 @@ public final class MainTurnMeter {
     private var mark: UInt64 = 0
     private var scheduled: UInt64 = 0
     private var input: UInt64 = 0
+    private var debugChecks: UInt64 = 0
     private var render: UInt64 = 0
     private var rendering = false
     private var renderStart: UInt64 = 0
@@ -148,6 +154,13 @@ public final class MainTurnMeter {
         return try body(now)
     }
 
+    /// Runs a Debug or armed bench build's own check (the invariant registry's pass) as a ``Span/debugCheck`` span.
+    public func debugCheck(_ body: () -> Void) {
+        beginSpan(.debugCheck, at: uptimeNanos())
+        body()
+        endSpan(at: uptimeNanos())
+    }
+
     /// Opens a span at `now` (the caller's own clock read).
     // perf-hot: 100ns main-turn (every task and event)
     public func beginSpan(_ span: Span, at now: UInt64) {
@@ -155,6 +168,7 @@ public final class MainTurnMeter {
         if spanDepth < Self.maxDepth {
             let bit: UInt64 = 1 << UInt64(spanDepth)
             if span == .input { inputSpans |= bit } else { inputSpans &= ~bit }
+            if span == .debugCheck { checkSpans |= bit } else { checkSpans &= ~bit }
         }
         spanDepth += 1
     }
@@ -273,6 +287,7 @@ public final class MainTurnMeter {
         visibleBase = 0
         spanDepth = 0
         inputSpans = 0
+        checkSpans = 0
         beginTurn(at: now)
     }
 
@@ -327,8 +342,14 @@ public final class MainTurnMeter {
         let elapsed = now > mark ? now - mark : 0
         mark = now
         guard inTurn, spanDepth > visibleBase else { return }
-        let top = min(spanDepth, Self.maxDepth) - 1
-        if inputSpans & (1 << UInt64(top)) != 0 { input &+= elapsed } else { scheduled &+= elapsed }
+        let bit: UInt64 = 1 << UInt64(min(spanDepth, Self.maxDepth) - 1)
+        if inputSpans & bit != 0 {
+            input &+= elapsed
+        } else if checkSpans & bit != 0 {
+            debugChecks &+= elapsed
+        } else {
+            scheduled &+= elapsed
+        }
     }
 
     private func beginTurn(at now: UInt64) {
@@ -339,6 +360,7 @@ public final class MainTurnMeter {
         mark = now
         scheduled = 0
         input = 0
+        debugChecks = 0
         render = 0
         rendering = false
         (turnKinds, ranBudgetedTask) = (0, false)
@@ -350,7 +372,7 @@ public final class MainTurnMeter {
         guard !rendering else { return }
         rendering = true
         renderStart = now
-        spansAtRenderStart = scheduled &+ input
+        spansAtRenderStart = scheduled &+ input &+ debugChecks
     }
 
     /// Ends a render phase at `now` (the caller charged the spans up to `now`). A span inside the
@@ -359,7 +381,7 @@ public final class MainTurnMeter {
         guard rendering else { return }
         rendering = false
         let phase = now > renderStart ? now - renderStart : 0
-        let inSpans = (scheduled &+ input) &- spansAtRenderStart
+        let inSpans = (scheduled &+ input &+ debugChecks) &- spansAtRenderStart
         render &+= phase > inSpans ? phase - inSpans : 0
     }
 
@@ -369,7 +391,8 @@ public final class MainTurnMeter {
         closeRender(at: now)
         inTurn = false
         let total = now > turnStart ? now - turnStart : 0
-        let attributed = scheduled &+ input &+ render
+        let attributed = scheduled &+ input &+ debugChecks &+ render
+        counters.debugCheckNanos &+= debugChecks
         record(TopTurn(turnNanos: total, unattributedNanos: total > attributed ? total - attributed : 0, scheduledNanos: scheduled,
                        inputNanos: input, renderNanos: render, endNanos: now, nested: turnNested))
         if turnKinds != 0 { recordKinds(turnNanos: total) }

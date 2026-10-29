@@ -11,19 +11,22 @@ final class InvariantTestWorld {
     var dragInFlight = false
     /// The windows whose focus target is still pending, and since when.
     var pending: [String: ContinuousClock.Instant] = [:]
+    /// Window w1 is in a live resize (rule G9 skips it), and its page is off its pane (G9's break).
+    var resizing = false
+    var pageOff = true
     var reads = 0
 
-    struct Strip: Hashable, Codable {
+    struct Strip: Hashable, Codable, Sendable {
         var pane: String
         var shown: Int
         var held: Int
     }
 
-    /// Rule T1, at `points`: every strip shows what its pane holds; it does not apply while a drag is in flight.
-    func stripRule(id: InvariantID = "T1", points: InvariantCheckPoints = [.afterAction, .afterTurn],
-                   confirms: Bool = false) -> InvariantRule {
+    /// Rule T1, at `points`: every strip shows what its pane holds; it does not apply while a drag is in flight. It
+    /// reads only the dirty panes after a turn (the scope of section 9's LG2 example).
+    func stripRule(id: InvariantID = "T1", points: InvariantCheckPoints = [.afterAction, .afterTurn]) -> InvariantRule {
         InvariantRule(id: id, statement: "every strip shows exactly its pane's tabs", owner: "Tests", reads: [.tabs],
-                      points: points, cost: .walk, confirmsAtNextCheck: confirms,
+                      points: points, cost: .walk,
                       read: { [unowned self] (pass: InvariantPass) -> [Strip]? in
                           self.reads += 1
                           guard !self.dragInFlight else { return nil }
@@ -34,6 +37,17 @@ final class InvariantTestWorld {
                           strips.filter { $0.shown != $0.held }
                               .map { InvariantFinding(subject: .pane($0.pane), detail: "shows \($0.shown), holds \($0.held)") }
                       })
+    }
+
+    /// Rule G9: window w1's page covers its pane; a window in a live resize is skipped, not checked.
+    func pageRule() -> InvariantRule {
+        InvariantRule(id: "G9", statement: "a window's page covers it", owner: "Tests", reads: [.paneFrame],
+                      points: .afterTurn, cost: .walk,
+                      read: { [unowned self] (pass: InvariantPass) -> [String]? in
+                          if self.resizing { pass.skip(.window("w1")) }
+                          return self.resizing || !self.pageOff ? [] : ["w1"]
+                      },
+                      check: { $0.map { InvariantFinding(subject: .window($0), detail: "page off") } })
     }
 
     /// Liveness rule L1: a window's focus target lands within `limit`.

@@ -1,4 +1,7 @@
 import AppKit
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextInvariants
+#endif
 import CmuxNextLaunch
 import CmuxNextSettings
 import os
@@ -8,28 +11,54 @@ import os
 /// while it owns at least one workspace, every workspace has one window,
 /// and controllers match the registry. The only window without a workspace
 /// allowed is the unregistered launch window while it shows the daemon's
-/// connecting state.
+/// connecting state. In Debug and armed bench builds it is LO11 of the invariant
+/// registry, checked after each action and each turn that changed the windows;
+/// a Release (or unarmed bench) build logs it at the transition.
 enum WindowInvariants {
     static func problems(_ manager: WindowManager) -> [String] {
+        problemsByWindow(manager).map(\.problem)
+    }
+
+    /// Each broken window invariant with the window it is about (nil: the registry's own).
+    static func problemsByWindow(_ manager: WindowManager) -> [(window: String?, problem: String)] {
         let value = manager.registry.value
-        var problems = value.violations()
+        var problems: [(window: String?, problem: String)] = value.violations().map { (nil, $0) }
         for controller in manager.controllers where controller.state.id != manager.launchWindowID {
             let id = controller.state.id
             guard let window = value.window(id) else {
-                problems.append("window \(id) is on screen but not registered")
+                problems.append((id, "window \(id) is on screen but not registered"))
                 continue
             }
-            if !window.isOpen { problems.append("window \(id) is on screen but closed") }
-            if window.workspaceIDs.isEmpty { problems.append("window \(id) has 0 workspaces") }
+            if !window.isOpen { problems.append((id, "window \(id) is on screen but closed")) }
+            if window.workspaceIDs.isEmpty { problems.append((id, "window \(id) has 0 workspaces")) }
             if manager.awaitingContent[id] == nil, !window.workspaceIDs.isEmpty, !manager.hasMirroredWorkspace(window) {
-                problems.append("window \(id) is presented but none of its workspaces is mirrored")
+                problems.append((id, "window \(id) is presented but none of its workspaces is mirrored"))
             }
         }
         for window in value.openWindows where manager.controller(for: window.id) == nil && manager.launchWindows?.isWaiting(window.id) != true {
-            problems.append("open window \(window.id) has no controller")
+            problems.append((window.id, "open window \(window.id) has no controller"))
         }
         return problems
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Declares LO11 in `registry`: the window invariants above, after each action and each turn a membership
+    /// transition touched (`windows`). One finding per window (the registry's own problems: the app).
+    static func declareInvariants(in registry: InvariantRegistry, services: AppServices) {
+        registry.declare(InvariantRule(
+            id: "LO11", statement: "a window exists only while it owns a workspace, every workspace has one window, and "
+                + "controllers match the registry", owner: "Windows",
+            reads: [.windows], points: [.afterAction, .afterTurn], cost: .walk, parity: false,
+            read: { [weak services] (_: InvariantPass) -> [InvariantFinding]? in
+                services.map { services in
+                    problemsByWindow(services.windows).map {
+                        InvariantFinding(subject: $0.window.map(InvariantSubject.window) ?? .app, detail: $0.problem)
+                    }
+                }
+            },
+            check: { $0 }))
+    }
+    #endif
 
     /// `debug.windows`: every registered window and whether the invariants hold.
     static func report(_ manager: WindowManager) -> JSONValue {
@@ -55,7 +84,7 @@ enum WindowInvariants {
             "launch_window": manager.launchWindowID.map(JSONValue.string) ?? .null,
             "controllers": .number(Double(manager.controllers.count)),
             "problems": .array(problems.map(JSONValue.string)),
-            "violations_seen": .number(Double(manager.invariantViolations)),
+            "violations_seen": .number(Double(manager.invariantViolations) + Double(ledgerViolations(manager))),
             "consistent": .bool(problems.isEmpty),
         ])
     }
@@ -65,6 +94,15 @@ enum WindowInvariants {
     static func pageFields(state: WindowState?, controller: WindowController?) -> [String: JSONValue] {
         ["page": state?.page.map { .string($0.rawValue) } ?? .null,
          "shown_page": controller?.shownTopPage.map { .string($0.rawValue) } ?? .null]
+    }
+
+    /// LO11's reports in the invariant ledger (Debug and armed bench builds; the transition's own count otherwise).
+    private static func ledgerViolations(_ manager: WindowManager) -> UInt64 {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        return manager.services.input.invariants?.stats(of: "LO11")?.violations ?? 0
+        #else
+        return 0
+        #endif
     }
 
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.windows")

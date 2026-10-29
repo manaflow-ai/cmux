@@ -16,10 +16,11 @@ extension HoverCardCoordinator {
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Declares H1 in `registry`: at most one hover card exists and shows, and it shows the coordinator's target.
+    /// Its state names hover targets, whose ids a run makes, so it stays out of the R4 parity snapshot.
     public func declareInvariants(in registry: InvariantRegistry) {
         registry.declare(InvariantRule(
             id: "H1", statement: "at most one hover card exists and shows, and it shows the coordinator's target",
-            owner: "HoverCards", reads: [.hover, .focus], points: [.afterAction, .afterTurn], cost: .cheap,
+            owner: "HoverCards", reads: [.hover, .focus], points: [.afterAction, .afterTurn], cost: .cheap, parity: false,
             read: { [weak self] _ in self?.cardFacts },
             check: { facts in facts.violations.map { InvariantFinding(subject: .app, detail: $0) } }))
     }

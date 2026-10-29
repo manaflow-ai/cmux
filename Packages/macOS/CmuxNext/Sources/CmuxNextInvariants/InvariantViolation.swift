@@ -15,11 +15,12 @@ public struct InvariantViolation: Hashable, Sendable {
     public let subject: InvariantSubject
     public let detail: String
     public let trigger: InvariantTrigger
-    /// The rule's read state as sorted-key JSON when it is at most ``stateLimit`` bytes, else nil.
-    public let state: Data?
+    /// The rule's read state as sorted-key JSON when it is at most ``stateLimit`` bytes, else nil. A turn rule's state
+    /// is encoded off the main thread with its report, so it is nil until the report is written.
+    public internal(set) var state: Data?
     /// The input journal's last sequence number once the app journaled the violation.
     public internal(set) var journalTail: UInt64?
-    /// The report file's path once the app named it.
+    /// The report file's path once the file is written.
     public internal(set) var report: String?
 
     public init(seq: UInt64, id: InvariantID, host: String, subject: InvariantSubject, detail: String,

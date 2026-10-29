@@ -30,9 +30,6 @@ public struct InvariantRule {
     public let parity: Bool
     /// Why the rule is not in its final form yet (`rules[].interim`), nil for a final rule.
     public let interim: String?
-    /// A finding is reported only when the rule's next run finds it again (the interim confirm of an async peer
-    /// with no in-flight ledger yet; section 7 step 2). Never a timer: the next run is the next check point.
-    public let confirmsAtNextCheck: Bool
     let body: Body
 
     enum Body {
@@ -41,23 +38,26 @@ public struct InvariantRule {
         case harness(@MainActor (InvariantPass) async -> Evaluation?)
     }
 
-    /// One run's findings and, on demand, its read state as JSON.
+    /// One run's findings and, on demand, its read state as JSON. The state is the typed value the read gave: it is
+    /// encoded only for a new violation, and then on the files lane with its report, never in the violating turn.
     struct Evaluation {
         let findings: [InvariantFinding]
-        let state: () -> Data?
+        let state: @Sendable () -> Data?
     }
 
     /// A state rule, checked at `points` (`.afterAction`, `.afterTurn`; a `.harness` rule is
     /// ``harness(id:statement:owner:cost:parity:interim:read:check:)``).
-    public init<State: Encodable & Equatable>(
+    /// `read` may narrow its scope: a read that asks `pass.dirty(key)` checks only those subjects, and
+    /// `pass.skip(subject)` leaves one unchecked now; a signature clears only when a run checked its subject.
+    public init<State: Encodable & Equatable & Sendable>(
         id: InvariantID, statement: String, owner: String,
         reads: Set<InvariantKey>, points: InvariantCheckPoints, cost: InvariantCost,
-        parity: Bool = true, interim: String? = nil, confirmsAtNextCheck: Bool = false,
+        parity: Bool = true, interim: String? = nil,
         read: @escaping @MainActor (InvariantPass) -> State?,
         check: @escaping @MainActor (State) -> [InvariantFinding]
     ) {
         self.init(id: id, statement: statement, owner: owner, reads: reads, points: points, cost: cost, parity: parity,
-                  interim: interim, confirmsAtNextCheck: confirmsAtNextCheck, body: .state({ pass in
+                  interim: interim, body: .state({ pass in
                       guard let state = read(pass) else { return nil }
                       return Evaluation(findings: check(state), state: { InvariantRule.encode(state) })
                   }))
@@ -73,28 +73,26 @@ public struct InvariantRule {
         pending: @escaping @MainActor (InvariantPass) -> [InvariantPending]
     ) -> InvariantRule {
         InvariantRule(id: id, statement: statement, owner: owner, reads: reads, points: [.afterAction, .afterTurn],
-                      cost: cost, parity: false, interim: interim, confirmsAtNextCheck: false,
-                      body: .liveness(limit: limit, pending: pending))
+                      cost: cost, parity: false, interim: interim, body: .liveness(limit: limit, pending: pending))
     }
 
     /// A harness rule (section 3.5): an IPC or census read, run only from `debug.invariants {check: true, ipc: true}`
     /// and never inside a turn. `read` may await another process; `check` stays pure.
-    public static func harness<State: Encodable & Equatable>(
+    public static func harness<State: Encodable & Equatable & Sendable>(
         id: InvariantID, statement: String, owner: String, cost: InvariantCost,
         parity: Bool = true, interim: String? = nil,
         read: @escaping @MainActor (InvariantPass) async -> State?,
         check: @escaping @MainActor (State) -> [InvariantFinding]
     ) -> InvariantRule {
         InvariantRule(id: id, statement: statement, owner: owner, reads: [], points: .harness, cost: cost, parity: parity,
-                      interim: interim, confirmsAtNextCheck: false, body: .harness({ pass in
+                      interim: interim, body: .harness({ pass in
                           guard let state = await read(pass) else { return nil }
                           return Evaluation(findings: check(state), state: { InvariantRule.encode(state) })
                       }))
     }
 
     private init(id: InvariantID, statement: String, owner: String, reads: Set<InvariantKey>,
-                 points: InvariantCheckPoints, cost: InvariantCost, parity: Bool, interim: String?,
-                 confirmsAtNextCheck: Bool, body: Body) {
+                 points: InvariantCheckPoints, cost: InvariantCost, parity: Bool, interim: String?, body: Body) {
         self.id = id
         self.statement = statement
         self.owner = owner
@@ -103,7 +101,6 @@ public struct InvariantRule {
         self.cost = cost
         self.parity = parity
         self.interim = interim
-        self.confirmsAtNextCheck = confirmsAtNextCheck
         self.body = body
     }
 
@@ -113,8 +110,8 @@ public struct InvariantRule {
         return false
     }
 
-    /// Canonical JSON of a read state: sorted keys, so equal states give equal bytes (the R4 diff).
-    static func encode(_ state: some Encodable) -> Data? {
+    /// Canonical JSON of a read state: sorted keys, so equal states give equal bytes (the R4 diff). Any thread.
+    nonisolated static func encode(_ state: some Encodable) -> Data? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return try? encoder.encode(state)

@@ -13,6 +13,7 @@ import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
 import CmuxNextFocus
+import CmuxNextInvariants
 
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
 /// content. Tab selection is client-local (`WindowState.selection`); every
@@ -110,8 +111,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator, thumbnailPages: services.cache.imageCaches.pictureAllocator, energy: services.cache.hibernation?.highEnergy)
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
         view.stripView.newTabShortcut = { [weak services] in services?.registry.shortcutDisplay(for: StripNewTab.action) }
-        view.onResize = { [weak services, weak paneView = view] in
-            services?.surfaceInvariant.noteChange()
+        view.onResize = { [weak services, weak paneView = view, key = self.paneKey] in
+            services?.input.probe.touch(.visibility, .pane(key))  // VS2: a blank pane shows content within its limit
             services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
         }
         #if DEBUG
@@ -137,7 +138,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.detachContent()
         visibilityNode.set(.hidden) // a tab still selected here is hidden; one that moved away is its new pane's
         selectedTabNode = nil
-        services.surfaceInvariant.noteChange()
+        services.input.probe.touch(.visibility, .pane(paneKey))
     }
 
     // MARK: Sync
@@ -512,7 +513,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
-        BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
+        BenchSpans.measure("switch.invariant") { services.input.probe.touch(.visibility, .pane(paneKey)) }
         BenchSpans.measure("switch.neighbors") { noteNeighbors() }
     }
 
@@ -524,7 +525,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         guard currentTabKey == key else { return }
         currentTabKey = nil
         view.detachContent(parks: parks)
-        services.surfaceInvariant.noteChange()
+        services.input.probe.touch(.visibility, .pane(paneKey))
     }
 
     /// The selected tab is a terminal that will draw a frame (not a dead one).
@@ -591,7 +592,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.presence = presence
         services.cache.setPresence(presence, presenter: self)
         noteNeighbors()
-        guard !isSuspended else { return services.surfaceInvariant.noteChange() }
+        guard !isSuspended else { return services.input.probe.touch(.visibility, .pane(paneKey)) }
         // Content destroyed while away re-attaches (daemon replay) as soon as
         // the pane nears the viewport, so it is ready before it scrolls in.
         if presence != .hidden, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {
@@ -603,7 +604,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 services.presentation.setNeedsShowSelected(self)
             }
         }
-        services.surfaceInvariant.noteChange()
+        services.input.probe.touch(.visibility, .pane(paneKey))
     }
 
     /// Focuses this pane's selected content through the window's focus

@@ -2,6 +2,9 @@ import CmuxNextPages
 import AppKit
 import CmuxNextBrowser
 import CmuxNextInputModel
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextInvariants
+#endif
 import CmuxNextSettings
 import CmuxNextTerminal
 
@@ -86,8 +89,9 @@ enum SurfaceDiagnosticsReport {
             "keep_alive_panes": JSONValue(rows.filter { $0.status.presence == "keep_alive" }.count),
             "cold_keep_alive_panes": JSONValue(rows.filter(\.status.isColdKeepAlive).count),
             "live_terminals": JSONValue(services.cache.liveTerminalCount),
-            "invariant_violations": JSONValue(services.surfaceInvariant.violations),
-            "invariant_checks": JSONValue(services.surfaceInvariant.checks),
+            // VS2, the blank-pane rule of the invariant registry (Debug and bench builds; 0 in Release).
+            "invariant_violations": JSONValue(Int(Self.blankPaneRule(services)?.violations ?? 0)),
+            "invariant_checks": JSONValue(Int(Self.blankPaneRule(services)?.checks ?? 0)),
             "warm_terminal_capacity": JSONValue(services.cache.warmBudget.terminalCapacity),
             "last_frames": .object(services.cache.lastFrames.report.mapValues { JSONValue($0) }),
             "parked_workspaces": JSONValue(services.windows.controllers.reduce(0) { $0 + $1.parked.count }),
@@ -146,4 +150,50 @@ enum SurfaceDiagnosticsReport {
             "wakes": hibernation.wakeLog.json,
         ]
     }
+}
+
+extension SurfaceDiagnosticsReport {
+    /// How long a visible pane may show no presentable content (VS2): a new tab's terminal attaches and its page
+    /// paints within the old blank-pane settle (layout springs settle in about 250 ms). A liveness limit, not a
+    /// settle: the pane is pending meanwhile, and a pane still blank at its limit is a violation.
+    static let blankPaneLimit: Duration = .milliseconds(500)
+
+    /// VS2's counts in the registry; nil in Release and before the registry exists.
+    static func blankPaneRule(_ services: AppServices) -> (violations: UInt64, checks: UInt64)? {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        return services.input.invariants?.stats(of: "VS2").map { ($0.violations, $0.checks) }
+        #else
+        return nil
+        #endif
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Declares VS2 (the blank-pane rule) in `registry`: every visible pane whose window may draw shows its selected
+    /// tab's installed, drawing content with a grid within ``blankPaneLimit``. A liveness rule: a blank pane is pending
+    /// (its content attaches or paints), and it only reports. It reads the panes a turn touched (a pane's show, hide,
+    /// resize or presence; a window's occlusion; a presentation change), all of them after an action or at its limit.
+    static func declareInvariants(in registry: InvariantRegistry, services: AppServices) {
+        registry.declare(.liveness(
+            id: "VS2", statement: "a visible pane shows its selected tab's drawing content", owner: "Surfaces",
+            reads: [.presentation, .visibility], limit: blankPaneLimit, cost: .walk) { [weak services] pass in
+                guard let services else { return [] }
+                let touched = pass.touchedSubjects([.presentation, .visibility])
+                var rows: [PaneSurfaceStatus] = []
+                for controller in services.windows.controllers {
+                    guard let content = controller.content else { continue }
+                    let wholeWindow = touched?.contains(.window(controller.state.id)) ?? true
+                    for pane in content.panes.values where wholeWindow || touched?.contains(.pane(pane.paneKey)) == true {
+                        rows.append(pane.surfaceStatus)
+                    }
+                }
+                if touched != nil { pass.checked(Set(rows.map { .pane($0.paneKey) })) }
+                return rows.filter(\.isBlank).map { status in
+                    let terminal = status.terminal.map { String(describing: $0) } ?? "none"
+                    let shows = "selects \(status.selectedTab ?? "-"), shows \(status.shownTab ?? "-")"
+                    return InvariantPending(subject: .pane(status.paneKey), detail: "pane \(status.paneKey) \(shows), "
+                        + "installed \(status.contentInstalled), terminal \(terminal)")
+                }
+            })
+    }
+    #endif
 }

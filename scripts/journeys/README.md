@@ -239,17 +239,21 @@ The driver decides, not the author:
   state, the daemon's screen and a frame. A journey whose file lacks any of the three does not
   validate. "Pixels changed" is never a check: a frame passes only when text recognition reads
   the run's own expected text in it, so a blank frame, a fixture or an earlier run cannot pass.
-- `fail`: a step failed (the error says which and why) or a condition did not hold. A step
-  also fails when the app's invariant ledger (`debug.invariants`,
+- `fail`: a step failed (the error says which and why) or a condition did not hold. With
+  `--invariants fail`, a step also fails when the app's invariant ledger (`debug.invariants`,
   [invariants-DESIGN.md](../../plans/cmux-next/invariants-DESIGN.md)) has a new violation after
   it: the app checks every declared rule after each action and each committed turn, and
-  `invariants.py` reads the ledger since the last step, so every frame of the step is covered.
-  The error names the rule, its subject, the actions of the turn and the report file. Before the
-  judge, one full check (`check`, `ipc`) runs every rule on every subject.
+  `invariants.py` reads the ledger since the last step (with a full check, which also runs the
+  rules that wait for the harness, W4 and G1), so every frame of the step is covered. The error
+  names the rule, its subject, the actions of the turn and the report file. Before the judge,
+  one full check (`check`, `ipc`) runs every rule on every subject. The cursor belongs to the
+  app process: it goes on across journeys, and a relaunch step reads the old ledger first.
+  The default is `--invariants shadow` until the P0 sweep's findings are fixed or named: each
+  violation goes into the result's `invariants` list and the journey goes on.
 - `not run`: the journey could not be played (no capture slot, the build failed or still
-  builds, the app never answered, the lease ran out, or the app does not check its invariants:
-  a Release or an unarmed bench build). Never counted as a pass. `--skip-invariants` plays a
-  build from before `debug.invariants` unchecked.
+  builds, the app never answered, the lease ran out, or, with `--invariants fail`, the app does
+  not check its invariants: a Release or an unarmed bench build). Never counted as a pass.
+  `--invariants skip` plays a build from before `debug.invariants` unchecked.
 
 Check the clip anyway: a pass says the checked text showed; the clip shows what else did.
 

@@ -78,6 +78,8 @@ nonisolated extension MainTurnMeter.Snapshot {
         turnFields["scheduled_total"] = Self.ms(scheduledNanos)
         turnFields["render_total"] = Self.ms(renderNanos)
         turnFields["input_total"] = Self.ms(inputNanos)
+        // A Debug or armed bench build's own checks (the invariant pass): subtract it from the turn to compare with Release.
+        turnFields["debug_check_total"] = Self.ms(debugCheckNanos)
         turnFields["unattributed_total"] = Self.ms(unattributedNanos)
         var tickFields = Self.distribution(tickTurns)
         tickFields["with_budgeted_tasks"] = JSONValue(tickTurnsWithBudgetedTasks)

@@ -9,12 +9,17 @@ import CmuxNextInputModel
 /// Ghostty's focused surfaces, the layout focus and Chromium page focus.
 /// Main actor, read-only, cheap (no layout, no IO).
 enum InputObservationBuilder {
-    static func observe(_ services: AppServices) -> InputObservation {
+    /// - Parameter reuse: A window's observation from before that is still current (nothing it reads changed since):
+    ///   taken as is instead of walking the window's panes again (the invariant pass rebuilds only the windows a
+    ///   turn touched, the key window and the active one). The default rebuilds every window.
+    static func observe(_ services: AppServices,
+                        reuse: (WindowController) -> InputObservation.Window? = { _ in nil }) -> InputObservation {
         let ghostty = Set(services.cache.focusedTerminalTabs)
+        let owed = services.cache.pendingBrowsers
         let controllers = services.windows.controllers
         let context = services.registry.context
         return InputObservation(
-            windows: controllers.map { window(of: $0, ghostty: ghostty) },
+            windows: controllers.map { reuse($0) ?? window(of: $0, ghostty: ghostty, owed: owed) },
             keyWindow: keyWindow(controllers),
             paletteOpen: context.contains(.paletteOpen),
             activeWindow: services.windows.active?.state.id,
@@ -24,15 +29,20 @@ enum InputObservationBuilder {
         )
     }
 
-    static func window(of controller: WindowController, ghostty: Set<String>) -> InputObservation.Window {
+    static func window(of controller: WindowController, ghostty: Set<String>, owed: Set<String> = []) -> InputObservation.Window {
         let window = controller.window
         var presented: [String: String] = [:]
+        var owedPanes: [String] = []
         var childWindowTabs: [String] = []
         // A cmux page's Chromium tab has its own id; the model knows the page by its tab key.
         var pageTabKeys: [String: String] = [:]
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
             guard let key = pane.currentTabKey else { continue }
             presented[pane.paneKey] = key
+            let chromium = pane.currentContent?.chromiumTab as? CEFTab
+            // Owed: the page is made after the frame commits or waits for its engine, or its Chromium browser does
+            // not exist yet (`CEFPaneHost.createAfterCommit`): nothing in the pane can have the keys yet.
+            if owed.contains(key) || chromium.map({ $0.browserID == nil }) == true { owedPanes.append(pane.paneKey) }
             if let tab = pane.currentContent?.childWindowTab { childWindowTabs.append(key); pageTabKeys[tab.id.rawValue] = key }
         }
         return InputObservation.Window(
@@ -47,7 +57,7 @@ enum InputObservationBuilder {
             presented: presented,
             childWindowTabs: childWindowTabs.sorted(),
             hasSheet: window?.attachedSheet != nil, topPage: controller.shownTopPage != nil,
-            visible: window?.isVisible ?? false
+            visible: window?.isVisible ?? false, owed: owedPanes.isEmpty ? nil : owedPanes.sorted()
         )
     }
 

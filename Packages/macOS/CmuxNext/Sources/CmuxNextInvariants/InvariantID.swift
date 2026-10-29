@@ -5,9 +5,9 @@ public struct InvariantID: RawRepresentable, Hashable, Sendable, Codable, Expres
     CustomStringConvertible {
     public let rawValue: String
 
-    public init(rawValue: String) { self.rawValue = rawValue }
+    @inlinable public init(rawValue: String) { self.rawValue = rawValue }
 
-    public init(stringLiteral value: String) { rawValue = value }
+    @inlinable public init(stringLiteral value: String) { rawValue = value }
 
     public init(from decoder: any Decoder) throws {
         rawValue = try decoder.singleValueContainer().decode(String.self)

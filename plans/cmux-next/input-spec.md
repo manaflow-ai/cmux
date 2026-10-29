@@ -140,20 +140,25 @@ that launch only, and nothing persists it. `InputPrivacyTests` checks the redact
 
 The rules of sections 2.5 and 2.6 (which include 2.1) are declared once in the app's invariant registry
 (plans/cmux-next/invariants-DESIGN.md; `InputVerificationService.declareInvariants`): F1-F8, W1-W8 and W10
-on one `InputObservationBuilder.observe` per pass, W9 (presentation settles, 200 ms) and W11 (a focus
-expectation lands) as liveness rules, G1, DP1, H1, and M1 at its call site. Debug builds, and bench builds
-launched with `CMUX_NEXT_INVARIANTS=1`, check them at the end of each committed main turn in which an action
-ran or a focus reduction, key-down, mouse down/up, content presentation, or window move, resize, screen change
-or deminiaturize touched what they read: no settle, no confirming second check, no per-frame step of their
-own. W4 and G1 alone report only when the next check point finds the break again, until the Chromium
-in-flight ledger exists (`rules[].interim`). A violation goes once per signature (rule, host, subject) into the
-append-only ledger until a later check finds it clear. Release builds have no checker
-(`debug.invariants` answers `armed: false`).
+on one world check per pass (each rule takes its own id's share; an id no rule declares is `INV-UNDECLARED`),
+W9 (presentation settles, 200 ms) and W11 (a focus expectation lands) as liveness rules, G1, DP1, H1, and M1 at
+its call site. Debug builds, and bench builds launched with `CMUX_NEXT_INVARIANTS=1`, check them at the end of
+each committed main turn in which an action ran or a focus reduction, key-down, mouse down/up, content
+presentation, or window move, resize, screen change or deminiaturize touched what they read: no settle, no
+confirming second check, no per-frame step of their own. The observation is rebuilt only for the windows a turn
+touched, the key window and the active one (all of them after an action). A pane whose content is owed (a page
+made after the frame commits, one waiting for its engine, a Chromium browser not created yet) is level state:
+its window is unsettled, and W9 bounds the wait. W4 and G1 compare the model with Chromium, whose replies are
+async: until the Chromium in-flight ledger exists they are harness rules (`rules[].interim`), checked by
+`debug.invariants {check: true}` after each journey and fuzz step, never inside a turn. A violation goes once per
+signature (rule, host, subject) into the append-only ledger until a later check that looked at that subject finds
+it clear. Release builds have no checker (`debug.invariants` answers `armed: false`).
 
-A report is written to `~/Library/Logs/cmux-next/<tag or release>/invariants/<seq>-<rule>.json` (newest 50
-kept), read after the violating frame and encoded and written on the files lane: the violation with its
-trigger (the actions of the turn), the rule's state, the observation, the last 512 journal entries, journal
-stats, and `debug.focus`, `debug.surfaces` and `debug.layers`. Each violation logs a fault.
+A report is written to `~/Library/Logs/cmux-next/<tag or release>/invariants/<seq>-<rule>[+<more>].json` (newest
+50 kept), one per batch: every violation found until the next background turn after the violating frame shares
+one read of the facts, and the encoding (the rules' states included) and the write run on the files lane. It
+holds the violations with their triggers (the actions of the turn) and states, the observation, the last 512
+journal entries, journal stats, and `debug.focus`, `debug.surfaces` and `debug.layers`. Each violation logs a fault.
 
 Control socket:
 

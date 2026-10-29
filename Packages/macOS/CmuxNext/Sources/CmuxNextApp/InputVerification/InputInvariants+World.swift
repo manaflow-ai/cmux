@@ -11,6 +11,8 @@ nonisolated extension InputInvariants {
         var violations: [InputViolation]
         /// Windows skipped because content was still being presented.
         var unsettled: [String]
+        /// The observation checked, when the invariant registry keeps it as the rules' state (its report shows it).
+        var observation: InputObservation?
     }
 
     static func world(_ observation: InputObservation) -> WorldResult {
@@ -32,43 +34,20 @@ nonisolated extension InputInvariants {
         return WorldResult(violations: out, unsettled: unsettled)
     }
 
-    /// The violations of one world or model rule (F1-F8, W1-W8, W10) in `observation`: the family that rule belongs
-    /// to, run alone, so each declared rule (InputVerificationService+Invariants) does only its own work. Together
-    /// they give `world(_:).violations`.
-    static func violations(of invariant: InputInvariant, in observation: InputObservation) -> [InputViolation] {
-        let found: [InputViolation]
-        switch invariant {
-        case .overlayOnTop, .livePane, .paneWhenPanes, .targetKind, .noStaleExpectation, .focusModeLive, .omnibarTarget:
-            found = observation.windows.flatMap { model($0.model, window: $0.id) }
-        case .responderMatches, .layoutMatches, .ghosttyMatches, .chromiumMatches, .presentedMatchesSelection:
-            found = observation.windows.filter { $0.topPage != true && isSettled($0) }.flatMap(content)
-        case .keyWindowOwned: found = keyWindow(observation)
-        case .overlaysMatch: found = overlays(observation)
-        case .contextMatches: found = context(observation)
-        case .keysHaveTarget: found = keysHaveTarget(observation)
-        default: found = []
-        }
-        return found.filter { $0.invariant == invariant }
-    }
-
-    /// The rules `violations(of:in:)` answers.
+    /// The ids `world(_:)` can report: the invariant registry declares one rule for each, and each rule takes its own
+    /// id's share of the one world result of a pass (InputVerificationService+Invariants).
     static let worldRules: [InputInvariant] = [
         .overlayOnTop, .livePane, .paneWhenPanes, .targetKind, .noStaleExpectation, .focusModeLive, .omnibarTarget,
         .responderMatches, .layoutMatches, .ghosttyMatches, .chromiumMatches, .keyWindowOwned, .overlaysMatch,
         .contextMatches, .presentedMatchesSelection, .keysHaveTarget,
     ]
 
-    /// The windows whose focused pane does not present the targeted tab yet (W9 waits on them); a window under a
-    /// top page presents nothing and is not waited on.
-    static func unsettledWindows(_ observation: InputObservation) -> [String] {
-        observation.windows.filter { $0.topPage != true && !isSettled($0) }.map(\.id)
-    }
-
-    /// The focused pane shows the tab the model targets.
+    /// The focused pane shows the tab the model targets, and that tab's content is not owed (a page made after the
+    /// frame commits, or waiting for its engine: level state, not a delay).
     static func isSettled(_ window: InputObservation.Window) -> Bool {
         let resolved = window.model.underlying
         guard let pane = resolved.pane, let tab = resolved.tab else { return true }
-        return window.presented[pane] == tab
+        return window.presented[pane] == tab && window.owed?.contains(pane) != true
     }
 
     /// W1-W4 for one settled window.
@@ -81,7 +60,7 @@ nonisolated extension InputInvariants {
         if let pane = model.pane, window.layoutFocus != pane {
             fail(.layoutMatches, "layout \(window.layoutFocus ?? "nil") != model \(pane)")
         }
-        for pane in model.topology.panes {
+        for pane in model.topology.panes where window.owed?.contains(pane.id) != true {
             guard let shown = window.presented[pane.id] else { continue }
             if let selected = pane.selected, pane.tab(selected) == nil {
                 fail(.presentedMatchesSelection, "pane \(pane.id) selects \(selected), which it does not hold")

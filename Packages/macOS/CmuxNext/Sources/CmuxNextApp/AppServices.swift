@@ -249,9 +249,8 @@ final class AppServices {
     /// Made in init, so its `launch.views_built` report is registered before startup can complete.
     let launchPanes: LaunchPaneGate
     private(set) lazy var newTabCloseFrames = FrameBatcher(owner: "NewTabPage.close", scheduler: mainWork.frames)  // a pick's page close: unbudgeted
-    /// Blank-pane invariant, checked after each presentation settle.
-    let surfaceInvariant = SurfaceInvariantMonitor()
-    /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
+    /// The invariant registry (Debug and bench builds; VS2 is the blank-pane rule), focus journaling and the
+    /// no-activate keyboard guard.
     let input = InputVerificationService()
     /// Built by its first reader (a window's content, a tab close, a workspace create), else by its afterStartup
     /// post (`postNonPaintServices`), so a launch with no window still follows its workspaces.
@@ -940,8 +939,6 @@ final class AppServices {
         (NSApp as? CmuxApplication)?.actionTargetOverride = { [weak self] action, found in
             self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)
         }
-        surfaceInvariant.services = self
-        cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
         cache.presentationChanges.subscribe("browser-host") { [weak self] in // not for a change of only terminals and agent pages
             guard let self else { return }
             let onlyTerminalsAndAgents = self.cache.presentationChanges.changedKeys?.allSatisfy { self.cache.existingTerminal($0) != nil || self.madeAgentTabs?.existingView($0) != nil }
@@ -962,6 +959,7 @@ final class AppServices {
         updater.wire(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.bind(registry: registry)
         input.startNoActivateGuard(tap: inputTap, appEvents: appEvents, mainWork: mainWork, work: work)  // an NSApp input hook: before the app activates
+        input.makeInvariants(services: self)  // Debug and bench: the registry and its rules exist before any post, so debug.invariants answers
         notifications.wire(services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
