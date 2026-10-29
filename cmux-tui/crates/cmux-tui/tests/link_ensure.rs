@@ -346,6 +346,46 @@ fn link_stop_waits_for_the_process_and_fails_for_a_link_that_does_not_end() {
     assert!(!alive(pid(&second)), "stop answered before the process was gone");
 }
 
+/// A link that is ending has removed its registration and socket but still
+/// runs, and holds `link.lock` until it exits. `stop` must not answer that
+/// no link runs (the next `ensure` would start a link that cannot take the
+/// lock and exits: "the link did not start"); it waits for the lock, and a
+/// link that never lets go is `stop_timeout`. The test holds the lock in the
+/// ending link's place, so the order is fixed, not raced.
+#[test]
+fn link_stop_waits_for_an_ending_link_that_still_holds_its_lock() {
+    use std::os::fd::AsRawFd as _;
+    let base = Scratch::new("ending");
+    let app = base.app("a");
+    app.ensure(&["--install", "inst_app_a", "--port", "0"]);
+    assert_eq!(app.stop()["stopped"], true);
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(app.state_dir().join("link.lock"))
+        .expect("the link's lock file");
+    // SAFETY: flock on a descriptor this test owns.
+    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let dir = app.state_dir();
+    let out = app.cmux(&["link", "stop", "--state-dir", dir.to_str().unwrap()]);
+    assert!(
+        !out.status.success(),
+        "stop answered while a link of this state directory still ran: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("stop_timeout"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // The ending link is gone: stop answers at once, and ensure starts one.
+    drop(lock);
+    assert_eq!(app.stop()["stopped"], false);
+    let started = app.ensure(&[]);
+    assert_eq!(started["status"], "started", "{started}");
+    assert_eq!(app.stop()["stopped"], true);
+}
+
 /// The link never binds its socket in a folder that other users may open.
 #[test]
 fn link_ensure_refuses_a_socket_folder_open_to_other_users() {
