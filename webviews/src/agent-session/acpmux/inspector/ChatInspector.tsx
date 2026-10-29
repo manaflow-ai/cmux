@@ -739,7 +739,8 @@ function InspectorPresence({
     return (
       <>
         <NativeSessionInfo
-          shown={drawn}
+          // The App's panel sits above the page: it steps aside while the gallery takes the pane.
+          shown={drawn && !gallery}
           width={width}
           top={nativeTop(shell, tabRowHeight)}
           side={side}

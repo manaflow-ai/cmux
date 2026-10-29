@@ -114,7 +114,11 @@ test("the limit's − and + send the stepper's values and are off at the bounds"
     [null, undefined],
   ]);
 
-  const atMin = subagentsSection(subagents({ limits: { maxRunning: 1, maxRunningSource: "settings" }, onSet }), actions, t)!;
+  const atMin = subagentsSection(
+    subagents({ limits: { maxRunning: 1, maxRunningSource: "settings" }, onSet }),
+    actions,
+    t,
+  )!;
   const [minLower, minRaise] = row(atMin.rows, "limit").buttons!;
   expect(minLower!.disabled).toBe(true);
   expect(minRaise!.disabled).toBeUndefined();
@@ -128,7 +132,11 @@ test("the limit's − and + send the stepper's values and are off at the bounds"
   expect(maxRaise!.disabled).toBe(true);
 
   // Without onSet the limit only reads.
-  const readOnly = subagentsSection(subagents({ limits: { maxRunning: 8, maxRunningSource: "settings" } }), actions, t)!;
+  const readOnly = subagentsSection(
+    subagents({ limits: { maxRunning: 8, maxRunningSource: "settings" } }),
+    actions,
+    t,
+  )!;
   expect(row(readOnly.rows, "limit").buttons).toBeUndefined();
 });
 
@@ -137,7 +145,10 @@ test("a subagent's row opens it, a nested one sits under its parent", async () =
   const actions = new NativeInfoActions();
   const section = subagentsSection(
     subagents({
-      agents: [agent("parent", { action: "Reading files" }), agent("child", { parent: "parent", startedAt: NOW - 10_000 })],
+      agents: [
+        agent("parent", { action: "Reading files" }),
+        agent("child", { parent: "parent", startedAt: NOW - 10_000 }),
+      ],
       onOpen: (id) => opened.push(id),
     }),
     actions,
@@ -191,7 +202,11 @@ test("Background tasks' meta counts running commands, servers and workflows", ()
   expect(section.meta).toBe(t("rail.running", { count: 2 }));
   expect(section.metaTone).toBe("running");
   expect(tasksSection(tasks(), new NativeInfoActions(), t)).toBeUndefined();
-  const idle = tasksSection(tasks({ scheduled: [{ id: "w1", text: "check CI", cron: "*/5 * * * *" }] }), new NativeInfoActions(), t)!;
+  const idle = tasksSection(
+    tasks({ scheduled: [{ id: "w1", text: "check CI", cron: "*/5 * * * *" }] }),
+    new NativeInfoActions(),
+    t,
+  )!;
   expect(idle.meta).toBeUndefined();
   expect(row(idle.rows, "scheduled:w1")).toMatchObject({ symbol: "clock", trailing: "*/5 * * * *" });
 });
@@ -269,7 +284,12 @@ test("a server's row opens its address beside the chat, and Stop stops it", asyn
     t,
   )!;
   const server = row(section.rows, "server:p/2");
-  expect(server).toMatchObject({ symbol: "server.rack", title: "bun run dev --port 5173", trailing: ":5173", detail: "1m 1s" });
+  expect(server).toMatchObject({
+    symbol: "server.rack",
+    title: "bun run dev --port 5173",
+    trailing: ":5173",
+    detail: "1m 1s",
+  });
   await click(actions, server.action);
   expect(urls).toEqual(["http://localhost:5173"]);
   await click(actions, server.buttons![0]!.action);

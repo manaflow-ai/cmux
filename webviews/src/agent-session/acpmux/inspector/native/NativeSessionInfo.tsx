@@ -166,8 +166,13 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   useGroupOrder("about");
   useGroupOrder("made");
   useGroupOrder("running");
+  // Elapsed times tick while anything listed still runs, a workflow included.
   const live =
-    shown && (props.agents.length > 0 || props.processes.length > 0 || props.transcriptTasks.length > 0);
+    shown &&
+    (props.agents.length > 0 ||
+      props.processes.length > 0 ||
+      props.transcriptTasks.length > 0 ||
+      props.workflows.some((workflow) => workflow.state === "running" || workflow.state === "pending"));
   const now = useNow(live);
   const chatId = summary?.sessionId;
   const { onSetRunningLimit, onReconnectMcp } = props;
@@ -179,7 +184,9 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const calls = useMemo(
     () =>
       shown && !local && props.onShowCall
-        ? new Set(props.rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))))
+        ? new Set(
+            props.rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))),
+          )
         : undefined,
     [shown, local, props.onShowCall, props.rows],
   );

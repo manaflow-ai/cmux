@@ -401,6 +401,7 @@ public final class AgentPaneView: NSView {
         motionObservation = nil
         iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
+        model.sessionInfo.hostObservation?.cancel()
         sessionStatusObservation?.cancel()
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil

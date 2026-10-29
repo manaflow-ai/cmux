@@ -10,13 +10,7 @@ import type { StartedSession } from "../../started/startedSessions";
 import type { Subagent } from "../../subagents/subagentFold";
 import { clampRunning, MAX_RUNNING, slotCounts } from "../../subsessionLimits";
 import type { SubagentStatus } from "../../summary/SubagentStatusList";
-import {
-  endedCounts,
-  SUBAGENTS_SHOWN,
-  subagentCounts,
-  subagentLines,
-  type SubagentLine,
-} from "../SubagentsSection";
+import { endedCounts, SUBAGENTS_SHOWN, subagentCounts, subagentLines, type SubagentLine } from "../SubagentsSection";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 
 export type SubagentsSectionInput = {

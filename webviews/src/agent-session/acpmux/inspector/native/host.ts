@@ -1,7 +1,7 @@
 // Whether the App draws Session Info for this page (the host's `sessionInfoHost` event, model.ts), and
 // the clicks it hands back (`sessionInfoAction`): each runs the action the page's last model named.
 import { useSyncExternalStore } from "react";
-import type { NativeInfoActions } from "./model";
+import { NATIVE_ACTION_ID_MAX, type NativeInfoActions } from "./model";
 
 let drawn = false;
 const listeners = new Set<() => void>();
@@ -34,14 +34,17 @@ export function useNativeSessionInfoHost(): boolean {
 }
 
 /// The model the page sent last: its row actions, and the panel's own handler.
-export function setNativeSessionInfoActions(next: NativeInfoActions | undefined, panel?: (id: string) => boolean): void {
+export function setNativeSessionInfoActions(
+  next: NativeInfoActions | undefined,
+  panel?: (id: string) => boolean,
+): void {
   actions = next;
   own = panel;
 }
 
 /// A click in the App's panel: the page's row action by `id`, else the panel's own.
 export function runNativeSessionInfoAction(id: unknown): void {
-  if (typeof id !== "string" || id.length === 0 || id.length > 512) return;
+  if (typeof id !== "string" || id.length === 0 || id.length > NATIVE_ACTION_ID_MAX) return;
   if (actions?.run(id)) return;
   own?.(id);
 }

@@ -86,13 +86,33 @@ export type NativeSessionInfo = {
   sections: readonly NativeInfoSection[];
 };
 
+/// Longest id the App hands back (host.ts refuses longer); a longer one is sent as a short hash of it.
+export const NATIVE_ACTION_ID_MAX = 512;
+const ID_KEEP = 200;
+
+/// A long id (a signed URL, a deep path) as `<its first 200 characters>#<hash of all of it>`: as stable
+/// across updates as the id itself, and short enough to come back.
+function boundedId(id: string): string {
+  if (id.length <= ID_KEEP) return id;
+  let low = 0x811c9dc5;
+  let high = 0x01000193;
+  for (let index = 0; index < id.length; index++) {
+    const code = id.charCodeAt(index);
+    low = Math.imul(low ^ code, 0x01000193) >>> 0;
+    high = Math.imul(high ^ code, 0x85ebca6b) >>> 0;
+  }
+  return `${id.slice(0, ID_KEEP)}#${low.toString(36)}${high.toString(36)}`;
+}
+
 /// The actions one model's rows and buttons name: `add` keeps `run` under `id` (unique in the model,
-/// stable across updates, e.g. `tasks.stop:<processId>`) and returns that id for the row.
+/// stable across updates, e.g. `tasks.stop:<processId>`) and returns the id the row sends, bounded so
+/// the App can always hand it back.
 export class NativeInfoActions {
   private readonly runs = new Map<string, () => unknown>();
   add(id: string, run: () => unknown): string {
-    this.runs.set(id, run);
-    return id;
+    const key = boundedId(id);
+    this.runs.set(key, run);
+    return key;
   }
   /// Runs the action the App's click named; false when this model has none by that id (an update
   /// raced the click).

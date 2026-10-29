@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// Session Info drawn by the App over the agent pane (``AgentPaneSessionInfo``,
@@ -9,9 +10,22 @@ extension AgentPaneView {
     /// toggle keeps the page's own panel.
     var drawsSessionInfo: Bool { AgentPaneTunables.nativeSessionInfo.value }
 
-    /// Follows the page's model for as long as the view lives (called once from init).
+    /// Follows the page's model for as long as the view lives (called once from init), and the Debug
+    /// Settings toggle: a flip tells the loaded page at once, so its own panel draws again (or stops)
+    /// with no reload.
     func installSessionInfo() {
         model.sessionInfo.onChange = { [weak self] in self?.applySessionInfo() }
+        // task-owner: lives as long as the view, cancelled in close(); event-driven (Observation)
+        model.sessionInfo.hostObservation = Task { [weak self] in
+            var shown = AgentPaneTunables.nativeSessionInfo.value
+            for await on in ObservationStream({ AgentPaneTunables.nativeSessionInfo.value }) {
+                guard let self else { return }
+                guard on != shown else { continue }
+                shown = on
+                self.announceSessionInfo()
+                self.applySessionInfo()
+            }
+        }
     }
 
     /// Tells a loaded page whether the App draws Session Info (its load and `ready` replays).

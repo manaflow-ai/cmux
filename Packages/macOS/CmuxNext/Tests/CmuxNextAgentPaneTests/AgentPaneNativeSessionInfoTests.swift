@@ -75,6 +75,27 @@ struct AgentPaneNativeSessionInfoTests {
         view.close()
     }
 
+    /// Debug Settings' toggle off takes the App's panel down at once (the page is told, and draws its
+    /// own), and on again brings it back, with no reload.
+    @Test(.timeLimit(.minutes(1))) func killSwitchTakesThePanelDownAtOnce() async throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register([AgentPaneTunables.nativeSessionInfo.descriptor])
+        defer { TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, nil) }
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file)))
+        view.frame = CGRect(x: 0, y: 0, width: 900, height: 700)
+        _ = await view.model.respond(to: .sessionInfo(try Self.model(Self.info(open: true))))
+        #expect(view.model.sessionInfo.panel != nil)
+
+        TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, .bool(false))
+        while view.model.sessionInfo.panel != nil { await Task.yield() }
+        #expect(!view.drawsSessionInfo)
+
+        TunableStore.shared.set(AgentPaneTunables.nativeSessionInfo.key, .bool(true))
+        while view.model.sessionInfo.panel == nil { await Task.yield() }
+        view.close()
+    }
+
     /// Full length: from under the header to the pane's foot less the float margin, at the pane's
     /// right edge; over the chat's column it stops above the composer (`foot`).
     @Test func panelRunsTheFullHeightOfThePage() throws {

@@ -4,14 +4,22 @@
 import { beforeEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PanelToggle } from "../src/agent-session/acpmux/header/PanelToggle";
-import { inspectorState, resetInspectorState, setInspectorOpen } from "../src/agent-session/acpmux/inspector/inspectorState";
+import {
+  inspectorState,
+  resetInspectorState,
+  setInspectorOpen,
+} from "../src/agent-session/acpmux/inspector/inspectorState";
 import {
   runNativeSessionInfoAction,
   setNativeSessionInfoActions,
   setNativeSessionInfoHost,
   nativeSessionInfoDrawn,
 } from "../src/agent-session/acpmux/inspector/native/host";
-import { NativeInfoActions, type NativeInfoSection } from "../src/agent-session/acpmux/inspector/native/model";
+import {
+  NATIVE_ACTION_ID_MAX,
+  NativeInfoActions,
+  type NativeInfoSection,
+} from "../src/agent-session/acpmux/inspector/native/model";
 import { orderSections, panelAction } from "../src/agent-session/acpmux/inspector/native/NativeSessionInfo";
 
 beforeEach(() => {
@@ -82,8 +90,33 @@ test("sections go block by block, in the person's order within each block", () =
     rows: [],
   });
   const ordered = orderSections(
-    [section("tasks", "running"), undefined, section("changes", "made"), section("subagents", "running"), section("environment", "about")],
-    (group) => (group === "running" ? ["tasks", "subagents"] : group === "made" ? ["changes", "sources", "outputs"] : ["environment"]),
+    [
+      section("tasks", "running"),
+      undefined,
+      section("changes", "made"),
+      section("subagents", "running"),
+      section("environment", "about"),
+    ],
+    (group) =>
+      group === "running"
+        ? ["tasks", "subagents"]
+        : group === "made"
+          ? ["changes", "sources", "outputs"]
+          : ["environment"],
   );
   expect(ordered.map((entry) => entry.id)).toEqual(["environment", "changes", "tasks", "subagents"]);
+});
+
+test("a row whose id is a long signed URL still runs from the App's click", async () => {
+  const actions = new NativeInfoActions();
+  let opened = 0;
+  const long = `sources.open:https://example.com/${"a".repeat(2000)}?sig=1`;
+  const id = actions.add(long, () => opened++);
+  expect(id.length).toBeLessThanOrEqual(NATIVE_ACTION_ID_MAX);
+  expect(actions.add(long, () => opened++)).toBe(id);
+  expect(actions.add(`${long}2`, () => undefined)).not.toBe(id);
+  setNativeSessionInfoActions(actions, panelAction);
+  runNativeSessionInfoAction(id);
+  await Promise.resolve();
+  expect(opened).toBe(1);
 });

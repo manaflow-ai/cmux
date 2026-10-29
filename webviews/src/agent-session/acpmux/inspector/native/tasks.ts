@@ -113,7 +113,8 @@ export function tasksSection(
           symbol: "link",
           action: actions.add(`tasks.openUrl:${server.id}:${url}`, () => onOpenUrl(url)),
         });
-    if (input.onStopProcess) buttons.push(stop(server.id, server.command, input.onStopProcess, `tasks.stop:${server.id}`));
+    if (input.onStopProcess)
+      buttons.push(stop(server.id, server.command, input.onStopProcess, `tasks.stop:${server.id}`));
     rows.push({
       id: `server:${server.id}`,
       symbol: "server.rack",
@@ -263,7 +264,9 @@ function workflowRows(
           trailing: [agentStateWord(t, agent.state), workflowAgentTime(agent, input.now)].filter(Boolean).join(" · "),
           tone: WORKFLOW_TONE[agent.state],
           indent: 2,
-          ...(onOpen ? { action: actions.add(`tasks.openWorkflowAgent:${item.id}/${agent.id}`, () => onOpen(agent)) } : {}),
+          ...(onOpen
+            ? { action: actions.add(`tasks.openWorkflowAgent:${item.id}/${agent.id}`, () => onOpen(agent)) }
+            : {}),
         });
       }
     }
