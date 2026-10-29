@@ -72,4 +72,34 @@ import Testing
         #expect(!content.control(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertTab(_:))))
         #expect(count == 0)
     }
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func completionHostKeepsOpenAndRejectsStaleOrDisabledIdentities() throws {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        window.contentView = page
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        var events: [[String: Any]] = []
+        let host = DeclarativePopupHost(webView: page, zoom: { 1 }, send: { events.append($0) }, isAppActive: { true })
+        defer { host.hide() }
+        #expect(host.show(try model())["shown"] as? Bool == true)
+        let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
+        let root = try #require(panel.contentView)
+        func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
+        let content = try #require(descendants(root).compactMap { $0 as? NativePopupContent }.first)
+        let field = try search(content)
+        #expect(content.control(field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertTab(_:))))
+        #expect(events.count == 1 && events.last?["type"] as? String == "complete")
+        #expect(events.last?["id"] as? String == "first" && events.last?["value"] as? String == "First suggestion")
+        #expect(host.activeID == "completion")
+        events.removeAll()
+        content.emit(.complete, "missing", "First suggestion")
+        content.emit(.complete, "disabled", "disabled")
+        content.emit(.complete, "child", "hidden")
+        content.emit(.complete, "aux", "auxiliary")
+        content.emit(.complete, "first", "opaque-key")
+        #expect(events.isEmpty)
+    }
+
 }
