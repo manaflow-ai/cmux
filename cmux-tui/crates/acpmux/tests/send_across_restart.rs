@@ -331,6 +331,64 @@ fn cli_daemon_restart_refuses_unsaved_token_before_stopping() {
 }
 
 #[test]
+fn failed_reconnect_keeps_the_generated_prompt_recovery_identity() {
+    let dir = scratch("reconnect-error");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["new", "-d", "-n", "lane", "-m", "fake"]);
+    assert!(made.status.success(), "new: {}", text(&made));
+    let gate = dir.join("gate");
+    let gate_c = std::ffi::CString::new(gate.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: this test owns the new path and the C string is valid.
+    assert_eq!(unsafe { libc::mkfifo(gate_c.as_ptr(), 0o600) }, 0);
+    let gate_writer = fs::OpenOptions::new().read(true).write(true).open(&gate).unwrap();
+    let prompt = format!("gate: {}", gate.display());
+    // No --prompt-id: callers need the generated identity to recover a send
+    // whose acceptance and completion are ambiguous after reconnect fails.
+    let send = cli_command(&dir, &["--json", "send", "--timeout", "10", "lane", &prompt])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let streamed = cli(&dir, &["wait", "lane", "--match", "before-gate", "--timeout", "5"]);
+    assert!(streamed.status.success(), "first chunk: {}", text(&streamed));
+    let tail = cli(&dir, &["tail", "lane", "--last", "100"]);
+    assert!(tail.status.success(), "tail: {}", text(&tail));
+    let accepted = String::from_utf8_lossy(&tail.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|event| event["kind"] == "user_message" && event["msg"]["text"] == prompt)
+        .expect("no accepted prompt in the session log");
+    let prompt_id = accepted["msg"]["promptId"].as_str().expect("generated prompt id");
+    assert!(uuid::Uuid::parse_str(prompt_id).is_ok(), "not a generated prompt id");
+    let sessions: serde_json::Value =
+        serde_json::from_slice(&cli(&dir, &["--json", "ls"]).stdout).unwrap();
+    let session_id = sessions["sessions"][0]["sessionId"].clone();
+
+    // The old daemon has its log open. Refuse only its replacement's attempt
+    // to open the log, using an unsafe link in this test's private home; no
+    // real service or binary changes. This makes reconnect fail immediately.
+    let log = dir.join("daemon.log");
+    let original_log = dir.join("daemon-before.log");
+    fs::rename(&log, &original_log).unwrap();
+    std::os::unix::fs::symlink(dir.join("outside"), &log).unwrap();
+    let stopped = cli(&dir, &["daemon", "shutdown"]);
+    assert!(stopped.status.success(), "shutdown: {}", text(&stopped));
+    let sent = send.wait_with_output().unwrap();
+    // Restore before cleanup starts a daemon to stop the kept harness.
+    fs::remove_file(&log).unwrap();
+    fs::rename(&original_log, &log).unwrap();
+    drop(gate_writer);
+    let restarted = cli(&dir, &["daemon", "start"]);
+    assert!(restarted.status.success(), "cleanup daemon: {}", text(&restarted));
+    assert!(!sent.status.success(), "send unexpectedly succeeded: {}", text(&sent));
+    let envelope: serde_json::Value = serde_json::from_slice(&sent.stderr).unwrap();
+    assert_eq!(envelope["error"]["detail"], "daemon_closed", "{}", text(&sent));
+    assert_eq!(envelope["error"]["promptId"], prompt_id, "{}", text(&sent));
+    assert_eq!(envelope["error"]["sessionId"], session_id, "{}", text(&sent));
+    assert_eq!(envelope["error"]["retryable"], true, "{}", text(&sent));
+}
+
+#[test]
 fn cli_daemon_restart_preserves_bound_listener_with_saved_token() {
     let dir = scratch("cli-listener");
     let _daemon = start_custom_daemon(&dir, &[]);
