@@ -110,6 +110,9 @@ impl Hub {
                 ("queue_removed", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
                 {
+                    // Withdrawal is a terminal outcome even when the prompt never
+                    // reached turn_started. A resend must return cancellation.
+                    started = true;
                     ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
                     return false;
                 }

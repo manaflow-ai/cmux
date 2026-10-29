@@ -86,12 +86,10 @@ impl Hub {
                 "remote_control_ended" => ended = true,
                 "remote_control_restored" => ended = false,
                 "remote_floor_cancel" if is_cut => floor_cancelled = true,
-                "auto_resume_scheduled" if is_cut => {
-                    // daemon_restart records are queued continuations, not waiting retries.
-                    if e.msg["reason"] != "daemon_restart" {
-                        has_retry_marker = true;
-                        retry = serde_json::from_value(e.msg).ok();
-                    }
+                // daemon_restart records are queued continuations, not waiting retries.
+                "auto_resume_scheduled" if is_cut && e.msg["reason"] != "daemon_restart" => {
+                    has_retry_marker = true;
+                    retry = serde_json::from_value(e.msg).ok();
                 }
                 // Stop records have no turn id; the turn_started reset above makes this
                 // apply only to a stop after the current failed turn began.
@@ -120,14 +118,24 @@ impl Hub {
         {
             let (root, done) = split_attempt(last.msg["promptId"].as_str().unwrap_or_default());
             if done < MAX_ATTEMPTS {
-                retry = Some(RetrySummary {
+                let recovered = RetrySummary {
                     attempt: (done + 1) as u64,
                     of: MAX_ATTEMPTS as u64,
                     reason,
                     next_at: crate::hub::now_ms(),
                     prompt_id: root.to_owned(),
                     turn_id: turn_id.to_owned(),
-                });
+                };
+                // The transient turn_result can be ahead of the scheduler. Persist the
+                // synthesized schedule before arming its task so a second crash keeps the
+                // original deadline instead of resetting it on every restart.
+                self.append(
+                    session,
+                    "mux",
+                    "auto_resume_scheduled",
+                    serde_json::to_value(&recovered).unwrap_or_else(|_| json!({})),
+                );
+                retry = Some(recovered);
             }
         }
         let Some(retry) = retry.filter(|r| {
@@ -138,6 +146,18 @@ impl Hub {
         }) else {
             return;
         };
+        // Restore the durable summary before any blocked/skip decision. Manual retry and
+        // session rows must still describe the failed turn after a crash with stale metadata.
+        let mut summary = serde_json::Map::new();
+        for key in super::super::views::LAST_TURN_KEYS {
+            if let Some(value) = last.msg.get(key) {
+                summary.insert(key.to_owned(), value.clone());
+            }
+        }
+        summary.insert("endedAt".into(), json!(last.at));
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
+            Some(Value::Object(summary));
+
         if control == Control::Web && (ended || floor_cancelled) {
             let skipped =
                 if floor_cancelled { "remote_floor_cancel" } else { "remote_control_ended" };
@@ -158,17 +178,6 @@ impl Hub {
         if self.logged_prompt(session, &id).is_some() {
             return;
         }
-        // Restore this cached summary from the durable cut turn, without re-emitting its
-        // turn-ended side effects. still_cut and the retry row read this same summary.
-        let mut summary = serde_json::Map::new();
-        for key in super::super::views::LAST_TURN_KEYS {
-            if let Some(value) = last.msg.get(key) {
-                summary.insert(key.to_owned(), value.clone());
-            }
-        }
-        summary.insert("endedAt".into(), json!(last.at));
-        session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
-            Some(Value::Object(summary));
         let wake = Arc::new(Notify::new());
         pending.replace(Mark::Waiting {
             turn: turn_id.clone(),

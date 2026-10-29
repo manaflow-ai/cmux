@@ -156,7 +156,7 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
         | "auto_resume_exhausted"
         | "auto_resume_skipped"
         | "auto_resume_stopped" => Some(Step::NoRetry),
-        "auto_resume_scheduled" => Some(Step::RetryScheduled),
+        "auto_resume_scheduled" | "auto_resume_restored" => Some(Step::RetryScheduled),
         "permission_request" => Some(Step::Asks(ask_text(&msg["request"]))),
         "reopened" => Some(Step::Reopened),
         "status" => match msg["status"].as_str()? {
