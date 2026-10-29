@@ -14,6 +14,7 @@ final class SidebarTreeRollUpView: NSView {
 
     private let chips = [SidebarAgentState.blocked, .failed, .running, .finishedUnread].map { Chip(state: $0) }
     private(set) var rollUp: SidebarTreeRollUp?
+    private var maximumWidth: CGFloat?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -42,6 +43,17 @@ final class SidebarTreeRollUpView: NSView {
             chip.fill.isHidden = n == 0
         }
         tint()
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+    }
+
+    /// Gives the row a bounded slot for the roll-up at narrow widths. The compact
+    /// form keeps every state count visible by removing chip padding and reducing
+    /// the inter-chip gap; it never lets a chip extend past the row's leading edge.
+    func setMaximumWidth(_ width: CGFloat?) {
+        let next = width.map { max(0, $0) }
+        guard maximumWidth != next else { return }
+        maximumWidth = next
         invalidateIntrinsicContentSize()
         needsLayout = true
     }
@@ -81,14 +93,25 @@ final class SidebarTreeRollUpView: NSView {
     private static var dotSide: CGFloat { max(4, SidebarStyle.dotSize - 1) }
     private static var pad: CGFloat { Metrics.space1 }
 
-    private func width(_ chip: Chip) -> CGFloat {
-        chip.count.isHidden ? 0 : ceil(Self.pad + Self.dotSide + Metrics.space1 + chip.count.intrinsicContentSize.width + Self.pad)
+    private func width(_ chip: Chip, compact: Bool = false) -> CGFloat {
+        guard !chip.count.isHidden else { return 0 }
+        if compact {
+            // `frame(forAlignmentRect:)` gives the label its two-pixel text
+            // insets, so compact sizing must reserve `naturalSize`, too.
+            return ceil(Self.dotSide + 1 + chip.count.naturalSize.width)
+        }
+        return ceil(Self.pad + Self.dotSide + Metrics.space1 + chip.count.intrinsicContentSize.width + Self.pad)
     }
 
     override var intrinsicContentSize: NSSize {
         let shown = chips.filter { !$0.count.isHidden }
-        let widths = shown.map(width).reduce(0, +) + CGFloat(max(0, shown.count - 1)) * Metrics.space1
-        return NSSize(width: widths, height: ceil(SidebarStyle.badgeFont.pointSize + Metrics.space2))
+        let natural = shown.map(width).reduce(0, +) + CGFloat(max(0, shown.count - 1)) * Metrics.space1
+        guard let maximumWidth, natural > maximumWidth else {
+            return NSSize(width: natural, height: ceil(SidebarStyle.badgeFont.pointSize + Metrics.space2))
+        }
+        let compact = shown.map { width($0, compact: true) }.reduce(0, +) + CGFloat(max(0, shown.count - 1))
+        let bounded = min(maximumWidth, compact)
+        return NSSize(width: bounded, height: ceil(SidebarStyle.badgeFont.pointSize + Metrics.space2))
     }
 
     override func layout() {
@@ -96,21 +119,27 @@ final class SidebarTreeRollUpView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        let shown = chips.filter { !$0.count.isHidden }
+        let natural = shown.map(width).reduce(0, +) + CGFloat(max(0, shown.count - 1)) * Metrics.space1
+        let compact = maximumWidth != nil && natural > maximumWidth!
+        let gap: CGFloat = compact ? 1 : Metrics.space1
         var x: CGFloat = 0
         let h = bounds.height
         for chip in chips where !chip.count.isHidden {
-            let w = width(chip)
+            let w = width(chip, compact: compact)
             chip.fill.frame = CGRect(x: x, y: 0, width: w, height: h)
             chip.fill.cornerRadius = Metrics.chipCornerRadius(height: h)
             let side = Self.dotSide
-            chip.dot.frame = CGRect(x: x + Self.pad, y: (h - side) / 2, width: side, height: side)
+            let pad = compact ? 0 : Self.pad
+            let textGap: CGFloat = compact ? 1 : Metrics.space1
+            chip.dot.frame = CGRect(x: x + pad, y: (h - side) / 2, width: side, height: side)
             chip.dot.cornerRadius = side / 2
             // The text box sits `space1` after the dot; the frame adds the label's padding around
             // it (a frame the size of the text alone clipped the digits).
             let text = chip.count.intrinsicContentSize
-            chip.count.frame = chip.count.frame(forAlignmentRect: NSRect(x: chip.dot.frame.maxX + Metrics.space1, y: (h - text.height) / 2,
+            chip.count.frame = chip.count.frame(forAlignmentRect: NSRect(x: chip.dot.frame.maxX + textGap, y: (h - text.height) / 2,
                                                                          width: ceil(text.width), height: ceil(text.height)))
-            x += w + Metrics.space1
+            x += w + gap
         }
     }
 }

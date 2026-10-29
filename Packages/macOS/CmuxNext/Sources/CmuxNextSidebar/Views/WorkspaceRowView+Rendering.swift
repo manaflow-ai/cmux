@@ -152,7 +152,7 @@ extension WorkspaceRowView {
             trailing -= w + Metrics.space2
         }
         trailing = layoutTreeFold(trailing: trailing, cy: cy, control: control, fades: fades)
-        trailing = layoutRollUp(trailing: trailing, cy: cy)
+        trailing = layoutRollUp(trailing: trailing, cy: cy, leading: leading)
         trailing = layoutPullRequests(trailing: trailing, cy: cy)
         // Lawrence 2026-10-11 ("Overlay with fade"): the title keeps its full
         // width at rest and on hover. The x and the more button draw over the

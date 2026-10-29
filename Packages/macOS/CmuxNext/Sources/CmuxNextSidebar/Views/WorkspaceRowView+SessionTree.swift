@@ -53,8 +53,11 @@ extension WorkspaceRowView {
     }
 
     /// A folded parent's roll-up chips, right to left from `trailing`; the next trailing edge.
-    func layoutRollUp(trailing: CGFloat, cy: CGFloat) -> CGFloat {
+    func layoutRollUp(trailing: CGFloat, cy: CGFloat, leading: CGFloat) -> CGFloat {
         guard !rollUp.isHidden else { return trailing }
+        // Keep all state chips inside the row. At the minimum sidebar width a
+        // four-state, two-digit roll-up needs its compact chip treatment.
+        rollUp.setMaximumWidth(trailing - leading)
         let size = rollUp.intrinsicContentSize
         rollUp.frame = NSRect(x: trailing - size.width, y: cy - size.height / 2, width: size.width, height: size.height)
         return trailing - size.width - Metrics.space2
