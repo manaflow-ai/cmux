@@ -1,0 +1,14 @@
+{
+  "pr": 27362,
+  "case": "gallery agent-pane.inline-media variant tool-audio, frame component, en, Apple System Colors (Light), Playwright chromium, deviceScaleFactor 2",
+  "before": "19ab584d",
+  "after": "e477407a13e67b71ffd0cad938e8b85045b589d7",
+  "width_320": {
+    "before": {"audio_left": 18, "audio_right": 318, "audio_width": 300, "row_right": 302, "container_scrollWidth": 300, "container_clientWidth": 284, "fits": false},
+    "after":  {"audio_left": 18, "audio_right": 302, "audio_width": 284, "row_right": 302, "container_scrollWidth": 284, "container_clientWidth": 284, "audio_max_width": "100%", "fits": true}
+  },
+  "width_760": {"before_and_after": {"audio_width": 300, "audio_right": 320, "row_right": 740, "fits": true}},
+  "playback_both_heads": {"audio_elements": 1, "paused": true, "autoplay": false, "currentTime": 0, "checked": "at load and after 1s"},
+  "page_errors": 0,
+  "light_and_dark_identical_geometry": true
+}
