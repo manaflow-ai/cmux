@@ -1011,6 +1011,7 @@ export function Composer({
         }
         if (accepted instanceof Promise) {
           const written = field.current?.value() ?? "";
+          holdForAttachments.cancel();
           // Accepted commands consume staged files before their async work starts. A pending read
           // must not leak into the next prompt while the command waits.
           for (const item of pending) cancel(item.id);
@@ -1034,6 +1035,7 @@ export function Composer({
         }
       }
       // Accepted commands consume staged files, including reads still pending when /import opened.
+      holdForAttachments.cancel();
       for (const item of pending) cancel(item.id);
       // By id: a chip patched after it went (its original's path arriving) is still the one sent.
       const went = new Set(attachments.map((attachment) => attachment.id));

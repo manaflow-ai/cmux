@@ -428,6 +428,7 @@ export function NewTabPage({
       pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
       dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
     });
+  const holdForAttachments = useSendWhenAttached(unsettled);
   const command = useNewTabCommand(
     text,
     setText,
@@ -437,10 +438,10 @@ export function NewTabPage({
       setAttachments,
       pending,
       cancel,
+      cancelHeldSend: holdForAttachments.cancel,
     },
   );
   attachmentRef.current = attachments;
-  const holdForAttachments = useSendWhenAttached(unsettled);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked
   // (pages/shared/webSwap.ts).

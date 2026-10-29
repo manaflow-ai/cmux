@@ -20,6 +20,7 @@ export function useNewTabCommand(
     setAttachments: Dispatch<SetStateAction<ComposerAttachment[]>>;
     pending: readonly { id: string }[];
     cancel(id: string): void;
+    cancelHeldSend(): void;
   },
 ) {
   const t = useT();
@@ -40,6 +41,8 @@ export function useNewTabCommand(
     }
     if (pending.current) return true;
     const consumeAttachments = () => {
+      // This command supersedes any earlier Return still waiting for those files.
+      intake.cancelHeldSend();
       // Consume only this dispatch's chips. A later paste survives an asynchronous command.
       const went = new Set(intake.attachments.map((attachment) => attachment.id));
       intake.setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));

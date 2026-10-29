@@ -421,7 +421,7 @@ export function useSendWhenAttached(
   pending: number,
   scope?: string,
   unsettled: number = pending,
-): (send: () => void) => boolean {
+): ((send: () => void) => boolean) & { cancel(): void } {
   const held = useRef<(() => void) | undefined>(undefined);
   const count = useRef(pending);
   count.current = pending;
@@ -434,11 +434,20 @@ export function useSendWhenAttached(
     held.current = undefined;
     send();
   }, [unsettled]);
-  const [hold] = useState(() => (send: () => void) => {
-    if (count.current === 0 && !held.current) return false;
-    held.current = send;
-    return true;
-  });
+  const [hold] = useState(() =>
+    Object.assign(
+      (send: () => void) => {
+        if (count.current === 0 && !held.current) return false;
+        held.current = send;
+        return true;
+      },
+      {
+        cancel: () => {
+          held.current = undefined;
+        },
+      },
+    ),
+  );
   return hold;
 }
 
