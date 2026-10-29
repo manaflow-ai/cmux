@@ -560,8 +560,15 @@ async fn watch_once(
     let mut waiting = crate::notify_waiting::Waiting::default();
     loop {
         let due = classifier.next_due();
+        let deadline = waiting.next_deadline();
         let message = tokio::select! {
             message = source.next() => message,
+            () = async {
+                match deadline {
+                    Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
+                    None => std::future::pending().await,
+                }
+            } => return Err("pending-input lookup timed out".into()),
             () = async {
                 match due {
                     Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
@@ -581,7 +588,7 @@ async fn watch_once(
             _ => continue,
         };
         let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
-        let (queries, events) = waiting.receive(&value, classifier);
+        let (queries, events) = waiting.receive(&value, classifier)?;
         for query in queries {
             sink.send(Message::Text(query.to_string().into())).await.map_err(|e| e.to_string())?;
         }
