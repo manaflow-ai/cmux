@@ -70,7 +70,7 @@ import Testing
     }
 
     /// The page URL check ends the system's request, a side effect, so it runs while its panel is not on screen
-    /// (p06-scheduler-336, rule 3: a service observation has no node).
+    /// (rule 3: a service observation has no node).
     @Test func theURLCheckEndsTheSignInWhileItsPanelIsNotOnScreen() async throws {
         let request = FakeWebAuthRequest()
         let (windows, _) = begin(request)

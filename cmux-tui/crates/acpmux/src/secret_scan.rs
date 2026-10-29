@@ -163,38 +163,36 @@ struct Rules {
 /// A Go RE2 pattern as the `regex` crate reads it: Go takes a `{` that
 /// starts no repetition (`{{ env }}`) as a literal, `regex` wants it escaped.
 fn translate(pattern: &str) -> String {
-    let bytes = pattern.as_bytes();
     let mut out = String::with_capacity(pattern.len() + 8);
-    let (mut i, mut class) = (0, false);
-    while i < bytes.len() {
-        let c = bytes[i] as char;
-        if c == '\\' && i + 1 < bytes.len() {
-            let len = 1 + pattern[i + 1..].chars().next().map_or(1, char::len_utf8);
-            out.push_str(&pattern[i..i + len]);
-            i += len;
+    let mut class = false;
+    let mut chars = pattern.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            out.push(c);
+            // The escaped character is copied as it is; a trailing `\` stays.
+            if let Some(escaped) = chars.next() {
+                out.push(escaped);
+            }
             continue;
         }
         match c {
             '[' if !class => class = true,
             ']' if class => class = false,
-            '{' if !class && !repetition(&pattern[i..]) => {
+            '{' if !class && !repetition(chars.as_str()) => {
                 out.push_str("\\{");
-                i += 1;
                 continue;
             }
             _ => {}
         }
-        let len = pattern[i..].chars().next().map_or(1, char::len_utf8);
-        out.push_str(&pattern[i..i + len]);
-        i += len;
+        out.push(c);
     }
     out
 }
 
-/// `{n}`, `{n,}` or `{n,m}` at the start of `rest`.
-fn repetition(rest: &str) -> bool {
-    let Some(end) = rest.find('}') else { return false };
-    let mut parts = rest[1..end].splitn(2, ',');
+/// `n}`, `n,}` or `n,m}` at the start of `after`, the text after a `{`.
+fn repetition(after: &str) -> bool {
+    let Some((inner, _)) = after.split_once('}') else { return false };
+    let mut parts = inner.splitn(2, ',');
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     match (parts.next(), parts.next()) {
         (Some(n), None) => digits(n),
@@ -208,6 +206,10 @@ fn compile(pattern: &str) -> Option<Regex> {
     RegexBuilder::new(&translate(pattern)).unicode(false).size_limit(1 << 24).build().ok()
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: every caller passes a constant pattern; tests::the_constant_patterns_compile builds them"
+)]
 fn own(id: &str, label: &str, pattern: &str, group: usize) -> Rule {
     Rule {
         id: id.to_owned(),
@@ -222,6 +224,10 @@ fn own(id: &str, label: &str, pattern: &str, group: usize) -> Rule {
 
 /// gitleaks' rules in file order, then cmux's own, then gitleaks' `generic-*`,
 /// so a known shape names its kind where a generic match overlaps it.
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: the bundled gitleaks and label files and constant patterns; tests::the_constant_patterns_compile builds them"
+)]
 static RULES: LazyLock<Rules> = LazyLock::new(|| {
     let config: Config = toml::from_str(GITLEAKS).expect("constant pattern"); // crash-allow: constant pattern
     let labels: LabelsConfig = toml::from_str(LABELS).expect("constant pattern"); // crash-allow: constant pattern
@@ -288,8 +294,16 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| {
     Rules { rules, global, ids }
 });
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: constant patterns; tests::the_constant_patterns_compile builds them"
+)]
 static ENTROPY_CANDIDATE: LazyLock<Regex> =
     LazyLock::new(|| compile(r"[A-Za-z0-9+_-]{32,}=*").expect("constant pattern")); // crash-allow: constant pattern
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: constant patterns; tests::the_constant_patterns_compile builds them"
+)]
 static DATA_URI: LazyLock<Regex> = LazyLock::new(|| {
     compile(r"data:[A-Za-z]+/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]+").expect("constant pattern") // crash-allow: constant pattern
 });
@@ -298,7 +312,10 @@ static DATA_URI: LazyLock<Regex> = LazyLock::new(|| {
 fn entropy(s: &[u8]) -> f64 {
     let mut counts = [0u32; 256];
     for &b in s {
-        counts[b as usize] += 1;
+        // 256 slots, one per byte value.
+        if let Some(count) = counts.get_mut(usize::from(b)) {
+            *count += 1;
+        }
     }
     let n = s.len() as f64;
     counts.iter().filter(|&&c| c > 0).map(|&c| f64::from(c) / n).map(|p| -p * p.log2()).sum()
@@ -328,11 +345,19 @@ fn is_placeholder(value: &str) -> bool {
         || CODE_PATH.is_match(v.as_bytes())
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: constant patterns; tests::the_constant_patterns_compile builds them"
+)]
 static PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
     compile(r"^(?:\$\{\{.*|\$\{?(?:[A-Z_][A-Z0-9_]*|[a-z_][a-z0-9_]*)\}?|#\{[^}]*\}|\[[A-Za-z][A-Za-z .-]*\]?)$").expect("constant pattern") // crash-allow: constant pattern
 });
 
 /// `process.env.TOKEN`, `config.password`, `os.environ`: a name, not a value.
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: constant patterns; tests::the_constant_patterns_compile builds them"
+)]
 static CODE_PATH: LazyLock<Regex> = LazyLock::new(|| {
     compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+(?:\(\))?$")
         .expect("constant pattern") // crash-allow: constant pattern
@@ -368,19 +393,23 @@ fn strong_name(whole: &[u8]) -> bool {
 fn names_an_id(before: &[u8]) -> bool {
     let lower = before.to_ascii_lowercase();
     let end = lower.iter().rposition(|b| !b" \t:=\"'`,>|?".contains(b)).map_or(0, |i| i + 1);
-    let name = &lower[..end];
+    let name = lower.get(..end).unwrap_or_default();
     let word = |b: &u8| b.is_ascii_alphanumeric() || b"_.-".contains(b);
     let start = name.iter().rposition(|b| !word(b)).map_or(0, |i| i + 1);
+    let (head, last) = name.split_at_checked(start).unwrap_or((&[], name));
     let token: Vec<u8> =
-        name[start..].iter().map(|&b| if b == b'-' || b == b'.' { b'_' } else { b }).collect();
+        last.iter().map(|&b| if b == b'-' || b == b'.' { b'_' } else { b }).collect();
     match token.as_slice() {
         b"cache_key" | b"cachekey" | b"restore_key" | b"restorekey" | b"idempotency_key"
         | b"idempotencykey" | b"etag" | b"commit" | b"commit_sha" | b"commit_id" => true,
         // A bare key, or the second word of "cache key" and the like.
         b"key" => {
-            let before = name[..start].trim_ascii_end();
+            let before = head.trim_ascii_end();
             let from = before.iter().rposition(|b| !b.is_ascii_alphanumeric()).map_or(0, |i| i + 1);
-            matches!(&before[from..], b"" | b"cache" | b"restore" | b"idempotency")
+            matches!(
+                before.get(from..).unwrap_or_default(),
+                b"" | b"cache" | b"restore" | b"idempotency"
+            )
         }
         _ => false,
     }
@@ -388,9 +417,10 @@ fn names_an_id(before: &[u8]) -> bool {
 
 /// The line of `text` around `range`.
 fn line_of(text: &[u8], range: &Range<usize>) -> Range<usize> {
-    let start = text[..range.start].iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
-    let end =
-        text[range.end..].iter().position(|&b| b == b'\n').map_or(text.len(), |i| range.end + i);
+    let before = text.get(..range.start).unwrap_or_default();
+    let start = before.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+    let after = text.get(range.end..).unwrap_or_default();
+    let end = after.iter().position(|&b| b == b'\n').map_or(text.len(), |i| range.end + i);
     start..end
 }
 
@@ -433,13 +463,16 @@ pub fn find(text: &str) -> Vec<Found> {
                 continue;
             }
             let assignment = rule.id == "cmux-assignment";
-            let name = &whole.as_bytes()[..secret.start() - whole.start()];
+            // The secret is a group of `whole`, so it starts inside it.
+            let name = whole.as_bytes().get(..secret.start() - whole.start()).unwrap_or_default();
             let strong = assignment && strong_name(name);
             let assigned = name.contains(&b'=') || name.ends_with(b"\"") || name.ends_with(b"'");
             if assignment && !is_value(s, strong, assigned) {
                 continue;
             }
-            let line = &bytes[line_of(bytes, &secret.range())];
+            let line_range = line_of(bytes, &secret.range());
+            let line_start = line_range.start;
+            let line = bytes.get(line_range).unwrap_or_default();
             if rule.allow.iter().chain(&rules.global).any(|a| a.allows(s, whole.as_bytes(), line)) {
                 continue;
             }
@@ -447,9 +480,9 @@ pub fn find(text: &str) -> Vec<Found> {
             // it is an id (a cache key, a commit), drops an id: a header's, a
             // token's or a signing key's hex is its secret.
             let generic = rule.id.starts_with("generic");
-            let line_start = line_of(bytes, &secret.range()).start;
             let id_name = (assignment && !strong)
-                || (generic && names_an_id(&bytes[line_start..secret.start()]));
+                || (generic
+                    && names_an_id(bytes.get(line_start..secret.start()).unwrap_or_default()));
             if id_name && rules.ids.allows(s, whole.as_bytes(), line) {
                 continue;
             }
@@ -485,14 +518,15 @@ pub fn find(text: &str) -> Vec<Found> {
 pub fn mask(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut at = 0;
+    // Finds are merged, in order, and on character boundaries (`on_chars`).
     for f in find(text) {
-        out.push_str(&text[at..f.range.start]);
+        out.push_str(text.get(at..f.range.start).unwrap_or_default());
         out.push('[');
         out.push_str(f.label);
         out.push(']');
         at = f.range.end;
     }
-    out.push_str(&text[at..]);
+    out.push_str(text.get(at..).unwrap_or_default());
     out
 }
 

@@ -79,7 +79,8 @@ mod script {
         let sink: LogSink = Arc::new(move |level: &str, message: &str| {
             sink_logs.lock().unwrap().push((level.to_string(), message.to_string()));
         });
-        let session = Session::start(Path::new(BIN), router.clone(), sink).expect("session starts");
+        let session =
+            Session::start(Path::new(BIN), None, router.clone(), sink).expect("session starts");
         Fixture { session, router, logs }
     }
 

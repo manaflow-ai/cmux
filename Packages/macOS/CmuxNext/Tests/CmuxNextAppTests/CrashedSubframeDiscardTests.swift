@@ -6,7 +6,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// p07-memory-106, feature `memoryDiscardCrashedSubframes`: a page whose out-of-process frame crashed is
+/// Feature `memoryDiscardCrashedSubframes`: a page whose out-of-process frame crashed is
 /// discarded while hidden, or at its next hide, as Chrome's DiscardPageWithCrashedSubframePolicy does
 /// (chrome/browser/performance_manager/policies/discard_page_with_crashed_subframe_policy.cc, at the crash
 /// and at OnIsVisibleChanged), so it reloads whole when shown and its renderers' memory goes; a shown page

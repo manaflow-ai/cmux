@@ -9,7 +9,7 @@ import Foundation
 import Testing
 
 /// Hibernated pages' pictures are sized from the cache's `ImageCacheShares.hibernationSnapshotBytes` and
-/// follow the memory coordinator as a lossy consumer (p07-memory-058): a limit scales the bytes kept, the
+/// follow the memory coordinator as a lossy consumer: a limit scales the bytes kept, the
 /// pictures of the tabs beside a shown tab stay at any limit, and the critical limit keeps only those,
 /// compressed or decoded, and takes no picture it would drop.
 @MainActor @Suite(.serialized)
@@ -187,7 +187,7 @@ struct HibernationSnapshotsTests {
         withExtendedLifetime((pressure, coordinator, left, right)) {}
     }
 
-    /// p07-memory-107: a picture the kernel purged, compressed or decoded, is a miss that leaves the store (the
+    /// A picture the kernel purged, compressed or decoded, is a miss that leaves the store (the
     /// page wakes loading), never a blank wake; a neighbor's purged picture goes too, since nothing is left of it.
     @Test func aPurgedPictureIsAMissNotABlankWake() async throws {
         let fakes = FakePurgeableAllocations()
@@ -207,7 +207,7 @@ struct HibernationSnapshotsTests {
         withExtendedLifetime(kept) {}
     }
 
-    /// p07-memory-107: the report splits locked bytes (an image of the picture lives) from volatile ones.
+    /// The report splits locked bytes (an image of the picture lives) from volatile ones.
     @Test func lockedAndVolatileBytesAreReportedApart() throws {
         let fakes = FakePurgeableAllocations()
         let store = HibernationSnapshots(fullCapacityBytes: 4 * Self.pictureBytes, allocator: fakes.allocator)

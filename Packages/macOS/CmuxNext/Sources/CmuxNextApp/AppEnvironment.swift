@@ -3,12 +3,14 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextTerminal
+import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Foundation
 
@@ -33,6 +35,14 @@ struct AppEnvironment: Sendable {
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
     var marksRun = false
+    /// The launch caches' crash-streak decision, made on the files lane by the first launch cache
+    /// read or the run marker's launch read (`AppRunMarker.launchSafeMode`); nil reads every cache (tests).
+    var launchCaches: LaunchSafeMode.Gate?
+    /// Reads a launch cache's files on its lane; reads none in a crash streak's safe launch (``launchCaches``).
+    var launchCacheReader: LaunchFileReader {
+        guard let gate = launchCaches else { return LaunchFileReader() }
+        return LaunchFileReader().gated { gate.safeMode.readsLaunchCaches }
+    }
     /// What every local terminal of this app gets on top of its filtered
     /// login environment: the launch identity (`LaunchIdentity`) and the
     /// terminal identity Ghostty gives its shells (`TerminalEnvironment.instance.ghostty`),
@@ -77,10 +87,10 @@ struct AppEnvironment: Sendable {
     /// Nil where the bundle takes no web updates and in tests that build `AppServices`.
     var webUpdates: LaunchRead<WebUpdates.Launch?>?
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The launch's main-job census (`CMUX_NEXT_MAIN_JOB_CENSUS=1`, p08-startup-080): `debug.startup.main_jobs` reads it.
+    /// The launch's main-job census (`CMUX_NEXT_MAIN_JOB_CENSUS=1`): `debug.startup.main_jobs` reads it.
     /// Only the real app process arms it.
     var mainJobCensus: MainJobCensus?
-    /// The launch's global-job census (`CMUX_NEXT_GLOBAL_JOB_CENSUS=1`, p08-startup-082): `debug.startup.global_jobs`
+    /// The launch's global-job census (`CMUX_NEXT_GLOBAL_JOB_CENSUS=1`): `debug.startup.global_jobs`
     /// reads it. Only the real app process arms it.
     var globalJobCensus: GlobalJobCensus?
     #endif
@@ -89,7 +99,7 @@ struct AppEnvironment: Sendable {
     /// Release and in tests that build `AppServices`.
     var featureLocalOverridesFile: URL?
     /// The launch's daemon features for every hello to the local daemon and their last answer (`features.list`),
-    /// made in `main` once the features resolve (p12-perf-process-150). Nil in tests that build `AppServices`.
+    /// made in `main` once the features resolve. Nil in tests that build `AppServices`.
     var daemonFeatureHello: DaemonFeatureHello?
     var featureLocalOverrides: LaunchRead<FeatureLocalOverrides>?
     /// The Debug tunables features replace (``Feature/replaces``), as the build's debug-tunables.json holds them,
@@ -111,16 +121,12 @@ struct AppEnvironment: Sendable {
     /// no test reads a draft another test typed in the same conversation.
     var homeCachesDirectory: URL?
     /// The Home list's caches (its conversations and its last list) of this build's Chief owner, read on a launch
-    /// lane from `main` (p08-startup-076): the Home list's first frame never reads them on the main thread. Only the
+    /// lane from `main`: the Home list's first frame never reads them on the main thread. Only the
     /// real app process starts it; without it `HomeService` starts its own as it is made (tests that build `AppServices`).
     var homeListRead: HomeListLaunchRead?
-    /// This Mac's install id, read on a launch lane from `main` before the settings read (p08-startup-076). Only the
+    /// This Mac's install id, read on a launch lane from `main` before the settings read. Only the
     /// real app process starts it; without it `CloudService` reads the id at its first use (tests that build `AppServices`).
     var cloudDeviceID: CloudDeviceIDSource?
-    /// `CMUX_NEXT_ORACLE_ROOT` and `HOME` of the launch: the oracle case root (its aliases separated by `:`) and the
-    /// hermetic home the `terminals` facet rewrites to `$ROOT` and `$HOME` before hashing (schemas/oracle/README.md).
-    var oracleRoot: String?
-    var launchHome: String?
     /// The action catalog's launch build, which the registry takes: the real app process passes the one
     /// its launch warm-up thread builds (`LaunchWarmup`); tests that build `AppServices` build it on main.
     var actionCatalog = ActionCatalogLaunch()
@@ -169,9 +175,7 @@ struct AppEnvironment: Sendable {
             testWindow: TestWindowPlacement.parse(environment, isolatedLaunch: isolation.isolated),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment)
                 .merging(openFiles?.childEnvironment ?? [:]) { $1 },
-            resolvesShellIntegration: ghosttyResources.map { !$0.isEmpty } ?? false,
-            oracleRoot: environment["CMUX_NEXT_ORACLE_ROOT"],
-            launchHome: environment["HOME"]
+            resolvesShellIntegration: ghosttyResources.map { !$0.isEmpty } ?? false
         )
     }
 

@@ -3,7 +3,7 @@
 //! (`server/subsessions.rs`) as the session its caller token proves, so the
 //! daemon knows which session acts; nothing here decides a limit.
 //!
-//! The daemon serves them itself (p07-memory-092, [`DaemonTools`]): a
+//! The daemon serves them itself ([`DaemonTools`]): a
 //! connection whose first `initialize` proves a session and names this
 //! server is that session's MCP server (`server/agent_mcp.rs`). The agent
 //! reaches it through `cmux mcp serve`'s socket upstream (no process) or,
@@ -17,6 +17,7 @@
 
 use crate::agent_tools::McpServer;
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
@@ -424,7 +425,8 @@ async fn wait<D: ToolRequests>(daemon: &D, args: &Value) -> Value {
     if ids.is_empty() {
         match daemon.request(method::MUX_SUBSESSION_LIST, json!({})).await {
             Ok(list) => {
-                ids = list["sessions"]
+                ids = list
+                    .field("sessions")
                     .as_array()
                     .into_iter()
                     .flatten()

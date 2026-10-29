@@ -1,6 +1,7 @@
 //! Connecting a remote session: transports, provider authority, and initialization.
 
 use super::*;
+use crate::json_fields::JsonFields;
 use crate::session::sidebar_doc::SIDEBAR_DOC_CAPABILITY;
 use cmux_tui_core::server::OPEN_DEVICE_KINDS_CAPABILITY;
 use cmux_tui_core::server::PLACEMENT_SHIFT_CAPABILITY;
@@ -117,18 +118,18 @@ impl RemoteSession {
         });
 
         let reader_session = Arc::downgrade(&session);
-        std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
+        // supervise-allow: the session's reader, holding a Weak session; a panic ends this remote session's reads only.
+        cmux_threads::spawn("remote-reader", cmux_threads::ThreadQos::UserInitiated, move || {
             let mut report_progress = |partial: &[u8]| {
                 if let Some(session) = reader_session.upgrade() {
                     session.report_read_progress(partial);
                 }
             };
             let reason = loop {
-                let received = reader.receive_with_progress(&mut report_progress);
-                if let Some(reason) = remote_reader_end_reason(&received) {
-                    break Some(reason);
-                }
-                let Ok(Some(mut message)) = received else { unreachable!("end reason handled") };
+                let mut message = match reader.receive_with_progress(&mut report_progress) {
+                    Ok(Some(message)) => message,
+                    ended => break remote_reader_end_reason(&ended),
+                };
                 if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
                     break Some(remote_reader_message_too_large(&mut message));
                 }
@@ -166,19 +167,20 @@ impl RemoteSession {
         // command; an older server ignores the flag.
         let ident = self.request(json!({"cmd": "identify", "revisions": true}))?;
         validate_remote_identity(&ident)?;
-        *self.capabilities.lock().unwrap() = identity_capabilities(&ident);
+        *self.capabilities.lock().recover_poison() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
         // A daemon that reports API revisions learns ours, our release and
         // how we were installed, so it can translate for us or name our
         // update command when it refuses (server/api_revision_wire.rs).
         if ident.get("api_revision").is_some() {
             use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
-            client_info["api_revision"] = json!(cmux_tui_core::server::api_revision_range().0);
-            client_info["version"] = json!(DISTRIBUTION_VERSION);
-            client_info["install"] = json!(InstallChannel::current().as_str());
+            client_info
+                .insert("api_revision", json!(cmux_tui_core::server::api_revision_range().0));
+            client_info.insert("version", json!(DISTRIBUTION_VERSION));
+            client_info.insert("install", json!(InstallChannel::current().as_str()));
         }
         if let Some(hostname) = local_hostname() {
-            client_info["name"] = json!(hostname);
+            client_info.insert("name", json!(hostname));
         }
         let mut negotiated = Vec::new();
         if self.supports_capability(GUARDED_BROWSER_POINTER_CAPABILITY) {
@@ -208,9 +210,9 @@ impl RemoteSession {
             // One cmux-tui install per host, so the host name is also the
             // stable device id that keeps two hosts' priority keys apart.
             let host = local_hostname().unwrap_or_else(|| "cmux-tui".to_string());
-            client_info["device_kind"] = json!("tui");
-            client_info["device_name"] = json!(host);
-            client_info["device_id"] = json!(host);
+            client_info.insert("device_kind", json!("tui"));
+            client_info.insert("device_name", json!(host));
+            client_info.insert("device_id", json!(host));
         }
         // Replays are applied with colors written after them, so the
         // daemon's incomplete sequence must arrive separately.
@@ -228,13 +230,13 @@ impl RemoteSession {
             negotiated.push(PLACEMENT_SHIFT_CAPABILITY);
         }
         if !negotiated.is_empty() {
-            client_info["capabilities"] = json!(negotiated);
+            client_info.insert("capabilities", json!(negotiated));
         }
         self.request(client_info)?;
         if subscribe {
             self.prime_local_subscription();
             if let Err(error) = self.request(self.subscription_request()) {
-                self.primed_subscription.lock().unwrap().take();
+                self.primed_subscription.lock().recover_poison().take();
                 return Err(error);
             }
             self.subscription_started.store(true, Ordering::Release);

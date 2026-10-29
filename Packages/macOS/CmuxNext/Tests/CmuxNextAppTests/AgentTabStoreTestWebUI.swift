@@ -2,12 +2,14 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextInput
 import CmuxNextPages
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 
 extension WebUIHost {
     /// A page host for an agent tab store test: no Chromium host (every page is WebKit), no open
     /// panel, its own registry.
     static func agentTabsTestHost() -> WebUIHost {
-        WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry())
+        WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry(), deadlines: .testing())
     }
 }
 

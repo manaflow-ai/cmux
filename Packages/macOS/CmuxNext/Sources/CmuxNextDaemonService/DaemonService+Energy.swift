@@ -1,12 +1,12 @@
 import CmuxNextDaemon
 public import CmuxNextWakeups
 
-/// `energy.set` (cmux-tui-core server/energy_op.rs, p14-energy-033): the app's Energy Saver, an
+/// `energy.set` (cmux-tui-core server/energy_op.rs): the app's Energy Saver, an
 /// override of the daemon's own reading that lasts as long as the connection that sent it. `reason`
 /// is the policy's ``EnergyPolicy/Reason`` and goes only with `saver: true`; nil is left out of the line.
 /// `offForNow` ("Turn Off for Now", ``ruleCapability`` only) outlives the connection: the daemon's own
 /// reading, which follows the app's rule from `energy.saver` and the Mac's power inputs
-/// (server/energy_rule.rs, p14-energy-137), keeps it until the Mac is plugged in.
+/// (server/energy_rule.rs), keeps it until the Mac is plugged in.
 nonisolated struct EnergySetRequest: DaemonRequest, Equatable {
     typealias Response = EmptyResponse
     static let commandName: DaemonCommandName = "energy.set"

@@ -11,9 +11,9 @@ import GhosttyNextKit
 /// still be inside `io_write_cb` and waits for a running `presented_cb`.
 ///
 /// Checked Sendable: Ghostty's IO, renderer and Core Animation threads read only the
-/// immutable `input`, `linkFilter`, `frames`, `frameMarks`, `vsync` (itself Sendable) and
-/// `cursor`, and an input lock wait report only the immutable `lockWait`; everything
-/// mutable is main-actor isolated.
+/// immutable `input`, `linkFilter`, `frames`, `frameMarks`, `keySlots`, `vsync` (itself
+/// Sendable) and `cursor`, and an input lock wait report only the immutable `lockWait`;
+/// everything mutable is main-actor isolated.
 nonisolated final class SurfaceBridge: Sendable {
     let input: TerminalInputSink
     /// What the surface's callbacks reach: its view in the app, a test's recorder. Main-actor only.
@@ -39,6 +39,8 @@ nonisolated final class SurfaceBridge: Sendable {
     @MainActor private var traceRegistration: (hook: GhosttyTraceHook, id: UInt64)?
     /// Where this surface's presented frames are marked (``ghosttySurfacePresented(_:_:_:_:)``); nil: nowhere.
     let frameMarks: GhosttyTraceHook.Recorder?
+    /// Names the key press the app is dispatching, whose bytes carry its flow (``dispatchingKeyFlow``); nil: none.
+    let keySlots: TerminalEchoStages?
     /// Paces the surface from its display's ``VSyncHub`` thread on external vsync (``TerminalVSync``). Owned here
     /// so it lives exactly as long as the `vsync_userdata` Ghostty holds, past `ghostty_surface_free`.
     let vsync = TerminalVSync()
@@ -50,9 +52,10 @@ nonisolated final class SurfaceBridge: Sendable {
     let lockWait = GhosttyLockWaitSignpost()
 
     init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil,
-         cursor: TerminalCursorPresenter? = nil) {
+         keySlots: TerminalEchoStages? = nil, cursor: TerminalCursorPresenter? = nil) {
         self.input = input
         self.frameMarks = frameMarks
+        self.keySlots = keySlots
         self.cursor = cursor
         frames = GhosttyTraceHook.Surface(key: input.typingSurface, echoStage: echoStage)
     }
@@ -85,6 +88,13 @@ nonisolated final class SurfaceBridge: Sendable {
     /// The session's surfaces to the typing probe (``TypingLatencyProbe``): the key router opens a press
     /// on it, and Ghostty's writes, the output lane and the frame mark by it.
     var typingSurface: TypingLatencyProbe.SurfaceKey { input.typingSurface }
+
+    /// The latency slot flow of the key press whose dispatch makes Ghostty write now (0: none): Ghostty writes a
+    /// key's bytes inline on the main thread, inside its dispatch; a write on its IO thread is no key's.
+    var dispatchingKeyFlow: UInt64 {
+        guard let keySlots, Thread.isMainThread else { return 0 }
+        return MainActor.assumeIsolated { keySlots.dispatchingKeyFlow } // main-proof: guarded by Thread.isMainThread above
+    }
 
     /// Ghostty wrote `bytes` (`io_write_cb`, on the thread that made the write): one on the main thread
     /// (a key, a paste, a report) reaches the session's echo predictions (``PredictiveEchoSlot/written(_:by:)``).
@@ -206,8 +216,9 @@ nonisolated struct TerminalInputSink: Sendable {
         self.typingSurface = typingSurface
     }
 
-    func send(_ data: Data) {
-        lane.push(.bytes(data))
+    /// Sends `data`; `keyFlow` is the latency slot flow of the key press it encodes (0: none).
+    func send(_ data: Data, keyFlow: UInt64 = 0) {
+        lane.push(keyFlow == 0 ? .bytes(data) : .keyBytes(data, keyFlow: keyFlow))
     }
 
     func resize(_ grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
@@ -247,5 +258,5 @@ nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: U
     // SAFETY: as above.
     let data = unsafe Data(bytes: bytes, count: Int(length))
     bridge.wrote(data)
-    bridge.input.send(data)
+    bridge.input.send(data, keyFlow: bridge.dispatchingKeyFlow)
 }

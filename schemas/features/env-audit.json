@@ -620,6 +620,14 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSwitches.swift:272", "kind": "use", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
       ]
     },
+    "CMUX_NEXT_BENCH_LAUNCH_STALL_MS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/BenchLaunchStall.swift:10", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/BenchLaunchStall.swift:17", "kind": "via variable", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_BENCH_REAL_KEYCHAIN": {
       "class": "benchOnly",
       "note": "=1 gives a development bundle Chromium's real login keychain instead of its mock one (chromium-host-bench.py --modes tcc, p01-process-089); read only in DEBUG or CMUX_BENCH_HOOKS builds, never in Release.",
@@ -1099,17 +1107,6 @@
       "auto": true,
       "sites": [
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/AppOnboardingServices.swift:125", "kind": "use", "cond": "DEBUG", "release": false}
-      ]
-    },
-    "CMUX_NEXT_ORACLE_ROOT": {
-      "class": "devGated",
-      "note": "Stored in AppEnvironment; only the oracle facets (DEBUG or bench builds) use it.",
-      "sites": [
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppEnvironment.swift:126", "kind": "use", "cond": "", "release": true},
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextOracle/OracleTerminalsFacet.swift:79", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextOracle/OracleTerminalsFacet.swift:103", "kind": "via rootVariable", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextOracle/OracleTerminalsFacet.swift:104", "kind": "via rootVariable", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
-        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextOracle/OracleTerminalsFacet.swift:184", "kind": "via rootVariable", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
       ]
     },
     "CMUX_NEXT_PAGES_DEV_URL": {
@@ -2149,15 +2146,6 @@
       "note": "Build metadata read with option_env! at compile time.",
       "sites": [
         {"at": "cmux-tui/crates/cmux-remote/src/ssh_bootstrap.rs:40", "kind": "compileTime", "cond": "", "release": true}
-      ]
-    },
-    "CMUX_TUI_OFFLINE": {
-      "class": "releaseConfig",
-      "note": "Opt-out of the daemon's background network checks.",
-      "sites": [
-        {"at": "cmux-tui/crates/cmux-tui/src/owner_start/background_checks.rs:13", "kind": "constant", "cond": "", "release": true},
-        {"at": "cmux-tui/crates/cmux-tui/src/owner_start/background_checks.rs:31", "kind": "via OFFLINE_ENV", "cond": "", "release": true},
-        {"at": "cmux-tui/crates/cmux-tui/src/owner_start/background_checks.rs:133", "kind": "via OFFLINE_ENV", "cond": "cfg(test) && #[test]", "release": false}
       ]
     },
     "CMUX_TUI_PAGES_DIR": {

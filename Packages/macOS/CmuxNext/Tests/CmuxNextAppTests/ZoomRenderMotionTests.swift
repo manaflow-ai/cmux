@@ -5,7 +5,7 @@ import QuartzCore
 import CmuxNextWakeups
 import Testing
 
-/// A zoom on the render server (chrome-parity p03-rendering-027, `motion.renderServer` on): Cmd-Shift-Enter
+/// A zoom on the render server (`motion.renderServer` on): Cmd-Shift-Enter
 /// puts the zooming pane at its rest frame in the key's turn and Core Animation shows it springing there on
 /// the zoom token. No CPU spring steps, the panes it covers stay untouched under it, it stays above them
 /// until it lands, and the landing restores the stacking and lets the covered panes go once.

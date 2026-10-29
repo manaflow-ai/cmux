@@ -1,4 +1,4 @@
-/// The providers' freeze hooks (p13-webui-066): the providers of a frozen page stop the sources behind
+/// The providers' freeze hooks: the providers of a frozen page stop the sources behind
 /// their streams. Their freeze state follows the engine's (``PageWebView/freezePage()``), not the
 /// document's: a frozen page whose document reloads or commits stays frozen, so its new streams start
 /// paused, and only the engine's thaw (or the page's close) thaws them.

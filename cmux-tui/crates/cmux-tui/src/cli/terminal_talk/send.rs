@@ -29,6 +29,7 @@ use super::super::command::{self, CommandPlan, RequestPlan};
 use super::super::mcp::{Backend, CallFailure, FailureKind};
 use super::reply::{self, Reply};
 use super::roster::{self, AgentState};
+use crate::cli::json_fields::JsonFields;
 
 pub(in crate::cli) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 pub(in crate::cli) const DEFAULT_SETTLE: Duration = Duration::from_secs(3);
@@ -292,8 +293,9 @@ pub(in crate::cli) fn sample(
         .filter(|record| fresh(record))
         .filter_map(|record| record["state"].as_str().and_then(AgentState::from_record))
         .collect();
-    let command = extra["activity"]["state"] == "running";
-    let progress = matches!(extra["progress"]["state"].as_str(), Some("normal" | "indeterminate"));
+    let command = extra.field("activity").field("state") == "running";
+    let progress =
+        matches!(extra.field("progress").field("state").as_str(), Some("normal" | "indeterminate"));
     Sample {
         screen: match &screen["revision"] {
             Value::Null => screen["text"].as_str().unwrap_or_default().to_owned(),
@@ -318,7 +320,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     let snapshot = snapshot(backend, session)?;
     let terminal = find_terminal(&snapshot, &request.target)?;
     let id = terminal["id"].as_str().unwrap_or_default().to_owned();
-    let agents = snapshot["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
+    let agents = snapshot.field("agents").as_array().map(Vec::as_slice).unwrap_or_default();
     let agent = roster::agent_of_terminal(terminal, agents);
     if !request.force
         && let Some(agent) = &agent
@@ -336,7 +338,8 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         ));
     }
     let state = backend.request(session, plan(&["terminal", &id, "state", "read"])?)?;
-    let vt = state["state_base64"]
+    let vt = state
+        .field("state_base64")
         .as_str()
         .and_then(|text| base64::engine::general_purpose::STANDARD.decode(text).ok())
         .unwrap_or_default();
@@ -350,7 +353,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     };
     let sent_ms = super::now_ms();
     write(&typed)?;
-    std::thread::sleep(request.enter_delay);
+    cmux_blocking::thread::sleep(request.enter_delay);
     write(&engine.encode(b"\r"))?;
     let sent_at = Instant::now();
     let mut receipt = json!({
@@ -360,7 +363,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         "wait": request.wait.as_str(),
     });
     if request.wait == Wait::None {
-        receipt["sent"] = Value::Bool(true);
+        receipt.insert("sent", Value::Bool(true));
         return Ok(receipt);
     }
     let (verdict, screen) = wait(backend, session, &id, request, sent_at, sent_ms)?;
@@ -371,12 +374,12 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         Verdict::Exited => ("exited", false),
         Verdict::Pending => ("busy", true),
     };
-    receipt["sent"] = Value::Bool(true);
-    receipt["state"] = Value::String(state.to_owned());
-    receipt["timed_out"] = Value::Bool(timed_out);
-    receipt["waited_ms"] = json!(sent_at.elapsed().as_millis().to_string());
-    receipt["anchored"] = Value::Bool(anchored);
-    receipt["output"] = Value::String(text);
+    receipt.insert("sent", Value::Bool(true));
+    receipt.insert("state", Value::String(state.to_owned()));
+    receipt.insert("timed_out", Value::Bool(timed_out));
+    receipt.insert("waited_ms", json!(sent_at.elapsed().as_millis().to_string()));
+    receipt.insert("anchored", Value::Bool(anchored));
+    receipt.insert("output", Value::String(text));
     Ok(receipt)
 }
 
@@ -407,7 +410,7 @@ fn wait<B: Daemon + ?Sized>(
         if verdict != Verdict::Pending || now >= deadline {
             return Ok((verdict, shown));
         }
-        std::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
+        cmux_blocking::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
     }
 }
 
@@ -433,7 +436,7 @@ fn reply_lines<B: Daemon + ?Sized>(
         }
         let Ok(page) = plan(&words) else { break };
         let Ok(page) = backend.request(session, page) else { break };
-        let rows = page["rows"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let rows = page.field("rows").as_array().map(Vec::as_slice).unwrap_or_default();
         if rows.is_empty() {
             break;
         }
@@ -450,7 +453,7 @@ fn reply_lines<B: Daemon + ?Sized>(
             .collect();
         older.append(&mut lines);
         lines = older;
-        match &page["next"] {
+        match &page.field("next") {
             Value::String(next) => before = Some(next.clone()),
             Value::Number(next) => before = Some(next.to_string()),
             _ => break,

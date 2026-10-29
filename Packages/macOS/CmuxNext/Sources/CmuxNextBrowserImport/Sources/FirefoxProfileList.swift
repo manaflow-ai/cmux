@@ -1,16 +1,12 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Reads Firefox's `profiles.ini`: `[ProfileN]` sections with `Name`,
 /// `Path` and `IsRelative`. The profile marked `Default=1` comes first.
 public struct FirefoxProfileList {
-    private let fileManager: FileManager
 
-    /// Creates a reader with the filesystem used to discover Firefox profiles.
-    ///
-    /// - Parameter fileManager: Filesystem access for discovery.
-    public init(fileManager: FileManager = FileManager()) {
-        self.fileManager = fileManager
-    }
+    /// Creates a reader of Firefox profiles.
+    public init() {}
 
     public struct Entry: Sendable, Equatable {
         public var directoryName: String
@@ -20,20 +16,19 @@ public struct FirefoxProfileList {
 
     public func entries(in firefoxDirectory: URL) -> [Entry] {
         let ini = firefoxDirectory.appending(path: "profiles.ini")
-        guard let data = fileManager.contents(atPath: ini.path), let text = String(data: data, encoding: .utf8) else { return folderProfiles(in: firefoxDirectory) }
+        guard let data = FileManager.checked.contents(atPath: ini.path), let text = String(data: data, encoding: .utf8) else { return folderProfiles(in: firefoxDirectory) }
         return parse(text, base: firefoxDirectory)
-            .filter { fileManager.fileExists(atPath: $0.path.path) }
+            .filter { FileManager.checked.fileExists(atPath: $0.path.path) }
     }
 
     /// No `profiles.ini` (Tor Browser keeps `profile.default` beside its
     /// data): folders with a `prefs.js`, directly or under `Profiles/`.
     func folderProfiles(in base: URL) -> [Entry] {
-        let manager = fileManager
         var entries: [Entry] = []
         for prefix in ["", "Profiles/"] {
             let parent = prefix.isEmpty ? base : base.appending(path: prefix, directoryHint: .isDirectory)
-            let names = ((try? manager.contentsOfDirectory(atPath: parent.path)) ?? []).sorted()
-            for name in names where manager.fileExists(atPath: parent.appending(path: name).appending(path: "prefs.js").path) {
+            let names = ((try? FileManager.checked.contentsOfDirectory(atPath: parent.path)) ?? []).sorted()
+            for name in names where FileManager.checked.fileExists(atPath: parent.appending(path: name).appending(path: "prefs.js").path) {
                 entries.append(Entry(directoryName: prefix + name, displayName: name, path: parent.appending(path: name, directoryHint: .isDirectory)))
             }
         }

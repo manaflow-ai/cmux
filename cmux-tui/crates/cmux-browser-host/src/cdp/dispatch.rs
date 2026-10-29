@@ -19,19 +19,28 @@ pub(super) enum Dispatch {
 /// Starts the event thread for `sink`.
 pub(super) fn start(sink: EventSink) -> Result<mpsc::Sender<Dispatch>, DriverError> {
     let (tx, rx) = mpsc::channel::<Dispatch>();
-    std::thread::Builder::new()
-        .name("cmux-browser-host-cdp-events".into())
-        .spawn(move || {
+    // supervise-allow: the driver's event thread, ending when its sender drops; a sink that panics loses that one event, and the thread delivers the next.
+    cmux_threads::spawn(
+        "cmux-browser-host-cdp-events",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             for item in rx {
                 match item {
-                    Dispatch::Event(event) => sink(event),
+                    Dispatch::Event(event) => {
+                        let delivered =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sink(event)));
+                        if delivered.is_err() {
+                            eprintln!("cmux-browser-host: a driver event handler panicked");
+                        }
+                    }
                     Dispatch::Flush(done) => {
                         let _ = done.send(());
                     }
                 }
             }
-        })
-        .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
+        },
+    )
+    .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
     Ok(tx)
 }
 
@@ -50,5 +59,33 @@ impl Inner {
         if sent.is_ok() {
             let _ = flushed.recv_timeout(wait);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /// A sink that panics on one event loses that event only: the thread
+    /// delivers the next event and answers a flush.
+    #[test]
+    fn a_panicking_sink_loses_one_event_and_the_thread_keeps_serving() {
+        let (seen_tx, seen) = mpsc::channel();
+        let sink: EventSink = Arc::new(move |event: DriverEvent| {
+            assert_ne!(event.name, "boom", "the sink failed");
+            let _ = seen_tx.send(event.name);
+        });
+        let events = start(sink).unwrap();
+        let event = |name: &str| {
+            Dispatch::Event(DriverEvent { name: name.into(), payload: serde_json::Value::Null })
+        };
+        events.send(event("boom")).unwrap();
+        events.send(event("after")).unwrap();
+        let (done, flushed) = mpsc::sync_channel(1);
+        events.send(Dispatch::Flush(done)).unwrap();
+        let wait = Duration::from_secs(10);
+        assert_eq!(flushed.recv_timeout(wait), Ok(()));
+        assert_eq!(seen.recv_timeout(wait).as_deref(), Ok("after"));
     }
 }

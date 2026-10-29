@@ -719,7 +719,7 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
         "hook argv must contain 1 to 64 entries"
     );
     anyhow::ensure!(
-        Path::new(&manifest.exec.argv[0]).is_absolute(),
+        manifest.exec.argv.first().is_some_and(|program| Path::new(program).is_absolute()),
         "hook argv[0] must be an absolute executable path"
     );
     anyhow::ensure!(
@@ -1840,11 +1840,12 @@ impl WorkspaceRegistry {
         let replay: Value =
             serde_json::from_slice(&uncompressed).context("decode terminal exit snapshot")?;
         anyhow::ensure!(
-            replay["format"].as_str() == Some("cmux.vt-replay.v1"),
+            replay.get("format").and_then(Value::as_str) == Some("cmux.vt-replay.v1"),
             "terminal exit snapshot payload format is invalid"
         );
-        let replay_bytes = replay["bytes_base64"]
-            .as_str()
+        let replay_bytes = replay
+            .get("bytes_base64")
+            .and_then(Value::as_str)
             .context("terminal exit snapshot omitted bytes_base64")?;
         let replay_bytes = base64::engine::general_purpose::STANDARD
             .decode(replay_bytes)
@@ -1910,20 +1911,6 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Option<JournalCheckpoint>> {
         let site = std::panic::Location::caller();
         query_selected_journal_checkpoint(&self.connection.get_at(site), selector, None)
-    }
-}
-
-#[cfg(any(debug_assertions, feature = "oracle"))]
-impl SessionJournalReader {
-    /// [`WorkspaceRegistry::journal_checkpoint`] on this reader's own
-    /// read-only connection, with no registry lock (`oracle-restore-preview`);
-    /// `latest` is the latest at or before `through` when it is given.
-    pub(crate) fn journal_checkpoint(
-        &self,
-        selector: &str,
-        through: Option<u64>,
-    ) -> anyhow::Result<Option<JournalCheckpoint>> {
-        query_selected_journal_checkpoint(&self.connection, selector, through)
     }
 }
 
@@ -2374,12 +2361,18 @@ fn journal_segment_receipt(
         params![origin, idempotency_key],
         |row| row.get::<_, String>(0),
     )?;
-    let result: Value = serde_json::from_str(&result)?;
-    let through_sequence = result["through_sequence"]
-        .as_str()
+    let mut result: Value = serde_json::from_str(&result)?;
+    let through_sequence = result
+        .get("through_sequence")
+        .and_then(Value::as_str)
         .context("segment receipt omitted through_sequence")?
         .parse()?;
-    let segments = serde_json::from_value(result["segments"].clone())?;
+    let segments = serde_json::from_value(
+        result
+            .as_object_mut()
+            .and_then(|fields| fields.remove("segments"))
+            .context("segment receipt omitted segments")?,
+    )?;
     Ok(JournalSegmentSealCommit { through_sequence, segments, journal })
 }
 
@@ -2554,28 +2547,26 @@ fn operation_receipt(
     let result: Value = serde_json::from_str(&result)?;
     Ok(Some(JournalAppendCommit {
         sequence: u64::try_from(sequence)?,
-        event_id: result["event_id"].as_str().context("receipt omitted event_id")?.into(),
+        event_id: result
+            .get("event_id")
+            .and_then(Value::as_str)
+            .context("receipt omitted event_id")?
+            .into(),
         replayed: true,
     }))
 }
 
 fn encode_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
+    hex_bytes(bytes)
 }
 
 fn decode_sha256(value: &str) -> anyhow::Result<[u8; 32]> {
     anyhow::ensure!(value.len() == 64, "SHA-256 digest must contain 64 hexadecimal characters");
     let mut decoded = [0_u8; 32];
-    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
-        let text = std::str::from_utf8(chunk)?;
-        decoded[index] =
-            u8::from_str_radix(text, 16).context("SHA-256 digest is not hexadecimal")?;
+    let (pairs, _) = value.as_bytes().as_chunks::<2>();
+    for (byte, pair) in decoded.iter_mut().zip(pairs) {
+        let text = std::str::from_utf8(pair)?;
+        *byte = u8::from_str_radix(text, 16).context("SHA-256 digest is not hexadecimal")?;
     }
     Ok(decoded)
 }

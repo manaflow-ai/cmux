@@ -6,7 +6,7 @@ import CmuxScreenKit
 import Foundation
 import Testing
 
-/// p06-scheduler-335: Mac Screen's owners on the scheduler (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9):
+/// Mac Screen's owners on the scheduler (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9):
 /// app notices through the app's one observer per name, hidden views repaint once on show, deadlines carry a class,
 /// and side effects still run while nothing shows.
 @MainActor
@@ -60,7 +60,7 @@ struct MacScreenSchedulerSweepTests {
 
     private static func pages(_ deadlines: MainDeadlineScheduler, events: AppEvents) -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file, removeLinkPairings: {}), deadlines: deadlines, appEvents: events)
+        return MacScreenPages(store: MacScreenStore(file: file, runner: BackgroundWork(label: "test.mac-screen"), removeLinkPairings: {}), deadlines: deadlines, appEvents: events)
     }
 
     /// R-appear: a theme change while the view is hidden repaints nothing until it shows, then once.

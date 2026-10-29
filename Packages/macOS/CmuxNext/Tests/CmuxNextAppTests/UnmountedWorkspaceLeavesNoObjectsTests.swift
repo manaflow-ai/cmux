@@ -9,7 +9,7 @@ import Foundation
 import Testing
 
 /// A workspace its window unmounts (parked, then torn down to free memory, or its window closed)
-/// leaves no app object behind (p07-memory-034, MQ-LEAK classes Workspace|Pane|Strip|Tab|Layout):
+/// leaves no app object behind (MQ-LEAK classes Workspace|Pane|Strip|Tab|Layout):
 /// after `teardown` and one main-actor turn, the content controller, its layout and content views,
 /// its screen bar strip, every pane controller and every pane's tab strip are freed. A tree change
 /// or a repair that lands after the teardown mounts no pane and asks the window for no focus, and
@@ -188,7 +188,7 @@ import Testing
         let repair = world.services.emptyWorkspaces
         repair.canCreate = { true }
         repair.isLive = { false } // the first pass sees the pane on no live connection: no close later
-        // The repair's follows start in a turn it posted, after these seams (p06-scheduler-339 fixer): its first
+        // The repair's follows start in a turn it posted, after these seams: its first
         // membership pass examines the workspace with them.
         #expect(repair.visited == 0, "the repair's first pass ran in its init's turn, before the test's seams")
         try #require(runMainLoop { repair.visited == 1 }, "the repair's posted start did not run its first pass")

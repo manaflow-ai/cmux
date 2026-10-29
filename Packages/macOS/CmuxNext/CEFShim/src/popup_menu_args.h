@@ -1,8 +1,8 @@
-// <select> popups as data (fork API 31, task p01-process-171; cmux task
+// <select> popups as data (fork API 31; cmux task
 // p01-process-060), with no CEF (scripts/cmux-next/test-shim-popup-menu-cpp.sh
 // compiles it alone): the shim's copies of include/cef_cmux.h's
 // cmux_popup_menu_t and cmux_popup_menu_item_t (manaflow-ai/cef
-// cp/p01-process-171; the artifact's header is older than API 31) and the
+// the artifact's header is older than API 31) and the
 // CMUX_SHIM_POPUP_MENU event's JSON. Chrome's browser process hands the same
 // fields to the view that shows the menu (RenderWidgetHostNSView's
 // DisplayPopupMenu, content/common/render_widget_host_ns_view.mojom), which

@@ -1,6 +1,7 @@
 //! Part of the TUI `App`; see `tui/mod.rs`.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 impl App {
     // ------------------------------------------------------------ overlays
@@ -186,25 +187,25 @@ impl App {
         }
         let mut params = json!({"cwd": d.cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": d.harness, "policy": d.policy}}});
         if let Some(p) = &d.peer {
-            params["_meta"]["acpmux"]["peer"] = json!(p);
+            params.set_path(&["_meta", "acpmux", "peer"], json!(p));
         }
         let client = self.client.clone();
         let tx = self.tx.clone();
         if let Some(model) = &d.model {
-            params["_meta"]["acpmux"]["model"] = json!(model);
+            params.set_path(&["_meta", "acpmux", "model"], json!(model));
         }
         if let Some(effort) = &d.effort {
-            params["_meta"]["acpmux"]["effort"] = json!(effort);
+            params.set_path(&["_meta", "acpmux", "effort"], json!(effort));
         }
         self.status = format!("starting {}…", d.harness);
-        tokio::spawn(async move {
+        self.background(async move {
             match client.request(method::SESSION_NEW, params).await {
                 Ok(v) => {
                     if let Some(id) = v.get("sessionId").and_then(Value::as_str) {
                         let _ = tx.send(AppMsg::Created(id.to_owned()));
                         let id = id.to_owned();
                         let c = client.clone();
-                        tokio::spawn(async move {
+                        super::background::spawn(tx.clone(), async move {
                             let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": App::prompt_blocks(&text, &images)})).await;
                         });
                     }
@@ -259,16 +260,20 @@ impl App {
             self.status = e;
             return;
         }
-        let mut meta = json!({"harness": agent, "policy": POLICIES[form.policy]});
+        let Some(policy) = form.policy_name() else {
+            self.report_error("choose a permission policy".into());
+            return;
+        };
+        let mut meta = json!({"harness": agent, "policy": policy});
         if !form_name.is_empty() {
-            meta["name"] = json!(form_name);
+            meta.set("name", json!(form_name));
         }
         let params = json!({"cwd": form.cwd.text(), "mcpServers": [], "_meta": {"acpmux": meta}});
         let first = form.prompt.text().trim().to_owned();
         let client = self.client.clone();
         let tx = self.tx.clone();
         self.status = "starting harness…".into();
-        tokio::spawn(async move {
+        self.background(async move {
             match client.request(method::SESSION_NEW, params).await {
                 Ok(v) => {
                     if let Some(id) = v.get("sessionId").and_then(Value::as_str) {
@@ -276,7 +281,7 @@ impl App {
                         if !first.is_empty() {
                             let id = id.to_owned();
                             let c = client.clone();
-                            tokio::spawn(async move {
+                            super::background::spawn(tx.clone(), async move {
                                 let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": first}]})).await;
                             });
                         }
@@ -300,7 +305,7 @@ impl App {
         self.show_harness_picker(json!({"harnesses":self.harnesses.iter().map(|h| json!({"harness":h})).collect::<Vec<_>>()}));
         let client = self.client.clone();
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        self.background(async move {
             match client.request("_acpmux/models", json!({})).await {
                 Ok(v) => {
                     let _ = tx.send(AppMsg::HarnessCatalog(id, v));
@@ -360,7 +365,7 @@ impl App {
         self.model_picker_current_only = false;
         let client = self.client.clone();
         let tx = self.tx.clone();
-        tokio::spawn(async move {
+        self.background(async move {
             match client.request("_acpmux/models", json!({})).await {
                 Ok(v) => {
                     let _ = tx.send(AppMsg::Models(v));
@@ -497,7 +502,11 @@ impl App {
         );
         // Land on the current harness's first model when no exact model matched.
         if current_model.is_none() {
-            p.cursor = p.visible.iter().position(|&i| !p.rows[i].header).unwrap_or(0);
+            p.cursor = p
+                .visible
+                .iter()
+                .position(|&i| p.rows.get(i).is_some_and(|row| !row.header))
+                .unwrap_or(0);
         }
         self.overlay = Overlay::Picker(p);
         self.status = DEFAULT_STATUS.into();
@@ -778,8 +787,9 @@ impl App {
                     Some((p, a)) => (Some(p.to_owned()), a.to_owned()),
                     None => (None, group.clone()),
                 };
-                if live.is_none() && self.on_draft() {
-                    let d = self.draft_mut().unwrap();
+                if live.is_none()
+                    && let Some(d) = self.draft_mut()
+                {
                     d.peer = peer;
                     d.harness = agent;
                     d.model = if value == "default" { None } else { Some(value.clone()) };

@@ -7,28 +7,16 @@
 use crate::{feature_flags, update_notice};
 
 const LOG_AREA: &str = "background-checks";
-/// Set by the oracle's hermetic cases (scripts/cmux-next/oracle/hermetic_env.py):
-/// no fetch at all, as Chrome's tests run with `--disable-background-networking`
-/// (chrome/common/chrome_switches.cc).
-const OFFLINE_ENV: &str = "CMUX_TUI_OFFLINE";
 
 /// Starts the checks on a thread of their own.
 pub(super) fn spawn() {
-    if offline(&|name| std::env::var(name).ok()) {
-        crate::client_log::info(LOG_AREA, "feature-flags: off (offline)");
-        crate::client_log::info(LOG_AREA, "update-check: off (offline)");
-        return;
-    }
-    let _ = std::thread::Builder::new().name("background-checks".into()).spawn(|| {
+    // supervise-allow: one best-effort pass (flags, then the update check) that owns no shared state; a panic loses only this pass's log lines, as offline does.
+    let _ = cmux_threads::spawn("background-checks", cmux_threads::ThreadQos::Utility, || {
         let line = flags();
         crate::client_log::info(LOG_AREA, &format!("feature-flags: {line}"));
         let line = update_check();
         crate::client_log::info(LOG_AREA, &format!("update-check: {line}"));
     });
-}
-
-fn offline(env: &dyn Fn(&str) -> Option<String>) -> bool {
-    env(OFFLINE_ENV).as_deref() == Some("1")
 }
 
 fn flags() -> String {
@@ -124,20 +112,4 @@ fn get(url: &str) -> Result<Vec<u8>, String> {
 #[cfg(not(unix))]
 fn get(_url: &str) -> Result<Vec<u8>, String> {
     Err("unsupported platform".into())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn offline_only_when_the_variable_is_one() {
-        let set = |value: &'static str| {
-            move |name: &str| (name == OFFLINE_ENV).then(|| value.to_string())
-        };
-        assert!(offline(&set("1")));
-        assert!(!offline(&set("0")));
-        assert!(!offline(&set("")));
-        assert!(!offline(&|_| None));
-    }
 }

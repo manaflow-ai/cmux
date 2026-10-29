@@ -174,6 +174,15 @@ pub(crate) fn send_snapshot_resync(
     let _ = write_frame(stream, &resync);
 }
 
+/// The snapshot's geometry try-lock lost to a resize or cell-metric writer:
+/// step aside for it before trying again (the parser guard is already
+/// dropped, so that writer can finish).
+fn yield_to_geometry_writer(remaining: Duration) {
+    // wakeup-allow: bounded retries only while a writer holds the geometry during a client's attach,
+    // never past the snapshot deadline; an idle host never reaches this
+    thread::park_timeout(remaining.min(Duration::from_millis(1)));
+}
+
 pub(crate) fn serve_client(host: Arc<HostShared>, stream: HostStream) -> anyhow::Result<()> {
     serve_client_with_snapshot_timeout(host, stream, HOST_SNAPSHOT_BOUNDARY_TIMEOUT)
 }
@@ -198,11 +207,13 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 | FLAG_PTY_CUSTODY
                 | FLAG_PROGRAM_STATUS
                 | FLAG_SHELL_ACTIVITY
-                | FLAG_INPUT_FLOW)
+                | FLAG_INPUT_FLOW
+                | FLAG_INPUT_STAGES)
             != 0
         || (hello_frame.flags & FLAG_TERMINAL_METADATA != 0
             && hello_frame.version != PROTOCOL_VERSION)
         || (hello_frame.flags & FLAG_INPUT_FLOW != 0 && hello_frame.version != PROTOCOL_VERSION)
+        || (hello_frame.flags & FLAG_INPUT_STAGES != 0 && hello_frame.flags & FLAG_INPUT_FLOW == 0)
         || (hello_frame.flags & FLAG_PROGRAM_STATUS != 0
             && hello_frame.flags & FLAG_TERMINAL_METADATA == 0)
         || (hello_frame.flags & FLAG_SHELL_ACTIVITY != 0
@@ -263,7 +274,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     if shell_activity_negotiated {
         hello_response.flags |= FLAG_SHELL_ACTIVITY;
     }
-    // Key-press flows (p09-observability-018): only a client that may write input, and on the
+    // Key-press flows: only a client that may write input, and on the
     // smart stream, whose Output frames carry the flow of the read they come from.
     let input_flow = hello_frame.flags & FLAG_INPUT_FLOW != 0
         && selected_version == PROTOCOL_VERSION
@@ -271,6 +282,11 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         && granted_rights.contains(CapabilityRights::INPUT);
     if input_flow {
         hello_response.flags |= FLAG_INPUT_FLOW;
+    }
+    // Key stages ride on the flow's Output frames.
+    let input_stages = input_flow && hello_frame.flags & FLAG_INPUT_STAGES != 0;
+    if input_stages {
+        hello_response.flags |= FLAG_INPUT_STAGES;
     }
     hello_response.request_id = hello_frame.request_id;
     write_frame(&mut stream, &hello_response)?;
@@ -305,7 +321,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 Ok(guard) => guard,
                 Err(TryLockError::WouldBlock) => {
                     drop(term);
-                    thread::park_timeout(remaining.min(Duration::from_millis(1)));
+                    yield_to_geometry_writer(remaining);
                     continue;
                 }
                 Err(TryLockError::Poisoned(_)) => {
@@ -319,7 +335,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 Err(TryLockError::WouldBlock) => {
                     drop(viewer_sizes);
                     drop(term);
-                    thread::park_timeout(remaining.min(Duration::from_millis(1)));
+                    yield_to_geometry_writer(remaining);
                     continue;
                 }
                 Err(TryLockError::Poisoned(_)) => {
@@ -335,7 +351,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     drop(size);
                     drop(viewer_sizes);
                     drop(term);
-                    thread::park_timeout(remaining.min(Duration::from_millis(1)));
+                    yield_to_geometry_writer(remaining);
                     continue;
                 }
                 Err(TryLockError::Poisoned(_)) => {
@@ -508,7 +524,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 tap.release(&frame);
                 break;
             }
-            let write_result = write_frame(output, &client_wire_frame(&frame, input_flow));
+            let write_result =
+                write_frame(output, &client_wire_frame(&frame, input_flow, input_stages));
             tap.release(&frame);
             if write_result.is_err() {
                 break;
@@ -667,7 +684,14 @@ impl ClientFrames {
                     // The injected late receipt is a wait, not a hang.
                     cmux_hang_watch::invalidate_active();
                     // wakeup-allow: fixture integration failure-injection seam, only with CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS set; bounded at 5 s
-                    thread::sleep(Duration::from_millis(delay.min(5_000)));
+                    cmux_threads::allow_blocking(
+                        cmux_threads::AllowReason::FailureInjection,
+                        || {
+                            cmux_threads::checked::sync::sleep(Duration::from_millis(
+                                delay.min(5_000),
+                            ));
+                        },
+                    );
                 }
                 if ctx.launch_owner_claimed {
                     ctx.host.mark_launch_owner_stream_ready();
@@ -913,9 +937,11 @@ impl ClientControl {
         let frames = self.frames.clone();
         let lane = self.lane.clone();
         // The thread ends with the client; nothing joins it.
-        let spawned = cmux_threads::spawn(
+        let spawned = crate::supervised::spawn_at(
             "terminal-host-client-control",
             cmux_threads::ThreadQos::UserInitiated,
+            crate::supervised::Fatal,
+            crate::supervised::ShutdownBehavior::Continue,
             move || run_control(&frames, &lane),
         );
         match spawned {
@@ -971,15 +997,34 @@ fn run_control(frames: &Arc<ClientFrames>, lane: &ControlLane) {
 
 /// `frame` as this client may read it: an `Output` that carries a key
 /// press's flow ([`FLAG_INPUT_FLOW`]) loses the trailer toward a client that
-/// did not negotiate it. Every other frame goes as it is.
-pub(crate) fn client_wire_frame(frame: &Frame, input_flow: bool) -> Cow<'_, Frame> {
-    if input_flow || frame.kind != MessageKind::Output || frame.flags & FLAG_INPUT_FLOW == 0 {
+/// did not negotiate it, and its key stages ([`FLAG_INPUT_STAGES`]) toward
+/// one that negotiated only the flow, which gets the flow trailer. Every
+/// other frame goes as it is.
+pub(crate) fn client_wire_frame(
+    frame: &Frame,
+    input_flow: bool,
+    input_stages: bool,
+) -> Cow<'_, Frame> {
+    let carries_stages = frame.flags & FLAG_INPUT_STAGES != 0;
+    if frame.kind != MessageKind::Output
+        || frame.flags & FLAG_INPUT_FLOW == 0
+        || (input_flow && (input_stages || !carries_stages))
+    {
         return Cow::Borrowed(frame);
     }
-    let mut plain = frame.clone();
-    plain.flags &= !FLAG_INPUT_FLOW;
-    if let Some((bytes, _)) = split_flow_trailer(frame.flags, &frame.payload) {
-        plain.payload.truncate(bytes.len());
+    let split = if carries_stages {
+        split_stages_trailer(&frame.payload).map(|(bytes, flow, _, _)| (bytes.len(), flow))
+    } else {
+        split_flow_trailer(frame.flags, &frame.payload).map(|(bytes, flow)| (bytes.len(), flow))
+    };
+    let mut wire = frame.clone();
+    wire.flags &= !(FLAG_INPUT_FLOW | FLAG_INPUT_STAGES);
+    if let Some((len, flow)) = split {
+        wire.payload.truncate(len);
+        if input_flow {
+            wire.payload.extend_from_slice(&flow.to_le_bytes());
+            wire.flags |= FLAG_INPUT_FLOW;
+        }
     }
-    Cow::Owned(plain)
+    Cow::Owned(wire)
 }

@@ -94,10 +94,6 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 /Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/*
 !/Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/GENERATED.md
 /Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js
-# The Linux build's string tables: links to .build-linux/lproj written by
-# scripts/cmux-next/linux/compile-xcstrings.py (p15-oracle-228).
-/Packages/macOS/CmuxNext/Sources/**/LinuxStringTables
-/Packages/macOS/CmuxNext/Tests/**/LinuxStringTables
 /Resources/markdown-viewer/webviews-app/
 # The React pages' strings tables: build output of webviews/scripts/pages/gen-strings.mjs, written
 # by bun install, the webviews test preload and every bundle build from the xcstrings catalogs

@@ -15,6 +15,7 @@ impl HostShared {
         if exited.is_some() {
             return true;
         }
+        // wakeup-allow: deadline the caller's one bound on the child's exit; the exit ends the wait first
         let (exited, _) = self
             .child_exit
             .1
@@ -28,6 +29,7 @@ impl HostShared {
             return true;
         }
         let state = self.child_exit.0.lock().recover_poison();
+        // wakeup-allow: deadline the caller's one bound on the child becoming waitable; that ends the wait first
         let (_state, _) = self
             .child_exit
             .1
@@ -44,6 +46,7 @@ impl HostShared {
         // reader notifies the same condition variable after publishing
         // its final bytes and setting pty_drained.
         let state = self.child_exit.0.lock().recover_poison();
+        // wakeup-allow: deadline the caller's one bound on the PTY drain; the reader's last bytes end the wait first
         let (_state, _) = self
             .child_exit
             .1
@@ -89,10 +92,12 @@ impl HostShared {
             return;
         }
         let worker = self.clone();
-        if thread::Builder::new()
-            .name("terminal-host-terminate".into())
-            .spawn(move || worker.terminate_and_wait())
-            .is_err()
+        if cmux_threads::spawn(
+            "terminal-host-terminate",
+            cmux_threads::ThreadQos::Utility,
+            move || worker.terminate_and_wait(),
+        )
+        .is_err()
         {
             // Bounded fallback: even thread exhaustion cannot turn an
             // accepted Terminate into an unbounded or ignored request.
@@ -124,10 +129,10 @@ impl HostShared {
         requests: Receiver<()>,
     ) -> std::io::Result<()> {
         let host = Arc::downgrade(host);
-        thread::Builder::new()
-            .name("terminal-host-exit".into())
-            .spawn(move || Self::run_exit_publisher(host, requests))
-            .map(|_| ())
+        cmux_threads::spawn("terminal-host-exit", cmux_threads::ThreadQos::Utility, move || {
+            Self::run_exit_publisher(host, requests);
+        })
+        .map(|_| ())
     }
 
     pub(crate) fn run_exit_publisher(weak_host: Weak<Self>, requests: Receiver<()>) {

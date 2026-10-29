@@ -23,13 +23,16 @@ use serde_json::{Map, Value, json};
 
 use super::remote_entry::{RemoteGate, RemotePeer};
 use super::routes::{Route, RouteLine, RouteName};
+#[cfg(test)]
+use super::transport;
 use super::{
     BoundedOutbound, ClientTransport, FrameStage, MAX_JSON_LINE_BYTES, MessageWriter, QueuedSink,
-    RenderService, SinkControl, transport,
+    RenderService, SinkControl,
 };
 use crate::fs_ops::stream::{self, StreamRequest};
 use crate::fs_ops::{FsError, FsService, frame_command, object_command};
 use crate::mux::Mux;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// A stream that sends nothing for this long is cancelled.
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -230,7 +233,7 @@ pub(super) fn route_first_line(
     gate: &dyn RemoteGate,
     peer: &RemotePeer,
     entry: EntryFs,
-) -> Option<Box<dyn transport::Stream>> {
+) -> Option<LineDial> {
     let (first, rest) = read_first_line(&stream, entry.first_line_deadline)?;
     let request = std::str::from_utf8(&first)
         .ok()
@@ -239,7 +242,7 @@ pub(super) fn route_first_line(
     let Some(request) = request else {
         let mut prefix = first;
         prefix.extend_from_slice(&rest);
-        return Some(Box::new(Prefixed { prefix, at: 0, inner: stream }));
+        return Some(LineDial { stream, prefix });
     };
     serve_stream(mux, peer, entry.service, request, rest, stream);
     None
@@ -301,10 +304,11 @@ fn serve_stream(
     // Closing the client (a kick, a handoff, the entry's shutdown, or the
     // end of the stream) closes its queue; this thread then shuts the
     // socket down, which ends a blocked read or write of the stream at once.
-    let watcher = crate::thread_qos::spawn_raisable(
+    let watcher = supervised::spawn_raisable(
         "mux-fs-stream-close",
         crate::thread_qos::ThreadType::Utility.qos(),
-        None,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             // mq14-allow: the close watcher waits for its own queue (a checked wait).
             while outbound.recv().is_some() {}
@@ -366,12 +370,29 @@ pub(super) fn close_remote_clients(mux: &Arc<Mux>) {
 
 /// A stream whose first bytes were already read: they are replayed before
 /// the socket. Its clones (the line connection's write half) never read.
+/// A dial for the line connection: its socket, and the bytes already read
+/// from it (its first line and what came behind it), which come first.
+pub(super) struct LineDial {
+    pub(super) stream: UnixStream,
+    pub(super) prefix: Vec<u8>,
+}
+
+impl LineDial {
+    /// The dial as one stream that reads the prefix, then the socket.
+    #[cfg(test)]
+    pub(super) fn into_stream(self) -> Box<dyn transport::Stream> {
+        Box::new(Prefixed { prefix: self.prefix, at: 0, inner: self.stream })
+    }
+}
+
+#[cfg(test)]
 struct Prefixed {
     prefix: Vec<u8>,
     at: usize,
     inner: UnixStream,
 }
 
+#[cfg(test)]
 impl Read for Prefixed {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         if let Some(rest) = self.prefix.get(self.at..).filter(|rest| !rest.is_empty()) {
@@ -386,6 +407,7 @@ impl Read for Prefixed {
     }
 }
 
+#[cfg(test)]
 impl Write for Prefixed {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.inner.write(bytes)
@@ -396,6 +418,7 @@ impl Write for Prefixed {
     }
 }
 
+#[cfg(test)]
 impl transport::Stream for Prefixed {
     fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
         Ok(Box::new(self.inner.try_clone()?))

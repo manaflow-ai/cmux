@@ -351,7 +351,7 @@ struct V2KeychainStoreTests {
         ) == legacyKey.secretKey)
     }
 
-    /// p02-threads-053: the blocking form (which the Mac host runs on a blocking-work lane, off the actor's pool
+    /// The blocking form (which the Mac host runs on a blocking-work lane, off the actor's pool
     /// thread) makes the key once, and the actor form then reads that same key.
     @Test
     func identityStoreBlockingFormSharesTheActorFormsKey() async throws {

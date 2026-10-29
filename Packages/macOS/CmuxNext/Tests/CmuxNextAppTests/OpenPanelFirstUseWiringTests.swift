@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextFeatures
 import Testing
 
-/// The production wiring of `memoryOpenPanelOnFirstUse` (p07-memory-062): the app's file picker
+/// The production wiring of `memoryOpenPanelOnFirstUse`: the app's file picker
 /// (`AppServices.openPanel`, built inside `init` through `cache`) takes its policy from the features passed to
 /// `init`. On, the launch's afterStartup warm-up (`LaunchFirstOpenWarmups.warmOpenPanel`, the same
 /// `warmWhenIdle()` call) arms nothing and makes no panel; off (the default), it arms the made-ahead warm-up.

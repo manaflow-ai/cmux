@@ -4,7 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// The page's NSTextInputClient in host mode (p01-process-043): one key's input method calls
+/// The page's NSTextInputClient in host mode: one key's input method calls
 /// become Chrome's key frames and ops in Chrome's order, and every question is answered from the
 /// state the host pushed, never by asking it.
 @MainActor
@@ -372,7 +372,7 @@ import Testing
     func makePage() -> (ChromiumHostPageView, NSWindow) {
         _ = NSApplication.shared
         let page = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), inputTarget: .view,
-                                        makeLayerHost: { _ in CALayer() }, pageUpdateCenter: NotificationCenter())
+                                        makeLayerHost: { _ in CALayer() }, windowEventCenter: NotificationCenter())
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: .borderless,
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false

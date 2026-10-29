@@ -234,7 +234,7 @@ fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
         .transpose()?;
     let check = || -> Result<String, ResourceError> {
         surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
+            .try_with_terminal(|terminal| terminal.active_text())
             .map_err(resource_operation_error)?
             .map_err(|error| resource_operation_error(error.into()))
     };
@@ -286,7 +286,7 @@ fn terminal_copy(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
     let mode = required_string(&request.fields, "mode")?;
     let text = match mode {
         "screen" => surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
+            .try_with_terminal(|terminal| terminal.active_text())
             .map_err(resource_operation_error)?
             .map_err(|error| resource_operation_error(error.into()))?,
         "scrollback" => surface
@@ -327,7 +327,7 @@ fn terminal_process_get(
         )
     })?;
     let executable = argv.first().cloned();
-    let mut children = direct_child_pids(pid);
+    let mut children = direct_children(pid).unwrap_or_default();
     children.sort_unstable();
     let mut value = Map::from_iter([
         ("pid".to_string(), json!(pid)),
@@ -1480,56 +1480,50 @@ fn browser_key_description(value: &str) -> BrowserKeyDescription {
     }
 }
 
+/// The direct child pids of `pid`, one known process (a terminal's own process
+/// or its shell): `terminal.process.get`'s `children` and the no-child test of
+/// `extra.shell_idle` (`surface::directory`). `None` when the list cannot be
+/// read, never a process scan. Linux reads the main task's list
+/// (`/proc/<pid>/task/<pid>/children`), which holds every child of a shell that
+/// forks from its main thread (bash, zsh, dash, ksh, fish).
 #[cfg(target_os = "macos")]
-fn direct_child_pids(pid: u32) -> Vec<u32> {
-    let Ok(pid) = libc::pid_t::try_from(pid) else {
-        return Vec::new();
-    };
+pub(crate) fn direct_children(pid: u32) -> Option<Vec<u32>> {
+    let pid = libc::pid_t::try_from(pid).ok()?;
     // SAFETY: the discovery call receives a null buffer as required by
     // libproc. The second call writes at most `children.len()` pid_t values
     // into an initialized, correctly aligned allocation.
     let count = unsafe { libc::proc_listchildpids(pid, std::ptr::null_mut(), 0) };
-    let Ok(count) = usize::try_from(count) else {
-        return Vec::new();
-    };
+    let count = usize::try_from(count).ok()?;
     if count == 0 {
-        return Vec::new();
+        return Some(Vec::new());
     }
     let mut children = vec![0 as libc::pid_t; count];
-    let Ok(bytes) = libc::c_int::try_from(children.len().saturating_mul(size_of::<libc::pid_t>()))
-    else {
-        return Vec::new();
-    };
+    let bytes =
+        libc::c_int::try_from(children.len().saturating_mul(size_of::<libc::pid_t>())).ok()?;
     // SAFETY: `children` owns a writable buffer of exactly `bytes` bytes.
     let written = unsafe { libc::proc_listchildpids(pid, children.as_mut_ptr().cast(), bytes) };
-    let Ok(written) = usize::try_from(written) else {
-        return Vec::new();
-    };
-    children
-        .into_iter()
-        .take(written.min(count))
-        .filter(|child| *child > 0)
-        .filter_map(|child| u32::try_from(child).ok())
-        .collect()
+    let written = usize::try_from(written).ok()?;
+    Some(
+        children
+            .into_iter()
+            .take(written.min(count))
+            .filter(|child| *child > 0)
+            .filter_map(|child| u32::try_from(child).ok())
+            .collect(),
+    )
 }
 
 #[cfg(target_os = "linux")]
-fn direct_child_pids(pid: u32) -> Vec<u32> {
-    files::read_to_string(format!("/proc/{pid}/task/{pid}/children"))
-        .ok()
-        .into_iter()
-        .flat_map(|children| {
-            children
-                .split_whitespace()
-                .filter_map(|child| child.parse::<u32>().ok())
-                .collect::<Vec<_>>()
-        })
-        .collect()
+pub(crate) fn direct_children(pid: u32) -> Option<Vec<u32>> {
+    files::read_to_string(format!("/proc/{pid}/task/{pid}/children")).ok().map(|children| {
+        children.split_whitespace().filter_map(|child| child.parse::<u32>().ok()).collect()
+    })
 }
 
+/// No process tree to read here: unknown.
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn direct_child_pids(_pid: u32) -> Vec<u32> {
-    Vec::new()
+pub(crate) fn direct_children(_pid: u32) -> Option<Vec<u32>> {
+    None
 }
 
 enum ActionFailure {
@@ -2478,8 +2472,14 @@ mod tests {
                 }
             })
             .unwrap();
-        let bottom = surface.view_scrollbar().expect("fixture has scrollback");
+        let terminal_scrollbar = || {
+            surface
+                .try_with_terminal(|terminal| terminal.scrollbar().expect("fixture has scrollback"))
+                .unwrap()
+        };
+        let bottom = terminal_scrollbar();
         assert!(!bottom.scrolled_back());
+        let view = surface.view_scrollbar().expect("fixture has scrollback");
 
         let revision = mux.with_state(|state| state.resource_revision);
         let terminal_revision = mux.terminal_registry_snapshot().unwrap().revision;
@@ -2502,17 +2502,17 @@ mod tests {
         assert_eq!(first["value"], json!({}));
         assert_eq!(first["revision"], revision.to_string());
         assert_eq!(first["replayed"], false);
-        let after_first = surface.view_scrollbar().expect("fixture has scrollback");
+        let after_first = terminal_scrollbar();
         assert!(after_first.scrolled_back());
-        assert!(after_first.offset < bottom.offset);
         assert_eq!(
-            surface
-                .try_with_terminal(|terminal| {
-                    terminal.scrollbar().expect("fixture has scrollback")
-                })
-                .unwrap(),
-            bottom,
-            "a backend projection must not change the shared compatibility viewport"
+            after_first.offset + 2,
+            bottom.offset,
+            "the scroll moves the terminal viewport that render attaches show"
+        );
+        assert_eq!(
+            surface.view_scrollbar().expect("fixture has scrollback").offset + 2,
+            view.offset,
+            "the scroll also moves the placement's in-process frontend view"
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, terminal_revision);
@@ -2530,7 +2530,7 @@ mod tests {
         assert_eq!(replay["revision"], first["revision"]);
         assert_eq!(replay["replayed"], true);
         assert_eq!(
-            surface.view_scrollbar().expect("fixture has scrollback"),
+            terminal_scrollbar(),
             after_first,
             "receipt replay must not apply the viewport delta twice"
         );

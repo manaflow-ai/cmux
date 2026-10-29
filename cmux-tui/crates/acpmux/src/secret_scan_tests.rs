@@ -353,3 +353,15 @@ fn nosey_parker_examples_are_caught_and_its_negatives_left_alone() {
 /// token's negatives) or values assigned to a password: masking them is right here.
 const MIN_RECALL_PERCENT: usize = 68;
 const MAX_FLAGGED_NEGATIVES: usize = 49;
+
+/// The rule table and the cmux patterns are constants behind INVARIANT expects:
+/// building each one here keeps a broken pattern a test failure, never a panic.
+#[test]
+fn the_constant_patterns_compile() {
+    let rules = LazyLock::force(&RULES);
+    assert!(rules.rules.iter().any(|rule| rule.id == "cmux-private-key"));
+    assert!(rules.rules.iter().any(|rule| rule.id.starts_with("generic")));
+    for pattern in [&ENTROPY_CANDIDATE, &DATA_URI, &PLACEHOLDER, &CODE_PATH] {
+        assert!(!LazyLock::force(pattern).as_str().is_empty());
+    }
+}

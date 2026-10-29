@@ -57,9 +57,9 @@ final class PhoneChiefFeedback: PhoneFeedbackSink {
 
     nonisolated private static func jpeg(from png: URL, next target: URL) -> URL? {
         guard let image = CheckedImageSource(blockingContentsOf: png)?.image(),
-              let destination = CGImageDestinationCreateWithURL(target as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+              let destination = blockingImageDestination(url: target as CFURL, type: UTType.jpeg.identifier as CFString, count: 1) else { return nil }
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
-        return CGImageDestinationFinalize(destination) ? target : nil
+        return blockingImageDestinationFinalize(destination) ? target : nil
     }
 
     nonisolated private static func sha256(_ data: Data) -> String {
@@ -68,11 +68,11 @@ final class PhoneChiefFeedback: PhoneFeedbackSink {
 
     /// Hashes a file in 4 MiB reads (a recording can be hundreds of MB).
     nonisolated private static func sha256(file: URL) throws -> (String, Int) {
-        let handle = try FileHandle(forReadingFrom: file)
+        let handle = try FileHandle.blockingForReading(from: file)
         defer { try? handle.close() }
         var hasher = SHA256()
         var size = 0
-        while let chunk = try handle.read(upToCount: 4 << 20), !chunk.isEmpty {
+        while let chunk = try handle.blockingRead(upToCount: 4 << 20), !chunk.isEmpty {
             hasher.update(data: chunk)
             size += chunk.count
         }

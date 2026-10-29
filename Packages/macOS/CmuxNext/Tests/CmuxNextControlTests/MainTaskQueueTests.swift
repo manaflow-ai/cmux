@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Testing
 
-/// Per-node task queues (MainTaskQueue.swift, p06-scheduler-209): a hidden node holds visible and
+/// Per-node task queues (MainTaskQueue.swift): a hidden node holds visible and
 /// automation work and coalesces it by key, background work runs at hidden wakes, a frozen node or
 /// a disabled voter runs nothing, and a released queue drops its closures.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct MainTaskQueueTests {

@@ -215,7 +215,7 @@ extension CEFMergedEvents where Target == CEFTab {
 }
 
 extension CEFEngine {
-    /// Feature `cefMergedEvents` (p06-scheduler-219): Chromium's address, title, favicon and progress events are
+    /// Feature `cefMergedEvents`: Chromium's address, title, favicon and progress events are
     /// merged per browser per frame on `work` (``CEFMergedEvents``). Nil: every event applies at once, as before.
     ///
     /// - Parameter work: The app's one main-thread scheduler, or nil.

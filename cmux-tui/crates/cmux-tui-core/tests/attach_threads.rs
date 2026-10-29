@@ -1,9 +1,12 @@
 #![cfg(unix)]
-//! Attach streams hold no thread per view (p05-ipc-079): 50 byte views, 50
+//! Views hold no thread: 50 byte views, 50
 //! render views and 50 snapshot views attached as client-minted streams
-//! (attach-streams-v1) on one connection of a real daemon socket add at most
-//! 2 threads to the process, and every view still gets its live output. A
-//! legacy view holds an output thread and a notification thread of its own.
+//! (attach-streams-v1) on one connection of a real daemon socket, and the
+//! same views (10 of the render views) as legacy attaches (no stream id) on
+//! a second connection, add
+//! at most 2 threads to the process, and every view still gets its live
+//! output. Each view is a stream of its connection's bounded outbound queue,
+//! fed by a drain on the sequenced pool's input workers.
 //!
 //! This file holds one test, so its process count is not shared with other
 //! tests.
@@ -23,6 +26,9 @@ const VIEWS: usize = 50;
 /// Render views take streams `RENDER + 1..`, snapshot views `SNAPSHOT + 1..`.
 const RENDER: usize = 100;
 const SNAPSHOT: usize = 200;
+/// Legacy render views: the daemon holds at most 64 render attachments
+/// (`RENDER_ATTACHMENT_LIMIT`), and the stream views hold 50 of them.
+const LEGACY_RENDER_VIEWS: usize = 10;
 /// The sequenced pool's input workers.
 const THREAD_BUDGET: usize = 2;
 
@@ -115,24 +121,40 @@ impl Connection {
         reply
     }
 
-    /// The first item of stream `stream` that `matches`, kept or read.
-    fn item_of(&mut self, stream: u16, matches: impl Fn(&Value) -> bool) -> Value {
-        if let Some(index) =
-            self.events.iter().position(|item| item["stream"] == stream && matches(item))
-        {
+    /// The first item that `matches`, kept or read.
+    /// Items it passes over are kept: the streams interleave, so a later
+    /// look for another stream's item finds it.
+    fn item(&mut self, matches: impl Fn(&Value) -> bool) -> Value {
+        if let Some(index) = self.events.iter().position(&matches) {
             return self.events.remove(index);
         }
         loop {
             let item = self.read();
-            if item["stream"] == stream && matches(&item) {
+            if matches(&item) {
                 return item;
             }
+            self.events.push(item);
+        }
+    }
+
+    /// The first item of stream `stream` that `matches`, kept or read.
+    fn item_of(&mut self, stream: u16, matches: impl Fn(&Value) -> bool) -> Value {
+        self.item(|item| item["stream"] == stream && matches(item))
+    }
+
+    /// Sends every request, then checks every reply.
+    fn rpc_all(&mut self, requests: Vec<Value>) {
+        let sent: Vec<_> =
+            requests.into_iter().map(|request| (self.send(request.clone()), request)).collect();
+        for (id, request) in sent {
+            let reply = self.reply(id);
+            assert_eq!(reply["ok"], true, "{request} -> {reply}");
         }
     }
 }
 
 #[test]
-fn fifty_stream_attaches_add_at_most_two_threads() {
+fn fifty_stream_and_fifty_legacy_attaches_add_at_most_two_threads() {
     let mux = Mux::new(
         "attach-threads",
         SurfaceOptions { command: Some(vec!["cat".to_string()]), ..SurfaceOptions::default() },
@@ -145,10 +167,13 @@ fn fifty_stream_attaches_add_at_most_two_threads() {
         (0..VIEWS).map(|_| mux.new_workspace(None, Some((80, 24))).expect("terminal").id).collect();
     let mut connection = Connection::open(&socket);
     connection.rpc(json!({"cmd": "set-client-info", "capabilities": ["attach-streams-v1"]}));
+    let mut legacy = Connection::open(&socket);
+    legacy.rpc(json!({"cmd": "ping"}));
     let before = settled_threads();
 
     let snapshot_version = ghostty_vt::snapshot_version();
-    let mut ids = Vec::new();
+    let mut streams = Vec::new();
+    let mut legacy_views = Vec::new();
     for (index, surface) in surfaces.iter().enumerate() {
         let stream = index + 1;
         let views = [
@@ -162,17 +187,24 @@ fn fifty_stream_attaches_add_at_most_two_threads() {
                 "snapshot": "ghostsnp", "snapshot_version": snapshot_version,
             }),
         ];
-        ids.extend(views.into_iter().map(|view| connection.send(view)));
+        for view in views {
+            // The same view with no stream id is a legacy attach.
+            let mut legacy_view = view.clone();
+            legacy_view.as_object_mut().expect("request").remove("stream");
+            if legacy_view["mode"] != "render" || index < LEGACY_RENDER_VIEWS {
+                legacy_views.push(legacy_view);
+            }
+            streams.push(view);
+        }
     }
-    for id in ids {
-        let reply = connection.reply(id);
-        assert_eq!(reply["ok"], true, "{reply}");
-    }
+    let (stream_count, legacy_count) = (streams.len(), legacy_views.len());
+    connection.rpc_all(streams);
+    legacy.rpc_all(legacy_views);
     let after = settled_threads();
     assert!(
         after.saturating_sub(before) <= THREAD_BUDGET,
-        "{} stream attaches added {} threads ({before} -> {after})",
-        VIEWS * 3,
+        "{stream_count} stream and {legacy_count} legacy attaches added {} threads \
+         ({before} -> {after})",
         after.saturating_sub(before)
     );
 
@@ -185,6 +217,10 @@ fn fifty_stream_attaches_add_at_most_two_threads() {
     // Its snapshot viewer gets the same output.
     let snapshot = SNAPSHOT as u16 + last;
     connection.item_of(snapshot, |item| item["event"] == "output");
+    // The legacy views of that terminal get it too.
+    let last_surface = json!(surfaces[VIEWS - 1]);
+    legacy.item(|item| item["event"] == "output" && item["surface"] == last_surface);
+    drop(legacy);
     drop(connection);
     mux.shutdown();
 }

@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 use memchr::memmem;
 
 use crate::command::{CLOSE_OPEN_LOAD, Control, Medium, write_direct};
-use crate::{Limits, MediaRefusal, media};
+use crate::{FileMedium, Limits, MediaRefusal, MediaRequest};
 
 const ESC: u8 = 0x1b;
 const CAN: u8 = 0x18;
@@ -53,6 +53,12 @@ pub struct KittyMediaRewriter {
     direct_load_open: bool,
     rewritten: u64,
     last_refusal: Option<MediaRefusal>,
+    /// File reads go to the caller ([`Self::deferring`]) instead of being
+    /// done here.
+    defer: bool,
+    /// A finished file-medium command (the bytes after `ESC _ G`) whose
+    /// read the caller was asked for, with that request.
+    pending: Option<(Vec<u8>, MediaRequest)>,
 }
 
 impl KittyMediaRewriter {
@@ -64,9 +70,68 @@ impl KittyMediaRewriter {
         Self { limits, ..Self::default() }
     }
 
-    /// Appends the rewritten form of `input` to `out`.
+    /// A rewriter for a process that may not open files (the sandboxed VT
+    /// parser): at each file-medium command [`Self::rewrite_until_media`]
+    /// stops and asks for the read ([`Self::media_request`]); whoever may
+    /// open files answers it with [`MediaRequest::read`], and
+    /// [`Self::resume_media`] writes the same bytes [`Self::rewrite`] would
+    /// have. Chrome's sandboxed processes ask the browser's broker for files
+    /// the same way.
+    pub fn deferring(limits: Limits) -> Self {
+        Self { limits, defer: true, ..Self::default() }
+    }
+
+    /// Appends the rewritten form of `input` to `out`. A deferring rewriter
+    /// reads the files itself here (in a sandbox the reads are refused and
+    /// the commands pass through unchanged).
     // perf-hot: <1% of a 64 KiB copy, terminal-host PTY reader
     pub fn rewrite(&mut self, input: &[u8], out: &mut Vec<u8>) {
+        self.read_pending(out);
+        let mut from = 0;
+        while let Some(rest) = input.get(from..) {
+            from = from.saturating_add(self.scan(rest, out));
+            if !self.read_pending(out) {
+                break;
+            }
+        }
+    }
+
+    /// [`Self::rewrite`] up to the end of the first file-medium command of
+    /// a deferring rewriter: returns how many bytes of `input` it consumed.
+    /// When [`Self::media_request`] then names a read, nothing more is
+    /// consumed until [`Self::resume_media`] answers it.
+    pub fn rewrite_until_media(&mut self, input: &[u8], out: &mut Vec<u8>) -> usize {
+        if self.pending.is_some() {
+            return 0;
+        }
+        self.scan(input, out)
+    }
+
+    /// The read a deferring rewriter waits for.
+    pub fn media_request(&self) -> Option<&MediaRequest> {
+        self.pending.as_ref().map(|(_, request)| request)
+    }
+
+    /// Finish the waiting command with the answer to its
+    /// [`Self::media_request`]: the direct transmission of the bytes, or the
+    /// command unchanged when the read was refused.
+    pub fn resume_media(&mut self, read: Result<Vec<u8>, MediaRefusal>, out: &mut Vec<u8>) {
+        if let Some((held, _)) = self.pending.take() {
+            self.complete(held, read.map_err(Some), out);
+        }
+    }
+
+    /// Do a waiting read here; false when none waited.
+    fn read_pending(&mut self, out: &mut Vec<u8>) -> bool {
+        let Some((_, request)) = self.pending.as_ref() else { return false };
+        let read = request.read(self.limits.max_file_bytes);
+        self.resume_media(read, out);
+        true
+    }
+
+    /// Scan `input` until its end or a deferred file-medium command; the
+    /// bytes consumed.
+    fn scan(&mut self, input: &[u8], out: &mut Vec<u8>) -> usize {
         let mut index = 0;
         // Start of the run not yet copied to `out`.
         let mut copied = 0;
@@ -133,10 +198,14 @@ impl KittyMediaRewriter {
                     // Held bytes never go out as a run; a replayed byte
                     // starts the next one.
                     copied = index;
+                    if self.pending.is_some() {
+                        return index;
+                    }
                 }
             }
         }
         out.extend_from_slice(input.get(copied..).unwrap_or(&[]));
+        input.len()
     }
 
     /// [`Self::rewrite`] without a copy when nothing changes: `input` itself
@@ -144,7 +213,10 @@ impl KittyMediaRewriter {
     /// bytes in `scratch`.
     // perf-hot: <1% of a 64 KiB copy, local PTY reader
     pub fn rewrite_borrowed<'a>(&mut self, input: &'a [u8], scratch: &'a mut Vec<u8>) -> &'a [u8] {
-        if self.state == State::Ground && KITTY_INTRODUCER.find(input).is_none() {
+        if self.state == State::Ground
+            && self.pending.is_none()
+            && KITTY_INTRODUCER.find(input).is_none()
+        {
             // Only the last bytes can begin a command the next read ends.
             // An unterminated other APC needs no state: its body ends at the
             // next ESC, which Ground finds too.
@@ -163,7 +235,10 @@ impl KittyMediaRewriter {
     /// Appends whatever is held back (an unfinished command) unchanged; call
     /// at end of stream.
     pub fn finish(&mut self, out: &mut Vec<u8>) {
-        if self.is_holding() {
+        if let Some((held, _)) = self.pending.take() {
+            self.complete(held, Err(None), out);
+        }
+        if matches!(self.state, State::Control | State::Payload) {
             self.release(out);
         }
         self.state = State::Ground;
@@ -171,7 +246,7 @@ impl KittyMediaRewriter {
 
     /// Whether bytes of an unfinished file-medium command are held back.
     pub fn is_holding(&self) -> bool {
-        matches!(self.state, State::Control | State::Payload)
+        self.pending.is_some() || matches!(self.state, State::Control | State::Payload)
     }
 
     /// Commands rewritten so far.
@@ -256,64 +331,80 @@ impl KittyMediaRewriter {
         self.direct_load_open = next_load_open(self.direct_load_open, control);
     }
 
-    /// A held command ended with `ESC \`: rewrite it or send it unchanged.
+    /// A held command ended with `ESC \`: rewrite it or send it unchanged,
+    /// or (deferring) wait for the caller's read.
     fn finish_command(&mut self, out: &mut Vec<u8>) {
         let held = std::mem::take(&mut self.held);
         self.held_escape = false;
-        let (control_bytes, payload) = match memchr::memchr(b';', &held) {
-            Some(at) => (held.get(..at).unwrap_or(&[]), held.get(at.saturating_add(1)..)),
-            None => (&held[..], None),
+        let read = match file_request(&held) {
+            Ok(request) if self.defer => {
+                self.pending = Some((held, request));
+                return;
+            }
+            Ok(request) => request.read(self.limits.max_file_bytes).map_err(Some),
+            Err(refusal) => Err(refusal),
         };
-        let result = match (Control::parse(control_bytes), payload) {
-            (Some(control), Some(payload)) => {
-                let medium = control.medium();
-                let read = match (control.number(b'O'), control.number(b'S')) {
-                    (Some(offset), Some(size)) => {
-                        media::read(medium, payload, offset, size, self.limits.max_file_bytes)
+        self.complete(held, read, out);
+    }
+
+    /// Write a finished command: its direct transmission when the read
+    /// succeeded, else the command unchanged (a refusal is kept for
+    /// [`Self::last_refusal`]; `Err(None)` is a command that names no file).
+    fn complete(
+        &mut self,
+        mut held: Vec<u8>,
+        read: Result<Vec<u8>, Option<MediaRefusal>>,
+        out: &mut Vec<u8>,
+    ) {
+        {
+            let control = Control::parse(split_held(&held).0);
+            match (control, read) {
+                (Some(control), Ok(data)) => {
+                    if self.direct_load_open {
+                        out.extend_from_slice(CLOSE_OPEN_LOAD);
                     }
-                    _ => Err(MediaRefusal::BadRange),
-                };
-                match read {
-                    Ok(data) => {
-                        if self.direct_load_open {
-                            out.extend_from_slice(CLOSE_OPEN_LOAD);
-                        }
-                        self.direct_load_open = false;
-                        write_direct(out, &control, &data);
-                        Ok(())
-                    }
-                    Err(refusal) => {
+                    self.direct_load_open = false;
+                    write_direct(out, &control, &data);
+                    self.rewritten = self.rewritten.saturating_add(1);
+                    self.last_refusal = None;
+                }
+                (control, read) => {
+                    if let Some(control) = control {
                         self.note_direct(&control);
-                        Err(Some(refusal))
                     }
+                    if let Err(Some(refusal)) = read {
+                        self.last_refusal = Some(refusal);
+                    }
+                    out.extend_from_slice(&held);
+                    out.extend_from_slice(b"\x1b\\");
                 }
-            }
-            (Some(control), None) => {
-                self.note_direct(&control);
-                let file = matches!(
-                    control.medium(),
-                    Medium::File | Medium::TempFile | Medium::SharedMemory
-                );
-                Err(file.then_some(MediaRefusal::BadPath))
-            }
-            (None, _) => Err(None),
-        };
-        match result {
-            Ok(()) => {
-                self.rewritten = self.rewritten.saturating_add(1);
-                self.last_refusal = None;
-            }
-            Err(refusal) => {
-                if refusal.is_some() {
-                    self.last_refusal = refusal;
-                }
-                out.extend_from_slice(&held);
-                out.extend_from_slice(b"\x1b\\");
             }
         }
+        held.clear();
         self.held = held;
-        self.held.clear();
     }
+}
+
+/// A held command's control data and its payload (after the first `;`).
+fn split_held(held: &[u8]) -> (&[u8], Option<&[u8]>) {
+    match memchr::memchr(b';', held) {
+        Some(at) => (held.get(..at).unwrap_or(&[]), held.get(at.saturating_add(1)..)),
+        None => (held, None),
+    }
+}
+
+/// The read a finished command asks for, or why it asks for none
+/// (`Err(None)`: not a file-medium command at all).
+fn file_request(held: &[u8]) -> Result<MediaRequest, Option<MediaRefusal>> {
+    let (control_bytes, payload) = split_held(held);
+    let Some(control) = Control::parse(control_bytes) else { return Err(None) };
+    let medium = FileMedium::of(control.medium());
+    let Some(payload) = payload else { return Err(medium.map(|_| MediaRefusal::BadPath)) };
+    let (Some(offset), Some(size)) = (control.number(b'O'), control.number(b'S')) else {
+        return Err(Some(MediaRefusal::BadRange));
+    };
+    let medium = medium.ok_or(Some(MediaRefusal::Unsupported))?;
+    Ok(MediaRequest { medium, name: payload.to_vec(), offset, size })
 }
 
 /// Whether a direct chunked load is open after a command with this control

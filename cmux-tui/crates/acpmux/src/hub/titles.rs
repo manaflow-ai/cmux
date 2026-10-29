@@ -10,6 +10,7 @@
 //! latest prompt (`wants_title`). A harness title, then or later, always wins.
 
 use super::*;
+use crate::no_panic::JsonExt;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -136,7 +137,7 @@ fn strip_leading_blocks(text: &str) -> &str {
     while let Some(tag) = opening_tag(rest) {
         let close = format!("</{tag}>");
         match rest.find(&close) {
-            Some(at) => rest = rest[at + close.len()..].trim_start(),
+            Some(at) => rest = rest.get(at + close.len()..).unwrap_or_default().trim_start(),
             None => return "",
         }
     }
@@ -148,9 +149,8 @@ fn strip_leading_blocks(text: &str) -> &str {
 fn opening_tag(text: &str) -> Option<&str> {
     let inner = text.strip_prefix('<')?;
     let end = inner.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))?;
-    let name = &inner[..end];
+    let (name, after) = inner.split_at_checked(end)?;
     let first = name.chars().next()?;
-    let after = &inner[end..];
     (first.is_ascii_alphabetic()
         && (after.starts_with('>') || after.starts_with(' '))
         && after.contains('>'))
@@ -184,7 +184,7 @@ impl Hub {
     pub(super) fn watch_titles(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.supervise("hub.title-watch", Fatal, ShutdownBehavior::Skip, async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
@@ -260,7 +260,7 @@ impl Hub {
 
     fn spawn_title_request(self: &Arc<Self>, session: Arc<Session>, request: String) {
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.supervise("hub.title-request", Fatal, ShutdownBehavior::Skip, async move {
             // Let a harness's own session-info title and a manual rename win before spending a
             // completion. This is also the debounce between the prompt placeholder and the model.
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -293,9 +293,9 @@ impl Hub {
             .filter(|c| !c.trim().is_empty())
             .map(|c| vec![c])
             .or_else(|| cfg.titles.command.clone().filter(|c| !c.is_empty()));
-        if let Some(argv) = argv {
-            let mut cmd = tokio::process::Command::new(&argv[0]);
-            cmd.args(&argv[1..]).current_dir(&cwd);
+        if let Some((program, args)) = argv.as_deref().and_then(<[String]>::split_first) {
+            let mut cmd = tokio::process::Command::new(program);
+            cmd.args(args).current_dir(&cwd);
             #[cfg(unix)]
             cmd.process_group(0);
             return Some(cmd);
@@ -379,7 +379,7 @@ impl Hub {
         }
         let mut params = json!({"prompt": request, "harness": harness, "maxTokens": 16});
         if let Some(model) = model {
-            params["model"] = json!(model);
+            params.set("model", json!(model));
         }
         if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
             != Some(ASKED)
@@ -510,7 +510,10 @@ fn is_thin_prompt(prompt: &str) -> bool {
     let words: Vec<_> = prompt.split_whitespace().collect();
     words.is_empty()
         || words.len() <= 1
-        || (words.len() <= 2 && words[0].trim_matches(|c: char| !c.is_alphanumeric()).len() <= 12)
+        || (words.len() <= 2
+            && words
+                .first()
+                .is_some_and(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).len() <= 12))
         || words.iter().any(|word| {
             matches!(
                 word.trim_matches(|c: char| !c.is_alphanumeric()).to_ascii_lowercase().as_str(),

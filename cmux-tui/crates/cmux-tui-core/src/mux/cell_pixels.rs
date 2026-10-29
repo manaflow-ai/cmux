@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::work::{Lane, Priority};
 
 impl Mux {
@@ -153,10 +154,15 @@ impl Mux {
         }
         retries.worker_running = true;
         let mux = Arc::downgrade(self);
-        match std::thread::Builder::new()
-            .name("cell-pixel-retry".to_string())
-            .spawn(move || Self::run_cell_pixel_retry_worker(mux))
-        {
+        match supervised::spawn_at(
+            "cell-pixel-retry",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                Self::run_cell_pixel_retry_worker(mux);
+            },
+        ) {
             Ok(_) => Ok(()),
             Err(error) => {
                 retries.worker_running = false;

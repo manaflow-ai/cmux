@@ -1,6 +1,8 @@
 //! Session-local permission batches. One lock owns membership, chat grants,
 //! callbacks and receipts, so a decision cannot approve an unseen member.
 use super::*;
+use crate::no_panic::JsonExt;
+use crate::no_panic::LockExt;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -147,36 +149,34 @@ impl PermissionState {
         epoch: u64,
         now: Instant,
     ) -> Result<(String, bool), RpcError> {
-        let existing = self.groups.iter().position(|g| {
+        let item = Item { id: id.into(), request: request.clone(), state: "pending" };
+        if let Some(g) = self.groups.iter_mut().find(|g| {
             g.state == "collecting"
                 && g.turn_id == turn
                 && g.epoch == epoch
                 && g.items.len() < MAX_ITEMS
+        }) {
+            g.items.push(item);
+            g.revision += 1;
+            return Ok((g.id.clone(), false));
+        }
+        if self.groups.iter().filter(|g| !g.terminal()).count() >= MAX_GROUPS {
+            return Err(RpcError::new(-32000, "budget_exceeded")
+                .with_data(json!({"reason":"budget_exceeded"})));
+        }
+        let group_id = uuid::Uuid::now_v7().to_string();
+        self.groups.push_back(Group {
+            id: group_id.clone(),
+            turn_id: turn,
+            epoch,
+            opened: now,
+            // Its first item is its first revision.
+            revision: 1,
+            state: "collecting",
+            items: vec![item],
+            receipt: None,
         });
-        let (index, fresh) = match existing {
-            Some(i) => (i, false),
-            None => {
-                if self.groups.iter().filter(|g| !g.terminal()).count() >= MAX_GROUPS {
-                    return Err(RpcError::new(-32000, "budget_exceeded")
-                        .with_data(json!({"reason":"budget_exceeded"})));
-                }
-                self.groups.push_back(Group {
-                    id: uuid::Uuid::now_v7().to_string(),
-                    turn_id: turn,
-                    epoch,
-                    opened: now,
-                    revision: 0,
-                    state: "collecting",
-                    items: Vec::new(),
-                    receipt: None,
-                });
-                (self.groups.len() - 1, true)
-            }
-        };
-        let g = &mut self.groups[index];
-        g.items.push(Item { id: id.into(), request: request.clone(), state: "pending" });
-        g.revision += 1;
-        Ok((g.id.clone(), fresh))
+        Ok((group_id, true))
     }
 
     fn prune(&mut self) {
@@ -237,7 +237,7 @@ fn conflict(reason: &str, group: Value) -> RpcError {
 
 impl Hub {
     pub fn permission_groups(&self, session: &Session, params: &Value) -> Result<Value, RpcError> {
-        let state = session.permissions.lock().unwrap();
+        let state = session.permissions.lock_or_recover();
         let id = match params.get("groupId") {
             None => None,
             Some(Value::String(id)) if !id.is_empty() => Some(id.as_str()),
@@ -266,10 +266,10 @@ impl Hub {
     ) {
         let hub = self.clone();
         let session = session.clone();
-        tokio::spawn(async move {
+        self.supervise("hub.permission-group-timer", Fatal, ShutdownBehavior::Skip, async move {
             // Use the group's actual opening instant, not timer-task scheduling.
             let deadline = {
-                let state = session.permissions.lock().unwrap();
+                let state = session.permissions.lock_or_recover();
                 state.groups.iter().find(|g| g.id == id).map(|g| g.opened + WINDOW)
             };
             let Some(deadline) = deadline else { return };
@@ -291,7 +291,7 @@ impl Hub {
                 }
             })
             .await;
-            let mut state = session.permissions.lock().unwrap();
+            let mut state = session.permissions.lock_or_recover();
             if let Some(g) = state.groups.iter_mut().find(|g| g.id == id && g.state == "collecting")
             {
                 g.state = "pending";
@@ -315,7 +315,8 @@ impl Hub {
         // Checked again here, at the answer, not only in the remote guard.
         self.web_control_check(session, control)?;
         let text = |key: &str| -> Result<String, RpcError> {
-            params[key]
+            params
+                .field(key)
                 .as_str()
                 .filter(|s| !s.is_empty() && s.len() <= 256)
                 .map(str::to_owned)
@@ -335,12 +336,13 @@ impl Hub {
         if control == Control::Web && choice == "allow_chat" {
             return Err(super::web_control::lasting_grant_refused("allow_chat"));
         }
-        let revision = params["revision"]
+        let revision = params
+            .field("revision")
             .as_u64()
             .ok_or_else(|| RpcError::invalid_params("revision is required"))?;
         let body = json!({"groupId":id,"revision":revision,"decisionKey":key,"decision":choice});
         let cfg = self.config.read().await;
-        let mut state = session.permissions.lock().unwrap();
+        let mut state = session.permissions.lock_or_recover();
         // A decision key belongs to one body within this session.
         if let Some((previous, receipt)) = state
             .groups
@@ -353,15 +355,16 @@ impl Hub {
                     .with_data(json!({"reason":"key_conflict"})));
             }
             let mut result = receipt.clone();
-            result["replayed"] = json!(true);
+            result.set("replayed", json!(true));
             return Ok(result);
         }
-        let index = state
+        // The group and the pending replies are separate fields: one borrow each.
+        let state = &mut *state;
+        let g = state
             .groups
-            .iter()
-            .position(|g| g.id == id)
+            .iter_mut()
+            .find(|g| g.id == id)
             .ok_or_else(|| RpcError::not_found("not_found"))?;
-        let g = &state.groups[index];
         let value = g.value(&session.id);
         if g.terminal() {
             return Err(conflict("already_resolved", value));
@@ -411,7 +414,6 @@ impl Hub {
             state.chat_allowed = true;
             self.append(session, "mux", "permission_chat_allowance", json!({"active":true}));
         }
-        let g = &mut state.groups[index];
         for item in &mut g.items {
             if item.state == "pending" {
                 item.state = if replies
@@ -430,7 +432,7 @@ impl Hub {
         g.receipt = Some((body.clone(), Value::Null));
         let result = json!({"group":g.value(&session.id),"replayed":false});
         g.receipt = Some((body, result.clone()));
-        self.append(session, "mux", "permission_group", json!({"group":result["group"]}));
+        self.append(session, "mux", "permission_group", json!({"group":result.field("group")}));
         state.prune();
         // All callbacks were removed and the receipt saved before any wake.
         for (_, reply, outcome) in replies {
@@ -440,7 +442,7 @@ impl Hub {
     }
 
     pub fn revoke_permission_chat(&self, session: &Session) -> Value {
-        let mut state = session.permissions.lock().unwrap();
+        let mut state = session.permissions.lock_or_recover();
         if state.chat_allowed {
             state.chat_allowed = false;
             self.append(session, "mux", "permission_chat_allowance", json!({"active":false}));
@@ -453,8 +455,8 @@ impl Hub {
         session: &Session,
         change: impl FnOnce(&mut SessionMeta),
     ) {
-        let mut state = session.permissions.lock().unwrap();
-        change(&mut session.meta.lock().unwrap());
+        let mut state = session.permissions.lock_or_recover();
+        change(&mut session.meta.lock_or_recover());
         state.chat_allowed = false;
         self.append(session, "mux", "permission_chat_allowance", json!({"active":false}));
         for g in state.groups.iter_mut().filter(|g| !g.terminal()) {

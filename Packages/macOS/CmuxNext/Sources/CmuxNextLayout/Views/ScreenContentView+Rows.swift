@@ -19,7 +19,7 @@ extension ScreenContentView {
     }
 
     /// The vertical offset `pane`'s host is laid out at: its row's pan base while a pan shows on the
-    /// row's container (p04-input-050), else ``rowOffset(of:)``.
+    /// row's container, else ``rowOffset(of:)``.
     func rowLayoutOffset(of pane: PaneID) -> CGFloat {
         baseGeometry.rowColumnOfPane[pane].flatMap { rowScrolls[$0]?.layoutOffset } ?? 0
     }

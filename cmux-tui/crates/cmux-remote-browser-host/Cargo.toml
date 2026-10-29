@@ -22,6 +22,8 @@ name = "cmux-remote-browser-host"
 path = "src/main.rs"
 
 [dependencies]
+# Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
+cmux-threads = { path = "../cmux-threads" }
 cmux-remote-browser = { path = "../cmux-remote-browser" }
 # The shared rd media engine and wire types (remote-tab-r2.md B3): the pump
 # and the serve loop are this crate's, packetize, FEC and congestion control
@@ -51,6 +53,7 @@ unsafe_op_in_unsafe_fn = "deny"
 unused_qualifications = "warn"
 
 [lints.clippy]
-# cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
+# cmux-tui/clippy.toml disallows std thread spawns and sleep; the crate roots deny them
+# outside tests (p02-threads 218).
 disallowed_methods = "allow"
 disallowed_types = "allow"

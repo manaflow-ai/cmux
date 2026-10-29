@@ -66,6 +66,7 @@ final class CEFPaneHost {
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
         // A popup host's page window hosts or attaches only on a fork that does it for popups (`CEFLayerHosting.Fork`).
         hostView.layerHosting.widget = isPopupHost ? .popup : .page
+        hostView.layerHosting.isPageVisible = { [weak self] in self?.visibleTab.map { !$0.isContentHidden } ?? false }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page

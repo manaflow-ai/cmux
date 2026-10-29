@@ -14,7 +14,7 @@ import CmuxNextDesign
 /// It is an NSScrollView over an empty document whose height stands for the scrollback, so the
 /// knob tracks the scrollback as any scroll view's does.
 ///
-/// The knob is placed at most once per display frame for output (p04-input-051), as Chrome places
+/// The knob is placed at most once per display frame for output, as Chrome places
 /// scrollbars from the scroll tree once per frame (`LayerTreeImpl::UpdateScrollbarGeometries`,
 /// cc/trees/layer_tree_impl.cc): the host feeds ``update(_:)`` from one `.visible` FrameObservation,
 /// the frame-phase owner that applies the latest scrollbar once per frame, and a person's scroll in
@@ -40,6 +40,10 @@ final class TerminalScroller: NSScrollView, ScrollGeometryClient {
     var onWheel: ((NSEvent) -> Void)?
     /// The style changed; the host lays out again (``reservedWidth``).
     var onStyleChange: (() -> Void)?
+
+    /// Stays on the main thread: every wheel event is the terminal's (`onWheel`), which
+    /// moves Ghostty's viewport per event; a responsive gesture would scroll the empty document instead.
+    override class var isCompatibleWithResponsiveScrolling: Bool { false }
 
     init() {
         super.init(frame: .zero)

@@ -2,7 +2,7 @@ import CmuxNextCrashReporting
 import Foundation
 import Testing
 
-/// The PTY holder's panic lines (cmux-panic-log's std-only writer, p09-observability-080)
+/// The PTY holder's panic lines (cmux-panic-log's std-only writer)
 /// reach Sentry under their own process and fingerprint.
 @Suite struct HolderPanicSourceTests {
     @Test func theHolderLogIsInTheUsersHolderSocketDirectory() {

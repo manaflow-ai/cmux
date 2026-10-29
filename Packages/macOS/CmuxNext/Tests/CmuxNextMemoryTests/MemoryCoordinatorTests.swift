@@ -248,7 +248,7 @@ import Testing
         withExtendedLifetime(registration) {}
     }
 
-    /// p07-memory-096: a consumer that frees one item per frame (a warm surface) and yields leaves the
+    /// A consumer that frees one item per frame (a warm surface) and yields leaves the
     /// rest of the slice to the consumers after it: a lossy pass ordered last runs on the first frame,
     /// not after 30 frames of single closes.
     @Test func aYieldingConsumerLeavesTheRestOfTheSliceToTheNext() {

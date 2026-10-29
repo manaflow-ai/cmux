@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 /// The CPU-time budget of hidden nodes' main-thread work (plans/cmux-next/chrome-parity/
-/// p06-scheduler.md, p06-scheduler-210): 10 ms/s refill, 100 ms cap, visible and exempt work free, and
+/// p06-scheduler.md): 10 ms/s refill, 100 ms cap, visible and exempt work free, and
 /// MainTaskQueue's hidden background work charged to the scheduler's one pool.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct CPUTimeBudgetPoolTests {
     private static let ms: UInt64 = 1_000_000

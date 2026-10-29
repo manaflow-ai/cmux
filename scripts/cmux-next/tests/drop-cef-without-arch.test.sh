@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # drop-cef-without-arch.sh drops the Chromium engine from a thin variant whose
 # arch the framework lacks, and the Chromium host and its remote shim with it.
-# Since Release bundles carry the host (p01-process-088), an arm64-only host left
+# Since Release bundles carry the host, an arm64-only host left
 # in the x86_64 variant would fail scripts/thin-app-bundle.sh; a host without
 # the arch goes alone even when the engine stays.
 # lipo is a stand-in on PATH: a "Mach-O" here is a text file naming its archs.

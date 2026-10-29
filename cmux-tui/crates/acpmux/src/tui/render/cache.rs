@@ -61,8 +61,10 @@ impl TranscriptCache {
             .iter()
             .position(|i| matches!(i, Item::User { queued: true, .. }))
             .unwrap_or(t.items.len());
-        let split = t.items[..first_queued]
+        let split = t
+            .items
             .iter()
+            .take(first_queued)
             .rposition(|i| matches!(i, Item::User { queued: false, .. }))
             .unwrap_or(0);
         let rebuild_prefix = reset || dirty < self.prefix_items || split < self.prefix_items;
@@ -73,8 +75,7 @@ impl TranscriptCache {
             self.prefix_items = 0;
             self.prefix_rows = 0;
         } else {
-            let removed: u64 =
-                self.rows[self.prefix_rows.min(self.rows.len())..].iter().map(row_heap_bytes).sum();
+            let removed: u64 = self.rows.iter().skip(self.prefix_rows).map(row_heap_bytes).sum();
             self.row_heap_bytes = self.row_heap_bytes.saturating_sub(removed);
             self.rows.truncate(self.prefix_rows);
         }
@@ -126,7 +127,7 @@ impl TranscriptCache {
             plain("", Style::default(), first.item, &mut self.rows);
         }
         self.rows.extend(rows);
-        self.row_heap_bytes += self.rows[from..].iter().map(row_heap_bytes).sum::<u64>();
+        self.row_heap_bytes += self.rows.iter().skip(from).map(row_heap_bytes).sum::<u64>();
     }
 
     /// What the cache keeps, estimated in O(parsed items): the rows and their
@@ -174,12 +175,15 @@ pub(super) fn animated_line(t: &Transcript, row: &Row, c: &Chrome) -> Option<Lin
     {
         let label = format!("Working for {}", duration_label(now_ms().saturating_sub(start)));
         let mut line = row.line.clone();
-        let suffix = line.spans[0]
-            .content
-            .split_once(" · ")
-            .map(|(_, rest)| format!(" · {rest}"))
-            .unwrap_or_default();
-        line.spans[0] = Span::styled(format!("{label}{suffix}"), c.muted());
+        // A turn header's first span is its label; the rest of it follows " · ".
+        if let Some(first) = line.spans.first_mut() {
+            let suffix = first
+                .content
+                .split_once(" · ")
+                .map(|(_, rest)| format!(" · {rest}"))
+                .unwrap_or_default();
+            *first = Span::styled(format!("{label}{suffix}"), c.muted());
+        }
         return Some(line);
     }
     if row.item == t.items.len().saturating_sub(1)

@@ -1,4 +1,4 @@
-//! The JSON parses of one request line (p05-ipc-062): every decode of a
+//! The JSON parses of one request line: every decode of a
 //! line on its way to its reply goes through [`parse`], which counts it in
 //! the reader thread's [`LineParses`] scope. The frame handler opens the
 //! scope around a local line and reports the count as the trace instant
@@ -29,6 +29,12 @@ pub(crate) fn parse<'a, T: Deserialize<'a>>(line: &'a str) -> serde_json::Result
     serde_json::from_str(line)
 }
 
+/// The parses of this thread's open [`LineParses`] scope so far (0 outside
+/// one), for a line that leaves this thread with them.
+pub(crate) fn current() -> u32 {
+    PARSES.with(Cell::get).unwrap_or(0)
+}
+
 /// Counts this thread's [`parse`] calls until dropped, then restores the
 /// outer scope's count. Not `Send`: it ends on the thread it began.
 #[must_use = "parses are counted only while the scope lives"]
@@ -39,7 +45,13 @@ pub(crate) struct LineParses {
 
 impl LineParses {
     pub(crate) fn enter() -> Self {
-        let outer = PARSES.with(|parses| parses.replace(Some(0)));
+        Self::resume(0)
+    }
+
+    /// The scope of a line that already took `parses` on another thread
+    /// (the reader that queued it on its connection's control sequence).
+    pub(crate) fn resume(parses: u32) -> Self {
+        let outer = PARSES.with(|count| count.replace(Some(parses)));
         Self { outer, _not_send: PhantomData }
     }
 

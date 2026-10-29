@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The CmuxNextTabs sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-329, rule 9): one case
+/// The CmuxNextTabs sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9): one case
 /// per migrated owner class. The page-decided close's deadline is in PageDecidedClosesTests.
 /// - Hidden: the plus's settings observation on a hidden strip reads nothing until its node shows, then applies the
 ///   latest once (R-obs, rule 4).

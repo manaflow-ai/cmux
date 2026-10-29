@@ -42,7 +42,7 @@ import Testing
         terminal.now = { Self.today }
         terminal.calendar = { calendar }
         terminal.follow(settings)
-        return Harness(settings: settings, terminal: terminal, center: center, scope: scope, page: SettingsPageProvider(settings: settings),
+        return Harness(settings: settings, terminal: terminal, center: center, scope: scope, page: SettingsPageProvider(settings: settings, on: linklessMainWork()),
                        url: url, calendar: calendar)
     }
 

@@ -28,15 +28,15 @@ extension PaneController {
     }
 }
 
-/// The launch's hold on a pane's content (``LaunchPaneGate``, feature `launchVisiblePanesOnly`,
-/// p08-startup-065). Until startup completes a pane the layout does not report on screen makes no
+/// The launch's hold on a pane's content (``LaunchPaneGate``, feature `launchVisiblePanesOnly`).
+/// Until startup completes a pane the layout does not report on screen makes no
 /// surface, page or engine; one in the keep-alive band makes it in an afterStartup post, one away
 /// when it scrolls near (``setPresence(_:)``). On screen, the workspace's focused pane shows in the
 /// turn the layout reports it and the other visible panes queue behind it, one new surface a frame,
 /// as Chrome's `TabLoader` loads the active tab before the others (chrome/browser/sessions/tab_loader.cc).
 extension PaneController {
     /// Shows the selection for presentation (the layout, a frame, a model change): while the launch window's
-    /// build behind its picture holds this pane, its slice shows it (``launchHeld``, p08-startup-060); while the
+    /// build behind its picture holds this pane, its slice shows it (``launchHeld``); while the
     /// launch holds it off screen it makes nothing and waits for the end of startup instead. An action that
     /// needs the content calls ``showSelectionNow()``.
     func showSelected() {

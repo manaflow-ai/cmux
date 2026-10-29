@@ -1,8 +1,3 @@
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 import Foundation
 
 /// The single `host` + `port` the Mac pairing window offers for manual entry
@@ -51,11 +46,6 @@ private extension CmxManualPairingEntry {
     /// Whether `host` is a strict numeric IP literal (dotted-quad IPv4 or any
     /// IPv6 spelling). Used only as a preference signal, not a trust boundary.
     static func isIPLiteral(_ host: String) -> Bool {
-        var ipv4 = in_addr()
-        if inet_pton(AF_INET, host, &ipv4) == 1 {
-            return true
-        }
-        var ipv6 = in6_addr()
-        return inet_pton(AF_INET6, host, &ipv6) == 1
+        CmxIPLiteral(host, family: .ipv4) != nil || CmxIPLiteral(host, family: .ipv6) != nil
     }
 }

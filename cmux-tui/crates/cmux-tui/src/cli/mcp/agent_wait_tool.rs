@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 use super::super::GlobalArgs;
 use super::super::agents::{self, AgentCommand, AgentFailure};
 use super::{Backend, agent_tools, envelope, failure_result, success, tool_error, v2_tools, watch};
+use crate::cli::json_fields::JsonFields;
 
 pub(super) const NAME: &str = "agents_wait";
 
@@ -124,7 +125,9 @@ pub(super) fn call<B: Backend>(
 /// The `cmux agents wait` command these arguments name, and its session.
 fn command(arguments: &Map<String, Value>) -> Result<(AgentCommand, Option<String>), String> {
     let schema = input_schema();
-    if let Some(name) = arguments.keys().find(|name| schema["properties"].get(*name).is_none()) {
+    if let Some(name) =
+        arguments.keys().find(|name| schema.field("properties").get(*name).is_none())
+    {
         return Err(format!("{NAME} has no argument {name:?}"));
     }
     let text = |name: &str| match arguments.get(name) {
@@ -175,10 +178,13 @@ impl Ticker {
         let Some(progress) = progress else { return Self { stop: None, thread: None } };
         let (stop, stopped) = mpsc::channel::<()>();
         let started = Instant::now();
-        let spawned =
-            std::thread::Builder::new().name("cmux-mcp-wait-progress".into()).spawn(move || {
+        // supervise-allow: owned by Ticker and joined at its end; it only sends progress notes.
+        let spawned = cmux_threads::spawn(
+            "cmux-mcp-wait-progress",
+            cmux_threads::ThreadQos::Utility,
+            move || {
                 loop {
-                    match stopped.recv_timeout(PROGRESS_EVERY) {
+                    match crate::blocking::sync::recv_timeout(&stopped, PROGRESS_EVERY) {
                         Err(RecvTimeoutError::Timeout) => {}
                         Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
                     }
@@ -199,7 +205,8 @@ impl Ticker {
                         return;
                     }
                 }
-            });
+            },
+        );
         // No thread, no notes: the wait itself still runs.
         Self { stop: Some(stop), thread: spawned.ok() }
     }
@@ -209,7 +216,7 @@ impl Drop for Ticker {
     fn drop(&mut self) {
         drop(self.stop.take());
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = crate::blocking::thread::join(thread);
         }
     }
 }

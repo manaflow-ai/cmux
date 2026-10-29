@@ -589,6 +589,10 @@ impl App {
                             (MouseAction::Press, Some(GhosttyMouseButton::WheelRight))
                         }
                         MouseEventKind::Moved => (MouseAction::Motion, None),
+                        #[allow(
+                            clippy::unreachable,
+                            reason = "INVARIANT: the outer arm matches only the four scroll kinds and Moved"
+                        )]
                         _ => unreachable!("guarded by the outer pointer-kind match"),
                     };
                     let mut output = PtyInputBytes::new();

@@ -6,7 +6,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p09-observability-097: the forwarder sends the crash reports of the terminal host and holder copies the
+/// The forwarder sends the crash reports of the terminal host and holder copies the
 /// daemon runs from the host-exe root (dropped before: only bundle paths were helpers), and a forwarded Rust
 /// crash carries that pid's black box (`blackbox.txt`, no key records) and crash-key page (tags).
 @Suite struct SystemCrashReportTests {

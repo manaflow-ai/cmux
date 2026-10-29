@@ -2,7 +2,7 @@ import Foundation
 public import Sentry
 
 /// A crash-reporting event for a watched thread still inside its hang-watch scope 2 s past its budget
-/// (``CrashReporter/reportThreadHang(_:)``, p09-observability-068): the hung thread's stack as raw return
+/// (``CrashReporter/reportThreadHang(_:)``): the hung thread's stack as raw return
 /// addresses with the debug images that hold them, symbolicated on the server as a main-thread hang is
 /// (``MainThreadHangEvent``). It is Chrome's `HangWatcher::RecordHang`, which dumps without crashing and
 /// names the hung thread (base/threading/hang_watcher.cc); the `hang.thread` tag names it here.

@@ -61,13 +61,15 @@ extension PageFactory {
         }
         // Selected message text: Copy, Quote in Reply, Search the Web and Look Up, not Copy alone.
         let registry = services.registry
+        // The page is a Home view, not one tab's: its replies are plain visible tasks.
+        let replies = PageTabReplies(owner: "home-channels.selection", on: services.mainWork) { _ in nil }
         page.contextMenuEditor = { [weak page] menu in
             PageSelectionMenu(
                 quote: { page?.send(command: PageSelectionMenu.quoteCommand) },
                 search: {
-                    // task-owner: one selection read per menu choice; ends with the page's answer
-                    Task { @MainActor in
-                        guard let text = await page?.selectedText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    // The selection read, then the search as its reply.
+                    _ = replies.reply(for: nil) { [weak page] in await page?.selectedText() } apply: { text in
+                        guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         _ = registry.perform("browser.selection.search", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
                     }
                 }).rebuild(menu)

@@ -42,7 +42,7 @@ extension ChatController {
 }
 
 /// "Listening…" in the empty field while a session runs: the placeholder's place and ink, in italics.
-/// A layer of the compose bar's controls view (`ComposeChromeView`, p03-rendering-074): its line is
+/// A layer of the compose bar's controls view (`ComposeChromeView`): its line is
 /// drawn once per ink, scale and appearance; showing or moving it changes the layer only.
 @MainActor
 final class ComposeListeningLine {

@@ -313,9 +313,8 @@ pub(super) fn message_body(text: &str) -> &str {
     if !text.starts_with("[cmux agent message") {
         return text;
     }
-    let Some(start) = text.find("\n---\n").map(|i| i + 5) else { return text };
-    let end = text.rfind("\n--- end of message").filter(|e| *e >= start).unwrap_or(text.len());
-    &text[start..end]
+    let Some((_, body)) = text.split_once("\n---\n") else { return text };
+    body.rsplit_once("\n--- end of message").map_or(body, |(body, _)| body)
 }
 
 /// The message's words: lowercase, without digits or punctuation.
@@ -677,9 +676,10 @@ impl Hub {
             else {
                 return;
             };
-            tokio::spawn(async move {
+            let canceller = hub.clone();
+            hub.supervise("hub.pair-interrupt", Fatal, ShutdownBehavior::Skip, async move {
                 if to.turn().is_some_and(|t| t.turn_id == turn_id)
-                    && let Err(e) = hub.cancel(&to).await
+                    && let Err(e) = canceller.cancel(&to).await
                 {
                     tracing::warn!(session = %to.id, "interrupt: {}", e.message);
                 }
@@ -751,7 +751,7 @@ impl Hub {
         let keys = std::mem::take(&mut self.pairs_state().restored_drains);
         for key in keys {
             let hub = self.clone();
-            tokio::spawn(async move {
+            self.supervise("hub.pair-drain", Fatal, ShutdownBehavior::Skip, async move {
                 hub.wait_startup().await;
                 hub.drain_pair(key).await;
             });
@@ -820,7 +820,9 @@ impl Hub {
                 self.append(&s, "mux", "agent_pair_resumed", note(&a));
             }
             let hub = self.clone();
-            tokio::spawn(async move { hub.drain_pair((a, b)).await });
+            self.supervise("hub.pair-drain", Fatal, ShutdownBehavior::Skip, async move {
+                hub.drain_pair((a, b)).await
+            });
         }
         (pairs, delivered)
     }
@@ -877,7 +879,7 @@ impl Hub {
             let hub = self.clone();
             let (blocks, client, steer) = (h.blocks.clone(), h.client.clone(), false);
             let target = session.clone();
-            tokio::spawn(async move {
+            self.supervise("hub.pair-release", Fatal, ShutdownBehavior::Skip, async move {
                 let done = hub.prompt_with(&target, blocks, &client, steer, opts).await;
                 let _ = tx.send(done.map(|_| ()));
             });

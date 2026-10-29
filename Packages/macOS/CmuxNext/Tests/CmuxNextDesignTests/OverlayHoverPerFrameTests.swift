@@ -6,7 +6,7 @@ import CmuxNextWakeupsTestSupport
 import Testing
 
 /// The agent cursor's tag hover and the thin scroller's proximity hover once per frame (feature
-/// `pointerFrameHover`, p04-input-036) on p04-input-030's coalescer, as Chromium delivers rAF-aligned
+/// `pointerFrameHover`) on p04-input-030's coalescer, as Chromium delivers rAF-aligned
 /// moves (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`): the first
 /// move of a frame interval acts in its own turn, the rest once at the frame, at the latest point.
 /// An exit drops the waiting moves; a press lands them first.

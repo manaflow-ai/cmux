@@ -59,6 +59,9 @@ struct SinkState {
     /// dead holder's segment, and where if it starts a fresh ring instead:
     /// its ADOPTED answer says which ([`HolderSink::expect_adoption`]).
     adoption: Option<AdoptionCuts>,
+    /// Offset after the last byte a restarted daemon's re-attach replays
+    /// from the holder's ring ([`HolderSink::replay_until`]); 0 for none.
+    replay_end: u64,
 }
 
 /// The possible losses of one adoption sent to a holder that answers it
@@ -94,7 +97,7 @@ pub(crate) struct HolderSink {
     /// terminal has a channel).
     acker: OnceLock<Acker>,
     /// The key press of the newest input the daemon wrote on the custody
-    /// master (p09-observability-018): the reader's next holder read takes
+    /// master: the reader's next holder read takes
     /// it ([`SnapshottingReader`]).
     pub(crate) input_flow: crate::input_flow::InputFlowSlot,
     /// The flow that holder read took, for the parser's output of the same
@@ -169,7 +172,7 @@ impl SinkState {
     /// An acknowledgement is due for what the parser confirmed: every
     /// `ACK_EVERY` bytes, and once the stream went idle with
     /// [`IDLE_ACK_BYTES`] unacknowledged, so a cold terminal's holder can
-    /// release its ring up to the end of a burst (p07-memory-094).
+    /// release its ring up to the end of a burst.
     fn due_ack(&mut self, can_ack: bool) -> Option<u64> {
         let unacked = self.confirmed.saturating_sub(self.acked);
         let idle = self.bytes.is_empty();
@@ -278,6 +281,20 @@ impl HolderSink {
     pub(crate) fn has_ended(&self) -> bool {
         let state = self.state.lock().recover_poison();
         state.exit.is_some() || state.lost
+    }
+
+    /// The bytes up to `end` replay output a shell printed before this daemon
+    /// re-attached it: their prompt marks are old, and the input the last
+    /// daemon wrote after them is unknown (`terminal_activity` `shell_idle`).
+    pub(crate) fn replay_until(&self, end: u64) {
+        self.state.lock().recover_poison().replay_end = end;
+    }
+
+    /// Whether the parser has not finished parsing the replay
+    /// ([`Self::replay_until`]): the next bytes it parses may be replayed.
+    pub(crate) fn replaying(&self) -> bool {
+        let state = self.state.lock().recover_poison();
+        state.confirmed < state.replay_end
     }
 
     /// The parser finished parsing every byte the reader took. The reader
@@ -710,7 +727,7 @@ mod tests {
         assert!(last >= ACK_EVERY && last <= 2 * chunk.len() as u64, "{acks:?}");
     }
 
-    /// p07-memory-094: the tail of a burst under `ACK_EVERY` is acknowledged
+    /// The tail of a burst under `ACK_EVERY` is acknowledged
     /// once the stream goes idle, so the holder may release its ring up to
     /// the burst's end; an echo after it costs no acknowledgement.
     #[test]

@@ -18,6 +18,7 @@ public final class WindowServerInputEvents: SessionInputEvents {
         self.input = input
     }
 
+    /// Seconds since the window server's last input event of any type, in the session.
     public func secondsSinceLastInput() -> TimeInterval {
         // Without the any-input type the answer is "just now", which sends the caller to the
         // per-type queries: slower, never wrong.
@@ -25,16 +26,20 @@ public final class WindowServerInputEvents: SessionInputEvents {
         return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
     }
 
+    /// Seconds since the window server's last `type` event, in the session.
     public func secondsSinceLastEvent(_ type: CGEventType) -> TimeInterval {
         CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: type)
     }
 
+    /// Whether cmux is the active app.
     public var isAppActive: Bool { NSApp?.isActive ?? false }
 
+    /// The frame period of the key window's display (else the main display's).
     public var refreshInterval: TimeInterval {
         (NSApp?.keyWindow?.screen ?? NSScreen.main)?.minimumRefreshInterval ?? 1.0 / 60
     }
 
+    /// Whether the topmost window under the pointer is one of cmux's.
     public var pointerIsOverAppWindow: Bool {
         guard let app = NSApp else { return false }
         // 0: the topmost window at the point, of any app.
@@ -42,6 +47,7 @@ public final class WindowServerInputEvents: SessionInputEvents {
         return number > 0 && app.window(withWindowNumber: number) != nil
     }
 
+    /// Calls `dispatched` for each input event AppKit dispatches in this app, from the input tap; once per instance.
     public func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (SessionInputPending.Dispatched) -> Void) {
         guard subscription == nil else { return }
         subscription = input.observe(SessionInputPending.Dispatched.observedClasses) { record in

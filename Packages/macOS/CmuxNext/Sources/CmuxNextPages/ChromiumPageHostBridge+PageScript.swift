@@ -115,7 +115,7 @@ extension ChromiumPageHostBridge {
 
     /// The page script's half of the page push channel, inside ``pageScript(handlers:channelEvent:)``
     /// where `resolve` settles a reply. Where the fork defines `cmuxPageListen` (the main frame of a
-    /// cmux-page document, fork API 39) it registers the document's one receiver. A push is JSON:
+    /// cmux-page document, fork API 43) it registers the document's one receiver. A push is JSON:
     /// an array is one run of envelopes for the page's receiver (pageClient.ts registers it with
     /// ``listenName``; until it does, the runs wait here, at most ``maximumHeldPushes``), and
     /// `{"r": seq, "d": doc, "v": reply}` is a reply, settled only when `doc` is this document's token.

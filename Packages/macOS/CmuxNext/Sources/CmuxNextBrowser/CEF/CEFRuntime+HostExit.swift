@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 
-/// The Chromium Host's end while Chromium runs in it (``BrowserBackend/host``, p08-startup-046).
+/// The Chromium Host's end while Chromium runs in it (``BrowserBackend/host``).
 extension CEFRuntime {
     /// The host ended: everything still awaited from it resolves (``hostWireEnded()``), every page it showed
     /// shows `exit`'s crash state (the sad tab), and the crash log records the host once. Only the host's process
@@ -53,6 +53,7 @@ extension CEFRuntime {
         if let hostStart, state == .ready, shutdownSequence == nil {
             hostStart.hostEnded()
             hostStart.pagesAwaitEnd = true
+            publishHelperParent()  // none until the next host is attached
             shim = nil
             state = .idle
         }
@@ -128,17 +129,20 @@ extension CEFRuntime {
         tab.host.recreateShown(tab)
     }
 
-    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:)``):
-    /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, drops with `takesDrags`, page
+    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostInput:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:hostLocks:hostAppEvents:helperParent:pageHostScripts:)``):
+    /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, hosted pages' input through
+    /// the host's input ring with `routesInput`, drops with `takesDrags`, page
     /// resizes fenced with `fencesResizes`, `<select>` popups as cmux menus with `drawsPopupMenus`, suggestions in cmux's
     /// list with `drawsSuggestions`, choosers in cmux with `drawsChoosers`, page file choosers answered by `fileDialogs`); every end of the host reaches
     /// ``hostWireEnded()`` through the start, and ``hostEnded(_:)`` when the supervisor reports it (``ChromiumHostExitReporting``).
-    func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
-                   fencesResizes: Bool = false, drawsPopupMenus: Bool = false, drawsSuggestions: Bool = false, drawsChoosers: Bool = false,
+    func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, routesInput: Bool = false,
+                   takesDrags: Bool = false, fencesResizes: Bool = false, drawsPopupMenus: Bool = false,
+                   drawsSuggestions: Bool = false, drawsChoosers: Bool = false,
                    fileDialogs: (any ChromiumFileDialogAnswering)? = nil, handlesLocks: Bool = false,
                    appEvents: AppEvents? = nil) {
-        hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags,
-                                 fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus, fileDialogs: fileDialogs)
+        hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, routesInput: routesInput,
+                                 takesDrags: takesDrags, fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus,
+                                 fileDialogs: fileDialogs)
         hostStart?.drawsSuggestions = drawsSuggestions
         hostStart?.drawsChoosers = drawsChoosers
         hostStart?.locks = handlesLocks ? CEFHostLocks(runtime: self, appEvents: appEvents) : nil

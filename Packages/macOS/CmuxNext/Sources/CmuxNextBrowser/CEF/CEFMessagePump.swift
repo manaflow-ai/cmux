@@ -36,6 +36,9 @@ import Foundation
 /// takes no late frame's slice; pending keys to the page with the keyboard and input after a page
 /// input do not hold it (Chromium acks the page's input inside the pump), pending pointer input does.
 ///
+/// With a frame deadline (``CEFPumpFrameDeadline``) a due pass then runs only
+/// to the frame's commit, or waits for the next frame, a person's input turn or a plan apply's commit.
+///
 /// Each timer fire is one main wake in the wakeup ledger (owner ``ledgerOwner``) with the reason it
 /// fired (``LedgerReason``), as Chrome's `MessagePumpCFRunLoopBase` tells its wakes apart by what woke
 /// it (`RunDelayedWorkTimer` or `RunWorkSource`, base/message_loop/message_pump_apple.mm). The deadline
@@ -62,30 +65,6 @@ import Foundation
 final class CEFMessagePump {
     /// The wakeup ledger owner of every pump wake.
     nonisolated static let ledgerOwner = "CEFMessagePump"
-
-    /// Why a timer fire woke the main thread (`debug.wakeups` reason).
-    nonisolated enum LedgerReason: String, CaseIterable, Sendable {
-        /// An immediate request: `OnScheduleMessagePumpWork(0)` or cmux's own "pump now".
-        case now
-        /// The fire date of CEF's delayed request.
-        case delayed
-        /// The deadline of a Chromium thread's delayed request the gate kept (``CEFPumpCrossThreadGate``).
-        case kept
-        /// A fire while a pass was running (a nested run loop); the outer pass runs the pump again.
-        case reentered
-
-        /// The reason's number in a `cef.pump` begin record (`arg0`): fixed and nonzero, so 0 is a pass no timer
-        /// armed (the quit path's drain). A reentered fire runs no pass; 4 marks the pass that runs it after the
-        /// outer pass returns.
-        var traceCode: UInt64 {
-            switch self {
-            case .now: 1
-            case .delayed: 2
-            case .kept: 3
-            case .reentered: 4
-            }
-        }
-    }
 
     private let work: () -> Void
     /// The fork's longest pass (``CEFPumpSchedule/timeSlice(forkAPI:)``): a pass this long may have left work.
@@ -128,10 +107,15 @@ final class CEFMessagePump {
     private var boardDispatches: InputSubscription?
     /// The last input AppKit delivered to a Chromium page, while its ack may be due.
     private var pageInput = CEFPumpSchedule.RecentPageInput()
+    /// Slices each pass to the frame deadline and holds the pass it holds (nil: the fork's static slice,
+    /// no frame waits).
+    private var frameDeadline: CEFPumpFrameDeadline?
 
     var stats: CEFPumpStats {
         var stats = counters
         stats.keptCrossThreadRequests = Int(clamping: gate.kept)
+        stats.frameDeadlineWaits = frameDeadline?.frameWaits ?? 0
+        stats.frameInputHolds = frameDeadline?.inputHolds ?? 0
         return stats
     }
 
@@ -203,7 +187,18 @@ final class CEFMessagePump {
         boardDispatches?.cancel()
         boardDispatches = nil
         pageInput = CEFPumpSchedule.RecentPageInput()
+        frameDeadline?.stop()
+        frameDeadline = nil
         timer.invalidate()
+    }
+
+    /// Main thread: each pass is sliced to the frame deadline from now on (``CEFPumpFrameDeadline``).
+    func setFrameDeadline(_ deadline: CEFPumpFrameDeadline) {
+        frameDeadline?.stop()
+        frameDeadline = deadline
+        // A page input ended its input hold: the held pass runs on the next run loop pass (rearm() checks
+        // isRunning; during a pass the outer pass re-arms when it returns).
+        deadline.onInputHoldReleased { [weak self] in if self?.schedule.isWorking == false { self?.rearm() } }
     }
 
     /// Main thread: the person's input holds passes from now on (``CEFPumpInputPolicy``).
@@ -223,6 +218,7 @@ final class CEFMessagePump {
         counters.passesWhileInputPending = CEFPumpStats.PassesByTarget()
         counters.deferredForInput = 0
         counters.passTimes = InputLatencyHistogram()
+        frameDeadline?.resetCounters()
     }
 
     /// Main thread: a CEF `OnScheduleMessagePumpWork(delay_ms)` request. `fromChromiumThread`: a
@@ -279,15 +275,16 @@ final class CEFMessagePump {
         return wake.deadline == schedule.keptDeadline ? .kept : .delayed
     }
 
-    /// Runs the pass that is due, unless pending input or a late frame holds it. The input policy
-    /// goes first: a pass it holds takes no late frame's slice. A fire inside a running pass (a nested
-    /// run loop) goes straight to the slice check and `fire()`, which defers it. On the board, a pass
-    /// in the input class takes no late frame's slice either.
+    /// Runs the pass that is due, unless pending input, a late frame or the frame deadline (last) holds
+    /// it. The input policy goes first: a pass it holds takes no late frame's slice. A fire inside a running
+    /// pass (a nested run loop) goes straight to the slice check and `fire()`, which defers it. On the
+    /// board, a pass in the input class takes no late frame's slice either. A pass waits for input once:
+    /// one the frame deadline held for input is not held by the policy, and the other way round.
     private func runDuePass(for reason: LedgerReason) {
         let now = clock()
         let workClass = boardClass(at: now)
         var admission = CEFPumpInputPolicy.Admission.run
-        if let input, !schedule.isWorking {
+        if let input, !schedule.isWorking, frameDeadline?.heldForInput != true {
             admission = admit(input, now: now)
             if case .hold(let deadline, let began) = admission {
                 if began { counters.deferredForInput += 1 }
@@ -300,13 +297,21 @@ final class CEFMessagePump {
             waitForLateFrame(starvation)
             return
         }
+        var slice: Int64?
+        if let frameDeadline, !schedule.isWorking {
+            switch frameDeadline.admit(now: now, servesPage: chromiumInputPass || pageInputRecent(at: now),
+                                       inputWaited: input?.isHolding == true) {
+            case .run(let microseconds): slice = microseconds
+            case .hold: return rearm() // at the hold's end, exactly (``CEFPumpFrameDeadline/holdEnd``)
+            }
+        }
         switch admission {
         case .runAfterDispatch(let target): counters.passesWhileInputPending.add(target)
         case .runAtBound: counters.passesWhileInputPending.boundExpired += 1
         case .runForFocusedPage: counters.passesWhileInputPending.add(.chromiumPage)
         case .run, .hold: break
         }
-        fire(for: reason, workClass: workClass)
+        fire(for: reason, workClass: workClass, slice: slice)
     }
 
     /// The policy's answer for the pass due at `now`. Right after an input to a page, and on the board
@@ -368,8 +373,9 @@ final class CEFMessagePump {
     }
 
     /// `reason`: the timer fire that runs this pass; nil for the quit path's drain. `workClass`: its
-    /// board class, read when it was admitted (nil: read now, or no board).
-    private func fire(for reason: LedgerReason? = nil, workClass: MainWorkClass? = nil) {
+    /// board class, read when it was admitted (nil: read now, or no board). `slice`: the frame
+    /// deadline's slice in microseconds (nil: the fork's static slice).
+    private func fire(for reason: LedgerReason? = nil, workClass: MainWorkClass? = nil, slice: Int64? = nil) {
         guard isRunning else { return }
         // The fire date this pass serves, read before kept requests merge (none of them armed it).
         let served = reason == .delayed || reason == .kept ? schedule.nextWake.map(\.deadline).flatMap { $0.isFinite ? $0 : nil } : nil
@@ -388,6 +394,7 @@ final class CEFMessagePump {
         }
         // This pass is the one any hold or Chromium input waited for.
         inputHoldDeadline = nil
+        frameDeadline?.passStarted()
         chromiumInputPass = false
         input?.holdEnded()
         let passClass = workClass ?? boardClass(at: started)
@@ -397,12 +404,14 @@ final class CEFMessagePump {
         rearm()
         let interval = signposter.beginCEFPump(reasonCode: traceReason?.traceCode ?? 0)
         if let board, let passClass {
-            board.budget.run(passClass, owner: board.owner) { runPass() }
+            board.budget.run(passClass, owner: board.owner) { runPass(slice: slice) }
         } else {
-            runPass()
+            runPass(slice: slice)
         }
         let elapsed = clock() - started
-        let longRun = counters.recordWorkRun(elapsed: elapsed, timeSlice: timeSlice, metrics: signposter.metrics)
+        let passSlice = slice.map { TimeInterval($0) / 1_000_000 } ?? timeSlice
+        let longRun = counters.recordWorkRun(elapsed: elapsed, timeSlice: passSlice, metrics: signposter.metrics)
+        frameDeadline?.passEnded(usedWholeSlice: longRun)
         signposter.endCEFPump(interval, longRun: longRun, elapsedMicros: UInt64(max(0, elapsed) * 1e6))
         if earlyPassWatch.passEnded(usedWholeSlice: longRun) { counters.earlyPasses += 1 }
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }
@@ -412,11 +421,13 @@ final class CEFMessagePump {
 
     /// One `CefDoMessageLoopWork`, with the CEF state key at `inPump` and `in_cef_pump` at 1, and the values
     /// before them put back after (Chrome's `ScopedCrashKeyString`, components/crash/core/common/crash_key.h).
-    private func runPass() {
+    /// `slice`: the pass's own slice in microseconds, handed to the fork right before it (nil: none).
+    private func runPass(slice: Int64?) {
         let outside = (cefState: crashKeys?.value(.cefState), inCEFPump: trace.crashKey(.inCEFPump))
         keysOutsidePass = outside
         crashKeys?.set(.cefState, CrashKeySlots.CEFState.inPump.rawValue)
         trace.setCrashKey(.inCEFPump, 1)
+        frameDeadline?.passBegins(slice: slice)
         work()
         restoreKeys(outside)
         keysOutsidePass = nil
@@ -433,15 +444,19 @@ final class CEFMessagePump {
         mergeKeptRequests()
         guard let wake = schedule.nextWake else {
             endInputHold()
+            frameDeadline?.noPassDue()
             timer.disarm()
             return
         }
         let now = clock()
         // No pass is due before the hold's end (CEF moved its request later): none waits for input.
         if wake.deadline > max(now + 0.001, inputHoldDeadline ?? -.infinity) { endInputHold() }
-        // A pass input holds fires at the hold's bound, unless the input's dispatch ends first.
-        let deadline = max(wake.deadline, inputHoldDeadline ?? -.infinity)
-        let exact = inputHoldDeadline != nil || chromiumInputPass
+        // No pass is due before the frame deadline's hold ends: it is decided afresh when due.
+        if let sliceHold = frameDeadline?.holdEnd, wake.deadline >= sliceHold { frameDeadline?.noPassDue() }
+        // A held pass fires at the hold's end (an input hold's ends early when the input's dispatch does).
+        let sliceHold = frameDeadline?.holdEnd
+        let deadline = max(wake.deadline, inputHoldDeadline ?? -.infinity, sliceHold ?? -.infinity)
+        let exact = inputHoldDeadline != nil || chromiumInputPass || sliceHold != nil
         timer.arm(after: max(0, deadline - now), tolerance: exact ? 0 : wake.tolerance)
         // An immediate pass is no deadline.
         guard wake.deadline.isFinite, wake.deadline > 0 else { return }

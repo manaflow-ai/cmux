@@ -32,19 +32,6 @@ extension PageWebView {
         // A live web override reaches only WebKit pages. Its watch is armed by the first page the host
         // opens in either engine, a preloaded one included (``WebUIHost/devOverride``), so a launch whose
         // first page is a Chromium one still reads web-dev.json.
-        return engineDecisionNow(for: descriptor, options: options, hosting: hosting)
-    }
-
-    /// ``engineDecision(for:options:hosting:)`` with the Chromium host given: for a caller that only asks
-    /// where a page would show.
-    ///
-    /// - Parameters:
-    ///   - descriptor: The page.
-    ///   - options: Its engine options.
-    ///   - hosting: The Chromium host; nil for WebKit only.
-    /// - Returns: Chromium, or WebKit and why.
-    static func engineDecisionNow(for descriptor: PageDescriptor, options: PageEngineOptions,
-                                  hosting: (any PageChromiumHosting)?) -> PageEngineDecision {
         guard let hosting else {
             // No Chromium host (a build or test without one): a page that could not run there keeps
             // its own reason, any other one is on WebKit because Chromium is missing.

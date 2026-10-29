@@ -41,6 +41,7 @@ extension VSyncHub {
     /// hop while its p99 stays under 0.1 ms in typing-frame-bench (the VSyncHub row).
     @MainActor
     public final class HopMeter {
+        /// Ticks kept for the percentiles.
         public static let capacity = 256
         private var samples: [CFTimeInterval] = []
         private var next = 0

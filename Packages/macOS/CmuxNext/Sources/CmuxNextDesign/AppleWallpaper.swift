@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import Foundation
+public import CmuxNextAppearance
 
 /// One macOS wallpaper as the Wallpaper pane lists it: a picture file in Desktop Pictures, or a
 /// `.madesktop` description of one that macOS downloads when the person first picks it. Read
@@ -37,20 +38,19 @@ public nonisolated struct AppleWallpaper: Equatable, Hashable, Sendable {
     /// - Parameters:
     ///   - path: A picture or `.madesktop` file.
     ///   - assets: The downloaded full pictures, by asset name.
-    ///   - fileManager: Checks which thumbnails exist.
-    public init?(path: String, assets: AppleWallpaperAssets, fileManager: FileManager = .default) {
+    public init?(path: String, assets: AppleWallpaperAssets) {
         let url = URL(fileURLWithPath: path)
         let name = url.deletingPathExtension().lastPathComponent
         let thumbnails = Self.thumbnailFolder(for: url)
         func variant(_ base: URL, _ suffix: String) -> URL? {
             let file = base.deletingLastPathComponent()
                 .appendingPathComponent("\(base.deletingPathExtension().lastPathComponent) \(suffix).\(base.pathExtension)")
-            return fileManager.fileExists(atPath: file.path) ? file : nil
+            return FileManager.checked.fileExists(atPath: file.path) ? file : nil
         }
         self.path = path
         title = name
         if url.pathExtension.lowercased() == "madesktop" {
-            guard let data = fileManager.contents(atPath: path),
+            guard let data = FileManager.checked.contents(atPath: path),
                   let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
                   let thumbnailPath = plist["thumbnailPath"] as? String, thumbnailPath.hasPrefix("/") else { return nil }
             let thumbnail = URL(fileURLWithPath: thumbnailPath)
@@ -62,7 +62,7 @@ public nonisolated struct AppleWallpaper: Equatable, Hashable, Sendable {
         } else {
             guard BackdropUserImages.isImage(url) else { return nil }
             let small = thumbnails.appendingPathComponent("\(name).heic")
-            thumbnail = fileManager.fileExists(atPath: small.path) ? small : url
+            thumbnail = FileManager.checked.fileExists(atPath: small.path) ? small : url
             isDynamic = false
             lightThumbnail = nil
             darkThumbnail = nil
@@ -97,13 +97,13 @@ public nonisolated struct AppleWallpaperAssets: Sendable {
     private init(files: [String: URL]) { self.files = files }
 
     /// Lists the downloaded pictures in `folders`.
-    public init(folders: [URL] = Self.systemFolders, fileManager: FileManager = .default) {
+    public init(folders: [URL] = Self.systemFolders) {
         var files: [String: URL] = [:]
         for folder in folders {
-            let assets = (try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            let assets = (try? FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
             for asset in assets where asset.pathExtension == "asset" {
                 let data = asset.appendingPathComponent("AssetData", isDirectory: true)
-                for file in (try? fileManager.contentsOfDirectory(at: data, includingPropertiesForKeys: nil)) ?? []
+                for file in (try? FileManager.checked.contentsOfDirectory(at: data, includingPropertiesForKeys: nil)) ?? []
                 where BackdropUserImages.isImage(file) {
                     let name = file.deletingPathExtension().lastPathComponent
                     files[name] = files[name] ?? file

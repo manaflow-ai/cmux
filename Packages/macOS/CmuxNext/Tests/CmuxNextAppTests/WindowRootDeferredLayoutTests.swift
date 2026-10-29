@@ -4,9 +4,10 @@ import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextSidebar
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
-/// p03-rendering-067: a right-panel width or a sidebar side change marks the root and lays out in
+/// A right-panel width or a sidebar side change marks the root and lays out in
 /// the window's next pass (Chrome lays out once per frame; a forced layout needs a reason the turn
 /// reads). Before, both forced a layout of the whole window subtree in the change's turn, once per
 /// move of a right-panel resize drag.
@@ -19,7 +20,7 @@ import Testing
         init() {
             _ = NSApplication.shared
             root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(),
-                                                                mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+                                                                mainWork: MainWorkScheduler(budget: MainFrameBudget())), revealDeadlines: .testing())
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)

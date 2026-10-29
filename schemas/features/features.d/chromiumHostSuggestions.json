@@ -3,7 +3,7 @@
   "name": "chromiumHostSuggestions",
   "owner": "PL-cef-layer",
   "description": "In host mode, a page's autofill, password and datalist suggestions show in a cmux list under the field, which follows the field's keys and takes clicks, a delete button and VoiceOver; needs a Chromium fork at API 31.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "labs",
   "process": "app",
   "params": [],

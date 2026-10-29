@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// A terminal stream on the shared connection (p05-ipc-099): ``TerminalEventQueue`` with
+/// A terminal stream on the shared connection: ``TerminalEventQueue`` with
 /// ``TerminalEventQueue/Backpressure/dropAndResync(_:)`` never parks the reader thread. Over its high
 /// water it drops the output a READY supersedes, asks for that READY and drops such output until it
 /// arrives; at most one request is out, a throttled one goes out again after the daemon's delay and a

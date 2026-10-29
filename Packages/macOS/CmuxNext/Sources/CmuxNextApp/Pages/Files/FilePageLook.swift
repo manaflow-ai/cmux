@@ -11,7 +11,9 @@ import Observation
 /// `<config dir>/<section>/theme.css`, and for the editor the shared `appearance.syntaxTheme`, the
 /// user language pack and whether VoiceOver runs. A change of any is pushed to every listener with
 /// only the keys that changed; preference writes (PAGE-PREFS) go to the settings file and show at
-/// once, before the file watcher reloads.
+/// once, before the file watcher reloads. The look's followers write to every listening page (its
+/// router holds the push while a page is hidden), so they flush as visible-class work on the app's
+/// scheduler, behind the person's input.
 final class FilePageLook {
     private let kind: FilePageKind
     private let settings: () -> SettingsController?
@@ -19,12 +21,14 @@ final class FilePageLook {
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var themeCSS = ""
     private var themeWatcher: ConfigFileWatcher?
-    private var themeRead: Task<Void, Never>?
-    private var settingsTask: Task<Void, Never>?
+    /// Bumped by every theme read and by ``stop()``: an older read's reply applies nothing.
+    private var themeGeneration = 0
+    private var settingsWatch: ServiceObservation<LookSettings>?
+    private let mainWork: MainWorkScheduler
+    /// The app's lanes: the theme and import reads run on their files lane.
+    private let work: BackgroundWork
     private var languageFeed: DiffLanguageFeed?
     private var stopLanguages: (() -> Void)?
-    /// The app's one main-thread scheduler (the editor's language pack feed lands on it).
-    private let mainWork: MainWorkScheduler
     private var languages: JSONValue?
     /// Preference writes not yet seen in the settings file, by path.
     private var pending: [[String]: JSONValue] = [:]
@@ -36,15 +40,20 @@ final class FilePageLook {
     private(set) var importedFrom: ImportableEditor?
     private var importChoice: EditorImportChoice?
     private var importWatchers: [ConfigFileWatcher] = []
-    private var importRead: Task<Void, Never>?
+    /// Bumped by every import read and by ``stop()``: an older read's reply applies nothing.
+    private var importGeneration = 0
 
     /// `configDirectory`: where `<section>/theme.css` lives; nil uses the settings file's folder.
     /// `importSources`: where the code editor reads another editor's settings (the home folder).
-    init(kind: FilePageKind, settings: @escaping () -> SettingsController?, mainWork: MainWorkScheduler, configDirectory: URL? = nil,
-         importSources: EditorSettingsSources = EditorSettingsSources(home: FileManager.default.homeDirectoryForCurrentUser)) {
+    /// `mainWork`: the app's main-thread scheduler (`AppServices.mainWork`); `work`: the app's lanes
+    /// (`AppServices.work`), where the theme and import files are read.
+    init(kind: FilePageKind, settings: @escaping () -> SettingsController?, configDirectory: URL? = nil,
+         importSources: EditorSettingsSources = EditorSettingsSources(home: FileManager.default.homeDirectoryForCurrentUser),
+         mainWork: MainWorkScheduler, work: BackgroundWork) {
+        self.mainWork = mainWork
+        self.work = work
         self.kind = kind
         self.settings = settings
-        self.mainWork = mainWork
         fixedConfigDirectory = configDirectory
         self.importSources = importSources
     }
@@ -105,20 +114,23 @@ final class FilePageLook {
     // MARK: Watching
 
     private func start() {
-        guard settingsTask == nil else { return }
+        guard settingsWatch == nil else { return }
         let section = kind.section
         let settings = settings
-        settingsTask = Task { [weak self] in
-            for await _ in ObservationStream({ (settings()?.fileRoot[section], settings()?.fileRoot["appearance"]?["syntaxTheme"]) }) {
-                self?.followImportChoice()
-                self?.publish()
-            }
+        // Its first value is the look `current()` reads now: only later changes publish (the guard
+        // skips the apply inside `init`, which would start this again from `current()`).
+        settingsWatch = ServiceObservation(.visible, owner: "file-look.settings", on: mainWork) {
+            LookSettings(section: settings()?.fileRoot[section], syntaxTheme: settings()?.fileRoot["appearance"]?["syntaxTheme"])
+        } apply: { [weak self] _ in
+            guard let self, self.settingsWatch != nil else { return }
+            self.followImportChoice()
+            self.publish()
         }
+        let mainWork = mainWork
         if let directory = configDirectory {
             let file = directory.appending(path: section).appending(path: "theme.css")
             let watcher = ConfigFileWatcher(url: file) { [weak self] in
-                // task-owner: hops one kernel event to the main actor; readTheme owns the read
-                Task { @MainActor in self?.readTheme(file) }
+                mainWork.postFromAnyThread(.visible, owner: "file-look.theme") { self?.readTheme(file) }
             }
             themeWatcher = watcher
             watcher.start()
@@ -144,10 +156,10 @@ final class FilePageLook {
         guard choice != importChoice else { return }
         importChoice = choice
         importWatchers.forEach { $0.stop() }
+        let mainWork = mainWork
         importWatchers = importSources.watchedFiles(choice).map { file in
             let watcher = ConfigFileWatcher(url: file) { [weak self] in
-                // task-owner: hops one kernel event to the main actor; readImport owns the read
-                Task { @MainActor in self?.readImport() }
+                mainWork.postFromAnyThread(.visible, owner: "file-look.import") { self?.readImport() }
             }
             watcher.start(reportInitialChange: false)
             return watcher
@@ -155,42 +167,40 @@ final class FilePageLook {
         readImport()
     }
 
+    /// Reads the chosen editor's settings on the files lane; the newest read's reply applies them.
     private func readImport() {
         guard let choice = importChoice else { return }
-        importRead?.cancel()
-        let sources = importSources
-        importRead = Task { [weak self] in
-            let found = await Self.load(sources, choice)
-            guard let self, !Task.isCancelled else { return }
-            self.importedFrom = found?.editor
-            let section = found?.section ?? .object([:])
-            guard section != self.imported else { return }
-            self.imported = section
-            self.publish()
-        }
-    }
-
-    @concurrent private static func load(_ sources: EditorSettingsSources, _ choice: EditorImportChoice) async -> EditorSettingsSources.Found? {
-        // concurrency-allow: @concurrent, off the main actor
-        sources.load(choice)
+        importGeneration += 1
+        let generation = importGeneration, sources = importSources
+        work.run(.userVisible, mayBlock: .files) { sources.load(choice) }
+            .reply(on: mainWork, class: .visible, owner: "file-look.import") { [weak self] found in
+                guard let self, self.importGeneration == generation else { return }
+                self.importedFrom = found?.editor
+                let section = found?.section ?? .object([:])
+                guard section != self.imported else { return }
+                self.imported = section
+                self.publish()
+            }
     }
 
     /// The defaults taken from another editor now (the Import Settings action copies them).
     var importedSection: JSONValue { imported }
 
+    /// Reads `file` (the page's theme.css) on the files lane; the newest read's reply applies it.
     private func readTheme(_ file: URL) {
-        themeRead?.cancel()
-        themeRead = Task { [weak self] in
-            let text = await Self.read(file)
-            guard let self, !Task.isCancelled, text != self.themeCSS else { return }
-            self.themeCSS = text
-            self.publish()
-        }
+        themeGeneration += 1
+        let generation = themeGeneration
+        work.run(.userVisible, mayBlock: .files) { Self.theme(at: file) }
+            .reply(on: mainWork, class: .visible, owner: "file-look.theme") { [weak self] text in
+                guard let self, self.themeGeneration == generation, text != self.themeCSS else { return }
+                self.themeCSS = text
+                self.publish()
+            }
     }
 
-    @concurrent private static func read(_ file: URL) async -> String {
-        // concurrency-allow: @concurrent, off the main actor
-        (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+    /// The theme file's text, "" when it cannot be read; on the files lane.
+    private nonisolated static func theme(at file: URL) -> String {
+        (try? String(blockingContentsOf: file, encoding: .utf8)) ?? ""
     }
 
     /// Sends the keys that changed since the last event.
@@ -206,16 +216,16 @@ final class FilePageLook {
     }
 
     func stop() {
-        settingsTask?.cancel()
-        settingsTask = nil
+        settingsWatch?.cancel()
+        settingsWatch = nil
         themeWatcher?.stop()
         themeWatcher = nil
-        themeRead?.cancel()
+        themeGeneration += 1
         stopLanguages?()
         stopLanguages = nil
         importWatchers.forEach { $0.stop() }
         importWatchers = []
-        importRead?.cancel()
+        importGeneration += 1
         importChoice = nil
         listeners.removeAll()
     }
@@ -241,4 +251,10 @@ final class FilePageLook {
         members[first] = path.count == 1 ? value : setting(value, at: Array(path.dropFirst()), in: child)
         return .object(members)
     }
+}
+
+/// What a file page's look follows in the settings: its section and the shared syntax theme.
+private nonisolated struct LookSettings: Equatable {
+    let section: JSONValue?
+    let syntaxTheme: JSONValue?
 }

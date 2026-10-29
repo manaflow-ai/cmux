@@ -9,6 +9,11 @@ impl Surface {
         Ok(())
     }
 
+    /// [`Self::scroll_delta`], returning whether the terminal viewport moved.
+    pub(crate) fn scroll_delta_moved(&self, delta: isize) -> anyhow::Result<bool> {
+        Ok(self.apply_scroll_delta(None, delta)?.is_some_and(|(_, moved)| moved))
+    }
+
     /// Scroll only this placement's in-process frontend viewport. Byte-mode
     /// frontends own the equivalent state in their terminal mirror.
     pub fn view_scroll_delta(&self, delta: isize) -> anyhow::Result<Option<Scrollbar>> {
@@ -78,14 +83,16 @@ impl Surface {
         expected: Scrollbar,
         delta: isize,
     ) -> anyhow::Result<Option<Scrollbar>> {
-        self.apply_scroll_delta(Some(expected), delta)
+        Ok(self.apply_scroll_delta(Some(expected), delta)?.and_then(|(scrollbar, _)| scrollbar))
     }
 
+    /// Scroll the terminal viewport. `None` when `expected` no longer
+    /// matches; otherwise the scrollbar after the move and whether it moved.
     pub(super) fn apply_scroll_delta(
         &self,
         expected: Option<Scrollbar>,
         delta: isize,
-    ) -> anyhow::Result<Option<Scrollbar>> {
+    ) -> anyhow::Result<Option<(Option<Scrollbar>, bool)>> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
@@ -112,7 +119,7 @@ impl Surface {
         {
             mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
         }
-        Ok(scrollbar)
+        Ok(Some((scrollbar, changed.is_some())))
     }
 
     pub fn scroll_to_bottom(&self) -> anyhow::Result<()> {

@@ -11,6 +11,7 @@ use serde_json::{Map, Value, json};
 use super::super::terminal_talk::{self, roster, send};
 use super::agent_wait_tool::{Progress, Ticker};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
+use crate::cli::json_fields::JsonFields;
 
 pub(super) const LIST: &str = "agents_terminal_list";
 pub(super) const SEND: &str = "agents_terminal_send";
@@ -123,7 +124,9 @@ pub(super) fn send_request(
     arguments: &Map<String, Value>,
 ) -> Result<(send::SendRequest, Option<String>), String> {
     let schema = send_schema();
-    if let Some(name) = arguments.keys().find(|name| schema["properties"].get(*name).is_none()) {
+    if let Some(name) =
+        arguments.keys().find(|name| schema.field("properties").get(*name).is_none())
+    {
         return Err(format!("{SEND} has no argument {name:?}"));
     }
     let target =
@@ -185,7 +188,7 @@ pub(super) fn call_send<B: Backend>(
     match outcome {
         Ok(receipt) => success(receipt, true),
         Err(failure) if failure.exit == 2 => {
-            not_run(failure.failure.error["message"].as_str().unwrap_or_default().to_owned())
+            not_run(failure.failure.error.field("message").as_str().unwrap_or_default().to_owned())
         }
         Err(failure) => failure_result(failure.failure),
     }

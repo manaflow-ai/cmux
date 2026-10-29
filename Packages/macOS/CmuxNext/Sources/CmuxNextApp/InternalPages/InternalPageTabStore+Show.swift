@@ -148,6 +148,7 @@ extension InternalPageTabStore {
         let key = providerKey(ofTab: tab)
         guard discards != nil, existingView(key) != nil, let view = takeView(key) else { return false }
         view.removeFromSuperview()
+        view.detachContent() // while the view lives (InternalPageView.detachContent)
         let owner = LocalPageTab.page(of: key).flatMap { self.provider($0) }
         discardRecords.discarded[key] = ContentDiscardRecords.Record(state: state, route: owner?.route(for: key))
         owner?.viewDiscarded(key)
@@ -249,6 +250,7 @@ extension InternalPageTabStore: ContentDiscardHost {
     }
 
     func isDrawn(_ key: String) -> Bool {
+        // visibility-walk-allow: a paint hold keeps a hidden tab's view drawn; its tab node says hidden, only the view knows
         existingView(key).map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } ?? false
     }
 

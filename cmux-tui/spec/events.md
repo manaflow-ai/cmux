@@ -176,6 +176,35 @@ latest-state events (for example two `title-changed` of one surface), the
 kept event takes the higher cause, in the order `frontend`, absent,
 `automation`.
 
+## Frontend visibility
+
+A daemon that advertises `frontend-visibility-v1` answers
+`frontend.visibility.set` from the verified app's connection (origin `user`;
+any other connection gets `frontend_visibility.not_trusted`):
+
+```json
+{"id": 9, "cmd": "frontend.visibility.set", "visible": [12, 15]}
+```
+
+`visible` is the whole set of surface IDs the app shows now, at most 4,096;
+`null` clears the scope. The app sends it at most once per frame and only
+when the set changed. The reply is `{"visible": <count or null>,
+"released": <held events made ready>}`.
+
+The set scopes that connection's own `subscribe` streams, made before or
+after it, until the connection ends. On those streams the latest-state
+events of a surface not in the set (`title-changed`, `agent-changed`,
+`program-status-changed`, `surface-output`, `scroll-changed`) wait in their
+coalesced slots: still at most one per surface and kind, and all of them are
+delivered together once per aligned second (a grid of 1 s from the first
+set). When a surface joins the set, its waiting events are delivered at
+once. These never wait: events of a shown surface, `surface-exited` (which
+drops the surface's waiting events, as before), tree deltas (a tab's
+waiting events go first; a pane, screen or workspace close sends every
+waiting event first), bells, notifications, every other event, and a
+change the app's own request caused (`cause: frontend`). Other connections'
+subscriptions, such as the CLI's and agents', are never scoped.
+
 ## Subscribe Events
 
 ### overflow
@@ -1007,7 +1036,7 @@ object{event:"scroll-changed",surface:Id,offset:uint64,at_bottom:boolean}
 
 Meaning: A PTY surface viewport moved within its scrollback. The event is emitted after a settled viewport mutation from user scrolling, `scroll-surface`, input snapping the viewport to the live bottom, or PTY output that changes the viewport position. `offset` is the same row offset used by the scrollbar geometry, and `at_bottom` is true when the viewport is pinned to the live bottom.
 
-Protocol v6 subscribe streams receive all scroll changes, and byte attach streams receive changes for the attached surface only. Both v7 tree-event modes retain that subscribe delivery, and render attach streams also receive changes for their attached surface. This pre-v7 overlap is retained for v6 compatibility and is the exception described in [Event Scoping](#event-scoping).
+Protocol v6 subscribe streams receive all scroll changes, and byte attach streams receive changes for the attached surface only. Both v7 tree-event modes retain that subscribe delivery, and render attach streams also receive changes for their attached surface, whichever connection moved the viewport, plus one at attach when the viewport is scrolled back ([render.md](render.md#stream-ordering)). This pre-v7 overlap is retained for v6 compatibility and is the exception described in [Event Scoping](#event-scoping).
 
 Example:
 
@@ -1859,6 +1888,10 @@ message of the endpoint (chromium
 - `cancel-stream {stream}` ends the stream with `stream-end{canceled}` and
   removes its view before it answers `{stream, outcome:"applied"}`. It is
   idempotent: an id with no open stream answers `outcome:"ended"`.
+- `set-stream-priority {stream, priority: focused|visible|hidden}` moves the
+  stream's lane and its view's drain priority (commands.md). A hidden snapshot
+  view gets nothing until it shows again; then one READY snapshot if its
+  terminal changed meanwhile, ahead of any new `output`.
 - Streams are independent: one stream whose reader stopped fills only its
   own queue, and the other streams and the command replies of the
   connection keep flowing. Losing the connection ends every stream; there

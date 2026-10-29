@@ -99,21 +99,28 @@ impl Backoff {
     }
 }
 
-/// Run an accept loop forever: hand each accepted value to `handle`; on an
-/// error wait per [`Backoff`] and call `log` once per burst of errors.
-pub async fn accept_loop<T, A, Fut, H, L>(mut accept: A, mut handle: H, mut log: L)
+/// Run an accept loop forever: serve each accepted value with the task
+/// `handle` returns; on an error wait per [`Backoff`] and call `log` once per
+/// burst of errors.
+///
+/// The loop owns its connection tasks: a panic ends that connection only,
+/// and ending the loop (its task aborted or dropped) ends them all.
+pub async fn accept_loop<T, A, Fut, H, Conn, L>(mut accept: A, mut handle: H, mut log: L)
 where
     A: FnMut() -> Fut,
     Fut: Future<Output = std::io::Result<T>>,
-    H: FnMut(T),
+    H: FnMut(T) -> Conn,
+    Conn: Future<Output = ()> + Send + 'static,
     L: FnMut(&std::io::Error),
 {
     let mut backoff = Backoff::default();
+    let mut connections = tokio::task::JoinSet::new();
     loop {
+        while connections.try_join_next().is_some() {}
         match accept().await {
             Ok(value) => {
                 backoff.success();
-                handle(value);
+                connections.spawn(handle(value));
             }
             Err(error) => {
                 let (delay, starts_burst) = backoff.failure();
@@ -165,5 +172,45 @@ mod tests {
             assert_eq!(notsent_lowat(&dialed).unwrap(), NOTSENT_LOWAT);
             assert_eq!(notsent_lowat(&accepted).unwrap(), NOTSENT_LOWAT);
         }
+    }
+
+    /// The loop owns its connections: a panicking connection ends alone,
+    /// the loop keeps serving, and ending the loop ends the connections
+    /// still open.
+    #[tokio::test]
+    async fn the_accept_loop_owns_its_connections() {
+        let (accepted_tx, mut accepted_rx) = tokio::sync::mpsc::channel::<bool>(4);
+        let (served_tx, mut served_rx) = tokio::sync::mpsc::channel::<()>(4);
+        let (open_tx, open_rx) = tokio::sync::oneshot::channel::<()>();
+        let mut open_tx = Some(open_tx);
+        let accept = move || {
+            let next = accepted_rx.try_recv();
+            async move {
+                match next {
+                    Ok(panics) => Ok(panics),
+                    Err(_) => std::future::pending().await,
+                }
+            }
+        };
+        let handle = move |panics: bool| {
+            let served = served_tx.clone();
+            let open = if panics { None } else { open_tx.take() };
+            async move {
+                assert!(!panics, "connection failed");
+                let _ = served.send(()).await;
+                // Held until the task ends; its drop closes `open_rx`.
+                let _open = open;
+                std::future::pending::<()>().await;
+            }
+        };
+        accepted_tx.send(true).await.unwrap();
+        accepted_tx.send(false).await.unwrap();
+        let looping = tokio::spawn(accept_loop(accept, handle, |_| {}));
+        let wait = Duration::from_secs(10);
+        tokio::time::timeout(wait, served_rx.recv()).await.unwrap().unwrap();
+        assert!(!looping.is_finished(), "a panicking connection does not end the loop");
+        looping.abort();
+        let _ = looping.await;
+        assert!(tokio::time::timeout(wait, open_rx).await.unwrap().is_err());
     }
 }

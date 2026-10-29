@@ -368,7 +368,7 @@ perf/chrome-parity at `4e0005673f2`; "spec'd" means the task has not landed and 
 | `MainDelivery(class:owner:)` (today `MainDelivery()` with no class) | MainDelivery.swift | 217 | spec'd |
 | `InputEventTap` (the input tap that task 220's node filter builds on) | CmuxNextInput/InputEventTap.swift | p04-input-011 | landed |
 | `InputObserverHub` (the node filter) | InputObserverHub.swift | 220 | spec'd |
-| `MainExecutorHook` (default off, decision-gated) | MainExecutorHook.swift | 202 | spec'd |
+| `MainExecutorHook` (`install()`, `isRequested(feature:environment:)`, `workClass(priority:inInputTurn:)`, `stats`); `MainWorkScheduler.installMainExecutorHook(requested:)` (default off, decision-gated, section 17) | MainExecutorHook.swift, MainWorkScheduler.swift | 202 | landed (off) |
 | The budget turn (a CFRunLoopSource that `AfterFrameCommit` signals) and the setting `debug.scheduler.inTickBudget` | AfterFrameCommit.swift, MainWorkScheduler.swift | 201 | spec'd |
 | `StoreWaiters` (the waits are `DaemonStore.waitForTab`, `waitForWorkspace`, `waitLoaded`, `waitConnection`, `waitTabGone`) | CmuxNextDaemon/Store/StoreWaiters.swift | 027 | landed |
 | `PageWaiters` | CmuxNextBrowser/Engine/PageWaiters.swift | 028 | spec'd |
@@ -460,6 +460,101 @@ These pieces exist before p06 (at `772cdfc45ac`). The sections above extend them
   thread per over-budget task, so it perturbs bench numbers and is never on for a measured run.
   Signposts `stall.main_task` (every task; not mirrored to MetricKit) and `stall.over_budget`.
 
+## The posting API, to freeze after the pilot (p06-scheduler-205)
+
+Section 12 is the frozen surface; this section is what the pilot uses of it and how its DocC is checked.
+
+plans/cmux-next/chrome-parity/p06-scheduler.md section 3 and rule 8. **Not frozen yet.** The task order is: migrate
+the pilot, bench it, record the numbers, then freeze. The bench (below, "Not measured yet") has not run, so the
+API below is the proposed frozen set, not a frozen one. When the pilot numbers are recorded and no worse, from then
+on no public signature in CmuxNextWakeups changes without the Performance Lead's OK; changes inside the package are
+internal only, because a public change rebuilds most of the 98 targets.
+
+Every public and open declaration of CmuxNextWakeups has a DocC comment (a protocol witness such as `==` or
+`description` takes its doc from the protocol). `python3 scripts/cmux-next/p06_queue.py --undocumented` lists any
+that has none and exits 1; `tests/test_p06_queue.py` runs it over the tree (a local test, not CI).
+
+| Need | API | File |
+|---|---|---|
+| Run main work in a class, with an owner and its posting site | `mainWork.post(_:owner:file:line:_:)`, `postFromAnyThread(_:owner:file:line:_:)`, `await mainWork.apply(_:owner:file:line:_:)` | `MainWorkScheduler+Post.swift` |
+| Off-main work, then its main part | `BackgroundWork.run(...).reply(on:class:owner:file:line:_:)`; async work: `BackgroundWork.task(_:shutdown:_:)`, then `postFromAnyThread` | `BackgroundWork.swift`, `BackgroundWork+Task.swift` |
+| A node's work, held while it is hidden or frozen, keyed | `node.queue(_:owner:on:)` then `post(key:_:)` / `post(_:)` | `VisibilityNode.swift`, `MainTaskQueue.swift` |
+| Visibility of a window, workspace, pane, tab, row | `VisibilityNode`, `Visibility`, `subscribe(owner:_:)`, `deferUntilVisible(key:_:)` | `VisibilityNode.swift`, `Visibility.swift` |
+| Follow the model for a view | `VisibleObservation(node, owner:on:read:apply:)` | `VisibleObservation.swift` |
+| Follow the model for a service (side effects run while hidden) | `ServiceObservation(class, owner:on:read:apply:)` | `ServiceObservation.swift` (task 026) |
+| A main-thread deadline | `MainDeadline(owner:workClass:alignment:scheduler:)` on the app's one `MainDeadlineScheduler` (`AppServices.mainDeadlines`) | `MainDeadline.swift`, `MainDeadlineScheduler.swift`, `TimerAlignment.swift` (task 011) |
+| A time limit raced against async work | `Deadline(limit).run(label:onTimeout:_:)` | `Deadline.swift` (task 011) |
+| A window or app notification | `WindowEvents.of(window).subscribe(...)`; the injected `AppEvents` (`AppServices.appEvents` for the default center, `AppServices.workspaceEvents` for NSWorkspace's) `.subscribe(...)` | `WindowEvents.swift`, `AppEvents.swift` (task 021) |
+| Wait for the store to list a tab or workspace, to load or to connect | `store.waitForTab(...)`, `waitForWorkspace(...)`, `waitLoaded(timeout:)`, `waitConnection(...)` | `CmuxNextDaemon/Store/StoreWaiters.swift` (task 027) |
+| An off-main deadline | `DemandTimer` (main-actor code uses `MainDeadline`) | `DemandTimer.swift` |
+
+Not landed yet, so they join the set with the Performance Lead's OK when their tasks land: `postIdle`
+(IdleScheduler, task 005), `postContinuation` and `shouldYield` (task 200), the `userBlocking` class and
+`MainDelivery(class:owner:)`. A wait on something that is not the store (a window's pane mount) is a
+`ServiceObservation` whose apply ends the wait (`AgentChatPaneWait`).
+
+**Merge order.** The pilot uses `ServiceObservation` (task 026) in about ten files. It is on perf/chrome-parity
+now (`CmuxNextWakeups/ServiceObservation.swift`), and this branch has merged that tip in.
+
+## The pilot (p06-scheduler-205)
+
+The pilot directories take every recipe before the file-group sweeps start: `CmuxNextApp/Notifications/`,
+`CmuxNextApp/AgentCursor/`, `AgentActivityPageService.swift` and `AgentActivityLineConnection.swift`. The new
+types go to their domain packages, not the App: `StatusRunFollower` and `NotificationsPanelLedgerWatch` to
+CmuxNextBridge, `AgentChatPaneWait` (the pane wait `AgentActivityPageService` runs) to CmuxNextAgentActivity.
+
+| What | Recipe | After |
+|---|---|---|
+| The service's `Task { for await ObservationStream }` loops (arrivals, Dock badge, settings, viewed tabs, feed, permission bridge, ledger seed, status runs) | R-obs | `ServiceObservation`: a burst of changes is one apply and one posted flush per frame, in its class (arrivals, Dock badge, settings, viewed tabs and ledger seed `visible`; status runs (`cmux status`) `automation`; feed and permission bridge `background`). Each change still re-arms the tracking with one read of `read` in its own turn (`ServiceObservation` rule 2) |
+| Finished-run follower (500 per-workspace tasks and an AsyncStream) | R-obs | a `StatusRunFollower` token that owns one `ServiceObservation` of the workspace set and one per workspace, still O(changed workspace) per change; releasing or cancelling it stops all of them |
+| Held OSC 7501 alert: a `DemandTimer` and a `Task` loop | R-timer, R-obs | `MainDeadline` (visible, flexible) and a `ServiceObservation` of the tab's records |
+| `timeout` dismissals | R-timer | `MainDeadline` (visible, flexible) |
+| Banner clicks and authorization replies (`Task { @MainActor }` from the center's threads) | R-hop | `postFromAnyThread`: a click `visible`, an authorization `background` |
+| Approval answers (Allow once and Deny on a banner, a Chief hand's banner) | R-hop | the async answer is a `BackgroundWork.task(.userBlocking)`; what follows on main (the note, reading or opening the tab) is `postFromAnyThread(.visible)`. The answerers (`AgentApprovalAnswering`, `HandsService.answer`) are main-actor async in their own packages; their own hops are those packages' file groups |
+| Ledger replies (`await MainActor.run`) | R-hop | `postFromAnyThread(.visible)` |
+| Notifications panel ledger watch | R-obs | `NotificationsPanelLedgerWatch`: the panel's open makes its node visible, loads once and follows the ledger through a `VisibleObservation` on the node; its close stops the observation and hides the node, so a closed panel reads nothing |
+| Panel and row appearance changes | R-appear | `deferUntilVisible` on the panel's node |
+| Agent cursor window and Space notices (5 + 1 `addObserver`, a `Task` per notice) | R-notif, R-hop | `WindowEvents` per cmux window and `AppServices.workspaceEvents` for the Space; one coalesced re-resolve posted in `automation` |
+| Agent cursor window state loop | R-obs | `ServiceObservation(.automation)` |
+| Agent cursor target lookup (`locateTab` and a walk of every workspace) | R-index | three index lookups in the tab's own store |
+| An input to a target this window does not list (`elsewhere`) | (hidden draws nothing) | no cursor command; a cursor that leaves is hidden once |
+| An input to a target this window lists but does not show (`hidden(anchor:)`, a background workspace or tab) | (hidden draws nothing) | the first input puts the indicator on the anchor; later ones apply nothing unless the anchor moved or half the indicator's 10 s idle fade passed since it was last put (`AgentCursorOverlayModel.indicatorNeedsApply`) |
+| Agent activity pane wait | R-wait | `AgentChatPaneWait`, a `ServiceObservation(.userBlocking)` (the person waits for the chat they picked) whose apply ends the wait |
+
+**A design decision on the cursor acceptance.** The spec's "100 cursor updates for a hidden workspace give 0
+applies" is met for a target the window does not list. For a target it lists but does not show, the pilot keeps
+the indicator on the sidebar row or tab chip, so the person sees where the agent works: 100 inputs within 5 s give
+one `.indicate`, and a long run gives one per 5 s (each `.indicate` restarts the idle fade and rebuilds the
+window's tag links). Zero would let the indicator fade after 10 s while the agent keeps working there.
+
+Kept, with a reviewed escape: the CUA one-shot's request deadline (`timer-class-allow`: it is off main, where
+`DemandTimer` is the deadline). `p06_queue.py` judges as the R-notif target a notice name passed straight to a
+`subscribe(` (the hook's raw-observer rule, `guardrails.raw_observer_in`), and the workspace center handed to
+`AppEvents(center:` in the composition root (`AppServices.swift`) only.
+
+**Old task 037's agent-activity half is file group 341's.** The agent activity line stream reaches main through
+`AgentActivitySocketSource.swift` and `AgentActivityModel.swift` (CmuxNextAgentActivity: 3 open Q1b R-hop hits and
+1 open Q1 hit at the time of writing), which are in group 341's files, not in this task's. Group 341 moves that
+delivery to the automation class (`postFromAnyThread(.automation, owner: "agent-activity.lines")` or a
+`ServiceObservation(.automation)`); 205 does not claim it. 205 took the agent cursor half of 037 and the pane wait.
+
+Numbers. Queue hits in the pilot files (`p06_queue.py` scan, open = not escaped and not settled), on
+cmux-orchestrator-1 (Linux, no build):
+
+| | sha | open hits | escaped | settled |
+|---|---|---|---|---|
+| before | `12685b2d219` (perf/chrome-parity) | 43 | 0 | 0 |
+| after | `6340ec3455c` (cp/p06-scheduler-205) | 0 | 1 | 7 |
+
+**Not measured yet, so 205 is not done and the API is not frozen.** The test phase on one fleet GUI host with the
+input grant, both sides on the same host and session, at the base sha and at the head sha, records here with both
+shas and the host: the unattributed share (`debug.main_budget` `unattributed_share`), key to frame p50/p95/p99
+(`sidebar-churn-typing.py --input real` and `automation-typing-bench.py`, light and STRESS;
+`automation-typing-bench.py` has no `--input` flag yet, so its keys are `debug.key` stand-ins and are quoted as
+such), the per-owner task counts and wait and run times of the `notifications.*`, `agent-cursor.*` and
+`agent-activity.*` owners (`debug.main_budget` owner ledger), and idle wakeups (`scripts/bench_idle.py`). The
+freeze and the fan-out (the file-group sweeps) start only when those numbers show the pilot is no worse.
+
 ## 15. Proof
 
 `scripts/cmux-next/sidebar-churn-typing.py --input real` (terminal typing with real HID-tap keys, idle and while a
@@ -512,3 +607,81 @@ After task 347, `p06_queue.py --residual` lists 42 hits:
 `arch-ratchet.py --update` refuses at this head, because of rises that are not from this program: `layer_hard` 34 over
 33 and `layer_unplaced` 2 (`CmuxNextAppCore`, `CmuxNextUiLayerPreview` are not in `architecture-layers.json`). Run
 it again when those are placed or carry a reviewed exception; it then records the drops above.
+
+## 17. Priority-ordered main executor (task 202, decision gate)
+
+**What it is.** `MainExecutorHook` (CmuxNextWakeups/MainExecutorHook.swift) takes
+`swift_task_enqueueMainExecutor_hook` and puts each main-actor job in one of five FIFO classes by its task's
+priority. A run-loop source on the main run loop runs them in the common modes (Chrome's
+`MessagePumpCFRunLoopBase::work_source_`, `base/message_loop/message_pump_apple.mm`), highest class first and oldest
+first within a class (`base/task/sequence_manager/task_queue_selector.h`).
+
+The classes follow the spec's mapping (p06-scheduler.md, task 202):
+
+| Job | Class |
+|---|---|
+| enqueued by the main thread while a discrete input's dispatch is open (`MainWorkScheduler.noteDiscreteDispatch`) | `input` |
+| `.high` (userInitiated) and above (a `Task {}` made on main inherits the main thread's user-interactive QoS) | `visible` |
+| `.medium`, or no priority (the runtime's default; a `Task {}` made on a default-QoS socket or daemon thread) | `automation` |
+| `.low` (utility) | `background` |
+| `.background` | `idle` (the lowest FIFO: it runs only when no other class holds a job; no idle deadline) |
+
+A pass runs only the jobs queued before it began (each job gets a sequence number; the pass takes the next one as its
+cutoff), at least one. A job that a job of the pass enqueues waits for a later pass, whatever its class. After the
+first job the pass stops before any job below `input` while the person's input is pending (the budget's
+`SessionInputPending` and the board's injected-input count, checked at most every 250 us).
+
+A pass never signals its source again. An observer of the main run loop's before-waiting and exit stages, at
+`MainRunLoopObserver.lastOrder` (after Core Animation's commit at 2000000 and AppKit's observers), signals the next
+pass when work is queued. A source0 signaled from inside its own pass would keep `__CFRunLoopRun` polling
+(`sourceHandledThisLoop`), and polling skips the before-waiting observers: a steady stream of main-actor jobs would
+hold back the commit. So every two passes have the commit and those observers between them, however fast work
+arrives. `MainExecutorHookTests.runLoopObserversRunBetweenPassesUnderAStreamOfJobs` runs the real main run loop under
+a self-renewing stream of jobs and checks it. An enqueue while no pass waits for those observers signals at once.
+
+**Switch.** Feature `mainExecutorHook` (perfPath, default off on every channel), installed once by the composition
+root (`CmuxNextApp.swift`). `CMUX_MAIN_EXECUTOR_HOOK=1` turns it on for one launch, and `0` keeps it off even when the
+feature is on. In a test process launched with `CMUX_MAIN_EXECUTOR_HOOK=1`, the first `MainWorkScheduler` installs it.
+Main-actor jobs before that first scheduler run on the main dispatch queue, so suites that run earlier do not go
+through the hook. The hook word is taken only when it is free. The p04-input MainJobGate (021/076) and
+the p08 main-job census (080) want the same word: the first install wins and the others report `busy`.
+
+**The gate.** Each step runs with the hook on, on macOS 26, 27, 14 and 15:
+
+1. `CMUX_MAIN_EXECUTOR_HOOK=1` fleet full `swift test`.
+2. `os-matrix.sh --os 14,15` for the two older versions.
+3. `automation-typing` STRESS, with the hook on and off.
+
+`MainExecutorHookTests.runtimeJobsRunInOrderThroughTheInstalledHook` checks real runtime jobs. In the gate's run it
+makes a scheduler first (so the hook is installed whatever order the suites run in) and requires
+`MainExecutorHook.installed`: a `missing` or `busy` install fails it. Then a utility task's six jobs go through the
+hook's `background` class, `assumeIsolated` and `dispatchPrecondition(.onQueue(.main))` hold, and the task's jobs keep
+their order.
+
+- **If it passes:** queues Q1, Q1b and Q7 shrink to "give the task the right priority". The main-hop guardrail can then
+  accept a `Task(priority:)` with a stated priority.
+- **If it fails:** record the failing suite and why here. The R-hop rewrite plan stays.
+
+**Decision: open.** The gate has not run. Until it passes, the R-hop rewrite plan stays, and no code depends on the
+hook. These risks were found while building it. Each gate run checks them:
+
+- **Priority inversion on escalation.** A queued job keeps the class it was queued with. When a high-priority waiter
+  escalates a low task, the runtime may not enqueue it again on this executor. Its waiting job stays in
+  `background` until the classes above it drain. Pending input holds every class below `input` (a pass then runs one
+  job at most, plus input jobs), so the wait is not bounded by this hook: it lasts while higher classes keep jobs
+  queued or the person's input stays pending.
+- **Medium is automation.** The spec's mapping puts `.medium` and no priority below `visible`. A main-actor job that
+  shows something to the person and was started from a default-QoS thread without a stated priority now waits for
+  `visible` work. The gate's STRESS run checks that no visible update starves.
+- **Nested run loops.** The main dispatch queue does not drain inside a nested run loop that a main-queue block
+  started: a menu or a modal opened from a main-actor job. CFRunLoop can call this source again inside a nested
+  run loop, so other main-actor jobs can run there. Code that counted on them waiting until the menu closes changes
+  behavior.
+- **Hosts that never run the main CFRunLoop.** If the main thread runs `dispatchMain()` and never runs the main
+  CFRunLoop, the jobs wait forever. AppKit and XCTest run the run loop. A Swift Testing host that does not run it
+  fails the gate at once (a time-limit failure, not a wrong result).
+- **Order against non-Swift main work.** `MainRunLoopBlock`, `CFRunLoopPerformBlock` and GCD main blocks no longer
+  share one FIFO with main-actor jobs. A test or a caller that queued both and expected arrival order sees them in
+  pass order instead.
+- **Strict class order.** Background and idle jobs can wait for as long as higher classes keep work queued. This is the
+  selector's rule, and the budget's progress rule does not cover these jobs.

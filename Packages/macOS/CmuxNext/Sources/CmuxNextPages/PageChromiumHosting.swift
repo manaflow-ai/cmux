@@ -65,7 +65,7 @@ public protocol PageChromiumHosting: AnyObject {
     func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void)
 }
 
-/// The Chromium window a page tab shows in (p13-webui-063): the page tabs of one cmux pane of one main
+/// The Chromium window a page tab shows in: the page tabs of one cmux pane of one main
 /// window share one, as a Chrome `Browser` holds every tab of its tab strip in one window
 /// (chrome/browser/ui/browser.h, `Browser::tab_strip_model`). A second page in the pane joins that
 /// window instead of building one. A page with none (the update card, the icon picker panel, a
@@ -171,7 +171,7 @@ public protocol PageChromiumPage: AnyObject {
     /// paths (fork API 29), so it makes no DevTools call there.
     func copySelection()
     /// Whether ``push(_:)`` reaches the page: the engine has the page push channel (`cmuxPageListen`,
-    /// fork API 39) and the app turned it on (feature `pagePushChannel`).
+    /// fork API 43) and the app turned it on (feature `pagePushChannel`).
     var pushesToPage: Bool { get }
     /// Hands `text` to the receiver the page's document registered with `cmuxPageListen`, as data: no
     /// script runs for it and nothing answers, as Chrome's WebUI pages get Mojo messages instead of
@@ -182,7 +182,7 @@ public protocol PageChromiumPage: AnyObject {
     /// - Parameter text: UTF-8 text, no NUL.
     func push(_ text: String)
     /// Copies the page as it last drew, fitted inside `maxPixelSize` (never scaled up), with no DevTools
-    /// agent: the fork's surface copy (`cmux_browser_capture`, p13-webui-077), as Chrome copies a tab
+    /// agent: the fork's surface copy (`cmux_browser_capture`), as Chrome copies a tab
     /// thumbnail (chrome/browser/ui/thumbnails/thumbnail_tab_helper.cc, `RenderWidgetHostView::CopyFromSurface`).
     /// Chromium encodes the picture on its thread pool. The page lifecycle takes it in the turn the page
     /// hides, before any freeze (``PageWebView/keepHideSnapshot(encoder:)``). Never `Page.captureScreenshot`: one

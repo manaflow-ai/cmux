@@ -3,7 +3,7 @@ import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 
-/// p01-process-232: ``ChromiumPageHostBridge`` on the page channel. Each post carries the URL of the document that
+/// ``ChromiumPageHostBridge`` on the page channel. Each post carries the URL of the document that
 /// sent it (the relay's stamp); the bridge judges a post only while that document is the committed one, and the
 /// handlers of the page's messages start in post order.
 @MainActor

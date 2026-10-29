@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p10-stability-062: the thread-start hook's state is one immutable value made once by Swift's global
+/// The thread-start hook's state is one immutable value made once by Swift's global
 /// initialization (no unchecked globals). A thread started after the install, and one started while a second
 /// install runs, gets its own alternate signal stack, so a stack overflow there still reaches the handler.
 @Suite(.serialized) struct AlternateSignalStackTests {

@@ -3,7 +3,7 @@ public import Foundation
 public import Sentry
 import CmuxNextCompat
 
-/// A main-thread hang that was still running when its record was last written (p09-observability-110): the
+/// A main-thread hang that was still running when its record was last written: the
 /// file ``FatalHangRecorder`` keeps on disk while the hang lasts and the next launch turns into one "fatal app
 /// hang" event (``event()``) when the run did not end as asked.
 ///

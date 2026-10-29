@@ -10,7 +10,7 @@ import Testing
 /// through ``BrowserImporter``. Chrome fuzzes the same importers: chrome/utility/importer/
 /// (`firefox_importer_unittest.cc`, `safari_importer_unittest.mm`) reads foreign profiles in a sandboxed
 /// utility process, and components/history and sql are fuzzed with corrupt SQLite (sql/recover_module
-/// fuzzers). When the readers move into the sandboxed import service (p10-stability-208), these same
+/// fuzzers). When the readers move into the sandboxed import service, these same
 /// cases run against it.
 ///
 /// The property: any file gives a value or a typed error, never a trap; what is read is safe to hand on
@@ -24,7 +24,7 @@ import Testing
 /// CMUX_IMPORT_FUZZ=1 CMUX_FUZZ_DEADLINE=$(( $(date +%s) + 300 )) swift test --filter BrowserImportFuzzTests
 /// ```
 ///
-/// The runs are CmuxFuzzSupport `FuzzRun`s (p10-stability-016): `CMUX_FUZZ_SEED` and `CMUX_FUZZ_ITERATIONS`
+/// The runs are CmuxFuzzSupport `FuzzRun`s: `CMUX_FUZZ_SEED` and `CMUX_FUZZ_ITERATIONS`
 /// replay a failure, and with `CMUX_FUZZ_ARTIFACTS` set a trap leaves its input behind
 /// (`BrowserImport.<run>.inflight`).
 @Suite(

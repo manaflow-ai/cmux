@@ -24,7 +24,7 @@ struct IconPickerWarmTests {
         #expect(host.openPages.count == 1)
     }
 
-    /// Two prepares while the catalog loads share one load (p06-scheduler-320): each runs once it is in, as its own
+    /// Two prepares while the catalog loads share one load: each runs once it is in, as its own
     /// posted task, and the picker makes one warm page.
     @Test func preparesDuringTheCatalogLoadShareItAndEachRuns() async {
         let host = WebUIHost.iconPickerTestHost()
@@ -40,8 +40,8 @@ struct IconPickerWarmTests {
         #expect(host.openPages.count == 1)
     }
 
-    /// A pick that arrives while the launch-idle prepare's catalog load runs opens as the person's work
-    /// (p06-scheduler-320, rule 2): its reply is userBlocking, not the prepare's background class, so a launch that
+    /// A pick that arrives while the launch-idle prepare's catalog load runs opens as the person's work:
+    /// its reply is userBlocking, not the prepare's background class, so a launch that
     /// still holds background work does not hold the open.
     @Test(.timeLimit(.minutes(1))) func aPickDuringTheBackgroundPrepareOpensWhileBackgroundIsHeld() async {
         // A launch that never reveals: background tasks stay held for the whole test.
@@ -69,6 +69,6 @@ struct IconPickerWarmTests {
 extension WebUIHost {
     /// A page host with no Chromium host and no open panel, so the picker's page is WebKit.
     static func iconPickerTestHost() -> WebUIHost {
-        WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry())
+        WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry(), deadlines: .testing())
     }
 }

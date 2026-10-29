@@ -7,7 +7,7 @@ import CmuxNextInput
 import Foundation
 import Testing
 
-/// p06-scheduler-301: the browser preferences follow cmux.json through scheduled observations
+/// The browser preferences follow cmux.json through scheduled observations
 /// (`ServiceObservation`), not main-inherited `ObservationStream` loops. The current value applies in
 /// the follow's own turn, before any page reads it; a later change of the file reaches the engines
 /// as a task on the app's scheduler, and only while the owner keeps the returned followers.

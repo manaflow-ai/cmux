@@ -109,6 +109,7 @@ public final class MainWakeUpQueue: Sendable {
     /// reads it inside this one; the source calls observers outside its lock), so locks are always taken
     /// in the same order.
     private let state: Mutex<State>
+    /// The Energy Saver policy the queue aligns its flexible entries to; an owner handed the queue follows it too (CEFEnergySaver).
     public let energy: EnergyPolicySource  // the policy it aligns to; an owner handed the queue follows it (CEFEnergySaver)
     /// Where each fire and each owner that runs in it are counted.
     let ledger: WakeupLedger

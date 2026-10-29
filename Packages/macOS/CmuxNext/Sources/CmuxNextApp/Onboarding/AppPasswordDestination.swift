@@ -31,7 +31,8 @@ struct AppPasswordDestination: PasswordDestination {
         // The password pointers are valid while `logins` is alive; the defer keeps it alive past the write.
         defer { withExtendedLifetime(logins) {} }
         let zeroAll = { for login in logins { login.password.zero() } }
-        let rows = PasswordConflictHold.rows(logins, afterCopy: hold == nil ? zeroAll : nil)
+        // The rows (not Sendable) go to the main actor's write with their own afterCopy; the failure paths still use zeroAll.
+        let rows = PasswordConflictHold.rows(logins, afterCopy: hold == nil ? { for login in logins { login.password.zero() } } : nil)
         let result: ChromiumPasswordWriteResult
         do {
             result = try await write(rows, profile)

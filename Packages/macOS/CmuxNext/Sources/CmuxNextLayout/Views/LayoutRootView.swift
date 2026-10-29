@@ -38,6 +38,8 @@ public final class LayoutRootView: NSView {
     let driver = DisplayLinkDriver()
     /// This window's `motion.frame` and `motion.run` signposts.
     let motionTrace: LayoutMotionTrace
+    /// Told of each plan this root applies on a shown screen, until its commit (``PlanApplyTurn``).
+    private let planApplies: PlanApplyTurn
     private var modelWatch: FrameObservation<Snapshot>?
     /// The attention ring's look (`AttentionHighlightLook`, Debug Settings): one watch for every pane's
     /// overlay, applied once per frame (made in `init`).
@@ -180,6 +182,7 @@ public final class LayoutRootView: NSView {
         inputTap = input
         self.hiddenWork = hiddenWork
         motionTrace = LayoutMotionTrace(signposter: motionSignposter)
+        planApplies = mainWork.planApplies
         self.scrollFocusSignals = scrollFocusSignals
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock,
                                          rendersMotionOnServer: rendersMotionOnServer)
@@ -205,14 +208,8 @@ public final class LayoutRootView: NSView {
         context.childWindowContentShows = { [weak self] in self.map { !$0.overlayPlane.isHome } ?? false }
         context.stripMovedDidChange = { [weak self] in self?.updatePointerLanding() }
         overlayPlane.onHomeChange = { [weak self] in self?.overlayPlaneHomeDidChange() }
-        context.stripClipsDidChange = { [weak self] in
-            guard let self else { return }
-            planeHost?.paneShapesDidChange(overlayPlane)
-        }
-        highlight.needsFrame = { [weak self] in
-            guard let self, self.highlightStepsOnFrames else { return }
-            self.driver.start()
-        }
+        context.stripClipsDidChange = { [weak self] in if let self { planeHost?.paneShapesDidChange(overlayPlane) } }
+        highlight.needsFrame = { [weak self] in if let self, highlightStepsOnFrames { driver.start() } }
         followLooks(on: mainWork)
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
@@ -407,6 +404,7 @@ public final class LayoutRootView: NSView {
             // its panes, scroll and camera land in this frame, springs in flight included; chrome still fades.
             var landsAtOnce = false
             if layoutChanged {
+                if isLive, !view.isHidden { planApplies.noteApplied() } // a shown plan commits in this turn
                 let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
                 landsAtOnce = structureChanged && self.landsAtOnce(screen.id, steps: automationSteps[screen.id])
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
@@ -518,6 +516,7 @@ public final class LayoutRootView: NSView {
     /// - Returns: Whether the window needs another tick.
     func advanceFrame(_ dt: Double) -> Bool { // perf-hot: 4ms motion-frame
         let moving = motionTrace.frame(dt: dt, movedPanes: { movingPaneCount }) { stepFrame(dt) }
+        planApplies.noteApplied() // the frame's step is a plan apply: it commits in this turn
         if !moving, !rendersMotion { motionTrace.endRun() }
         return moving
     }

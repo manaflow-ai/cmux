@@ -103,6 +103,9 @@ pub(super) fn send(
         submit,
         flow,
     } = params;
+    // The key press's first daemon stage, taken before any check.
+    let received_ns =
+        if flow.is_some_and(|flow| flow != 0) { crate::input_stages::now_ns() } else { 0 };
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
         (None, Some(_)) if expect_foreground.is_some() || expect_agent.is_some() || submit => {
@@ -177,11 +180,11 @@ pub(super) fn send(
         let mut echo_flow = flow;
         if let Some(text) = text {
             let text_flow = if text.is_empty() { 0 } else { std::mem::take(&mut echo_flow) };
-            surface.write_bytes_in(&turn, text.as_bytes(), text_flow)?;
+            surface.write_key_flow_in(&turn, text.as_bytes(), text_flow, received_ns)?;
         }
         if let Some(raw) = raw {
             cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
-            surface.write_bytes_in(&turn, &raw, echo_flow)?;
+            surface.write_key_flow_in(&turn, &raw, echo_flow, received_ns)?;
             cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
         }
     }
@@ -246,7 +249,7 @@ impl InputFailure {
     }
 }
 
-/// An INPUT frame's bytes (p05-ipc-078): the raw bytes of `send`, with no
+/// An INPUT frame's bytes: the raw bytes of `send`, with no
 /// JSON and no base64, written the way `send` writes them. `flow` (0: none)
 /// is the key press's flow id, carried by the frame header: its hops and
 /// the echo that answers it carry it, as `send`'s `flow` does. The mux is
@@ -289,7 +292,7 @@ pub(super) fn write_input(
 pub(super) fn read_screen(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result<Value> {
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
-    let text = surface.try_with_terminal(|t| t.viewport_text())??;
+    let text = surface.try_with_terminal(|t| t.active_text())??;
     Ok(json!({ "text": text }))
 }
 
@@ -358,7 +361,7 @@ pub(super) fn wait_for(
     let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
     let start = Instant::now();
     let check = || -> anyhow::Result<Option<String>> {
-        let text = surface.try_with_terminal(|t| t.viewport_text())??;
+        let text = surface.try_with_terminal(|t| t.active_text())??;
         Ok(regex.is_match(&text).then_some(text))
     };
     if timeout_ms == 0 {
@@ -513,7 +516,7 @@ pub(super) fn copy(mux: &Arc<Mux>, surface: SurfaceId, mode: String) -> anyhow::
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
     let text = match mode.as_str() {
-        "screen" => surface.try_with_terminal(|t| t.viewport_text())??,
+        "screen" => surface.try_with_terminal(|t| t.active_text())??,
         "scrollback" => surface.try_with_terminal(|t| t.plain_text())??,
         "selection" => surface.selection_text().ok_or_else(|| anyhow::anyhow!("no selection"))?,
         other => anyhow::bail!("bad mode {other}"),

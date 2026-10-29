@@ -21,7 +21,7 @@ public final class MockBrowserEngine: BrowserEngine {
     let waitDeadlines: AlignedWakeups
 
     /// - Parameter waitDeadlines: The deadline queue for the pages' waits; nil: a queue of the engine's own
-    ///   (a test that moves time passes its own).
+    ///   (a test engine; a test that moves time passes its own).
     public init(kind: BrowserEngineKind = .webkit, completesNavigationsImmediately: Bool = true,
                 waitDeadlines: MainWakeUpQueue? = nil) {
         self.kind = kind
@@ -109,6 +109,11 @@ public final class MockBrowserTab: BrowserTab {
     @ObservationIgnored public private(set) var snapshotCount = 0
     /// `thumbnail()` calls (each also counts as a snapshot).
     @ObservationIgnored public private(set) var thumbnailCount = 0
+    /// Thumbnails asked for while the content lifecycle had the page hidden (`setContentVisible(false)`): an engine
+    /// that cannot picture a hidden page (Chromium) gets no picture of those.
+    @ObservationIgnored public private(set) var hiddenThumbnailCount = 0
+    /// What the last `setContentVisible` said (shown until then).
+    @ObservationIgnored public private(set) var isContentHidden = false
 
     /// Page text used by `find`.
     public var pageText = ""
@@ -243,11 +248,17 @@ public final class MockBrowserTab: BrowserTab {
 
     public func setFocused(_ focused: Bool) { commands.append(.focus(focused)) }
 
-    public func setContentVisible(_ visible: Bool) { commands.append(.occlude(!visible)) }
+    public func setContentVisible(_ visible: Bool) {
+        isContentHidden = !visible
+        commands.append(.occlude(!visible))
+    }
 
-    public func thumbnail() async throws -> CGImage {
+    public func thumbnail() async throws -> CGImage { try await beginThumbnail().image() }
+
+    public func beginThumbnail() -> BrowserPictureRequest {
         thumbnailCount += 1
-        return try await snapshot()
+        if isContentHidden { hiddenThumbnailCount += 1 }
+        return BrowserPictureRequest { [self] in try await snapshot() }
     }
 
     public func snapshot() async throws -> CGImage {

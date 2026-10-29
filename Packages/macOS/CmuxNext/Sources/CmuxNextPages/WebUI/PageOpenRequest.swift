@@ -35,7 +35,7 @@ public struct PageOpenRequest {
     /// own. The pane that shows a page tab sets it when it shows the tab, so an opener may leave it nil.
     public var chromiumWindow: PageChromiumWindow?
     /// Who asks for the page: a person (the default) or automation start its Chromium page at once; the launch's
-    /// restore (``PageOpenOrigin/launchRestore``) follows the launch order (p08-startup-041).
+    /// restore (``PageOpenOrigin/launchRestore``) follows the launch order.
     public var origin: PageOpenOrigin
 
     public init(descriptor: PageDescriptor, root: URL? = nil, routes: [PageRoute], route: String? = nil,
@@ -70,11 +70,11 @@ extension PageWebView {
     ///   - processGroups: The host's shared WebKit processes; a page joins its group there when it
     ///     shows in WebKit (``WebProcessGroups/membership(of:options:)``). Nil: a process of its own.
     ///   - startsAtFirstShow: The document (and its renderer) starts at the view's first show, not now.
-    ///   - deadlines: The app's deadline scheduler (``PageWebView/deadlines``); a test leaves the default, its own.
+    ///   - deadlines: The app's deadline scheduler (``PageWebView/deadlines``).
     convenience init?(request: PageOpenRequest, chromium: (any PageChromiumHosting)?,
                       openPanel: MadeAheadOpenPanel?, registry: PageRegistry, processGroups: WebProcessGroups? = nil,
                       startsAtFirstShow: Bool = false,
-                      deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
+                      deadlines: MainDeadlineScheduler) {
         let requested = ProcessInfo.processInfo.systemUptime
         let root: URL
         if let explicit = request.root {
@@ -87,7 +87,7 @@ extension PageWebView {
         let parkedOwner = request.parked ? PagePooledOwner() : nil
         let handler = parkedOwner.map { Self.parkedSchemeHandler(page: request.descriptor, root: root, owner: $0) }
             ?? PageSchemeHandler(page: request.descriptor, root: root, dynamicSource: request.dynamicResources)
-        // Only a page WebKit shows joins: a Chromium page has no WebKit process to share (p13-webui-041).
+        // Only a page WebKit shows joins: a Chromium page has no WebKit process to share.
         // A parked page joins its group as a cold open of it does: the slot never retargets it to another page.
         let showsInWebKit = Self.engineDecision(for: request.descriptor, options: request.options, hosting: chromium).engine == .webKit
         let group = showsInWebKit ? processGroups.flatMap { groups in
@@ -95,7 +95,7 @@ extension PageWebView {
                 .map { PageWebKitProcessGroup(groups: groups, membership: $0) }
         } : nil
         let host = Self.hostConfiguration(handler: handler, documentAttributes: request.documentAttributes,
-                                          options: request.options, dataStore: group?.groups.dataStore)
+                                          options: request.options, dataStore: group.map { $0.groups.dataStore(for: $0.membership) })
         if request.parked { Self.installParkedScript(host.configuration.userContentController) }
         self.init(descriptor: request.descriptor, configuration: host.configuration,
                   inputReadiness: host.inputReadiness, routes: request.routes, route: request.route,

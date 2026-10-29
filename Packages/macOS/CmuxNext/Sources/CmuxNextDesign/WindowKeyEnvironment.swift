@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextSignposts
 import CmuxNextWakeups
+import CmuxNextAppearance
 
 /// What ``WindowKeyFamily`` reads about the keyboard and when it decides: the live app by
 /// default, a test's own events, key window, activation state and turn runner otherwise.

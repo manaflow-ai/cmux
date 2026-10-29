@@ -5,6 +5,7 @@ import CmuxNextFiles
 import Foundation
 import Testing
 import CmuxNextFilesUI
+import CmuxNextWakeups
 
 /// The Files tree makes, renames and trashes items (classic's file explorer menu: New File, New
 /// Folder, Rename, Move to Trash) and shows each item's git state.
@@ -12,10 +13,13 @@ import CmuxNextFilesUI
 struct FileExplorerEditTests {
     /// The real operator, except that Move to Trash deletes (a test leaves nothing in the Trash).
     struct DeletingTrash: FileOperating {
-        let real = FileOperator()
+        let real = FileOperator(work: BackgroundWork())
         let trashed = TrashLog()
         func rename(_ url: URL, to name: String) async throws -> URL { try await real.rename(url, to: name) }
         func newFolder(in folder: URL, named name: String) async throws -> URL { try await real.newFolder(in: folder, named: name) }
+        func newFile(in folder: URL, named name: String, contents: Data) async throws -> URL {
+            try await real.newFile(in: folder, named: name, contents: contents)
+        }
         func duplicate(_ urls: [URL]) async throws -> [URL] { try await real.duplicate(urls) }
         func trash(_ urls: [URL]) async throws -> [TrashedItem] {
             for url in urls { try FileManager.default.removeItem(at: url) }
@@ -96,10 +100,13 @@ struct FileExplorerEditTests {
 
     /// Move to Trash into a temp "Trash" folder; Put Back moves each item back.
     struct FolderTrash: FileOperating {
-        let real = FileOperator()
+        let real = FileOperator(work: BackgroundWork())
         let bin: URL
         func rename(_ url: URL, to name: String) async throws -> URL { try await real.rename(url, to: name) }
         func newFolder(in folder: URL, named name: String) async throws -> URL { try await real.newFolder(in: folder, named: name) }
+        func newFile(in folder: URL, named name: String, contents: Data) async throws -> URL {
+            try await real.newFile(in: folder, named: name, contents: contents)
+        }
         func duplicate(_ urls: [URL]) async throws -> [URL] { try await real.duplicate(urls) }
         func trash(_ urls: [URL]) async throws -> [TrashedItem] {
             try urls.map { url in

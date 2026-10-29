@@ -68,19 +68,19 @@ extension ChiefMigration {
 
     nonisolated private static func withCopy<T>(of path: URL, _ body: (OpaquePointer) -> T) -> T? {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: path.path) else { return nil }
+        guard FileManager.checked.fileExists(atPath: path.path) else { return nil }
         let scratch = fm.temporaryDirectory.appendingPathComponent("chief-migration-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fm.removeItem(at: scratch) }
+        defer { try? FileManager.checked.removeItem(at: scratch) }
         let copy = scratch.appendingPathComponent("c.sqlite3")
         do {
-            try fm.createDirectory(at: scratch, withIntermediateDirectories: true)
-            for suffix in ["", "-wal", "-shm"] where fm.fileExists(atPath: path.path + suffix) {
-                try fm.copyItem(atPath: path.path + suffix, toPath: copy.path + suffix)
+            try FileManager.checked.createDirectory(at: scratch, withIntermediateDirectories: true)
+            for suffix in ["", "-wal", "-shm"] where FileManager.checked.fileExists(atPath: path.path + suffix) {
+                try FileManager.checked.copyItem(atPath: path.path + suffix, toPath: copy.path + suffix)
             }
         } catch { return nil }
         var db: OpaquePointer?
-        guard sqlite3_open_v2(copy.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return nil }
-        defer { sqlite3_close(db) }
+        guard blockingSQLiteOpen(copy.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return nil }
+        defer { blockingSQLiteClose(db) }
         return body(db)
     }
 
@@ -111,12 +111,12 @@ extension ChiefMigration {
 
     nonisolated private static func rows(_ db: OpaquePointer, _ sql: String, bind: [String] = []) -> [[String]] {
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else { return [] }
+        guard blockingSQLitePrepare(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else { return [] }
         defer { sqlite3_finalize(statement) }
         let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         for (index, value) in bind.enumerated() { sqlite3_bind_text(statement, Int32(index + 1), value, -1, transient) }
         var out: [[String]] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
+        while blockingSQLiteStep(statement) == SQLITE_ROW {
             out.append((0..<sqlite3_column_count(statement)).map { column in
                 sqlite3_column_text(statement, column).map { String(cString: $0) } ?? ""
             })

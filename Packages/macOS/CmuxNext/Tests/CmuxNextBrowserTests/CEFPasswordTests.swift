@@ -8,7 +8,7 @@ import Testing
 /// `cmux_shim_password_reveal`: `copy` sees the bytes once, during the call, and the reveal answers
 /// whether a password came; a NULL answer is not found. These cases call the callback as a shim
 /// does. The host-mode delivery (a REPLY, or NULL when no answer comes) is tested where it lives:
-/// remote_shim_test.cpp (scripts/cmux-next/tests/remote-shim-abi.test.sh, task p01-process-025).
+/// remote_shim_test.cpp (scripts/cmux-next/tests/remote-shim-abi.test.sh).
 @MainActor @Suite(.timeLimit(.minutes(1))) struct CEFPasswordTests {
     /// What one reveal's `copy` saw.
     private final class Copies {

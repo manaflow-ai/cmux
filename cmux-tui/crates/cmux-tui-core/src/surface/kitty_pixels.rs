@@ -1,4 +1,4 @@
-//! What the process Kitty share (p07-memory-073, `mux/kitty_share.rs`) asks
+//! What the process Kitty share (`mux/kitty_share.rs`) asks
 //! of one terminal: releasing its decoded pixel copies under critical memory
 //! pressure.
 

@@ -67,7 +67,7 @@ final class FindPaneService: InternalPageProvider {
         opens.forget(key)
     }
 
-    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// Ten minutes hidden, as Chrome's proactive discards (proactive_discarding_policy.cc). The view
     /// and its results go; the query and the selected result are saved, and the next view searches
