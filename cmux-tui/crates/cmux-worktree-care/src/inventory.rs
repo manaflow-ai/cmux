@@ -538,8 +538,8 @@ pub const MERGE_TREE_MEMORY: u64 = 768 << 20;
 /// Nonblocking host-wide lock shared by daemon and standalone scans. Busy or
 /// unreadable means unknown, never a remembered negative answer. The lock is
 /// independent of the pass lock, which daemon callers already hold.
-fn merge_tree_claim() -> Option<std::fs::File> {
-    let dir = crate::Store::default_dir()?;
+fn merge_tree_claim(dir: Option<&Path>) -> Option<std::fs::File> {
+    let dir = dir.map(Path::to_path_buf).or_else(crate::Store::default_dir)?;
     std::fs::create_dir_all(&dir).ok()?;
     let mut options = std::fs::OpenOptions::new();
     options.create(true).truncate(false).read(true).write(true);
@@ -605,7 +605,14 @@ fn finished(
         let answer = match memo.then(|| memo_store.remembered(root, head, &base_commit)).flatten() {
             Some(answer) => answer,
             None => {
-                let Some(answer) = finish(root, head, &base_commit, objects, overrides) else {
+                let Some(answer) = finish(
+                    root,
+                    head,
+                    &base_commit,
+                    objects,
+                    overrides,
+                    memo_store.lock_dir().as_deref(),
+                ) else {
                     // Unreadable: asked again next time.
                     continue;
                 };
@@ -635,6 +642,7 @@ fn finish(
     base: &str,
     objects: &Path,
     overrides: &[Override],
+    lock_dir: Option<&Path>,
 ) -> Option<Option<Finish>> {
     if git::read(root, overrides, &["merge-base", "--is-ancestor", head, base]).is_ok() {
         return Some(Some(Finish::InBase));
@@ -656,7 +664,7 @@ fn finish(
         return None;
     }
     let _merge_guard = MERGE_TREE.try_lock().ok()?;
-    let _host_guard = merge_tree_claim()?;
+    let _host_guard = merge_tree_claim(lock_dir)?;
     let merged = git::read_scratch_objects(
         root,
         overrides,

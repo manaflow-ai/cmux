@@ -8,11 +8,13 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 type Answers = HashMap<(PathBuf, String, String), Option<Finish>>;
 /// The most pairs a [`FinishedMemo`] keeps; past it, it starts over.
 const MAX_REMEMBERED: usize = 16_384;
 const MAX_MEMO_BYTES: u64 = 16 << 20;
+const FLUSH_INTERVAL: usize = 1024;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredAnswer {
@@ -28,13 +30,14 @@ struct StoredAnswer {
 pub struct FinishedMemo {
     path: Option<PathBuf>,
     answers: Mutex<Answers>,
+    pending: AtomicUsize,
     _writer: Option<std::fs::File>,
 }
 
 impl FinishedMemo {
     /// Starts an in-memory memo for callers that do not own a state dir.
     pub fn memory() -> Self {
-        Self { path: None, answers: Mutex::default(), _writer: None }
+        Self { path: None, answers: Mutex::default(), pending: AtomicUsize::new(0), _writer: None }
     }
 
     /// Loads valid answers from `path`; corrupt or oversized state is ignored.
@@ -61,7 +64,12 @@ impl FinishedMemo {
                     .collect()
             })
             .unwrap_or_default();
-        Self { path: writer.as_ref().map(|_| path), answers: Mutex::new(answers), _writer: writer }
+        Self {
+            path: writer.as_ref().map(|_| path),
+            answers: Mutex::new(answers),
+            pending: AtomicUsize::new(0),
+            _writer: writer,
+        }
     }
 
     /// Flushes answers atomically. Each new answer is also flushed so an
@@ -79,8 +87,12 @@ impl FinishedMemo {
             return;
         }
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let temporary = path.with_extension(format!("{}.{}.tmp", std::process::id(), serial));
+        let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let temporary =
+            path.with_extension(format!("{}.{}.{}.tmp", std::process::id(), nanos, serial));
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -116,7 +128,20 @@ impl FinishedMemo {
         }
         memo.insert(Self::key(root, head, base), answer);
         drop(memo);
-        self.flush();
+        let pending = self.pending.fetch_add(1, Ordering::Relaxed) + 1;
+        // Keep the first answer durable for restart safety, then amortize the
+        // bounded whole-file rewrite while a large pass is in progress.
+        if pending == 1 || pending.is_multiple_of(FLUSH_INTERVAL) {
+            self.flush();
+        }
+    }
+
+    pub(crate) fn lock_dir(&self) -> Option<PathBuf> {
+        self.path
+            .as_ref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .or_else(crate::Store::default_dir)
     }
 }
 
