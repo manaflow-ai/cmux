@@ -1389,7 +1389,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
         return work, head, directory / "bin"
 
     def run_merge(self, directory, pr_files, *, fork=False, trust_head=False, extra_args=(), changed_files=None,
-                  policy_status=0, check_conclusion="success", **kwargs):
+                  policy_status=0, policy_payload=None, check_conclusion="success", **kwargs):
         global HEAD
         work, head, bin_dir = self.fixture(directory, pr_files, **kwargs)
         Path(directory, "pr-head").write_text(head)
@@ -1399,10 +1399,16 @@ class MergedHeadChecksRegression(unittest.TestCase):
         policy = workspace / "tools/host_policy.py"
         policy.parent.mkdir(parents=True)
         if policy_status is not None:
+            if policy_payload is None:
+                policy_payload = json.dumps({
+                    "host": "fixture",
+                    "policy": {0: "heavy-ok", 3: "no-build", 4: "unknown"}.get(policy_status, "error"),
+                    "reason": f"fixture host policy status {policy_status}",
+                })
             policy.write_text(
                 "import sys\n"
                 "assert sys.argv[1:] == ['heavy-local-ok', '--json']\n"
-                f"print({json.dumps({'host': 'fixture', 'policy': {0: 'heavy-ok', 3: 'no-build', 4: 'unknown'}.get(policy_status, 'error'), 'reason': f'fixture host policy status {policy_status}'})!r})\n"
+                f"print({policy_payload!r})\n"
                 f"sys.exit({policy_status})\n"
             )
         saved = HEAD, os.environ.get("GH_MERGE_GREEN_REPO_DIR"), os.environ["PATH"], os.environ.get("CHECK_LOG"), os.environ.get("LEO_WORKSPACE")
@@ -1615,6 +1621,18 @@ class MergedHeadChecksRegression(unittest.TestCase):
                 self.assertFalse(marker.exists())
                 self.assertNotIn("bun", log)
                 self.assertIn("host policy", result.stderr)
+
+    def test_malformed_host_policy_refuses_without_starting_bun(self):
+        for policy_status, payload in ((0, "not json"), (3, "not json"),
+                                       (0, '{"host":"fixture","policy":"no-build","reason":"denied"}')):
+            with self.subTest(status=policy_status, payload=payload), tempfile.TemporaryDirectory() as directory:
+                result, marker, log = self.run_merge(
+                    directory, {"webviews/Good.tsx": "x\n"},
+                    policy_status=policy_status, policy_payload=payload)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertNotIn("bun", log)
+                self.assertIn("host policy failed", result.stderr)
 
     def test_host_policy_skip_preserves_swift_failure(self):
         with tempfile.TemporaryDirectory() as directory:
