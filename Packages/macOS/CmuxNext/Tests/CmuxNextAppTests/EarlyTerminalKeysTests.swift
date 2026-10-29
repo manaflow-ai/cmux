@@ -340,4 +340,33 @@ struct EarlyTerminalKeysTests {
             #expect(coordinator.heldCount(in: window) == 2, "the keys after the run do not wait in order: \(Self.held(h))")
         }
     }
+
+    /// The creation replied and focus names the new terminal, but another view (an agent's composer, Home's message box)
+    /// has the keyboard: the held keys wait for the terminal, they never run into that view (review of 86d959eb118,
+    /// finding 5: a resolved hold ran its keys into any first responder that was not another terminal).
+    @Test func aResolvedHoldNeverRunsTerminalKeysIntoAnotherView() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window, paneKey, tab) = (h.controller, h.window, h.paneKey, h.tab)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+            window.contentView?.addSubview(composer)
+            defer { composer.removeFromSuperview() }
+            let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
+            for (letter, code) in [("a", UInt16(0)), ("b", UInt16(11))] {
+                #expect(router.interceptKeyDown(try Self.key(letter, keyCode: code, in: window), in: window),
+                        "a key before the reply was not held: \(Self.held(h))")
+            }
+            coordinator.resolve(ticket, landed: true, in: window) // its flush runs in a later turn
+            window.makeFirstResponder(composer)
+            #expect(controller.focus.state.resolved == .terminal(pane: paneKey, tab: tab), "the test needs focus on the new terminal")
+            let before = coordinator.replayedCount
+
+            let next = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
+            #expect(composer.string.isEmpty, "keys typed for the new terminal went into another view")
+            #expect(coordinator.replayedCount == before, "held keys ran while another view had the keyboard: \(Self.held(h))")
+            #expect(next, "a key typed for the new terminal went on to another view: \(Self.held(h))")
+            #expect(coordinator.heldCount(in: window) == 3, "the held keys do not wait in order: \(Self.held(h))")
+        }
+    }
 }
