@@ -214,6 +214,66 @@ struct EternalTerminalCommandBuilderTests {
         }
     }
 
+    @Test("falls back immediately when lifecycle registration fails")
+    func lifecycleFailureFallsBack() throws {
+        try withFakeCommands(lifecycleStatus: 1) { directory, environment in
+            let launcher = directory.appendingPathComponent("cmux-ssh-startup.sh")
+            try "exit 0\n".write(to: launcher, atomically: true, encoding: .utf8)
+            let result = try run(
+                builder(
+                    sshFallbackCommand: "printf 'ssh fallback\\n'",
+                    remoteRelayPort: 64_007,
+                    sshFallbackLauncherPaths: [launcher.path]
+                ),
+                environment: environment
+            )
+
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(try lines(directory, "cmux.args").count == 1)
+            #expect(fileExists(directory, "cmux-ssh-startup.sh"))
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("preserves SSH routing and agent opt-outs through SSH fallback", arguments: [
+        "HostName=actual.example", "ProxyJump=bastion", "ProxyCommand=nc %h %p", "ForwardAgent=no",
+    ])
+    func unsupportedSSHOverridesFallBack(option: String) throws {
+        try withFakeCommands { directory, environment in
+            let result = try run(
+                builder(sshFallbackCommand: "printf 'ssh fallback\\n'", sessionSSHOptions: [option]),
+                environment: environment
+            )
+
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote probe failed\n")
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("joins socket, environment, port and range tunnel entries independently")
+    func repeatedTunnelGrammar() throws {
+        for tunnels in [
+            ["SERVICE_SOCK:/tmp/service.sock", "5037:5037"],
+            ["/tmp/local.sock:/tmp/remote.sock", "5037:5037"],
+            ["/tmp/local.sock:5037", "5038:/tmp/remote.sock"],
+            ["8080:80,8443:443", "9090:90"],
+            ["3000-3002:4000-4002", "5037:5037"],
+        ] {
+            let options = try #require(EternalTerminalOptions(tunnels: tunnels, reverseTunnels: tunnels))
+            #expect(options.clientArguments == [
+                "--port", "2022", "--tunnel", tunnels.joined(separator: ","),
+                "--reversetunnel", tunnels.joined(separator: ","),
+            ])
+            #expect(try JSONDecoder().decode(EternalTerminalOptions.self, from: JSONEncoder().encode(options)) == options)
+        }
+        for tunnel in ["3000-3002:4000", "3000:4000-4002", "3000-3002:4000-4003"] {
+            #expect(EternalTerminalOptions(tunnels: [tunnel, "5037:5037"]) == nil)
+            #expect(EternalTerminalOptions(reverseTunnels: [tunnel, "5037:5037"]) == nil)
+            #expect(EternalTerminalOptions(tunnels: [tunnel + ",5037:5037"]) == nil)
+        }
+    }
+
     @Test("maps the management ssh argv onto et --ssh-option values")
     func sessionSSHOptionsFromArguments() {
         #expect(EternalTerminalCommandBuilder.sessionSSHOptions(fromSSHArguments: [
@@ -275,11 +335,12 @@ struct EternalTerminalCommandBuilderTests {
         remoteCommandArguments: [String] = ["command", "space arg", "quote'arg"],
         remoteRelayPort: Int? = nil,
         sshFallbackLauncherPaths: [String] = [],
-        localExecutableName: String = "et"
+        localExecutableName: String = "et",
+        sessionSSHOptions: [String] = ["RemoteCommand=none", "Port=2222"]
     ) -> EternalTerminalCommandBuilder {
         EternalTerminalCommandBuilder(
             capabilityProbeSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
-            sessionSSHOptions: ["RemoteCommand=none", "Port=2222"],
+            sessionSSHOptions: sessionSSHOptions,
             localEternalTerminalExecutableName: localExecutableName,
             localServerProbeExecutableName: "nc",
             destination: "user@example.com",
@@ -313,6 +374,7 @@ struct EternalTerminalCommandBuilderTests {
         installRemoteTerminal: RemoteTerminalInstall = .none,
         remoteTerminalPath: String = "/usr/bin/etterminal",
         proxyJump: String? = nil,
+        lifecycleStatus: Int32 = 0,
         operation: (URL, [String: String]) throws -> Void
     ) throws {
         let directory = FileManager.default.temporaryDirectory
@@ -349,7 +411,7 @@ struct EternalTerminalCommandBuilderTests {
         try installExecutable(named: "cmux", script: """
             #!/bin/sh
             printf '%s\\n' "$*" >> "$CMUX_ARGS_FILE"
-            exit 0
+            exit "$FAKE_LIFECYCLE_STATUS"
             """, in: directory)
         if installEternalTerminal {
             try installExecutable(named: "et", script: """
@@ -377,6 +439,7 @@ struct EternalTerminalCommandBuilderTests {
             "FAKE_REMOTE_HOME": remoteHome.path,
             "FAKE_REMOTE_TERMINAL_PATH": remoteTerminalPath,
             "FAKE_PROXY_JUMP": proxyJump ?? "",
+            "FAKE_LIFECYCLE_STATUS": String(lifecycleStatus),
             "FAKE_NC_STATUS": serverReachable ? "0" : "1",
             "SSH_ARGS_FILE": directory.appendingPathComponent("ssh.args").path,
             "NC_ARGS_FILE": directory.appendingPathComponent("nc.args").path,
