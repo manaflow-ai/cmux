@@ -64,6 +64,11 @@ struct AgentPaneCaptureTests {
                 return picked && written
             }
         }
+
+        @MainActor func switchChat(to destination: Rig) async {
+            _ = await model.respond(to: .persistSession("s2"))
+            model.onUploadStage = destination.model.onUploadStage
+        }
     }
 
     private static func value(_ reply: [String: Any]) -> [String: Any]? { reply["value"] as? [String: Any] }
@@ -109,8 +114,7 @@ struct AgentPaneCaptureTests {
             let reply = await AgentPaneCapture.reply(to: "screen", in: source.model, taken: Self.taken) { _, file in
                 // reply is suspended inside the picker while the normal native persist handler
                 // changes the chat and its route; no staging has started yet.
-                _ = await source.model.respond(to: .persistSession("s2"))
-                await MainActor.run { source.model.onUploadStage = destination.model.onUploadStage }
+                await source.switchChat(to: destination)
                 return (try? png.write(to: file)) != nil
             }
             let answer = try #require(Self.value(reply))
