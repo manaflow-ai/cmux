@@ -396,7 +396,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                   void transferCloudCredentials(row.retryRowId!, prompt).catch(() => undefined);
                 }}
               >
-                {t("turn.transferCredentials", { harness: route?.name || route?.harness || t("turn.failure.theAgent") })}
+                {t("turn.transferCredentials", {
+                  harness: route?.name || route?.harness || t("turn.failure.theAgent"),
+                })}
               </button>
             )}
           </span>
