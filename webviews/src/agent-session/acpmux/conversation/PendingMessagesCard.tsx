@@ -39,11 +39,11 @@ export function PendingMessagesCard({
     setOpen(next);
   };
   const bodyId = useId();
-  const rows = row.pending?.rows;
+  const rows = row.pendingMessages?.rows;
   const senders = useMemo(() => bySender(rows ?? []), [rows]);
   const reveal = useContext(FindReveal);
-  // Find names the group's row for a match in one of its messages: the group opens, and each of
-  // its messages is asked as its own row would be, so the one holding the match opens too.
+  // Find names the group's row for a match in one of its messages: the group opens, and only the
+  // message holding the match (`matchRowId`) is asked as its own row would be, so it opens too.
   const holdsMatch = Boolean(reveal && reveal.rowId === row.id);
   useLayoutEffect(() => {
     if (!holdsMatch || open) return;
@@ -92,9 +92,15 @@ export function PendingMessagesCard({
                   </div>
                 )}
                 {group.rows.map((member) => (
-                  <FindReveal.Provider key={member.id} value={reveal && holdsMatch ? { ...reveal, rowId: member.id } : reveal}>
-                    {renderMessage(member)}
-                  </FindReveal.Provider>
+                  // Each message is its own Find row: its matches are counted in it, and only the one
+                  // holding the current match opens.
+                  <div key={member.id} data-row-id={member.id} data-find-member="">
+                    <FindReveal.Provider
+                      value={holdsMatch && reveal?.matchRowId === member.id ? { ...reveal, rowId: member.id } : undefined}
+                    >
+                      {renderMessage(member)}
+                    </FindReveal.Provider>
+                  </div>
                 ))}
               </section>
             );

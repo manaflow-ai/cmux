@@ -123,6 +123,8 @@ test("a sub-session's note through the outbox names its sender, not the person",
     text: "merged https://github.com/teamleaderleo/leo-workspace/pull/1234",
     raw: text,
   });
-  // The person's own words stay theirs: "From now on" names no agent.
+  // The person's own words stay theirs: "From now on" names no agent, and the person sends through
+  // the outbox too, so a bracket lead there is theirs, never a sender named "P1".
   expect(queuedMessage({ text: "From now on: rebase first", client: "acpmux-outbox#7" })).toBeUndefined();
+  expect(queuedMessage({ text: "[P1] Fix the crash", client: "acpmux-outbox#7" })).toBeUndefined();
 });

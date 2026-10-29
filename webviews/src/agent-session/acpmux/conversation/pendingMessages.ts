@@ -11,7 +11,7 @@
 // sent them, in the order each session first wrote; each is its own received line (its ⋯ menu kept).
 // Once the agent reads a message it leaves the group and draws where it was read.
 // The same message is shown once (Leo: "nx-sidebar #27128 own red fixed..." twice): by its prompt
-// id, else by its sender and text (a relay retried under a new id).
+// id, else by its sender and text (a relay retried under a new id) when it carries no images.
 //
 // Cost: nothing while nothing waits. The group is made once per change of the waiting rows; the
 // same rows give the same row back, so the transcript keeps its identity.
@@ -27,9 +27,10 @@ export const isWaitingMessage = (row: AcpmuxRow) =>
 /// A waiting message's prompt id: the queue entry's, or the steer's.
 const promptIdOf = (row: AcpmuxRow) => row.queuedMessage?.promptId ?? row.steerPromptId;
 
-/// The key a sender's message is the same under: its sender and its words.
+/// The key a sender's message is the same under: its sender and its words. A message with images
+/// has none: two "See attached" with different images are two messages, only one prompt id is one.
 function contentKey(row: AcpmuxRow): string | undefined {
-  if (row.incoming?.kind !== "message") return undefined;
+  if (row.incoming?.kind !== "message" || row.images?.length) return undefined;
   const { name, sessionId, text } = row.incoming.message;
   return `${sessionId ?? name}\u0000${text.trim()}`;
 }
@@ -80,7 +81,7 @@ export function pendingMessagesRow(
   const all = steers.length === 0 ? queued : queued.length === 0 ? steers : [...steers, ...queued];
   const members = dedupeMessages(all.filter((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row)));
   if (members.length === 0) return undefined;
-  const held = last?.pending?.rows;
+  const held = last?.pendingMessages?.rows;
   if (held && held.length === members.length && held.every((row, index) => row === members[index])) return last;
   return {
     id: PENDING_MESSAGES_ROW_ID,
@@ -93,6 +94,6 @@ export function pendingMessagesRow(
       .join("\n\n"),
     untyped: true,
     joined: members.map((row) => row.id),
-    pending: { rows: members },
+    pendingMessages: { rows: members },
   };
 }

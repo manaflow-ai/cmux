@@ -222,6 +222,9 @@ export type FindRevealTarget = {
   /** Opens the part that holds this call instead of the parts whose text holds `needle` (a count on
    * the running line, WorkingFor.tsx). */
   toolId?: string;
+  /** The match's own row when `rowId` draws it inside itself (a message in the group of waiting
+   * messages, PendingMessagesCard.tsx): only that one opens. */
+  matchRowId?: string;
 };
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
@@ -333,8 +336,12 @@ export function paintFindHighlights(
     }
     const candidates: { range: Range; pair?: string; kind?: "primary" | "fallback" }[] = [];
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
+      // A member row drawn inside this one (`data-find-member`) counts its own matches, never twice.
       acceptNode: (node) =>
-        node.parentElement?.closest("[data-find-skip]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+        node.parentElement?.closest("[data-find-skip]") ||
+        node.parentElement?.closest("[data-find-member][data-row-id]")?.closest("[data-row-id]:not([data-find-member])") === row
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT,
     });
     for (const nodes of findRuns(walker)) {
       // A run's nodes share one presentation (a label's verb and subject sit in one element).

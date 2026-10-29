@@ -359,7 +359,7 @@ export type AcpmuxRow = {
   joined?: string[];
   /// The messages other sessions sent that the agent has not read yet, drawn as one group
   /// (conversation/pendingMessages.ts, PendingMessagesCard.tsx), each once, oldest first.
-  pending?: { rows: readonly AcpmuxRow[] };
+  pendingMessages?: { rows: readonly AcpmuxRow[] };
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
