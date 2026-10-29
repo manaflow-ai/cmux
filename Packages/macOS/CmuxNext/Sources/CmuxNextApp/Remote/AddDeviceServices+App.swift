@@ -91,8 +91,8 @@ extension MachineJoinService {
             guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
             return services.joinedMachines.beginRead()
         }
-        let store = { @MainActor [weak services] (rows: [JoinedMachine], ticket: Int?) in
-            guard let services, let ticket, services.settings?.snapshot.machineJoin == true else { return }
+        let store = { @MainActor [weak services] (rows: [JoinedMachine], ticket: Int) in
+            guard let services, services.settings?.snapshot.machineJoin == true else { return }
             services.joinedMachines.finishRead(rows, ticket: ticket)
         }
         return MachineJoinService(
@@ -105,8 +105,8 @@ extension MachineJoinService {
                 return .failure(Self.unavailable(run) ? .unavailable : .failed)
             },
             list: {
-                let ticket = await beginRead()
-                guard let cli, let access = await token(),
+                // With the switch off nothing is read: no token, no run.
+                guard let ticket = await beginRead(), let cli, let access = await token(),
                       let run = await cli.run(["machine", "list", "--json", "--cloud-token-stdin"], secret: access, label: "machine list"),
                       run.status == 0, let rows = JoinedMachine.list(from: Data(run.stdout.utf8)) else { return nil }
                 await store(rows, ticket)

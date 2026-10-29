@@ -118,7 +118,11 @@ import Testing
         var ran: [(JoinedMachineAction, String)] = []
         let menu = JoinedMachineMenu.make(Fake.machine("m_1", "lane-vm-3"), busy: false) { ran.append(($0, $1.id)) }
         let rotate = try #require(menu.items.first { $0.title == "Rotate Credential" })
-        menu.performActionForItem(at: menu.index(of: rotate))
+        // A test process has no running NSApplication to dispatch the item, so send its action to
+        // its target the way AppKit does.
+        #expect(rotate.action == #selector(JoinedMachineMenuTarget.run))
+        let target = try #require(rotate.target as? JoinedMachineMenuTarget)
+        target.run()
         #expect(ran.map(\.0) == [.rotate])
         #expect(ran.map(\.1) == ["m_1"])
     }

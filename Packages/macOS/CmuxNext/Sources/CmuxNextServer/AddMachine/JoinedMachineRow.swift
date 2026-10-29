@@ -192,6 +192,8 @@ public nonisolated enum JoinedMachineStrings {
 
     static func more(_ name: String) -> String { String(format: s("machines.joined.more", "More for %@"), name) }
     static var noWorkspace: String { s("machines.joined.noWorkspace", "Reached through the mesh; workspaces need a link") }
+    /// A joined machine's Check asked to run after Labs `labs.machineJoin` turned off.
+    public static var labsOff: String { s("machines.joined.labsOff", "Joined machines are off in Labs.") }
 
     public static func revokeTitle(_ name: String) -> String { String(format: s("machines.joined.revokeTitle", "Revoke %@?"), name) }
     public static var revokeBody: String {

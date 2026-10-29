@@ -34,8 +34,13 @@ extension AddMachineServices {
                 }
             },
             run: { command in
+                // A joined machine's Check runs only while the switch is on: one left open across the
+                // switch turning off fetches no token and runs nothing.
+                if command.needsAccount, services.settings?.snapshot.machineJoin != true {
+                    return AsyncThrowingStream { $0.finish(throwing: ActionFailure(message: JoinedMachineStrings.labsOff)) }
+                }
                 #if DEBUG
-                if command.needsAccount, services.debugJoinedMachines != nil, services.settings?.snapshot.machineJoin == true {
+                if command.needsAccount, services.debugJoinedMachines != nil {
                     return AsyncThrowingStream { for line in DebugAddDevice.joinedDoctorLines { $0.yield(line) }; $0.finish() }
                 }
                 #endif
