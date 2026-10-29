@@ -13,6 +13,15 @@
 #           simulator (Demo: optimized, with the DEBUG developer surface); then
 #           boot one iPhone, install, launch, screenshot.
 #   test    build, plus `xcodebuild test` of CmuxMobileKit on that iPhone.
+#           Optional arguments after it (each one `--arg`; the controller's
+#           argument pattern has no spaces, so lists are comma-separated):
+#             only=TARGET/SUITE[,TARGET/SUITE...]   run only those kit tests
+#               (-only-testing), e.g. only=CmuxMobileLiveTests/LinkRecoveryTests
+#               (a suite, or TARGET/SUITE/test for an XCTest method)
+#             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
+#               against a Debug app; with ui= and no only=, the kit run is skipped
+#           The artifact keeps each run's log, its console output (a test's
+#           print lines, e.g. benchmark numbers) and its per-test results.
 #   bench   build, plus the in-app flood benchmark (TerminalFloodBench,
 #           verify/terminal-flood.md) on PTY recordings made on the worker:
 #             cat     `cat` of a 6 MB source file
@@ -60,6 +69,33 @@ if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
 fi
 
+# test's optional selection (see MODE above), checked before anything is built.
+kit_only=()
+ui_suites=()
+if [[ "$mode" == test && $# -gt 1 ]]; then
+  for sel in "${@:2}"; do
+    case "$sel" in
+      only=?*)
+        IFS=',' read -r -a items <<< "${sel#only=}"
+        for item in "${items[@]}"; do
+          [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+){0,2}$ ]] ||
+            { echo "cmux-next-ios-sim.sh: only= wants TARGET/SUITE names, got '$item'" >&2; exit 2; }
+          kit_only+=("-only-testing:$item")
+        done ;;
+      ui=?*)
+        IFS=',' read -r -a items <<< "${sel#ui=}"
+        for item in "${items[@]}"; do
+          [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]] ||
+            { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
+          ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
+        done ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST and ui=LIST, got '$sel'" >&2; exit 2 ;;
+    esac
+  done
+fi
+run_kit=1
+if [[ ${#ui_suites[@]} -gt 0 && ${#kit_only[@]} -eq 0 ]]; then run_kit=0; fi
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
 out="$root/artifacts/ios-sim"
@@ -77,6 +113,13 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
 xcodegen_dir=""
 sims=""
 cleanup() {
+  # The test iPhones in the default device set, when a step is cut short.
+  local d
+  for d in "${test_udid:-}" "${ui_udid:-}"; do
+    [[ -n "$d" ]] || continue
+    xcrun simctl shutdown "$d" >/dev/null 2>&1 || true
+    xcrun simctl delete "$d" >/dev/null 2>&1 || true
+  done
   if [[ -n "$sims" ]]; then
     xcrun simctl --set "$sims" shutdown all >/dev/null 2>&1 || true
     xcrun simctl --set "$sims" delete all >/dev/null 2>&1 || true
@@ -104,6 +147,9 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+# A cancelled step gets SIGTERM: exit, so the EXIT trap cleans up.
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
 # xcodegen: a pinned release, checksum-verified, in a temp dir of this step's
 # own, never the host's (aws-m4pro-2 has none, and the fleet's AWS Macs are not
@@ -192,8 +238,35 @@ simctl io "$udid" screenshot "$out/screens/launch.png" >/dev/null
 simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 note "- launch: ok, screens/launch.png"
 
+# keep_test_logs LOG XCRESULT NAME: the run's log, console output (print
+# lines), per-test results, counts and failures into the artifact as NAME-*.
+keep_test_logs() {
+  local log=$1 bundle=$2 name=$3
+  cp "$log" "$out/$name-test.log" 2>/dev/null || true
+  xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2>/dev/null || true
+  xcrun xcresulttool get test-results tests --path "$bundle" --compact > "$out/$name-tests.json" 2>/dev/null || true
+  xcrun xcresulttool get test-results summary --path "$bundle" --compact 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print("passed %s, failed %s, skipped %s" % (d.get("passedTests"), d.get("failedTests"), d.get("skippedTests")))
+' > "$out/$name-tests-counts.txt" 2>/dev/null || rm -f "$out/$name-tests-counts.txt"
+  python3 -c '
+import json, sys
+def walk(node, path):
+    if node.get("nodeType") == "Test Case" and node.get("result") == "Failed":
+        print("FAILED:", " / ".join(path))
+        for child in node.get("children", []):
+            if child.get("nodeType") == "Failure Message":
+                print("   ", child.get("name"))
+    for child in node.get("children", []):
+        walk(child, path + [child.get("name", "")])
+for root in json.load(open(sys.argv[1])).get("testNodes", []):
+    walk(root, [root.get("name", "")])
+' "$out/$name-tests.json" > "$out/$name-tests-failures.txt" 2>/dev/null || true
+}
+
 # --- Tests ------------------------------------------------------------------
-if [[ "$mode" == test || "$mode" == all ]]; then
+if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   t0=$SECONDS
   # xcodebuild sees only the default device set: the tests get their own new
   # iPhone there, deleted by its UDID afterwards (never another step's device).
@@ -201,11 +274,12 @@ if [[ "$mode" == test || "$mode" == all ]]; then
   set +e
   (cd cmux-next-ios/CmuxMobileKit && xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
-    -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet) >"$work/test.log" 2>&1
+    -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet ${kit_only[@]+"${kit_only[@]}"}) >"$work/test.log" 2>&1
   test_status=$?
   set -e
   xcrun simctl shutdown "$test_udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$test_udid" >/dev/null 2>&1 || true
+  test_udid=""
   counts="$(xcrun xcresulttool get test-results summary --path "$work/kit.xcresult" --compact 2>/dev/null | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -226,7 +300,30 @@ for root in json.load(sys.stdin).get("testNodes", []):
     walk(root, [root.get("name", "")])
 ' > "$out/test-failures.txt" 2>/dev/null || true
   cat "$out/test-failures.txt"
+  keep_test_logs "$work/test.log" "$work/kit.xcresult" kit
+  [[ ${#kit_only[@]} -eq 0 ]] || note "- kit filter: ${kit_only[*]}"
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
+fi
+
+# --- UI tests (test ui=...) -------------------------------------------------
+if [[ ${#ui_suites[@]} -gt 0 ]]; then
+  t0=$SECONDS
+  # A Debug build of the app and its UI test bundle, on a new iPhone in the
+  # default device set (xcodebuild sees no other), deleted by its UDID after.
+  ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  set +e
+  xcodebuild test -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
+    -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui" \
+    -resultBundlePath "$work/ui.xcresult" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
+    -quiet "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
+  ui_status=$?
+  set -e
+  xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
+  xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
+  ui_udid=""
+  keep_test_logs "$work/ui-test.log" "$work/ui.xcresult" ui
+  grep -h "^FAILED:" -A3 "$out/ui-tests-failures.txt" 2>/dev/null || true
+  note "- UI tests ${ui_suites[*]}: exit $ui_status, $(cat "$out/ui-tests-counts.txt" 2>/dev/null || echo "no result bundle"), $((SECONDS - t0)) s"
 fi
 
 # --- Benchmarks -------------------------------------------------------------
@@ -384,4 +481,5 @@ fi
 (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
 cat "$summary"
 if [[ "${test_status:-0}" -ne 0 ]]; then exit "$test_status"; fi
+if [[ "${ui_status:-0}" -ne 0 ]]; then exit "$ui_status"; fi
 if [[ "${pair_status:-0}" -ne 0 ]]; then exit "$pair_status"; fi
