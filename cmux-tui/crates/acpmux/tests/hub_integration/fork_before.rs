@@ -45,6 +45,7 @@ async fn snapshot(
     let mut meta = hub.resolve(id).unwrap().meta();
     let mut events = hub.events(id, 0, 10_000).unwrap();
     change(&mut meta, &mut events);
+    meta.last_seq = events.last().map_or(0, |event| event.seq);
     store.save(&meta).unwrap();
     for event in events {
         store.append(id, &event).unwrap();
@@ -61,6 +62,17 @@ async fn fork_before_first_and_later_prompt_preserves_native_history_and_source(
         let (hub, mut c) =
             if codex { codex_setup(&root).await } else { claude_setup(&root, &[]).await };
         let id = source(&hub, &mut c).await;
+        if codex {
+            c.request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": "strict"}))
+                .await
+                .unwrap();
+            c.request(
+                method::SESSION_SET_CONFIG_OPTION,
+                json!({"sessionId": id, "configId": "model", "value": "m2"}),
+            )
+            .await
+            .unwrap();
+        }
         let original = hub.events(&id, 0, 10_000).unwrap();
         for (prompt_id, expected) in [("first", json!([])), ("third", json!(["first", "second"]))] {
             let reply = c.request(FORK_OP, boundary(&id, prompt_id, prompt_id)).await.unwrap();
@@ -86,6 +98,13 @@ async fn fork_before_first_and_later_prompt_preserves_native_history_and_source(
                 assert!(child.meta().fork_seq.is_none(), "empty prefix is not a magic sequence");
             }
             assert_eq!(claude_history(&hub, &mut c, fid).await["prompts"], expected);
+            if codex {
+                let meta = child.meta();
+                assert_eq!(meta.modes.as_ref().unwrap()["currentModeId"], "strict");
+                let options = meta.config_options.as_ref().unwrap().as_array().unwrap();
+                let model = options.iter().find(|option| option["id"] == "model").unwrap();
+                assert_eq!(model["currentValue"], "m2");
+            }
             assert_eq!(hub.events(&id, 0, 10_000).unwrap(), original);
         }
         assert_eq!(
@@ -186,23 +205,75 @@ async fn fork_before_refuses_invalid_unknown_ambiguous_steered_and_unreconstruct
         ("steer", "fork.unsupported"),
         ("hiddenContext", "fork.unreconstructable"),
         ("missing-image", "fork.unreconstructable"),
+        ("legacy-image", "fork.unreconstructable"),
+        ("document", "fork.unreconstructable"),
+        ("audio", "fork.unreconstructable"),
+        ("adopted", "fork.unreconstructable"),
+        ("imported", "fork.unreconstructable"),
+        ("missing-prefix", "fork.unreconstructable"),
     ] {
         let (_, altered) = snapshot(&hub, &id, &root.join(variant), |_, events| {
             let index = events.iter().position(|e| e.kind == "user_message").unwrap();
-            if variant == "ambiguous" {
-                let mut duplicate = events[index].clone();
-                duplicate.seq = events.last().unwrap().seq + 1;
-                events.push(duplicate);
-            } else if variant == "missing-image" {
-                events[index].msg["inlineParts"] = json!([{"kind": "image", "id": "missing"}]);
-            } else {
-                events[index].msg[variant] = json!(true);
+            match variant {
+                "ambiguous" | "adopted" | "imported" => {
+                    let mut extra = events[index].clone();
+                    extra.seq = events.last().unwrap().seq + 1;
+                    if variant != "ambiguous" {
+                        extra.kind = variant.into();
+                        extra.msg = json!({});
+                    }
+                    events.push(extra);
+                }
+                "missing-prefix" => {
+                    events.remove(0);
+                }
+                "legacy-image" => {
+                    events[index].msg.as_object_mut().unwrap().remove("inlineParts");
+                    events[index].msg["images"] =
+                        json!([{"id": "missing", "mimeType": "image/png"}]);
+                }
+                "missing-image" => {
+                    events[index].msg["inlineParts"] = json!([{"kind": "image", "id": "missing"}]);
+                }
+                "document" | "audio" => {
+                    events[index].msg["inlineParts"] = json!([
+                        {"kind": "text", "text": "first"},
+                        {"kind": variant, "name": "attachment", "size": 3}
+                    ]);
+                }
+                _ => {
+                    events[index].msg[variant] = json!(true);
+                }
             }
         })
         .await;
         let mut altered_client = connect(&altered).await;
         refusal(&mut altered_client, FORK_OP, boundary(&id, "first", variant), reason).await;
         assert_eq!(altered.sessions().len(), 1);
+        altered.shutdown_all().await;
+    }
+    // URI-backed resource_link and recorded file text are reconstructable without old bytes.
+    for (variant, part) in [
+        (
+            "uri-file",
+            json!({"kind": "file", "name": "reference.txt", "uri": "https://example.test/reference.txt"}),
+        ),
+        (
+            "text-file",
+            json!({"kind": "file", "name": "notes.txt", "text": "recorded file contents"}),
+        ),
+    ] {
+        let (_, altered) = snapshot(&hub, &id, &root.join(variant), |_, events| {
+            let prompt = events.iter_mut().find(|event| event.kind == "user_message").unwrap();
+            prompt.msg["inlineParts"] = json!([part]);
+        })
+        .await;
+        let before = altered.events(&id, 0, 10_000).unwrap();
+        let mut client = connect(&altered).await;
+        let fork = client.request(FORK_OP, boundary(&id, "first", variant)).await.unwrap();
+        let child = altered.resolve(fork["sessionId"].as_str().unwrap()).unwrap();
+        assert_eq!(child.meta().turn_count, 0);
+        assert_eq!(altered.events(&id, 0, 10_000).unwrap(), before);
         altered.shutdown_all().await;
     }
     assert_eq!(hub.events(&id, 0, 10_000).unwrap(), original);
@@ -227,4 +298,84 @@ async fn fork_before_refuses_invalid_unknown_ambiguous_steered_and_unreconstruct
     other.shutdown_all().await;
     hub.shutdown_all().await;
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn fork_before_refuses_a_truncated_or_unfinished_native_prefix() {
+    for codex in [false, true] {
+        let root =
+            std::env::temp_dir().join(format!("acpmux-before-native-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+        let (hub, mut c) =
+            if codex { codex_setup(&root).await } else { claude_setup(&root, &[]).await };
+        let id = source(&hub, &mut c).await;
+        let session = hub.resolve(&id).unwrap();
+        let sid = session.meta().agent_session_id.unwrap();
+        // Stop only this fixture's writer before changing its own native store.
+        hub.detach_child(&session).await;
+        let mut pending = vec![root.clone()];
+        let mut file = None;
+        while let Some(dir) = pending.pop() {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    pending.push(path);
+                } else if path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .ends_with(&format!("{sid}.jsonl"))
+                {
+                    file = Some(path);
+                }
+            }
+        }
+        let file = file.expect("the fake harness stored its native conversation");
+        let records: Vec<Value> = std::fs::read_to_string(&file)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let starts = |record: &Value| {
+            if codex {
+                record["type"] == "event_msg" && record["payload"]["type"] == "task_started"
+            } else {
+                record["type"] == "user"
+            }
+        };
+        let second =
+            records.iter().enumerate().filter(|(_, record)| starts(record)).nth(1).unwrap().0;
+        let complete = |record: &Value| {
+            if codex {
+                record["type"] == "event_msg" && record["payload"]["type"] == "task_complete"
+            } else {
+                record["type"] == "assistant"
+            }
+        };
+        let original = hub.events(&id, 0, 10_000).unwrap();
+        for (request, prompt_id, kept) in [
+            ("truncated", "third", records[..second].iter().collect::<Vec<_>>()),
+            ("unfinished", "second", records.iter().filter(|record| !complete(record)).collect()),
+        ] {
+            // Codex completion markers may flush after the next turn starts; they carry
+            // no model context. The authoritative result already proves that turn ended.
+            if codex && request == "unfinished" {
+                continue;
+            }
+            let text = kept
+                .into_iter()
+                .map(|record| serde_json::to_string(record).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n";
+            std::fs::write(&file, &text).unwrap();
+            refusal(&mut c, FORK_OP, boundary(&id, prompt_id, request), "fork.unreconstructable")
+                .await;
+            assert_eq!(hub.sessions().len(), 1, "a corrupt native prefix creates no child");
+            assert_eq!(hub.events(&id, 0, 10_000).unwrap(), original);
+            assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+        }
+        hub.shutdown_all().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
