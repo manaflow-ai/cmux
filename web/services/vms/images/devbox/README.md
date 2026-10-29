@@ -378,7 +378,9 @@ answers (`cmux-dns probe`; a libc lookup would pass
 through the fallback resolvers), every later bake step resolves through it,
 and `verify-devbox-image.ts` checks the same contract. The container recipe
 has none: Docker owns its resolv.conf. Machines baked before it keep
-resolving straight through the platform.
+resolving straight through the platform until
+`web/scripts/install-fleet-dns-fallback.ts` installs it in place
+(`docs/cloud-guest-upgrades.md`).
 
 ## Terminal capabilities (`cmux-terminfo.src`)
 
