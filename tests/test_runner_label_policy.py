@@ -192,7 +192,9 @@ class DriftReportingOverVariables(unittest.TestCase):
 
 
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
-NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS"}
+# RUNNER_POOLS is a JSON map of pool -> label, read as fromJSON(vars.RUNNER_POOLS).<pool>; its labels are
+# checked by scripts/ci/runner_pools.py --check (ci-repo-variables.yml), not by the label policy.
+NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS"}
 
 
 def reported_runner_variables() -> set[str]:

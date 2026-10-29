@@ -28,6 +28,8 @@ on:
       - scripts/ci/runner_label_policy.py
       - scripts/ci/runs_on_values.py
       - scripts/ci/signing_runner_variables.py
+      - scripts/ci/runner_pools.py
+      - .github/runners.json
   workflow_dispatch:
 
 permissions:
@@ -88,6 +90,14 @@ jobs:
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
         run: python3 scripts/ci/check_repo_variables.py
 
+      # RUNNER_POOLS, the one routing source (scripts/ci/runner_pools.py): every pool set, each to
+      # one of its declared members. A missing pool fails every job that reads it.
+      - name: Check the runner pools
+        if: ${{ !cancelled() }}
+        env:
+          RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}
+        run: python3 scripts/ci/runner_pools.py --check
+
       # No runs-on waits on one machine through a variable's value
       # (scripts/ci/runs_on_values.py). The workflow text passes
       # `vars.X || <pool>` however X is set, and a set X never falls through,
@@ -135,6 +145,7 @@ jobs:
             MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
             NIGHTLY_NEXT_TRAIN_RUNNER=${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER }}
+            RUNNER_POOLS=${{ vars.RUNNER_POOLS }}
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
         run: |
           set -euo pipefail

@@ -1025,8 +1025,17 @@ malformed `RUNNER_POOLS` is rewritten from these declarations, never crashed
 on. Jobs already queued on a dead member keep that label (GitHub binds it when
 it creates the job); moving them is the queue janitor's dead-label re-dispatch
 (with #27114), whose re-run reads the pool's new member.
+With no evidence at all (no probe health yet, no snapshot) it marks nothing
+dead: it fails closed and never retires a member on a guess. A pool not marked
+`hosted` never resolves to a GitHub-hosted label, whatever is dead.
+`ci-repo-variables.yml` runs `runner_pools.py --check` every 15 minutes, so a
+hand-edited `RUNNER_POOLS` that drops a pool or names a non-member goes red.
 `tests/test_ci_runner_pools.py` checks the declared pools and the reconciler
 against a recorded janitor snapshot.
+
+The first jobs on the pool are `cmux-tui-spec.yml` and
+`required-checks-drift.yml`; the rest of the workflows follow by group, and
+`tests/test_ci_runner_set.py` lands with the last group.
 
 ## Blacksmith outage: the overflow switch
 

@@ -111,6 +111,18 @@ class Evidence(unittest.TestCase):
         self.assertEqual(dead, {"blacksmith-32vcpu-ubuntu-2404"})
         self.assertEqual(started, {"blacksmith-16vcpu-ubuntu-2404"})
 
+    def test_no_evidence_retires_nothing(self) -> None:
+        # Fail closed: with CI_CLOUD_LABEL_HEALTH absent (cmux#27121 not deployed) and no snapshot,
+        # nothing is marked dead, and the pools stay on their first members.
+        dead, started, _ = runner_pools.label_evidence(None, None, now=NOW)
+        self.assertEqual((dead, started), (set(), set()))
+        switch = Main.Switch()
+        self.assertEqual(runner_pools.main([], {"RUNNER_POOLS": ""}, api=Main.Api(None), switch=switch, now=NOW), 0)
+        value = json.loads(switch.writes[0][1])
+        self.assertEqual(value["_dead"], {})
+        for name, spec in runner_pools.load_pools().items():
+            self.assertEqual(value[name], spec["members"][0])
+
     def test_old_or_unreadable_health_decides_nothing(self) -> None:
         old = health({"blacksmith-32vcpu-ubuntu-2404": "stalled"}, checked=NOW - dt.timedelta(hours=1))
         for value in (old, {"labels": []}, {"checked": "2026-10-28T22:00:00", "labels": {}}):
@@ -155,6 +167,32 @@ class Reconcile(unittest.TestCase):
         again, lines = self.run_once(value, now=NOW + dt.timedelta(minutes=10))
         self.assertEqual(runner_pools.render(again), runner_pools.render(value))
         self.assertEqual(lines, [])
+
+
+class NeverHosted(unittest.TestCase):
+    def test_a_non_hosted_pool_never_resolves_to_a_hosted_label(self) -> None:
+        # Hosted runners are not in the declared set: whatever is dead, a pool not marked hosted
+        # picks one of its own Blacksmith members, never ubuntu-* or macos-*.
+        pools = runner_pools.load_pools()
+        every = {label for spec in pools.values() for label in runner_pools.members(spec)}
+        value, _ = runner_pools.reconcile({}, pools, dead_now=every, served_now=(), now=NOW)
+        for name, spec in pools.items():
+            if not spec.get("hosted"):
+                self.assertRegex(value[name], runner_pools.EPHEMERAL)
+        current, dropped = runner_pools.parse_value(json.dumps({"linux": "ubuntu-24.04"}), pools)
+        self.assertNotIn("linux", current)
+        self.assertTrue(dropped)
+
+    def test_the_overflow_switch_never_writes_a_hosted_label(self) -> None:
+        # The switch that moves the old variables (LINUX_RUNNER, CI_TRUSTED_RUNNER) never points one
+        # at GitHub-hosted Ubuntu or macOS, with or without an override asking it to.
+        import cloud_overflow_switch as switch
+        for overrides in (None, json.dumps({"LINUX_RUNNER": "ubuntu-24.04"}),
+                          json.dumps({"MACOS_RUNNER_15": "macos-15"})):
+            values, _ = switch.failover_values("/Applications/Xcode_26.6.app", overrides)
+            for name, value in values.items():
+                with self.subTest(overrides=overrides, variable=name):
+                    self.assertNotRegex(str(value), r"^(?:ubuntu|macos|windows)-")
 
 
 class Schema(unittest.TestCase):
