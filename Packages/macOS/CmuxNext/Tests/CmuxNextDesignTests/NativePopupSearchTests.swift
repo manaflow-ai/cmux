@@ -161,6 +161,50 @@ import Testing
         #expect(search.stringValue == "AB")
     }
 
+    @Test(arguments: [false, true])
+    func pendingEditsCannotCrossFieldKinds(_ startsAsSearch: Bool) throws {
+        let content = NativePopupContent()
+        var next = try model(policy: "none")
+        let row = NativePopupRow(id: "query", kind: .textField, label: "Text", value: "fresh", editSequence: 0)
+        next.search?.editSequence = 0
+        if !startsAsSearch { next.search = nil; next.rows = [row] }
+        content.update(next)
+        let field = try #require(startsAsSearch
+            ? content.subviews.compactMap { $0 as? NSSearchField }.first
+            : content.rowView(id: "query") as? NSTextField)
+        field.stringValue = "pending old identity"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        next.revision += 1
+        if startsAsSearch {
+            next.search = nil; next.rows = [row]
+        } else {
+            next.rows = []
+            next.search = NativePopupField(id: "query", value: "fresh", placeholder: "Search", editSequence: 0)
+        }
+        content.update(next)
+        let replacement = try #require(startsAsSearch
+            ? content.rowView(id: "query") as? NSTextField
+            : content.subviews.compactMap { $0 as? NSSearchField }.first)
+        #expect(replacement.stringValue == "fresh")
+    }
+
+    @Test func pendingEditsCannotCrossAncestorIdentity() throws {
+        var next = try model(policy: "none")
+        next.search = nil
+        let row = NativePopupRow(id: "text", kind: .textField, label: "Text", value: "fresh", editSequence: 0)
+        next.rows = [row]
+        var state = NativePopupInputState()
+        state.record(id: "text", value: "pending root", model: next)
+        next.rows = [NativePopupRow(id: "parent", kind: .submenu, label: "Parent", children: [row])]
+        #expect(state.preservingLocalEdits(in: next).rows.first?.children?.first?.value == "fresh")
+        state.record(id: "text", value: "pending child", model: next)
+        next.rows = [NativePopupRow(id: "replacement-parent", kind: .submenu, label: "Parent", children: [row])]
+        #expect(state.preservingLocalEdits(in: next).rows.first?.children?.first?.value == "fresh")
+        state.record(id: "text", value: "pending replacement", model: next)
+        next.rows = [row]
+        #expect(state.preservingLocalEdits(in: next).rows.first?.value == "fresh")
+    }
+
     @Test(arguments: ["rows", "rail", "footer"])
     func textFieldAcknowledgmentsPreserveNewerEditsAndRetireRemovedFields(_ placement: String) throws {
         let content = NativePopupContent()

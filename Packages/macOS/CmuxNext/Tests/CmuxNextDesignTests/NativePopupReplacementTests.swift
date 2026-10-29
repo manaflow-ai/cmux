@@ -45,8 +45,8 @@ import Testing
         #expect(events.first?["popupId"] as? String == "old")
     }
 
-    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty }, arguments: [false, true])
-    func retiredComposingFieldCannotWriteIntoAReusedIdentity(_ disable: Bool) throws {
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty }, arguments: ["remove", "disable", "kind"])
+    func retiredComposingFieldCannotWriteIntoAReusedIdentity(_ replacementKind: String) throws {
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         let content = NativePopupContent()
@@ -60,21 +60,30 @@ import Testing
         content.update(model)
         content.focusInitial()
         let old = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        old.stringValue = "pending old identity"
+        content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: old))
         let editor = try #require(old.currentEditor() as? NSTextView)
         editor.setMarkedText("に", selectedRange: NSRange(location: 1, length: 0),
                              replacementRange: NSRange(location: NSNotFound, length: 0))
         model.revision = 2
-        if disable { model.search?.disabled = true } else { model.search = nil }
+        if replacementKind == "disable" { model.search?.disabled = true } else { model.search = nil }
+        if replacementKind == "kind" {
+            model.rows = [NativePopupRow(id: "query", kind: .textField, label: "Text", value: "replacement", editSequence: 0)]
+        }
         content.update(model)
         model.revision = 3
-        model.search = NativePopupField(id: "query", value: "replacement", placeholder: "Search", editSequence: 0)
+        if replacementKind != "kind" {
+            model.search = NativePopupField(id: "query", value: "replacement", placeholder: "Search", editSequence: 0)
+        }
         content.update(model)
         var edits = 0
         content.emit = { _, _, _ in edits += 1 }
         editor.unmarkText()
         old.stringValue = "retired composition"
         content.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: old))
-        let replacement = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
+        let replacement = try #require(replacementKind == "kind"
+            ? content.rowView(id: "query") as? NSTextField
+            : content.subviews.compactMap { $0 as? NSSearchField }.first)
         #expect(replacement !== old && replacement.stringValue == "replacement")
         #expect(edits == 0)
     }
