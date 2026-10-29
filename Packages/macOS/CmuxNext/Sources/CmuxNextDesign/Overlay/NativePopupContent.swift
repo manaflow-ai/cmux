@@ -30,6 +30,11 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         model = nil; selected = nil; selectionReason = "none"
         searchHasInput = false; pendingCompositionModel = nil
         typeahead = ""; typeaheadTime = 0
+        // A replacement cannot inherit the old field editor or deferred IME commit.
+        for field in fields.values { field.delegate = nil; _ = field.abortEditing() }
+        subviews.forEach { $0.removeFromSuperview() }
+        fields = [:]; editableControls = [:]; rowViews = []; targets = []
+        search = nil; title = nil
     }
 
     func update(_ next: NativePopupModel) {
