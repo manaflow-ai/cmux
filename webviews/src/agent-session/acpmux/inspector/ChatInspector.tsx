@@ -644,7 +644,15 @@ function InspectorPresence({
   useUnderInspector(shell, drawn, push, FLOAT_MARGIN, inspectorTop);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
   const rows = scope?.rows ?? snapshot.rows;
-  const made = useMemo(() => (drawn ? sessionSummary(rows, repository ?? null) : undefined), [drawn, rows, repository]);
+  const scopedAgent = scope?.agent;
+  const summary = useMemo(
+    () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
+    [drawn, scopedAgent, snapshot.summary, rows],
+  );
+  const made = useMemo(
+    () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
+    [drawn, rows, repository, summary?.cwd],
+  );
   const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const documents = useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]);
@@ -654,11 +662,6 @@ function InspectorPresence({
   const agents = useMemo(
     () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
     [drawn, scopedAgents, rows, views],
-  );
-  const scopedAgent = scope?.agent;
-  const summary = useMemo(
-    () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
-    [drawn, scopedAgent, snapshot.summary, rows],
   );
   const chatRows = snapshot.rows;
   const transcriptTasks = useMemo(
