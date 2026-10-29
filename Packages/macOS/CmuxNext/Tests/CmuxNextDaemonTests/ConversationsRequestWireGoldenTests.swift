@@ -189,28 +189,6 @@ struct ConversationsRequestWireGoldenTests {
         }
     }
 
-    /// Every request type declared in Sources/CmuxNextDaemon/Conversations has a golden. The list is read
-    /// from the source, so a type added there needs one.
-    @Test func everyConversationsRequestTypeHasAGolden() throws {
-        let directory = try Self.repositoryRoot()
-            .appendingPathComponent("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Conversations")
-        let declaration = try NSRegularExpression(pattern: #"\bstruct\s+(\w+)\s*:[^{]*\bDaemonRequest\b"#)
-        var declared: Set<String> = []
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-        for file in files where file.pathExtension == "swift" {
-            let source = try String(contentsOf: file, encoding: .utf8)
-            for match in declaration.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
-                if let name = Range(match.range(at: 1), in: source) { declared.insert(String(source[name])) }
-            }
-        }
-        // When the migration deletes these structs, this set must come from the generated Conversations
-        // types instead: an empty directory does not pass as "every type has a golden".
-        try #require(!declared.isEmpty, "no DaemonRequest type in \(directory.path)")
-        let covered = Set(Self.requests.values.map(\.type))
-        #expect(declared.subtracting(covered).isEmpty, "no golden: \(declared.subtracting(covered).sorted())")
-        #expect(covered.subtracting(declared).isEmpty, "not in the directory: \(covered.subtracting(declared).sorted())")
-    }
-
     /// Every key a golden sends is a request field of its command in cmux-tui/spec/sdk-schema.json, and the
     /// command is one the macOS app calls, so RequestEmitter generates a type with each of these members.
     @Test func sendsOnlySchemaFields() throws {

@@ -17,9 +17,6 @@ import Testing
 /// the provider methods the tab store calls (InternalPageTabStore+Show).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
 struct InternalPageDiscardPolicyCoverageTests {
-    static let packageRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-
     /// Each page of the batch. ``InternalPageProvider``'s default policy, and a `WebPageTab`'s, is never: a
     /// page that answers another policy chose it.
     static let batchOne: [InternalPageID] = [.settings, .debugSettings, .keybindings, .changelog, .stats, .taskManager]
