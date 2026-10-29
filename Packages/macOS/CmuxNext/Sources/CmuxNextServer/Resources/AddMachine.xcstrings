@@ -10,6 +10,18 @@
             "value": "الوصول إليه عبر الشبكة"
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosegni ga kroz mrežu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nå den gennem nettet"
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "needs_review",
@@ -34,16 +46,76 @@
             "value": "La joindre via le maillage"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raggiungilo tramite la rete mesh"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "メッシュ経由で接続"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់ទៅវាតាមរយៈបណ្ដាញ mesh"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "메시를 통해 연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nå den gjennom nettet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połącz się z nim przez sieć mesh"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alcançá-la pela rede mesh"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Связь через mesh-сеть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อผ่านเครือข่าย mesh"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ona mesh ağı üzerinden ulaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зв’язок через mesh-мережу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối qua mạng mesh"
           }
         },
         "zh-Hans": {
@@ -67,6 +139,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "مدرج في أجهزتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naveden među vašim računarima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Står på listen over dine maskiner"
           }
         },
         "de": {
@@ -93,16 +177,76 @@
             "value": "Listée dans vos machines"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Presente tra i tuoi computer"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "マシン一覧に登録済み"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មាននៅក្នុងបញ្ជីម៉ាស៊ីនរបស់អ្នក"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "내 컴퓨터 목록에 있음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Står blant maskinene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Na liście Twoich komputerów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Listada nas suas máquinas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Есть в списке ваших компьютеров"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อยู่ในรายการเครื่องของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makinelerinizde listeleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Є в списку ваших комп’ютерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Có trong danh sách máy của bạn"
           }
         },
         "zh-Hans": {
@@ -126,6 +270,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "الوصول إلى خدمة الأجهزة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosegni uslugu za računare"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nå maskintjenesten"
           }
         },
         "de": {
@@ -152,16 +308,76 @@
             "value": "Joindre le service des machines"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raggiungi il servizio dei computer"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "マシンサービスに接続"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់ទៅសេវាម៉ាស៊ីន"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "컴퓨터 서비스에 연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nå maskintjenesten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połącz z usługą komputerów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alcançar o serviço de máquinas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Связь со службой компьютеров"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อบริการเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine hizmetine ulaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зв’язок зі службою комп’ютерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối tới dịch vụ máy"
           }
         },
         "zh-Hans": {
@@ -185,6 +401,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "تم تسجيل الدخول إلى cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavljen na cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logget ind på cmux"
           }
         },
         "de": {
@@ -211,16 +439,76 @@
             "value": "Connecté à cmux"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accesso a cmux eseguito"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux にサインイン済み"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានចូលគណនី cmux"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux에 로그인됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logget på cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zalogowano do cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectado ao cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вход в cmux выполнен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้ cmux แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'a giriş yapıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вхід у cmux виконано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã đăng nhập cmux"
           }
         },
         "zh-Hans": {
@@ -244,6 +532,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "مشاركة الشاشة والتحكم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dijeljenje ekrana i kontrola"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmdeling og styring"
           }
         },
         "de": {
@@ -270,16 +570,76 @@
             "value": "Partage d’écran et contrôle"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Condivisione dello schermo e controllo"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "画面共有と操作"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចែករំលែកអេក្រង់ និងការគ្រប់គ្រង"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "화면 공유와 제어"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermdeling og styring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udostępnianie ekranu i sterowanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compartilhamento de tela e controle"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Демонстрация экрана и управление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแชร์หน้าจอและการควบคุม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran paylaşımı ve denetim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Демонстрація екрана й керування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia sẻ màn hình và điều khiển"
           }
         },
         "zh-Hans": {
@@ -303,6 +663,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "الإبلاغ إلى cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Javi se cmuxu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melder sig hos cmux"
           }
         },
         "de": {
@@ -329,16 +701,76 @@
             "value": "Se signaler à cmux"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Segnala la presenza a cmux"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux にチェックイン"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រាយការណ៍ទៅ cmux"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux에 체크인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melder seg hos cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zgłaszaj się do cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dar sinal ao cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отметка в cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รายงานตัวกับ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'a bildir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відмітка в cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Báo hiện diện với cmux"
           }
         },
         "zh-Hans": {
@@ -362,6 +794,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "الوصول إلى cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosegni cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nå cmux"
           }
         },
         "de": {
@@ -388,16 +832,76 @@
             "value": "Joindre cmux"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raggiungi cmux"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux に接続"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់ទៅ cmux"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux에 연결"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nå cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połącz z cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alcançar o cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Связь с cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'a ulaş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зв’язок із cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối tới cmux"
           }
         },
         "zh-Hans": {
@@ -421,6 +925,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "لا يزال مسموحًا له"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još uvijek dozvoljen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stadig tilladt"
           }
         },
         "de": {
@@ -447,16 +963,76 @@
             "value": "Toujours autorisée"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora autorizzato"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "引き続き許可済み"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅតែត្រូវបានអនុញ្ញាត"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "계속 허용됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortsatt tillatt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nadal dopuszczony"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda permitida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доступ ещё разрешён"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังได้รับอนุญาตอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hâlâ izinli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доступ ще дозволено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn được phép"
           }
         },
         "zh-Hans": {
@@ -480,6 +1056,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "الاحتفاظ ببيانات اعتماد الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadrži njegov akreditiv računara"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behold dens maskinlegitimation"
           }
         },
         "de": {
@@ -506,16 +1094,76 @@
             "value": "Conserver son identifiant de machine"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conserva la sua credenziale del computer"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "マシンの資格情報を保持"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រក្សាអត្តសញ្ញាណម៉ាស៊ីនរបស់វា"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "컴퓨터 자격 증명 보관"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Behold maskinlegitimasjonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zachowaj poświadczenie komputera"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Guardar a credencial da máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хранить учётные данные компьютера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เก็บข้อมูลรับรองของเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine kimlik bilgisini sakla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зберігати облікові дані комп’ютера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giữ thông tin xác thực của máy"
           }
         },
         "zh-Hans": {
@@ -539,6 +1187,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "تشغيله مع الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokreni ga s računarom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start den sammen med maskinen"
           }
         },
         "de": {
@@ -565,16 +1225,76 @@
             "value": "Le lancer au démarrage de la machine"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvialo con il computer"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "マシンと一緒に起動"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្ដើមវាជាមួយម៉ាស៊ីន"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "컴퓨터와 함께 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start den sammen med maskinen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchamiaj go razem z komputerem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciá-lo com a máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запускать вместе с компьютером"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มพร้อมกับเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makineyle birlikte başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запускати разом із комп’ютером"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khởi động cùng máy"
           }
         },
         "zh-Hans": {
@@ -598,6 +1318,18 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "تثبيت خادم الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instaliraj agent daemon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installér agent-daemonen"
           }
         },
         "de": {
@@ -624,16 +1356,76 @@
             "value": "Installer le démon des agents"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installa il daemon dell'agente"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
             "value": "エージェントデーモンをインストール"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដំឡើង agent daemon"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
             "value": "에이전트 데몬 설치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installer agent-daemonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zainstaluj demona agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instalar o daemon do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установить демон агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ติดตั้ง agent daemon"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan arka plan hizmetini kur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Установити демон агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài daemon tác tử"
           }
         },
         "zh-Hans": {

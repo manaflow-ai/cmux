@@ -11,10 +11,14 @@ import Foundation
 /// rest of the app's run, which a capture starts fresh.
 @MainActor
 enum DebugAddDevice {
-    /// The listing Add Device shows while set (``AddDeviceServices/app(_:)``).
-    static var listing: DeviceListing?
-    /// The one-line join's calls while set (`join`), in place of the CLI and the platform.
-    static var joinService: MachineJoinService?
+    /// What Add Device shows while set (``AddDeviceServices/app(_:)``): the devices, and the one-line
+    /// join's calls (`join`) in place of the CLI and the platform.
+    struct Listing {
+        var devices: DeviceListing
+        var join: MachineJoinService?
+    }
+
+    static var listing: Listing?
 
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let rows = params["computers"]?.arrayValue ?? [
@@ -30,13 +34,13 @@ enum DebugAddDevice {
             return DeviceListing.Available(name: name, address: row["address"]?.stringValue ?? (ssh ? name : "\(name).example.ts.net"),
                                            os: row["os"]?.stringValue ?? "", mine: row["mine"]?.boolValue ?? ssh, fromSSHConfig: ssh)
         }
-        listing = DeviceListing(network: .init(kind: up ? "tailscale" : "none", up: up, this: up ? "this-mac" : nil,
+        let devices = DeviceListing(network: .init(kind: up ? "tailscale" : "none", up: up, this: up ? "this-mac" : nil,
                                                detail: up ? nil : "Tailscale is not installed on this computer."),
                                 available: available)
         // Only while labs.machineJoin is on (AddDeviceServices.app reads the switch first); a call
         // with no `join` clears it.
         let join = params["join"]?.stringValue
-        joinService = join.map(Self.joinFixture)
+        listing = Listing(devices: devices, join: join.map(Self.joinFixture))
         let way = params["way"]?.stringValue.map { AddDeviceWay(rawValue: $0) } ?? AddDeviceWay.network
         let opening = services.addDevice.open(way: way, over: services.windows.active?.window)
         // The card's Make Line, pressed for the capture; `joined` then reads the list once (as a focus does).

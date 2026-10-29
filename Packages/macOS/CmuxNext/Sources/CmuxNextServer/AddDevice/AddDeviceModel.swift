@@ -34,7 +34,7 @@ public final class AddDeviceModel {
 
     /// `joinClock` and `joinSleep` drive the join line's countdown (tests move time by hand).
     public init(services: AddDeviceServices, joinClock: @escaping @Sendable () -> Date = { Date() },
-                joinSleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+                joinSleep: @escaping @Sendable (Duration) async throws -> Void = MachineJoinLineModel.taskSleep) {
         self.services = services
         self.joinClock = joinClock
         self.joinSleep = joinSleep

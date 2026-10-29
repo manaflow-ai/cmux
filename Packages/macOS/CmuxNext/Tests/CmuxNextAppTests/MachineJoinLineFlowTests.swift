@@ -7,7 +7,9 @@ import Testing
 /// expired at `expiresAt`, the list read on a trigger (the line shown, the focus, a mesh change) and
 /// never on a timer, and the countdown and mesh watch stopped on close, on the flip and at expiry.
 @MainActor @Suite(.serialized) struct MachineJoinLineFlowTests {
-    final class Fake: @unchecked Sendable {
+    // The service's closures are @Sendable and run off the main actor: the fake is not isolated to it.
+    // The suite is serialized and each test drives one model, so no two calls race.
+    nonisolated final class Fake: @unchecked Sendable {
         var now = Date(timeIntervalSince1970: 1_000_000)
         var rows: [JoinedMachine] = []
         var lists = 0
@@ -15,8 +17,9 @@ import Testing
         var doctors: [String] = []
         var mintResult: Result<JoinLine, JoinLineFailure>?
         var mesh: AsyncStream<Void>.Continuation?
-        lazy var line = JoinLine(line: " curl -fsSL https://cmux.example/v1/machines/join.sh | CMUX_JOIN=cmj_TESTTOKEN sh",
-                                 joinTokenId: "jt_1", expiresAt: now.addingTimeInterval(600), name: nil)
+        // Ten minutes after the clock's start.
+        var line = JoinLine(line: " curl -fsSL https://cmux.example/v1/machines/join.sh | CMUX_JOIN=cmj_TESTTOKEN sh",
+                            joinTokenId: "jt_1", expiresAt: Date(timeIntervalSince1970: 1_000_600), name: nil)
 
         func service() -> MachineJoinService {
             MachineJoinService(
@@ -26,12 +29,12 @@ import Testing
                 meshChanges: { [self] in AsyncStream { mesh = $0 } })
         }
 
-        func model() -> MachineJoinLineModel {
+        @MainActor func model() -> MachineJoinLineModel {
             // The countdown's sleep waits until it is cancelled: these tests move time by hand (tick()).
             MachineJoinLineModel(service: service(), clock: { [self] in now }, sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
         }
 
-        func deviceModel(_ services: AddDeviceServices) -> AddDeviceModel {
+        @MainActor func deviceModel(_ services: AddDeviceServices) -> AddDeviceModel {
             AddDeviceModel(services: services, joinClock: { [self] in now }, joinSleep: { _ in try await Task.sleep(for: .seconds(3600)) })
         }
 

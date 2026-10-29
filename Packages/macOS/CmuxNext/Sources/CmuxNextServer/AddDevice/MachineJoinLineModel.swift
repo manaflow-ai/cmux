@@ -39,11 +39,18 @@ public final class MachineJoinLineModel {
     @ObservationIgnored private var mesh: Task<Void, Never>?
 
     public init(service: MachineJoinService, clock: @escaping @Sendable () -> Date = { Date() },
-                sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+                sleep: @escaping @Sendable (Duration) async throws -> Void = MachineJoinLineModel.taskSleep) {
         self.service = service
         self.clock = clock
         self.sleep = sleep
         now = clock()
+    }
+
+    /// `Task.sleep(for:)`, the countdown's default sleep: a named function, not an async closure
+    /// literal, as a default argument (crash ratchet, cx-bsue).
+    @Sendable public nonisolated static func taskSleep(_ duration: Duration) async throws {
+        // wakeup-allow: the visible countdown's one-second step (startCountdown), only while a line shows.
+        try await Task.sleep(for: duration)
     }
 
     // Not an isolated deinit (cx-t7hu): each handle is Sendable and stops from any thread.
@@ -141,7 +148,11 @@ public final class MachineJoinLineModel {
         let sleep = self.sleep
         // task-owner: the countdown; ends at expiry, on the flip, on close and on a new mint (stop()).
         countdown = Task { [weak self] in
+            // wakeup-allow: a visible countdown ("Expires in 9:41") changes every second while the card
+            // shows an unexpired line, so each step is a real change, never an idle wakeup. It runs at
+            // most the line's life (ten minutes) and ends at expiry, on the flip, on close and on a new mint.
             while !Task.isCancelled {
+                // wakeup-allow: the same countdown's one-second step.
                 do { try await sleep(.seconds(1)) } catch { return }
                 guard let self, self.generation == mine else { return }
                 self.tick()

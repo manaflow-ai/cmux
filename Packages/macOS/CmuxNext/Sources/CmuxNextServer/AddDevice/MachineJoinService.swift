@@ -61,13 +61,17 @@ public nonisolated struct MachineJoinService: Sendable {
 
     public init(mint: @escaping @Sendable (String?) async -> Result<JoinLine, JoinLineFailure>,
                 list: @escaping @Sendable () async -> [JoinedMachine]?,
-                doctor: @escaping @Sendable (String) async -> [HostStepResult] = { _ in [] },
+                doctor: @escaping @Sendable (String) async -> [HostStepResult] = MachineJoinService.noSteps,
                 meshChanges: @escaping @Sendable () -> AsyncStream<Void> = { AsyncStream { $0.finish() } }) {
         self.mint = mint
         self.list = list
         self.doctor = doctor
         self.meshChanges = meshChanges
     }
+
+    /// No checks: ``doctor``'s default, a named function rather than an async closure literal as a
+    /// default argument (crash ratchet, cx-bsue).
+    @Sendable public static func noSteps(_ id: String) async -> [HostStepResult] { [] }
 
     /// The HostStep lines of a doctor run's stdout (the final `{"report":…}` line and anything else
     /// that is not a step are skipped).
