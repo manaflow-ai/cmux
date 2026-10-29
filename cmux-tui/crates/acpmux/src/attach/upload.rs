@@ -212,7 +212,17 @@ where
 /// is the OS's, so a sender that dies lets go of it at once.
 pub(super) struct Record {
     path: PathBuf,
-    _lock: std::fs::File,
+    lock: std::fs::File,
+}
+
+/// Dropping it unlocks explicitly: a child forked but not yet exec'd (an agent the daemon
+/// starts, a test's forked child) shares the lock's open file description, so closing this
+/// descriptor alone would leave the record held until that child execs or exits, and the next
+/// send of the file would upload without one. The daemon's own lock does the same.
+impl Drop for Record {
+    fn drop(&mut self) {
+        let _ = self.lock.unlock();
+    }
 }
 
 impl Record {
@@ -243,7 +253,7 @@ impl Record {
         std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
         let lock = open.open(dir.join(format!("{hash}.lock"))).ok()?;
         lock.try_lock().ok()?;
-        Some(Self { path: dir.join(format!("{hash}.json")), _lock: lock })
+        Some(Self { path: dir.join(format!("{hash}.json")), lock })
     }
 
     /// The upload it names: `(uploadId, ownerToken)`.
@@ -483,6 +493,50 @@ mod tests {
         assert!(again.forget());
         assert!(again.read().is_none());
         assert!(again.forget(), "a record already gone is forgotten");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A sender that ends lets go of its record even while another process shares the lock's
+    /// open file description, as a child forked but not yet exec'd does (in the test binary,
+    /// other tests fork such children at any moment, which made the test above fail on CI).
+    /// The child here is `sleep`, handed the lock's descriptor and nothing else: every other
+    /// descriptor the test binary opens is close-on-exec, so it holds no other test's lock.
+    #[cfg(unix)]
+    #[test]
+    fn a_shared_lock_descriptor_does_not_keep_an_ended_senders_record() {
+        use std::os::unix::io::AsRawFd;
+        use std::os::unix::process::CommandExt;
+        let dir = std::env::temp_dir().join(format!("amx-rec-shared-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("big.bin");
+        std::fs::write(&file, b"bytes").unwrap();
+        let meta = std::fs::metadata(&file).unwrap();
+        let records = dir.join("records");
+        let first = Record::claim_in(&records, "chat", &file, &meta).expect("the first claim");
+        let fd = first.lock.as_raw_fd();
+        const SHARED: libc::c_int = 3;
+        let mut sleep = std::process::Command::new("sleep");
+        sleep.arg("30").stdin(std::process::Stdio::null());
+        // SAFETY: between fork and exec the child calls only dup2 and fcntl, both
+        // async-signal-safe. dup2 leaves the lock open across exec as descriptor 3; when the
+        // lock already is 3, fcntl clears its close-on-exec flag instead.
+        unsafe {
+            sleep.pre_exec(move || {
+                let ok = if fd == SHARED {
+                    libc::fcntl(fd, libc::F_SETFD, 0) == 0
+                } else {
+                    libc::dup2(fd, SHARED) == SHARED
+                };
+                if ok { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+            });
+        }
+        let mut child = sleep.spawn().expect("sleep");
+        drop(first);
+        let again = Record::claim_in(&records, "chat", &file, &meta);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(again.is_some(), "the child's copy kept the ended sender's record");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
