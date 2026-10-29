@@ -1073,12 +1073,60 @@ where
 
 #[cfg(target_os = "linux")]
 fn unit_environment_path(environment: &str, key: &str) -> Option<std::path::PathBuf> {
-    environment.split_whitespace().find_map(|entry| {
+    unit_environment_words(environment).into_iter().find_map(|entry| {
         entry
             .strip_prefix(key)
             .and_then(|value| value.strip_prefix('='))
             .map(std::path::PathBuf::from)
     })
+}
+
+#[cfg(target_os = "linux")]
+fn unit_environment_words(environment: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut has_word = false;
+    for ch in environment.chars() {
+        if escaped {
+            word.push(ch);
+            escaped = false;
+            has_word = true;
+            continue;
+        }
+        match quote {
+            Some('"') if ch == '\\' => escaped = true,
+            Some(q) if ch == q => quote = None,
+            Some(_) => {
+                word.push(ch);
+                has_word = true;
+            }
+            None if ch == '\\' => escaped = true,
+            None if ch == '\'' || ch == '"' => {
+                quote = Some(ch);
+                has_word = true;
+            }
+            None if ch.is_ascii_whitespace() => {
+                if has_word {
+                    words.push(std::mem::take(&mut word));
+                    has_word = false;
+                }
+            }
+            None => {
+                word.push(ch);
+                has_word = true;
+            }
+        }
+    }
+    if escaped {
+        word.push('\\');
+        has_word = true;
+    }
+    if has_word {
+        words.push(word);
+    }
+    words
 }
 
 #[cfg(target_os = "linux")]
