@@ -225,6 +225,32 @@ async fn auto_host(hub: &Arc<Hub>, brief: &str) -> Result<Option<String>, String
     }
 }
 
+/// A dispatch's `host` that is this machine: `auto`, `local`, or its own name.
+fn names_this_host(host: &str) -> bool {
+    use crate::placement::canonical;
+    matches!(host, "auto" | "local") || canonical(host) == canonical(crate::hub::host_label())
+}
+
+/// A replayed brief row as `conn` may see it. A peer daemon's connection gets only a brief this
+/// host ran (`Hub::brief_ran_here`), without `suggestedHost`, a peer of this host. A row a peer
+/// ran names that peer in `host`, `target` and `to`: its id or key is refused as taken, the
+/// answer whichever peer ran it.
+fn brief_for(hub: &Hub, conn: &Conn, mut row: Value) -> Result<Value, RpcError> {
+    if conn.origin != Origin::Peer {
+        return Ok(row);
+    }
+    if !hub.brief_ran_here(&row) {
+        return Err(RpcError::invalid_params(
+            "another brief has this briefId or idempotencyKey; dispatch with new ones",
+        )
+        .with_data(json!({"reason": "dispatch.brief_taken"})));
+    }
+    if let Some(obj) = row.as_object_mut() {
+        obj.remove("suggestedHost");
+    }
+    Ok(row)
+}
+
 async fn dispatch_brief(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -254,7 +280,17 @@ async fn dispatch_brief(
         .unwrap_or("auto")
         .to_owned();
     let forwarded = params.get("forwarded").and_then(Value::as_bool) == Some(true);
-    let host = if forwarded || selected == "local" {
+    // A peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`):
+    // its brief runs on this host. `auto` weighs no peer, and any other host is refused with one
+    // answer, whether this host has a peer of that name or not, up or down.
+    let from_peer = conn.origin == Origin::Peer;
+    if from_peer && !forwarded && !names_this_host(&selected) {
+        return Err(RpcError::invalid_params(format!(
+            "a peer's dispatch runs on this host only: host {selected:?} is not this host; pass host \"local\" or \"auto\""
+        ))
+        .with_data(json!({"reason": "dispatch.peer_host"})));
+    }
+    let host = if forwarded || from_peer || selected == "local" {
         None
     } else if selected == "auto" {
         auto_host(hub, &brief).await.map_err(|why| {
@@ -414,6 +450,7 @@ async fn dispatch_brief(
     .await?;
     super::trust_gate::check(hub, conn.origin, method::SESSION_NEW, &new_params, None).await?;
     if let Some(existing) = hub.briefs.claim(&id, idempotency) {
+        let existing = brief_for(hub, conn, existing)?;
         return Ok(
             json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
         );
@@ -488,15 +525,16 @@ async fn dispatch_brief(
         .and_then(Value::as_str)
         .map(str::to_owned);
     // Another host only when it has room: an overloaded pick is no better a place (`placement.rs`).
+    // A peer daemon's connection hears that this host is over its budget, and of no other host.
     let suggestion = match &pressure {
-        Some(_) => {
+        Some(_) if !from_peer => {
             let v = super::place::pick(hub, super::place::brief_work(&brief)).await;
             let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
             (!flag("overloaded") && !flag("local"))
                 .then(|| v.get("pick").and_then(Value::as_str).map(str::to_owned))
                 .flatten()
         }
-        None => None,
+        _ => None,
     }
     .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
     let row = hub
@@ -630,7 +668,7 @@ async fn dispatch_request(
     match m {
         method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
         method::MUX_STEER => briefs::steer(hub, conn, params).await,
-        method::MUX_BRIEFS => briefs::list(hub, params).await,
+        method::MUX_BRIEFS => briefs::list(hub, conn, params).await,
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
         method::MUX_TASK_NEW => briefs::task_new(hub, conn, params).await,
         method::MUX_TASKS => briefs::tasks(hub, conn, params).await,
@@ -646,6 +684,14 @@ async fn dispatch_request(
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();
             }
+            // A Mac that lends this machine its GitHub login: only over a link that read this
+            // machine's peer token over ssh, never a paired device's (`hub/github_owner.rs`). It
+            // counts from its `_acpmux/watch`, once the Mac's side of the handshake is done.
+            let lends = conn.origin == Origin::Peer
+                && conn.auth == ConnAuth::PeerToken
+                && params.pointer("/_meta/acpmux/githubBroker").and_then(Value::as_bool)
+                    == Some(true);
+            conn.client_requests.lends_github.store(lends, Ordering::SeqCst);
             #[allow(unused_mut)]
             let mut reply = json!({
                 "protocolVersion": 1,
@@ -679,7 +725,7 @@ async fn dispatch_request(
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
-                    method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
+                    method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
@@ -703,6 +749,7 @@ async fn dispatch_request(
             Ok(reply)
         }
         method::AUTHENTICATE => Ok(json!({})),
+        method::MUX_GITHUB_ACTION => crate::github_broker::handle(hub, conn, params).await,
         // Decided in order in `Conn::bind_person`; this only reports it.
         method::MUX_PERSON_PROVE => {
             if conn.is_person() {
@@ -1502,7 +1549,9 @@ async fn dispatch_request(
             let name = str_param(&params, "name")
                 .ok_or_else(|| RpcError::invalid_params("name is required"))?;
             let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
-            hub.reconnect_peer(name, wait).await?;
+            // A link that is open stays up unless the caller forces it (`host reconnect`).
+            let force = params.get("force").and_then(Value::as_bool).unwrap_or(false);
+            hub.reconnect_peer_with(name, wait, force).await?;
             Ok(json!({"peers": hub.peers()}))
         }
         "_acpmux/peer_remove" => {
@@ -1807,6 +1856,7 @@ async fn dispatch_request(
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
+        // A lending Mac counts once this answer is queued (`server/mod.rs`, `github_owner.rs`).
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => events::handle(hub, m, &params),
         method::MUX_MAIL_SEND
