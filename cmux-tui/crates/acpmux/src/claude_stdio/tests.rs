@@ -268,6 +268,27 @@ async fn a_new_prompt_clears_a_cancelled_compaction_without_a_result() {
     );
 }
 
+#[tokio::test]
+async fn a_late_cancelled_boundary_is_suppressed_before_a_fresh_compaction_boundary() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id, text| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId":"acp-1","prompt":[{"type":"text","text":text}]}),
+        )
+    };
+    t.outbound(&prompt(1, "/compact")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"}))).await;
+    t.outbound(&prompt(2, "continue")).await;
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    let stale = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":10}})).await;
+    assert!(!stale.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.pointer("/update/sessionUpdate") == Some(&json!("compaction")))), "{stale:?}");
+    let fresh = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":9}})).await;
+    assert!(fresh.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.pointer("/update/sessionUpdate") == Some(&json!("compaction")))), "{fresh:?}");
+}
+
 /// A `/compact` that fails: the compacting status, then a status clearing it
 /// with a failed `compact_result`, and the same zero-turn success result. The
 /// failed status is the turn's output, so the result ends the prompt rather

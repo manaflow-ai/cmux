@@ -793,7 +793,12 @@ impl Translator {
                 let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
                 self.awaiting_summary.store(true, Ordering::SeqCst);
-                out.push(upd(compaction_update("completed", line)));
+                // A cancelled compaction may emit its boundary after a later prompt has
+                // started. The boundary has no turn id, so suppress that one stale update;
+                // the next boundary (from a fresh compaction) remains visible.
+                if !self.cancelled_compaction_boundary.swap(false, Ordering::SeqCst) {
+                    out.push(upd(compaction_update("completed", line)));
+                }
             }
             // Claude Code 2.1.303 says `status: compacting` when a compaction
             // starts, and clears it with `compact_result` when it ends.
