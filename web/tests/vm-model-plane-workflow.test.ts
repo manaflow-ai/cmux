@@ -484,6 +484,7 @@ describe("fork model plane", () => {
       },
     ))));
     expect(result.fork.providerVmId).toBe("provider-vm-mp");
+    expect(result.forkMethod).toBe("snapshot-create");
     expect(provisioned).toEqual([ROW_ID]);
     expect(creates[0]?.image).toBe("source-copy");
     expect(creates[0]?.edgeRules).toEqual(MATERIALS.edgeRules);
