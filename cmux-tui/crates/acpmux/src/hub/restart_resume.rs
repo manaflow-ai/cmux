@@ -378,16 +378,16 @@ impl Hub {
             // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
             // and stop at its result so a long session does not deserialize historical tool I/O.
             let kind = head.kind.strip_suffix(".replay").unwrap_or(head.kind);
-            let needs_record = match kind {
+            let needs_record = matches!(
+                kind,
                 "turn_started"
-                | "user_message"
-                | "turn_control"
-                | "remote_control_ended"
-                | "remote_control_restored"
-                | "remote_floor_cancel"
-                | "turn_result" => true,
-                _ => false,
-            };
+                    | "user_message"
+                    | "turn_control"
+                    | "remote_control_ended"
+                    | "remote_control_restored"
+                    | "remote_floor_cancel"
+                    | "turn_result"
+            );
             if !needs_record {
                 return true;
             }
@@ -432,7 +432,7 @@ impl Hub {
                 if tool_end.is_some_and(|end| head.seq >= end) {
                     return false;
                 }
-                if !tool_start.is_some_and(|start| head.seq > start)
+                if tool_start.is_none_or(|start| head.seq <= start)
                     || !matches!(
                         head.kind.strip_suffix(".replay").unwrap_or(head.kind),
                         "tool_call" | "tool_call_update"
