@@ -848,7 +848,8 @@ api_compat_pack() {
   for f in "${api_compat_files[@]}"; do [[ ! -f "$root/$f" ]] || files+=("$f"); done
   [[ "${#files[@]}" -gt 0 ]] || { echo "error: no api-compat spec file to return" >&2; return 1; }
   mkdir -p "$root/.build/artifacts"
-  tar -C "$root" -cf "$root/.build/artifacts/api-compat-spec.tar" "${files[@]}" || return 1
+  # No AppleDouble ._* entries from a macOS worker (bsdtar); GNU tar ignores the variable.
+  COPYFILE_DISABLE=1 tar -C "$root" -cf "$root/.build/artifacts/api-compat-spec.tar" "${files[@]}" || return 1
   stat="$(git -C "$root" --no-pager diff --no-color --no-ext-diff --stat -- "${files[@]}")" || return 1
   if [[ -n "$stat" ]]; then
     echo "api-compat-write: changed: $stat"
