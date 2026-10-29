@@ -114,8 +114,7 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
               const target = event.target as Element;
               // Alert polish: the dialog also grows in and shrinks out (scale), as the native one,
               // except under Reduce Motion, where it only fades.
-              if (event.propertyName === "transform" && target.classList?.contains("ui-dialog"))
-                faded.push("dialog-scale");
+              if (event.propertyName === "scale" && target.classList?.contains("ui-dialog")) faded.push("dialog-scale");
               if (event.propertyName !== "opacity") return;
               if (target.classList?.contains("ui-dialog")) faded.push("dialog");
               if (target.classList?.contains("ui-backdrop")) faded.push("backdrop");
