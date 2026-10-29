@@ -269,6 +269,33 @@ function registry(): HighlightRegistry | undefined {
   return (globalThis.CSS as unknown as { highlights?: HighlightRegistry } | undefined)?.highlights;
 }
 
+/** The text a highlight searches, in runs: each text node on its own, except that consecutive ones
+ * inside one `data-find-join` element (a tool row's label, its verb in the column apart from its
+ * subject, ToolVerb.tsx) are one run, so a match may span them as it spans the words they draw. */
+function findRuns(walker: TreeWalker): Node[][] {
+  const runs: Node[][] = [];
+  let join: Element | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const owner = node.parentElement?.closest("[data-find-join]") ?? null;
+    if (owner && owner === join) runs[runs.length - 1]!.push(node);
+    else runs.push([node]);
+    join = owner;
+  }
+  return runs;
+}
+
+/** Where offset `at` of a run's joined text lies: its node and the offset in it. An end that falls
+ * on a boundary stays in the node before it; a start moves to the node after it. */
+function nodeAt(nodes: readonly Node[], at: number, end: boolean): [Node, number] {
+  let rest = at;
+  for (const [index, node] of nodes.entries()) {
+    const length = node.textContent?.length ?? 0;
+    if (rest < length || (end && rest === length) || index === nodes.length - 1) return [node, rest];
+    rest -= length;
+  }
+  return [nodes[0]!, 0];
+}
+
 /** Clears the find highlights. */
 export function clearFindHighlights() {
   const highlights = registry();
@@ -309,16 +336,22 @@ export function paintFindHighlights(
       acceptNode: (node) =>
         node.parentElement?.closest("[data-find-skip]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
     });
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const presentation = node.parentElement?.closest<HTMLElement>("[data-find-primary], [data-find-fallback]");
+    for (const nodes of findRuns(walker)) {
+      // A run's nodes share one presentation (a label's verb and subject sit in one element).
+      const presentation = nodes[0]!.parentElement?.closest<HTMLElement>("[data-find-primary], [data-find-fallback]");
       const pair = presentation?.dataset.findPrimary ?? presentation?.dataset.findFallback;
       const kind = presentation?.hasAttribute("data-find-primary") ? "primary" : "fallback";
       const counts = pair === undefined ? undefined : alternatives.get(pair);
-      const text = node.textContent?.toLocaleLowerCase() ?? "";
+      const text = nodes
+        .map((node) => node.textContent ?? "")
+        .join("")
+        .toLocaleLowerCase();
       for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) {
         const range = document.createRange();
-        range.setStart(node, at);
-        range.setEnd(node, at + needle.length);
+        const [startNode, startAt] = nodeAt(nodes, at, false);
+        const [endNode, endAt] = nodeAt(nodes, at + needle.length, true);
+        range.setStart(startNode, startAt);
+        range.setEnd(endNode, endAt);
         if (counts) counts[kind]++;
         candidates.push({ range, pair, kind });
       }

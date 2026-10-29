@@ -147,15 +147,34 @@
    It keeps no backdrop blur of its own: a long transcript repeats it, and the lens frosts it. Reduce
    Transparency makes it the same grey, opaque. */
 .cv-user__bubble {
-  --glass-tint: var(--cv-bubble);
+  /* The selected borderless arm keeps a stronger glass fill for wallpaper contrast while its
+     outline is removed. The fill remains liquid glass; it is not a solid message plate. */
+  --glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
-  --glass-opaque: color-mix(in srgb, var(--cv-fg) 5%, var(--glass-surface));
-  --glass-edge: var(--acpmux-composer-edge, transparent);
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 10%, var(--glass-surface));
+  /* No rim in any glass mode: the edge is Plain's whole rim, and --glass-rim 0 clears Lens's and
+     Spectrum's specular line, lower shade and colour fringes (ui/glass/glass.css --glass-rim-shadow). */
+  --glass-edge: transparent;
+  --glass-rim: 0;
   --glass-backdrop: none;
 }
 .acpmux-shell .cv-user__bubble {
-  --glass-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-text) 14%, transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface));
+}
+
+/* Message-surface gallery arms. The selected default is borderless; the historical bordered arm
+   remains available for before/after captures without changing the app's other surfaces. */
+:root[data-message-surfaces="bordered"] .cv-user__bubble {
+  --glass-tint: var(--cv-bubble);
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 5%, var(--glass-surface));
+  --glass-edge: var(--acpmux-composer-edge, transparent);
+  /* The page's rim strength again (0 under appearance.borders none). */
+  --glass-rim: inherit;
+}
+:root[data-message-surfaces="bordered"] .acpmux-shell .cv-user__bubble {
+  --glass-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
   --glass-opaque: color-mix(in srgb, var(--agent-text) 12%, var(--glass-surface));
 }
 
@@ -688,6 +707,7 @@
 }
 .cv-user:hover .cv-user__actions,
 .cv-user__actions:focus-within,
+.cv-user__actions:has([aria-haspopup="menu"][aria-expanded="true"]),
 .cv-user__actions--versions {
   opacity: 1;
 }
@@ -707,7 +727,8 @@
   opacity: 0;
 }
 .cv-received:hover .cv-received-actions,
-.cv-received-actions:focus-within {
+.cv-received-actions:focus-within,
+.cv-received-actions:has([aria-haspopup="menu"][aria-expanded="true"]) {
   opacity: 1;
 }
 /* Retry sends a prompt again: under every prompt (Leo's spec, as Claude's), at the end of another
@@ -1836,6 +1857,23 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The rows' verb column (ToolVerb.tsx), as the Codex app lines its tool rows up (Leo 2026-10-29:
+   "having stuff aligned is nice"): each verb ("Ran", "Read", "Edited") is a box as wide as the
+   widest verb of its turn's rows, so every subject starts at one x. The widest is never measured:
+   the turn's verbs (`--cv-tool-verbs`, a verb a line) lie under each verb in a hidden, zero-height
+   line box that only gives it its width. No transition: a new, wider verb moves the subjects at once. */
+.cv-tool__verb {
+  display: inline-flex;
+  flex-direction: column;
+}
+.cv-tool__verb::after {
+  content: var(--cv-tool-verbs, "");
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
 /* A short interim note folded into a run of calls (turns.ts mergeShortNotes): the agent's words in
    the run's quiet color, wrapped on the rows' 20px lines. */
 .cv-tool-note {
@@ -2532,6 +2570,14 @@ a.cv-sha:focus-visible {
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+/* A tool output box that scrolls at a fixed height (an MCP call's request and response, a Markdown
+   result) fades its bottom edge out while more lies under it (moreBelow.ts), over the same height a
+   cut preview's bottom fades (below), never a hard cut mid-line; scrolled to the end, the edge is
+   hard again. No transition. */
+:is(.cv-mcp-call__body, .cv-tool-output__markdown)[data-more-below] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-output-fade, 28px)), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-output-fade, 28px)), transparent);
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
@@ -4069,8 +4115,9 @@ article.acpmux-row:empty {
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): a steer's one small
-   quiet tag at the line's end ("Read after this step"), always shown, still. No spinner, no dot, no motion. */
+/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): a steer's quiet tag
+   at the line's end ("Read after this step"), revealed on hover, focus or its action menu opening.
+   No spinner, no dot, no motion. */
 .cv-received__queued {
   flex: none;
   padding: 0 calc(var(--ds-space-1) + 2px);
@@ -4082,6 +4129,14 @@ article.acpmux-row:empty {
   line-height: 18px;
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
+}
+.cv-received .cv-received__queued {
+  opacity: 0;
+}
+.cv-received:hover .cv-received__queued,
+.cv-received:focus-within .cv-received__queued,
+.cv-received:has(.cv-received-actions [aria-haspopup="menu"][aria-expanded="true"]) .cv-received__queued {
+  opacity: 1;
 }
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */

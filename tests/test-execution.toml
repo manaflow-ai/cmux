@@ -584,6 +584,10 @@ path = "tests/test_next_line.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_sim_runtime.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_backdrop_art_generator.py"
 lane = "linux-guard"
 

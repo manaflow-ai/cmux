@@ -920,10 +920,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&home);
         std::fs::create_dir_all(home.join(".local/bin")).unwrap();
         let fake = home.join(".local/bin/acpmux");
-        std::fs::write(&fake, format!("#!/bin/sh\necho \"$*\" >> \"$HOME/calls\"\n{body}\n"))
-            .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(
+            &fake,
+            format!("#!/bin/sh\necho \"$*\" >> \"$HOME/calls\"\n{body}\n"),
+        );
         std::process::Command::new("sh")
             .args(["-c", SHUTDOWN_KEEPING_AGENTS])
             .env("HOME", &home)
@@ -994,19 +994,16 @@ mod tests {
     /// `linux_restart(install, true)` in a fake home on `host`.
     #[cfg(unix)]
     fn linux_restart_run(tag: &str, install: bool, host: LinuxHost) -> LinuxRun {
-        use std::os::unix::fs::PermissionsExt;
         let home = std::env::temp_dir().join(format!("acpmux-lx-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
         let bin = home.join(".local/bin");
         std::fs::create_dir_all(&bin).unwrap();
         let fake = |name: &str, body: &str| {
             let file = bin.join(name);
-            std::fs::write(
+            crate::test_exec::write_executable(
                 &file,
                 format!("#!/bin/sh\necho \"{name} $*\" >> \"$HOME/calls\"\n{body}\n"),
-            )
-            .unwrap();
-            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+            );
         };
         let code = |ok: bool| if ok { "exit 0" } else { "exit 1" };
         // The daemon answers `daemon status` until a shutdown it does not survive.
