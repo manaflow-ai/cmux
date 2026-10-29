@@ -116,6 +116,15 @@ impl Hub {
                     started = false;
                     ended = None;
                 }
+                ("turn_stop_requested", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
+                {
+                    // Stop may precede turn_started while a retry waits for startup.
+                    // Its message is no longer an eligible orphan: cancellation consumed
+                    // the prompt even though the harness never received it. Keep scanning
+                    // so an eventual result can provide the final outcome.
+                    ended = Some(json!({"stopReason": "cancelled", "status": "cancelled"}));
+                }
                 ("queue_removed", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
                 {
@@ -174,6 +183,8 @@ mod tests {
             ("steer", Some("interrupted")),
             ("joined", Some("interrupted")),
             ("withdrawn", Some("withdrawn")),
+            ("stopped_before_start", Some("cancelled")),
+            ("stopped_then_result", Some("failed")),
             ("completed", Some("completed")),
             ("orphan_resend", Some("completed")),
             ("orphan_steer", Some("interrupted")),
@@ -205,6 +216,19 @@ mod tests {
                 );
             }
             match point {
+                "stopped_before_start" | "stopped_then_result" => {
+                    hub.append(&session, "mux", "turn_stop_requested", json!({"turnId": "t"}));
+                    if point == "stopped_then_result" {
+                        hub.append(
+                            &session,
+                            "mux",
+                            "turn_result",
+                            json!({
+                                "turnId": "t", "status": "failed", "stopReason": "cancelled"
+                            }),
+                        );
+                    }
+                }
                 "joined" => {
                     hub.append(
                         &session,

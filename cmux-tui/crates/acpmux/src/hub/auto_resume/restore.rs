@@ -7,6 +7,7 @@
 //! | transient `turn_result`, no decision | Persist a schedule due at result time + configured delay. |
 //! | `auto_resume_scheduled` | Re-arm that exact attempt and deadline, never compute a new deadline. |
 //! | retry `user_message`, no `turn_started` | Admission never happened; re-arm the same prompt id. |
+//! | retry `user_message`, then `turn_stop_requested` | Settle its original schedule; never resend. |
 //! | retry `turn_started` / `turn_result` | Newest turn owns recovery; never resend the old attempt. |
 //! | `turn_stop_requested` / stopped / skipped / settled / exhausted | Terminal for the cut turn. |
 //! | `auto_resume_restored` | Notification only; the schedule was already durable before this write. |
@@ -236,7 +237,21 @@ impl Hub {
             return;
         }
         let id = format!("{}{SUFFIX}{}", retry.prompt_id, retry.attempt);
-        if self.logged_prompt(session, &id).is_some() {
+        if let Some(outcome) = self.logged_prompt(session, &id) {
+            if outcome["stopReason"] == "cancelled" {
+                // The retry can be stopped while startup is still pending, before its
+                // turn_started. That Stop names the new turn, not the failed cut turn.
+                // The prompt ledger links it back to this schedule's stable attempt ID.
+                self.append(
+                    session,
+                    "mux",
+                    "auto_resume_skipped",
+                    json!({
+                        "turnId": turn_id, "promptId": retry.prompt_id,
+                        "attempt": retry.attempt, "skipped": "stopped"
+                    }),
+                );
+            }
             return;
         }
         let wake = Arc::new(Notify::new());
@@ -353,9 +368,16 @@ mod tests {
         // One row per crash boundary: the original result, scheduled wait, first retry
         // message, terminal Stop, started retry, and completed retry. Only admission of
         // the retry may consume the attempt; merely logging its user_message cannot.
-        for point in
-            ["result", "schedule", "message", "stop", "unscheduled_stop", "started", "completed"]
-        {
+        for point in [
+            "result",
+            "schedule",
+            "message",
+            "message_stop",
+            "stop",
+            "unscheduled_stop",
+            "started",
+            "completed",
+        ] {
             let (hub, session) = idle_chat();
             hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
             let ended_at = failed_window(&hub, &session, "original");
@@ -371,7 +393,7 @@ mod tests {
                     }),
                 );
             }
-            if ["message", "started", "completed"].contains(&point) {
+            if ["message", "message_stop", "started", "completed"].contains(&point) {
                 hub.append(
                     &session,
                     "in",
@@ -380,6 +402,25 @@ mod tests {
                         "turnId": "retry", "promptId": "original~resume-1", "text": "continue"
                     }),
                 );
+            }
+            if point == "message_stop" {
+                // In-memory admission precedes the harness's durable turn_started.
+                // Stop here names `retry`, whereas the saved schedule names `cut`.
+                hub.start_turn(
+                    &session,
+                    None,
+                    false,
+                    false,
+                    TurnInfo::prompted(
+                        "test",
+                        "continue",
+                        "retry",
+                        "original~resume-1",
+                        Control::Local,
+                    ),
+                )
+                .unwrap();
+                hub.stop_auto_resume(&session);
             }
             if ["started", "completed"].contains(&point) {
                 hub.append(
@@ -407,6 +448,20 @@ mod tests {
             let expected = ["result", "schedule", "message"].contains(&point);
             let retry = restored.session_summary(&session)["retry"].clone();
             assert_eq!(retry.is_object(), expected, "crash after {point}: {retry}");
+            if point == "message_stop" {
+                assert_eq!(
+                    restored.logged_prompt(&session, "original~resume-1").unwrap()["stopReason"],
+                    "cancelled"
+                );
+                let (again, session) = restart(&restored, &session).await;
+                again.restore_auto_resume(&session);
+                assert!(again.session_summary(&session)["retry"].is_null());
+                let records = again.events(&session.id, 0, 1000).unwrap();
+                assert!(records.iter().any(|e| e.kind == "auto_resume_skipped"
+                    && e.msg["turnId"] == "cut"
+                    && e.msg["skipped"] == "stopped"));
+                assert!(!records.iter().any(|e| e.kind == "auto_resume_restored"));
+            }
             if expected {
                 assert_eq!(retry["nextAt"], next_at, "crash after {point}");
                 assert_eq!(retry["of"], 1);
