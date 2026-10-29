@@ -5620,6 +5620,10 @@ function AcpmuxPane() {
     (server: string) => directClient.current?.reconnectMcp(server) ?? Promise.reject(new Error()),
     [],
   );
+  const reconnectPeer = useCallback(
+    (peer: string) => directClient.current?.reconnectPeer(peer) ?? Promise.reject(new Error()),
+    [],
+  );
   // An opened background task note reads the end of the task's output from the same registry
   // (conversation/backgroundTaskOutput.ts), once, when it opens.
   const backgroundTaskOutput = useMemo<BackgroundTaskOutputReader | undefined>(
@@ -10606,7 +10610,13 @@ function AcpmuxPane() {
                   />
                 )}
                 {snapshot.peerCopy?.offline && (
-                  <PeerCopyBanner copy={snapshot.peerCopy} machine={peerMachine.state} onResume={peerMachine.resume} />
+                  <PeerCopyBanner
+                    key={`${snapshot.sessionId ?? ""}:${snapshot.peerCopy.peer}`}
+                    copy={snapshot.peerCopy}
+                    machine={peerMachine.state}
+                    onResume={peerMachine.resume}
+                    onReconnect={reconnectPeer}
+                  />
                 )}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
                     mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}

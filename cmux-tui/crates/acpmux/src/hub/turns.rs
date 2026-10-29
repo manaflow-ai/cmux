@@ -472,7 +472,15 @@ impl Hub {
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         self.wake_cause(session, "prompt");
-        let started = match self.child_for_since(session, stops).await {
+        let mut started = self.child_for_since(session, stops).await;
+        // A failover left the chat on a profile that cannot start: back to the profile it came
+        // from, which starts this turn (`fallback_start.rs`).
+        if let Err(e) = &started
+            && self.back_from_fallback(session, e, &turn_id).await
+        {
+            started = self.child_for_since(session, stops).await;
+        }
+        let started = match started {
             Ok(child) => session
                 .meta()
                 .agent_session_id
@@ -635,16 +643,31 @@ impl Hub {
         // The account behind this harness is exhausted: move the session
         // onto its fallback profile (the subrouter pool for Claude), which
         // resumes the same agent session, and run the prompt once more.
+        // A fallback that cannot start now takes no turn: `(profile, why)`.
+        let mut unstartable = None;
         if let Err(e) = &result {
             // A pool launcher that dies on the prompt (its proxy is down)
             // moves the session too, not only a usage or auth limit.
             // A stopped session's agent closed because of the stop: no failover starts it again.
             // Nor does one MDM's off ended (review 3 of #26034).
-            if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
+            let mut target = if (is_limit_error(&e.message)
+                || e.message.starts_with("agent process closed"))
                 && session.stops.load(Ordering::SeqCst) == stops
                 && !child.ended_on_purpose()
-                && let Some(to) = self.fallback_profile(session).await
             {
+                self.fallback_profile(session).await
+            } else {
+                None
+            };
+            // Its route cannot start (a local router that is down): the chat stays where it is
+            // rather than moving onto a profile every later turn fails on (`fallback_start.rs`).
+            if let Some(to) = &target
+                && let Some(why) = self.route_refusal(&session.meta(), to).await
+            {
+                unstartable = Some((to.clone(), why.message));
+                target = None;
+            }
+            if let Some(to) = target {
                 let from = session.meta().harness;
                 // Before the failover is logged: a /context answer the old agent sends from here
                 // on is not logged after it as the fallback's.
@@ -660,6 +683,8 @@ impl Hub {
                 // The turn goes on, on the fallback. A new agent: the old one's silence and
                 // tools are not its own, and its count starts once the prompt is written to it.
                 Self::hold_stalled_count(session);
+                // The conversation the chat's own profile resumes, if the fallback cannot start.
+                let kept = super::fallback_start::ConversationMark::of(session);
                 let turn = session.turn();
                 self.detach_child(session).await;
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
@@ -763,9 +788,38 @@ impl Hub {
                             };
                         }
                     }
-                    (Err(e2), _) => result = Err(e2),
+                    // It could not start after all: the chat goes back to the profile it was
+                    // on, and the turn fails with its own error, saying why.
+                    // An agent its failed start left behind is not the chat's, and the
+                    // conversation is the one it had.
+                    (Err(e2), _) => {
+                        let turn = session.turn();
+                        self.detach_child(session).await;
+                        *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
+                        self.set_status(session, SessionStatus::Running);
+                        kept.restore(session);
+                        self.move_profile(session, &from, &e2.message, &turn_id, true);
+                        result = Err(super::fallback_start::fallback_not_started(
+                            e,
+                            &from,
+                            &to,
+                            &e2.message,
+                        ));
+                    }
                 }
             }
+        }
+        if let Some((to, why)) = unstartable
+            && let Err(e) = &result
+        {
+            let from = session.meta().harness;
+            self.append(
+                session,
+                "mux",
+                "failover_skipped",
+                json!({"from": from, "to": to, "reason": e.message, "error": why, "turnId": turn_id}),
+            );
+            result = Err(super::fallback_start::fallback_not_started(e, &from, &to, &why));
         }
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         // What the agent said, before `finish_turn` adds a dead process's last stderr line; a
@@ -917,6 +971,8 @@ impl Hub {
         // that exited, a harness that cannot start. A sign-in failure already says its fix.
         if let Err(e) = &mut result {
             crate::recovery::annotate_as(e, Some(&session.meta().cwd), dead && !signed_out);
+            // After the agent's own reason: its fallback could not take the turn, and why.
+            super::fallback_start::say_fallback(e);
         }
         let git = super::turn_git::turn_git(session).await;
         match &result {
