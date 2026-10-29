@@ -82,11 +82,12 @@ impl Hub {
         self.cancel(session).await
     }
 
-    /// Holds the other agents' messages queued now, and those that come until the hold ends: a
-    /// completed turn (`release_held_agent_messages`), a resume, or a held message's own retry
-    /// (`resume_held`). None is dropped: each stays queued, as `held`, and is logged so
-    /// (`queue_paused` with `reason: "stop"`): a restarted daemon holds it until its
-    /// `autoResumeDelaysMs` wait (`digest.rs` `retry_held_agent_messages`).
+    /// Holds the other agents' messages queued now, and those that come until the hold ends: the
+    /// person's next completed turn (`release_held_agent_messages`) or a resume of the queue.
+    /// Nothing releases them by a timer (a person's Stop stops the chat until the person acts),
+    /// except what releases any held agent message: a failed turn's retry, or a daemon restart
+    /// (`digest.rs` `retry_held_agent_messages`). None is dropped: each stays queued, as
+    /// `held`, and is logged so (`queue_paused` with `reason: "stop"`).
     pub(super) fn hold_agent_messages(&self, session: &Arc<Session>, turn_id: &str) {
         session.stop_holds_agents.store(true, Ordering::SeqCst);
         let held: Vec<String> = session
