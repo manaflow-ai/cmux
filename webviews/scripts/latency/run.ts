@@ -21,6 +21,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, webkit, type BrowserType } from "playwright";
+import {
+  invalidEngineSelection,
+  launchSelectedEngines,
+  shouldFailRun,
+  type EngineCoverage,
+  type EngineLaunchFailure,
+} from "./engine-selection";
 import { PAGES } from "../../test/latency/actions";
 import { BUDGET_120HZ, BUDGET_60HZ, measureAction, type ActionResult } from "../../test/latency/measure";
 import { installLatencyProbe } from "../../test/latency/probe";
@@ -39,6 +46,7 @@ const runs = Number(option("--runs") ?? 5);
 const pageFilter = option("--page");
 const actionFilter = option("--action");
 const engineFilter = option("--engine");
+const engineFlagPresent = args.includes("--engine");
 const cpuThrottle = Number(option("--cpu-throttle") ?? 1);
 const jsonOut = option("--json") ?? (ci ? path.join(webviews, "latency-results.json") : undefined);
 
@@ -113,13 +121,22 @@ function table(results: ActionResult[]): string {
   return lines.join("\n");
 }
 
-function summary(results: ActionResult[]): string {
+function summary(
+  results: ActionResult[],
+  coverage: EngineCoverage,
+  engineFailures: EngineLaunchFailure[],
+): string {
   const rows = results.map(
     (r) =>
       `| ${r.engine} | ${r.page} | ${r.action} | ${r.work.toFixed(1)} | ${r.paint.toFixed(1)} | ${r.frameGap.toFixed(1)} | ${r.longTaskRuns}/${r.samples.length} | ${r.pass60 ? "pass" : "**FAIL**"} | ${r.pass120 ? "pass" : "fail"} |`,
   );
   return [
     "## Interaction latency (input to paint, ms, median)",
+    "",
+    `Engine coverage: ${coverage.measuredCount}/${coverage.expectedCount} measured (${coverage.measuredEngines.join(", ") || "none"} of ${coverage.expectedEngines.join(", ") || "none"}) — ${coverage.complete ? "complete" : "INCOMPLETE"}.`,
+    ...engineFailures.map(
+      (failure) => `- engine launch failure (${failure.stage}): ${failure.engine}: ${failure.error}`,
+    ),
     "",
     "| engine | page | action | work | paint | frame gap | long tasks | 60 Hz | 120 Hz |",
     "| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
@@ -129,58 +146,106 @@ function summary(results: ActionResult[]): string {
   ].join("\n");
 }
 
-const { base, server } = await startServer();
 const results: ActionResult[] = [];
+const engineByName = new Map(ENGINES);
+const invalidEngineName = engineFlagPresent
+  ? !engineFilter
+    ? "<missing>"
+    : !engineByName.has(engineFilter)
+      ? engineFilter
+      : undefined
+  : undefined;
+const invalidSelection = invalidEngineName
+  ? invalidEngineSelection(invalidEngineName, "engine must be chromium or webkit")
+  : undefined;
+const selectedEngines = invalidSelection ? invalidSelection.coverage.expectedEngines : engineFilter ? [engineFilter] : ENGINES.map(([name]) => name);
+const server = invalidSelection ? undefined : await startServer();
+const engineFailures: EngineLaunchFailure[] = [];
+const measuredEngines: string[] = [];
 try {
-  for (const [engineName, engine] of ENGINES) {
-    if (engineFilter && engineFilter !== engineName) continue;
-    let browser;
-    try {
-      browser = await engine.launch({ headless: true });
-    } catch (error) {
-      console.warn(`latency: ${engineName} is not installed (bunx playwright install ${engineName}): ${String(error)}`);
-      continue;
-    }
-    for (const spec of PAGES) {
-      if (pageFilter && !spec.name.includes(pageFilter) && !spec.path.includes(pageFilter)) continue;
-      const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
-      const page = await context.newPage();
-      page.setDefaultTimeout(5000);
-      page.on("pageerror", (error) => console.warn(`latency: ${engineName} ${spec.name}: ${error.message}`));
-      await page.addInitScript(installLatencyProbe);
-      await installPaintedFrames(page);
-      if (cpuThrottle > 1 && engineName === "chromium") {
-        const cdp = await context.newCDPSession(page);
-        await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuThrottle });
+  if (invalidSelection) {
+    engineFailures.push(...invalidSelection.failures);
+  } else {
+    for (const engineName of selectedEngines) {
+      // Launch and finish one engine before starting the next so browser processes do not perturb
+      // one another's measurements or remain open after a later engine fails.
+      const selection = await launchSelectedEngines([engineName], async (name) => {
+        const engine = engineByName.get(name);
+        if (!engine) throw new Error(`unknown engine: ${name}`);
+        return engine.launch({ headless: true });
+      });
+      engineFailures.push(...selection.failures);
+      for (const { engine: measuredEngine, value: browser } of selection.launched) {
+        measuredEngines.push(measuredEngine);
+        try {
+          for (const spec of PAGES) {
+            if (pageFilter && !spec.name.includes(pageFilter) && !spec.path.includes(pageFilter)) continue;
+            const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+            const page = await context.newPage();
+            page.setDefaultTimeout(5000);
+            page.on("pageerror", (error) => console.warn(`latency: ${measuredEngine} ${spec.name}: ${error.message}`));
+            await page.addInitScript(installLatencyProbe);
+            await installPaintedFrames(page);
+            if (cpuThrottle > 1 && measuredEngine === "chromium") {
+              const cdp = await context.newCDPSession(page);
+              await cdp.send("Emulation.setCPUThrottlingRate", { rate: cpuThrottle });
+            }
+            for (const action of spec.actions) {
+              if (actionFilter && !action.name.includes(actionFilter)) continue;
+              // Every action starts from a freshly loaded page, so one action's state never leaks into the next.
+              await page.goto(`${server!.base}${spec.path}`);
+              await page.waitForFunction(spec.ready, undefined, { timeout: 30_000 });
+              // Let the first frames settle (workers, highlighting) before measuring.
+              await page.waitForTimeout(800);
+              const result = await measureAction(page, { page: spec.name, engine: measuredEngine }, action, runs);
+              results.push(result);
+              console.log(
+                `${result.pass ? "pass" : "FAIL"} ${measuredEngine} ${spec.name} / ${action.name}: work ${result.work.toFixed(1)} ms, paint ${result.paint.toFixed(1)} ms, frame gap ${result.frameGap.toFixed(1)} ms, long tasks ${result.longTaskRuns}/${result.samples.length}${result.errors.length ? ` (${result.errors[0]})` : ""}`,
+              );
+            }
+            await context.close();
+          }
+        } finally {
+          await browser.close().catch(() => undefined);
+        }
       }
-      for (const action of spec.actions) {
-        if (actionFilter && !action.name.includes(actionFilter)) continue;
-        // Every action starts from a freshly loaded page, so one action's state never leaks into the next.
-        await page.goto(`${base}${spec.path}`);
-        await page.waitForFunction(spec.ready, undefined, { timeout: 30_000 });
-        // Let the first frames settle (workers, highlighting) before measuring.
-        await page.waitForTimeout(800);
-        const result = await measureAction(page, { page: spec.name, engine: engineName }, action, runs);
-        results.push(result);
-        console.log(
-          `${result.pass ? "pass" : "FAIL"} ${engineName} ${spec.name} / ${action.name}: work ${result.work.toFixed(1)} ms, paint ${result.paint.toFixed(1)} ms, frame gap ${result.frameGap.toFixed(1)} ms, long tasks ${result.longTaskRuns}/${result.samples.length}${result.errors.length ? ` (${result.errors[0]})` : ""}`,
-        );
-      }
-      await context.close();
     }
-    await browser.close();
   }
 } finally {
-  server.kill();
+  server?.server.kill();
 }
+
+const coverage: EngineCoverage = {
+  expectedEngines: selectedEngines,
+  measuredEngines,
+  expectedCount: selectedEngines.length,
+  measuredCount: measuredEngines.length,
+  complete: selectedEngines.length > 0 && engineFailures.length === 0 && measuredEngines.length === selectedEngines.length,
+};
 
 console.log(`\n${table(results)}`);
 if (jsonOut)
   fs.writeFileSync(
     jsonOut,
-    `${JSON.stringify({ budget60: BUDGET_60HZ, budget120: BUDGET_120HZ, results }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        budget60: BUDGET_60HZ,
+        budget120: BUDGET_120HZ,
+        coverage,
+        engineFailures,
+        results,
+      },
+      null,
+      2,
+    )}\n`,
   );
-if (ci && process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary(results)}\n`);
+for (const failure of engineFailures)
+  console.warn(`latency: engine failure (${failure.stage}) ${failure.engine}: ${failure.error}`);
+if (ci && process.env.GITHUB_STEP_SUMMARY)
+  fs.appendFileSync(
+    process.env.GITHUB_STEP_SUMMARY,
+    `${summary(results, coverage, engineFailures)}\n`,
+  );
 const failed = results.filter((r) => !r.pass);
 if (results.length === 0) {
   console.error("latency: nothing was measured");
@@ -189,6 +254,8 @@ if (results.length === 0) {
 console.log(
   failed.length
     ? `\nlatency: ${failed.length} of ${results.length} actions over budget`
-    : "\nlatency: every action fits one frame",
+    : coverage.complete
+      ? "\nlatency: every action fits one frame"
+      : `\nlatency: coverage incomplete (${coverage.measuredCount}/${coverage.expectedCount} engines measured)`,
 );
-process.exit(failed.length && !noFail ? 1 : 0);
+process.exit(shouldFailRun(failed.length, engineFailures.length, noFail) ? 1 : 0);
