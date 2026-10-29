@@ -712,10 +712,21 @@ SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
     }
 )
 
+# server/ modules that write `"event"` records to a log file, never to a
+# client, and the record names each writes: the request watchdog writes `hang`
+# lines to the owner hang log (cmux_panic_log::hang::write). Those names are
+# not runtime events. Any other event a listed module builds still is one, and
+# a listed record the module no longer writes is an error.
+SERVER_LOG_RECORDS = {
+    "request_watchdog": frozenset({"hang"}),
+    "request_watchdog_reported": frozenset({"hang"}),
+}
 
-def server_module_sources() -> list[str]:
-    """Production source of every Rust file under src/server/ (server.rs's
-    child modules), sorted by path. server.rs moves code into these files, so
+
+def server_module_sources() -> list[tuple[str, str]]:
+    """(module, production source) of every Rust file under src/server/
+    (server.rs's child modules), sorted by path; the module is the file's
+    top-level name under server/. server.rs moves code into these files, so
     they are read the same way as server.rs; test files, inline test modules
     and SERVER_MODULES_OUTSIDE_RAW_SDK are left out."""
     root = TUI / "crates/cmux-tui-core/src/server"
@@ -724,13 +735,14 @@ def server_module_sources() -> list[str]:
     sources = []
     for path in sorted(root.rglob("*.rs")):
         parts = path.relative_to(root).parts
+        module = parts[0].removesuffix(".rs")
         if (
             path.name.endswith("_tests.rs")
             or "tests" in parts[:-1]
-            or parts[0].removesuffix(".rs") in SERVER_MODULES_OUTSIDE_RAW_SDK
+            or module in SERVER_MODULES_OUTSIDE_RAW_SDK
         ):
             continue
-        sources.append(path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0])
+        sources.append((module, path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0]))
     return sources
 
 
@@ -743,15 +755,30 @@ def event_names() -> set[str]:
     names.update(inserted_event_names(tokens, constants))
     names.update(assigned_event_names(tokens, constants))
     names.update(serialized_literal_event_names(production))
-    for module_source in server_module_sources():
+    names_by_module: dict[str, set[str]] = {}
+    for module, module_source in server_module_sources():
         source = strip_rust_comments(module_source)
         module_tokens = rust_tokens(source)
         # A moved module still names server.rs's constants (super::...).
         module_constants = {**constants, **rust_string_constants(module_tokens)}
-        names.update(json_macro_event_names(module_tokens, module_constants))
-        names.update(inserted_event_names(module_tokens, module_constants))
-        names.update(assigned_event_names(module_tokens, module_constants))
-        names.update(serialized_literal_event_names(source))
+        module_names = names_by_module.setdefault(module, set())
+        module_names.update(json_macro_event_names(module_tokens, module_constants))
+        module_names.update(inserted_event_names(module_tokens, module_constants))
+        module_names.update(assigned_event_names(module_tokens, module_constants))
+        module_names.update(serialized_literal_event_names(source))
+    if names_by_module:
+        gone = sorted(set(SERVER_LOG_RECORDS) - set(names_by_module))
+        if gone:
+            fail(f"SERVER_LOG_RECORDS names server/{', '.join(gone)}, which is gone")
+    for module, module_names in names_by_module.items():
+        log_records = SERVER_LOG_RECORDS.get(module, frozenset())
+        stale = sorted(log_records - module_names)
+        if stale:
+            fail(
+                f"server/{module} no longer writes log record {', '.join(stale)}; "
+                "update SERVER_LOG_RECORDS"
+            )
+        names.update(module_names - log_records)
 
     # Frontend brokers build their targeted control events in their own
     # server modules.
@@ -809,7 +836,7 @@ def first_function_event_names(source: str, *names: str) -> set[str]:
 
 def runtime_event_stream_hints() -> dict[str, set[str]]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
-    for module_source in server_module_sources():
+    for _, module_source in server_module_sources():
         server += "\n" + module_source
     hints: dict[str, set[str]] = {}
 
