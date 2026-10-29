@@ -244,6 +244,68 @@ test.each(["footer", "actions"] as const)(
   },
 );
 
+test.each([
+  { key: "ArrowDown", ctrlKey: false },
+  { key: "ArrowUp", ctrlKey: false },
+  { key: "n", ctrlKey: true },
+  { key: "p", ctrlKey: true },
+])("native combobox respects canceled reopen key %j", async (key) => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Combobox inline label="Projects" suggestions={["alpha"]} onQuery={() => {}}
+          onSubmit={() => {}} onCancel={() => {}} onCommand={(event) => event.preventDefault()}
+          native={{ model: comboboxDescription({ suggestions: ["alpha"] }) }} />
+      </UiProvider>,
+    );
+  });
+  const sent = shown[0]!;
+  await act(async () => {
+    for (const listener of listeners)
+      listener({ type: "pick", popupId: sent.id, revision: sent.revision, id: sent.rows[0]!.id });
+  });
+  expect(listeners.size).toBe(0);
+  const field = container.querySelector<HTMLInputElement>("input")!;
+  await act(async () => field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { ...key, bubbles: true, cancelable: true })));
+  expect(shown).toHaveLength(1);
+  expect(listeners.size).toBe(0);
+});
+
+test.each(["Escape", "blur"] as const)("page %s cancels a pending native combobox presentation", async (gesture) => {
+  const container = installDom();
+  const { host, shown, listeners } = nativeHost();
+  const pending: { resolve?: (reply: { shown: boolean }) => void } = {};
+  host.native!.show = (model) => {
+    shown.push(model);
+    return new Promise((resolve) => { pending.resolve = resolve; });
+  };
+  let canceled = 0;
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <UiProvider container={container} popupHost={host}>
+        <Combobox inline label="Projects" suggestions={["alpha"]} onQuery={() => {}}
+          onSubmit={() => {}} onCancel={() => { canceled++; }}
+          native={{ model: comboboxDescription({ suggestions: ["alpha"] }) }} />
+      </UiProvider>,
+    );
+  });
+  const field = container.querySelector<HTMLInputElement>("input")!;
+  await act(async () => {
+    if (gesture === "Escape")
+      field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    else field.dispatchEvent(new dom!.window.FocusEvent("focusout", { bubbles: true, relatedTarget: container }));
+  });
+  expect(canceled).toBe(1);
+  expect(listeners.size).toBe(0);
+  await act(async () => pending.resolve!({ shown: true }));
+  expect(listeners.size).toBe(0);
+  expect(canceled).toBe(1);
+});
+
 test.each(["toggle", "slider", "textField"] as const)(
   "native combobox delegates secondary %s changes without replacing its query",
   async (kind) => {
@@ -485,6 +547,41 @@ test.each(["escape", "outside"])("native popover preserves %s cancellation detai
   });
   expect(changes).toEqual([{ open: false, escape: reason === "escape" }]);
 });
+
+test.each(["escape", "outside", "pick", "controlled", "unmount"] as const)(
+  "native popover honors explicit finalFocus on %s close", async (close) => {
+    const container = installDom();
+    const { host, shown, listeners } = nativeHost();
+    const target = document.createElement("input");
+    document.body.append(target);
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const finalFocus = { current: target };
+    function Fixture() {
+      const [open, setOpen] = useState(true);
+      return <>
+        <button data-close onClick={() => setOpen(false)}>Close</button>
+        <Popover open={open} onOpenChange={setOpen} anchor={container} label="Details"
+          finalFocus={finalFocus} native={{ model: menuModel, anchor: () => container }}>No page rows</Popover>
+      </>;
+    }
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<UiProvider container={container} popupHost={host}><Fixture /></UiProvider>);
+    });
+    expect(document.activeElement).toBe(opener);
+    const sent = shown[0]!;
+    await act(async () => {
+      if (close === "controlled") container.querySelector<HTMLButtonElement>("[data-close]")!.click();
+      else if (close === "unmount") root!.render(null);
+      else for (const listener of listeners) listener(close === "pick"
+        ? { type: "pick", popupId: sent.id, revision: sent.revision, id: "done" }
+        : { type: "dismiss", popupId: sent.id, revision: sent.revision, reason: close });
+    });
+    expect(document.activeElement).toBe(target);
+  },
+);
 
 test("uncontrolled native menu closes on a pick and opens on the next trigger click", async () => {
   const container = installDom();

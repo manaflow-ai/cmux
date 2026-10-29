@@ -75,6 +75,19 @@ test("context descriptors preserve separators, toggles, and icon metadata", () =
   ]);
 });
 
+test.each(["x".repeat(120), "foo"])("context separator identities stay valid alongside action %s", (id) => {
+  const actions = [
+    { id, label: "First", separatorBefore: true },
+    ...(id === "foo" ? [{ id: `separator:${id}`, label: "Second" }] : []),
+    { id: separatorId(id), label: "Third" },
+  ];
+  const model = contextDescription(actions);
+  const ids = model.rows.map((row) => row.id);
+  expect(ids.every((value) => value.length > 0 && value.length <= 128)).toBe(true);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(model.rows.filter((row) => row.kind === "action").map((row) => row.id)).toEqual(actions.map((row) => row.id));
+});
+
 test("popover descriptors preserve caller row order without rendering elements", () => {
   expect(
     popoverDescription({ title: "Details", rows: [textRow("name", "Alice"), textRow("role", "Admin")], side: "top" }),
