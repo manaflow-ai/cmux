@@ -12,6 +12,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   virtualConsole: new VirtualConsole(),
 });
 const scope = globalThis as Record<string, unknown>;
+const observers = new Set<{ targets: Set<Element>; notify: (entries: { target: Element }[]) => void }>();
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
@@ -26,10 +27,21 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
+  // Kept, so a test can tell the transcript a row's size changed as the browser would.
   ResizeObserver: class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
+    targets = new Set<Element>();
+    constructor(readonly notify: (entries: { target: Element }[]) => void) {
+      observers.add(this);
+    }
+    observe(target: Element) {
+      this.targets.add(target);
+    }
+    unobserve(target: Element) {
+      this.targets.delete(target);
+    }
+    disconnect() {
+      observers.delete(this);
+    }
   },
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
@@ -45,6 +57,13 @@ Object.assign(scope, replacements);
 // jsdom has no layout. A tall viewport mounts every row of these small conversations.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
+
+// jsdom draws nothing: a row has the height set here, and none (unmeasured) otherwise.
+const drawn = new Map<string, number>();
+dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+  const height = drawn.get(this.dataset.rowId ?? "") ?? 0;
+  return { x: 0, y: 0, top: 0, left: 0, right: 760, bottom: height, width: 760, height, toJSON() {} } as DOMRect;
+};
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -89,5 +108,36 @@ test("a drawn reply gains its row when a steer follows it, in a paged transcript
     } finally {
       await act(async () => root.unmount());
     }
+  }
+});
+
+test("a reply with its row keeps the height the browser measured when it resizes", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const rowOf = (id: string) => dom.window.document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
+  const top = (id: string) => Number.parseFloat(rowOf(id).style.top);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={[prompt, reply, steer] as never}
+          onToggleActivity={onToggleActivity}
+          expanded={expanded}
+        />,
+      ),
+    );
+    expect(rowOf("a1").querySelector(".cv-reply-actions")).not.toBeNull();
+    // The reply wraps taller than its estimate (a font that loads, a narrower pane).
+    drawn.set("a1", 900);
+    await act(async () => {
+      for (const observer of [...observers])
+        if (observer.targets.has(rowOf("a1"))) observer.notify([{ target: rowOf("a1") }]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // The steer is placed under the reply's measured 900px, not under its estimate. Reported
+    // without the reply's row flag, the height was taken for a stale one and dropped.
+    expect(top("s1") - top("a1")).toBeGreaterThanOrEqual(900);
+  } finally {
+    drawn.clear();
+    await act(async () => root.unmount());
   }
 });
