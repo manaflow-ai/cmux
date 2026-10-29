@@ -33,6 +33,34 @@ pub struct MeshRelayConfig {
     /// Read the joined machine credential from the owner-only store.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential: Option<String>,
+    /// Daemons whose authenticated mesh messages may run lifecycle controls here. An empty
+    /// list is fail-closed; the machine owner must opt each sender in explicitly.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub control_from: Vec<MeshControlFrom>,
+}
+
+/// An owner-configured control sender. The hub's `from.user` and claimed session fields are
+/// deliberately ignored: only its stamped daemon id is authority, and only for listed ops.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeshControlFrom {
+    pub daemon_id: String,
+    /// Omitted means all three lifecycle operations; an explicit empty list grants nothing.
+    #[serde(default = "lifecycle_ops")]
+    pub ops: Vec<String>,
+}
+
+fn lifecycle_ops() -> Vec<String> {
+    ["start", "resume", "stop"].map(str::to_owned).to_vec()
+}
+
+impl MeshControlFrom {
+    pub fn allows(&self, daemon_id: &str, op: &str) -> bool {
+        !self.daemon_id.is_empty()
+            && self.daemon_id == daemon_id
+            && matches!(op, "start" | "resume" | "stop")
+            && self.ops.iter().any(|allowed| allowed == op)
+    }
 }
 
 impl MeshRelayConfig {
@@ -354,6 +382,7 @@ impl MeshHub for HttpHub {
 
     fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
+            message.validate().map_err(HubError::refused)?;
             let body = serde_json::to_value(message).unwrap_or_default();
             decode(
                 self.call(reqwest::Method::POST, "/v1/mesh/messages", Some(&body), CALL_WAIT)
@@ -398,6 +427,7 @@ mod tests {
         let config = |url: &str, cmd: &[&str]| MeshRelayConfig {
             url: url.into(),
             token_command: cmd.iter().map(|s| (*s).to_owned()).collect(),
+            control_from: Vec::new(),
             credential: None,
         };
         let hub = "https://cmux-platform-development.debussy.workers.dev/";
@@ -428,11 +458,42 @@ mod tests {
         let config = MeshRelayConfig {
             url: "http://127.0.0.1:9".into(),
             token_command: ["sh", "-c", "yes"].map(str::to_owned).to_vec(),
+            control_from: Vec::new(),
             credential: None,
         };
         let hub = HttpHub::new(&config).unwrap();
         let e = hub.token(true).await.unwrap_err();
         assert!(e.to_string().contains("too much"), "{e}");
+    }
+
+    #[tokio::test]
+    async fn invalid_control_operations_are_refused_before_token_or_http() {
+        let hub = HttpHub::new(&MeshRelayConfig {
+            url: "http://127.0.0.1:9".into(),
+            token_command: vec!["/nonexistent/mesh-token-command".into()],
+            control_from: vec![],
+            credential: None,
+        })
+        .unwrap();
+        for (kind, op) in [
+            (crate::mesh::Kind::Control, None),
+            (crate::mesh::Kind::Control, Some("pause")),
+            (crate::mesh::Kind::Prompt, Some("start")),
+        ] {
+            let message = OutMessage {
+                to: Default::default(),
+                from: Default::default(),
+                kind,
+                op: op.map(str::to_owned),
+                body: String::new(),
+                mode: crate::mesh::Mode::Now,
+                idempotency_key: "control-invalid".into(),
+            };
+            let expected = message.validate().unwrap_err();
+            let error = hub.send(&message).await.unwrap_err();
+            assert!(error.refused);
+            assert_eq!(error.message, expected);
+        }
     }
 
     #[test]
@@ -445,6 +506,25 @@ mod tests {
         assert!(!answer(409, b"").unwrap_err().ends_relay());
         assert!(!answer(429, b"").unwrap_err().ends_relay());
         assert!(HubError::refused("no token command").ends_relay());
+    }
+
+    #[test]
+    fn control_sender_allowlist_uses_only_the_stamped_daemon_and_selected_ops() {
+        let default: MeshControlFrom = serde_json::from_value(json!({"daemonId":"d1"})).unwrap();
+        for op in ["start", "resume", "stop"] {
+            assert!(default.allows("d1", op));
+        }
+        let all: MeshControlFrom =
+            serde_json::from_value(json!({"daemonId":"d1", "ops":[]})).unwrap();
+        let round_trip: MeshControlFrom =
+            serde_json::from_value(serde_json::to_value(&all).unwrap()).unwrap();
+        assert!(!round_trip.allows("d1", "start"));
+        assert!(!all.allows("d1", "start"));
+        assert!(!all.allows("d2", "start"));
+        let resume = MeshControlFrom { daemon_id: "d1".into(), ops: vec!["resume".into()] };
+        assert!(resume.allows("d1", "resume"));
+        assert!(!resume.allows("d1", "stop"));
+        assert!(!MeshControlFrom { daemon_id: String::new(), ops: vec![] }.allows("d1", "start"));
     }
 
     #[test]
