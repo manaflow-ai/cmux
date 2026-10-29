@@ -22,6 +22,15 @@ pub(super) fn claude_transcript_through(
     parent: &str,
     cut_ms: u64,
 ) -> anyhow::Result<String> {
+    claude_transcript_through_checked(store, parent, cut_ms, None)
+}
+
+pub(super) fn claude_transcript_through_checked(
+    store: &Path,
+    parent: &str,
+    cut_ms: u64,
+    expected: Option<usize>,
+) -> anyhow::Result<String> {
     let file = crate::adopt::is_bare_id(parent)
         .then(|| crate::adopt::find_claude(store, parent))
         .flatten()
@@ -29,13 +38,28 @@ pub(super) fn claude_transcript_through(
     let id = uuid::Uuid::now_v7().to_string();
     let mut lines = Vec::new();
     let mut prompts = 0;
+    let mut answered = false;
     for line in BufReader::new(std::fs::File::open(&file)?).lines() {
-        let Ok(mut record) = serde_json::from_str::<Value>(&line?) else { continue };
+        let line = line?;
+        let mut record: Value = match serde_json::from_str(&line) {
+            Ok(record) => record,
+            Err(e) if expected.is_some() => return Err(e.into()),
+            Err(_) => continue,
+        };
         if is_prompt(&record) {
+            anyhow::ensure!(
+                expected.is_none() || written_ms(&record).is_some(),
+                "native prompt has no boundary timestamp"
+            );
             if written_ms(&record).is_some_and(|at| at >= cut_ms) {
                 break;
             }
             prompts += 1;
+            answered = false;
+        } else if record.get("type").and_then(Value::as_str) == Some("assistant") {
+            answered = record.pointer("/message/content").and_then(Value::as_array).is_some_and(
+                |blocks| !blocks.is_empty() && !blocks.iter().any(|b| b["type"] == "tool_use"),
+            );
         }
         if record.get("sessionId").is_some_and(Value::is_string) {
             record["sessionId"] = Value::String(id.clone());
@@ -45,6 +69,10 @@ pub(super) fn claude_transcript_through(
     // Claude started this conversation after that turn (a failover starts
     // one fresh): resuming the copy would hold none of the chat's turns.
     anyhow::ensure!(prompts > 0, "Claude's conversation for this chat starts after that turn");
+    anyhow::ensure!(
+        expected.is_none_or(|n| prompts == n && answered),
+        "native history does not cover the complete recorded prefix"
+    );
     let mut copy = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -149,6 +177,15 @@ pub(super) fn codex_rollout_through(
     parent: &str,
     cut_ms: u64,
 ) -> anyhow::Result<String> {
+    codex_rollout_through_checked(store, parent, cut_ms, None)
+}
+
+pub(super) fn codex_rollout_through_checked(
+    store: &Path,
+    parent: &str,
+    cut_ms: u64,
+    expected: Option<usize>,
+) -> anyhow::Result<String> {
     let file = crate::adopt::is_bare_id(parent)
         .then(|| crate::adopt::find_codex(store, parent))
         .flatten()
@@ -161,8 +198,14 @@ pub(super) fn codex_rollout_through(
     let copy_name = format!("{stem}{id}.jsonl");
     let mut lines = Vec::new();
     let mut turns = 0;
+    let (mut user, mut answer, mut complete) = (false, false, true);
     for line in BufReader::new(std::fs::File::open(&file)?).lines() {
-        let Ok(mut record) = serde_json::from_str::<Value>(&line?) else { continue };
+        let line = line?;
+        let mut record: Value = match serde_json::from_str(&line) {
+            Ok(record) => record,
+            Err(e) if expected.is_some() => return Err(e.into()),
+            Err(_) => continue,
+        };
         let kind = |key: &str| record.pointer(key).and_then(Value::as_str).map(str::to_owned);
         let (kind, event) = (kind("/type"), kind("/payload/type"));
         if kind.as_deref() == Some("session_meta") {
@@ -172,16 +215,43 @@ pub(super) fn codex_rollout_through(
                 *thread = Value::String(id.clone());
             }
         } else if is_turn_start(kind.as_deref(), event.as_deref()) {
+            anyhow::ensure!(
+                expected.is_none() || written_ms(&record).is_some(),
+                "native prompt has no boundary timestamp"
+            );
             if written_ms(&record).is_some_and(|at| at >= cut_ms) {
                 break;
             }
+            if turns > 0 {
+                complete &= user && answer;
+            }
             turns += 1;
+            user = false;
+            answer = false;
+        } else if kind.as_deref() == Some("response_item") && event.as_deref() == Some("message") {
+            let content = record
+                .pointer("/payload/content")
+                .and_then(Value::as_array)
+                .is_some_and(|blocks| !blocks.is_empty());
+            match record.pointer("/payload/role").and_then(Value::as_str) {
+                Some("user") => user |= content,
+                Some("assistant") => {
+                    answer |= content
+                        && record.pointer("/payload/phase").and_then(Value::as_str)
+                            != Some("commentary")
+                }
+                _ => {}
+            }
         }
         lines.push(serde_json::to_string(&record)?);
     }
     // Codex started this thread after that turn (a failover starts one
     // fresh): resuming the copy would hold none of the chat's turns.
     anyhow::ensure!(turns > 0, "Codex's conversation for this chat starts after that turn");
+    anyhow::ensure!(
+        expected.is_none_or(|n| turns == n && complete && user && answer),
+        "native history does not cover the complete recorded prefix"
+    );
     let mut copy = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

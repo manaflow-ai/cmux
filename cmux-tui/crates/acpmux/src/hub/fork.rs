@@ -28,6 +28,8 @@ enum Made {
     /// A new agent session that gets acpmux's transcript of the chat with its first
     /// prompt (`rehydrate`): the agent could not fork the working chat.
     Fresh,
+    /// An explicit empty prefix: no native resume and no transcript rehydration.
+    Empty,
 }
 
 impl Hub {
@@ -56,16 +58,39 @@ impl Hub {
         workspace_id: Option<String>,
         through: Option<u64>,
     ) -> Result<Arc<Session>, RpcError> {
+        self.fork_with_boundary(session, name, cwd, session_env, workspace_id, through, None).await
+    }
+
+    pub(super) async fn fork_with_boundary(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        name: Option<String>,
+        cwd: Option<PathBuf>,
+        session_env: std::collections::BTreeMap<String, String>,
+        workspace_id: Option<String>,
+        through: Option<u64>,
+        before: Option<(String, crate::store::ForkBefore)>,
+    ) -> Result<Arc<Session>, RpcError> {
+        let empty = before.as_ref().is_some_and(|(_, b)| b.through_seq.is_none());
         let parent_meta = session.meta();
         let (is_claude, mut fork_env) = self.harness_env(&parent_meta).await;
         // The fork's workspace: the one the request names (typed or in its
         // env, `session_env::workspace_id`), else its parent's.
         let workspace_id = workspace_id.or_else(|| parent_meta.workspace_id.clone());
         crate::agent_displays::mark(&mut fork_env, workspace_id.as_deref());
-        let sid = parent_meta
-            .agent_session_id
-            .clone()
-            .ok_or_else(|| RpcError::internal("no agent session"))?;
+        let sid =
+            parent_meta.agent_session_id.clone().or_else(|| empty.then(String::new)).ok_or_else(
+                || {
+                    if before.is_some() {
+                        super::fork_before::refused(
+                            "fork.unreconstructable",
+                            "no native conversation for the retained prefix",
+                        )
+                    } else {
+                        RpcError::internal("no agent session")
+                    }
+                },
+            )?;
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
         // The fork's own folder as it is now, not the parent's start (`git_state.rs`).
         let git = {
@@ -74,20 +99,29 @@ impl Hub {
                 .await
                 .unwrap_or_default()
         };
-        let id = uuid::Uuid::now_v7().to_string();
+        let id = before
+            .as_ref()
+            .map(|(id, _)| id.clone())
+            .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let turn_cut = {
             let cfg = self.config.read().await;
             cfg.profile(&parent_meta.harness)
                 .and_then(|p| crate::config::turn_cut(&parent_meta.harness, p))
         };
+        if before.is_some() && turn_cut.is_none() {
+            return Err(super::fork_before::refused(
+                "fork.unsupported",
+                "the source harness no longer supports prompt boundaries",
+            ));
+        }
         let cut = through.filter(|_| turn_cut.is_some());
         let working = matches!(parent_meta.status, SessionStatus::Running | SessionStatus::Waiting);
         // The chat's running turn, which the fork copies cut off now.
-        let running = if working && cut.is_none() { session.turn() } else { None };
+        let running = if !empty && working && cut.is_none() { session.turn() } else { None };
         // Claude forks by `--resume <parent> --fork-session`, which needs a stored
         // conversation; a chat with no turn has none, and its fork would fail at its
         // first prompt ("No conversation found"). Refuse before a chat is made.
-        if is_claude && cut.is_none() && parent_meta.turn_count == 0 && !working {
+        if !empty && is_claude && cut.is_none() && parent_meta.turn_count == 0 && !working {
             return Err(RpcError::invalid_params(NOTHING_TO_FORK));
         }
         let mut turn_count = parent_meta.turn_count;
@@ -97,13 +131,17 @@ impl Hub {
                 "{harness} cannot fork a chat mid-turn, so this fork's agent starts from the chat's transcript"
             )
         };
-        let made = if let Some(through) = cut {
+        let made = if empty {
+            turn_count = 0;
+            Made::Empty
+        } else if let Some(through) = cut {
             // The fork resumes a copy of the agent's transcript through that turn.
             // The chat moved past that turn at its next event, which acpmux logs
             // before the next prompt reaches Claude. One pass that stops there; no
             // record is kept.
             let mut cut_ms = u64::MAX;
             let mut turns = 0u64;
+            let mut prompts = 0usize;
             self.store
                 .scan(&session.id, 0, &mut |e: EventRecord| {
                     if e.seq > through {
@@ -111,6 +149,7 @@ impl Hub {
                         return false;
                     }
                     turns += u64::from(e.kind == "turn_result");
+                    prompts += usize::from(e.kind == "user_message");
                     true
                 })
                 .map_err(|e| RpcError::internal(e.to_string()))?;
@@ -125,11 +164,33 @@ impl Hub {
             let homes = self.harness_homes().with_env(&[&fork_env]);
             let copy = match turn_cut {
                 Some(crate::config::TurnCut::Codex) => {
-                    super::fork_at::codex_rollout_through(&homes.codex, &sid, cut_ms)
+                    super::fork_at::codex_rollout_through_checked(
+                        &homes.codex,
+                        &sid,
+                        cut_ms,
+                        before.as_ref().map(|_| prompts),
+                    )
                 }
-                _ => super::fork_at::claude_transcript_through(&homes.claude, &sid, cut_ms),
+                _ if before.is_none() => {
+                    super::fork_at::claude_transcript_through(&homes.claude, &sid, cut_ms)
+                }
+                _ => super::fork_at::claude_transcript_through_checked(
+                    &homes.claude,
+                    &sid,
+                    cut_ms,
+                    Some(prompts),
+                ),
             }
-            .map_err(|e| RpcError::internal(format!("fork through turn: {e}")))?;
+            .map_err(|e| {
+                if before.is_some() {
+                    super::fork_before::refused(
+                        "fork.unreconstructable",
+                        &format!("fork through turn: {e}"),
+                    )
+                } else {
+                    RpcError::internal(format!("fork through turn: {e}"))
+                }
+            })?;
             Made::Copy(copy)
         } else if running.is_some() && turn_cut.is_some() && cwd == parent_meta.cwd {
             // A working Claude or Codex chat: a copy of its transcript as it stands now.
@@ -213,7 +274,7 @@ impl Hub {
         let (res, new_sid) = match &made {
             Made::Agent(res, sid) => (res.clone(), Some(sid.clone())),
             Made::Copy(copy) => (json!({}), Some(copy.clone())),
-            Made::ClaudeResume | Made::Fresh => (json!({}), None),
+            Made::ClaudeResume | Made::Fresh | Made::Empty => (json!({}), None),
         };
         let fork_seq = cut.unwrap_or_else(|| session.seq.load(Ordering::SeqCst));
         let name = name.unwrap_or_else(|| self.unique_name(&format!("{}-fork", parent_meta.name)));
@@ -243,7 +304,9 @@ impl Hub {
             updated_at: now,
             last_seq: 0,
             parent_id: Some(session.id.clone()),
-            fork_seq: Some(fork_seq),
+            fork_seq: if empty { None } else { Some(fork_seq) },
+            fork_before: before.as_ref().map(|(_, b)| b.clone()),
+            fork_requests: Default::default(),
             fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
@@ -274,8 +337,8 @@ impl Hub {
             title_asking: false,
             title_failures: 0,
             title_thin: false,
-            last_prompt: parent_meta.last_prompt.clone(),
-            preview: parent_meta.preview.clone(),
+            last_prompt: if before.is_some() { None } else { parent_meta.last_prompt.clone() },
+            preview: if before.is_some() { None } else { parent_meta.preview.clone() },
             event_count: 0,
             turn_count,
             usage: None,
@@ -338,7 +401,7 @@ impl Hub {
             Made::ClaudeResume => *new.fork_from.lock().unwrap() = Some(sid.clone()),
             // Its first prompt carries the chat's transcript (`hub/turns.rs`).
             Made::Fresh => new.rehydrate.store(true, Ordering::SeqCst),
-            Made::Copy(_) | Made::Agent(..) => {}
+            Made::Copy(_) | Made::Agent(..) | Made::Empty => {}
         }
         self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
         // The fork copies transcript records, never the parent's reported Git branch.
@@ -367,8 +430,8 @@ impl Hub {
         let mut open_tools: Vec<(String, String)> = Vec::new();
         let mut running_turn_seq: Option<u64> = None;
         {
-            let _ = self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
-                if e.seq > fork_seq {
+            let copied = self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
+                if empty || e.seq > fork_seq {
                     return false;
                 }
                 if running.is_some() {
@@ -396,6 +459,13 @@ impl Hub {
                     // A prompt's mark, or an answer's Pin (its `turn_result`), follows it.
                     let marked = parent_meta.bookmarks.contains(&e.seq)
                         && matches!(e.kind.as_str(), "user_message" | "turn_result");
+                    if before.is_some() && e.kind == "user_message" {
+                        new.meta.lock().unwrap_or_else(|e| e.into_inner()).last_prompt = e
+                            .msg
+                            .get("text")
+                            .and_then(Value::as_str)
+                            .map(|text| short_text(text, 200));
+                    }
                     let (copy, _) = self.append_at(&new, &e.dir, &e.kind, e.msg, None, Some(e.at));
                     if starts_running {
                         running_turn_seq = Some(copy.seq);
@@ -410,6 +480,10 @@ impl Hub {
                 }
                 true
             });
+            if before.is_some() {
+                copied
+                    .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
+            }
         }
         // The fork's copy of the running turn ends now: its tool calls still running did not
         // finish here, and the turn is cancelled, so the fork is idle and its partial reply
@@ -429,7 +503,11 @@ impl Hub {
             let mut m = new.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.harness_failures = crate::session_liveness::HarnessFailures::after(m.last_seq);
         }
-        let mut forked = json!({"parentId": session.id, "forkSeq": fork_seq});
+        let mut forked = json!({"parentId": session.id, "forkSeq": new.meta().fork_seq});
+        if let Some((_, b)) = &before {
+            forked["beforePromptId"] = json!(b.prompt_id);
+            forked["promptSeq"] = json!(b.prompt_seq);
+        }
         if running.is_some() {
             forked["midTurn"] = json!(true);
         }
@@ -439,7 +517,31 @@ impl Hub {
             forked["harness"] = json!(parent_meta.harness);
         }
         self.append(&new, "mux", "forked", forked);
-        self.append(session, "mux", "fork_child", json!({"childId": id}));
+        if before.is_none() {
+            self.append(session, "mux", "fork_child", json!({"childId": id}));
+        } else {
+            // Publish the durable result before any await can lose the reply. A partial
+            // journal stays reserved and is never mistaken for a completed child on retry.
+            if new.append_errors.load(Ordering::SeqCst) != 0 {
+                return Err(super::fork_before::refused(
+                    "fork.incomplete",
+                    "child journal could not be stored",
+                ));
+            }
+            self.store
+                .flush_session(&new.id)
+                .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
+            let mut meta = new.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let mut ready = meta.clone();
+            if let Some(boundary) = ready.fork_before.as_mut() {
+                boundary.ready = true;
+            }
+            self.store
+                .save(&ready)
+                .and_then(|()| self.store.flush_session(&new.id))
+                .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
+            *meta = ready;
+        }
         // The forked agent session lives in the parent's process. Load it in
         // its own process so one session keeps one child.
         match self.child_for(&new).await {

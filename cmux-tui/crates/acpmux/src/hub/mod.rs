@@ -33,6 +33,7 @@ pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
 mod fork_at;
+pub(crate) mod fork_before;
 mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
@@ -941,6 +942,7 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
+            fork_lock: Mutex::new(()),
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
@@ -1340,10 +1342,13 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return;
         }
-        let meta = session.meta();
+        // Keep the snapshot and write ordered with durable fork reservations. A stale
+        // snapshot written after a reservation could otherwise forget its request identity.
+        let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(e) = self.store.save(&meta) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
         }
+        drop(meta);
         // The purge ran between the check and the save: delete it again.
         if session.purged.load(Ordering::SeqCst)
             && let Err(e) = self.store.delete(&session.id)

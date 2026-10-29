@@ -19,7 +19,8 @@ use crate::no_panic::JsonExt;
 use crate::store::SessionStatus;
 
 /// Advertised in `initialize` as `_meta.acpmux.operations`.
-pub const FORK_OPERATIONS: [&str; 1] = [method::ACP_SESSION_FORK];
+pub const FORK_OPERATIONS: [&str; 2] =
+    [method::ACP_SESSION_FORK, "acp.session.fork.beforePromptId"];
 
 /// `acp.session.fork` as the `session/fork` it becomes. Any other method
 /// stays as it is, less a `throughSeq`: only `acp.session.fork` names one.
@@ -34,6 +35,8 @@ pub(super) async fn as_session_fork<'m>(
     }
     if let Some(meta) = params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         meta.remove("throughSeq");
+        meta.remove("beforePromptId");
+        meta.remove("requestId");
     }
     Ok(m)
 }
@@ -56,6 +59,36 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
             e
         }
     })?;
+    if params.get("beforePromptId").is_some() {
+        use crate::hub::fork_before::refused;
+        if params.get("throughSeq").is_some() || params.get("live").is_some() {
+            return Err(refused(
+                "fork.invalid_boundary",
+                "beforePromptId excludes throughSeq and live",
+            ));
+        }
+        let field = |key| {
+            params.get(key).and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty() && s.len() <= 512)
+            .ok_or_else(|| refused("fork.invalid_boundary", "beforePromptId and requestId must be nonempty strings of at most 512 bytes"))
+        };
+        let prompt = field("beforePromptId")?;
+        let request = field("requestId")?;
+        let mut mux = json!({"beforePromptId": prompt, "requestId": request});
+        for key in ["via", "requireFullAccess"] {
+            if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux[key] = value.clone();
+            }
+        }
+        // Only this canonical operation may mint the internal boundary. All guards still run.
+        return Ok(json!({"sessionId": session.id, "_meta": {"acpmux": mux}}));
+    }
+    if params.get("requestId").is_some() {
+        return Err(crate::hub::fork_before::refused(
+            "fork.invalid_boundary",
+            "requestId requires beforePromptId",
+        ));
+    }
     let working = matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
     // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
     // there (`hub/fork.rs`).
@@ -68,9 +101,13 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat of an agent that forks only at its end forks as it is now.
     if live || (working && !can_cut) {
         let mut out = json!({"sessionId": session.id});
-        if let Some(via) = params.pointer("/_meta/acpmux/via") {
-            out.set("_meta", json!({"acpmux": {"via": via}}));
+        let mut mux = serde_json::Map::new();
+        for key in ["via", "requireFullAccess"] {
+            if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux.insert(key.into(), value.clone());
+            }
         }
+        out.set("_meta", json!({"acpmux": mux}));
         return Ok(out);
     }
     let through = params
@@ -109,8 +146,10 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat moved past its latest finished turn: a fork through it cuts there too.
     let earlier = earlier || working;
     let mut mux = serde_json::Map::new();
-    if let Some(via) = params.pointer("/_meta/acpmux/via") {
-        mux.insert("via".into(), via.clone());
+    for key in ["via", "requireFullAccess"] {
+        if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+            mux.insert(key.into(), value.clone());
+        }
     }
     if earlier {
         mux.insert("throughSeq".into(), json!(through));

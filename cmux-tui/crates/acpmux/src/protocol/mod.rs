@@ -145,7 +145,7 @@ pub fn registry() -> Vec<MethodDecl> {
         acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
         acp(method::CANCEL_REQUEST, ClientNotification),
         // ACP extensions acpmux names in the acp.* space.
-        untyped(method::ACP_SESSION_FORK, Request),
+        request::<ForkParams, Value>(method::ACP_SESSION_FORK),
         untyped(method::ACP_TRUST_GET, Request),
         untyped(method::ACP_TRUST_SET, Request),
         untyped("catalog.get", Request),
