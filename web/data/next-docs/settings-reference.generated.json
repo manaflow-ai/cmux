@@ -1344,6 +1344,7 @@
           "group": "Updates",
           "values": [
             "every-merge",
+            "nightly",
             "off"
           ]
         },

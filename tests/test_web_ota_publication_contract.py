@@ -26,29 +26,30 @@ class WebOTAPublicationContractTests(unittest.TestCase):
     def test_every_supported_channel_has_a_writer_and_readback(self):
         pointer = POINTER.read_text()
         channels = ast.literal_eval(re.search(r"^CHANNELS = (\(.+?\))$", pointer, re.M).group(1))
-        self.assertEqual(channels, ("every-merge",))
+        self.assertEqual(channels, ("every-merge", "nightly"))
 
         updater = UPDATER.read_text()
         enum = re.search(r"enum Channel:.*?\{(.*?)\n    \}", updater, re.S).group(1)
         app_channels = set(re.findall(r"^        case (\w+)(?: = \"([^\"]+)\")?", enum, re.M))
         app_values = {raw or name for name, raw in app_channels}
-        self.assertEqual(app_values, {"off", "every-merge"})
+        self.assertEqual(app_values, {"off", "every-merge", "nightly"})
         self.assertEqual(set(channels), app_values - {"off"})
 
         workflow = WORKFLOW.read_text()
         pointer_job = workflow.split("\n  pointer:\n", 1)[1]
+        self.assertIn("github.ref_name == 'nightly-next' && 'nightly' || 'every-merge'", pointer_job)
         for channel in channels:
-            self.assertIn(f"--channel {channel}", pointer_job)
-            self.assertIn(f"--key cmux-next-web/ota/{channel}.json", pointer_job)
-            self.assertIn(f"/cmux-next-web/ota/{channel}.json?check=", pointer_job)
-            self.assertIn(f"--channel {channel}", pointer_job)
+            self.assertIn('--channel "$CHANNEL"', pointer_job)
+            self.assertIn('"cmux-next-web/ota/$CHANNEL.json"', pointer_job)
+            self.assertIn('/cmux-next-web/ota/$CHANNEL.json?check=', pointer_job)
 
-    def test_nightly_channel_is_not_offered_without_a_publisher(self):
-        self.assertNotIn('"nightly"', POINTER.read_text().split("CHANNELS =", 1)[1].split(")", 1)[0])
-        self.assertNotIn("case nightly", UPDATER.read_text())
+    def test_nightly_channel_has_a_promoted_branch_writer(self):
+        workflow = WORKFLOW.read_text()
+        self.assertIn("branches: [feat-cmux-next, nightly-next]", workflow)
+        self.assertIn("github.ref_name == 'nightly-next' && 'nightly'", workflow)
         settings = json.loads(WEB_SCHEMA.read_text())
         web = next(row for group in settings["lists"] for row in group["rows"] if row.get("key") == "updates.web")
-        self.assertNotIn("nightly", {choice["value"] for choice in web["choices"]})
+        self.assertIn("nightly", {choice["value"] for choice in web["choices"]})
 
     def test_missing_production_signing_key_fails(self):
         pointer_job = WORKFLOW.read_text().split("\n  pointer:\n", 1)[1]

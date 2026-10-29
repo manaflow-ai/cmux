@@ -14,6 +14,7 @@ public final class WebUpdater {
     /// `updates.web` in cmux.json.
     nonisolated public enum Channel: String, Sendable, CaseIterable {
         case off
+        case nightly
         case everyMerge = "every-merge"
     }
 
@@ -321,7 +322,7 @@ public final class WebUpdater {
         }
         let http = response as? HTTPURLResponse
         if http?.statusCode == 304 { return nil }
-        // No pointer has been published yet: nothing to take.
+        // No pointer yet (the nightly channel before its first publish): nothing to take.
         if http?.statusCode == 404 { return nil }
         guard http?.statusCode == 200 else { throw WebUpdateRefusal.transfer("pointer status \(http?.statusCode ?? 0)") }
         let tag = http?.value(forHTTPHeaderField: "ETag")

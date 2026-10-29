@@ -18,7 +18,7 @@ extension UpdatesSettings {
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
     public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
     public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
-    /// `updates.web`: Web UI updates between app updates (plans/cmux-next/web-ota.md): the every-merge channel is published for NIGHTLY and tip builds; Release and RC builds ship their own web UI.
+    /// `updates.web`: Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.
     public nonisolated static let webPath = ["updates", "web"]
     public nonisolated static let webDefault: UpdatesWebSetting = .everyMerge
     /// `updates.installOnQuit`.
@@ -124,10 +124,11 @@ nonisolated enum UpdateSettingsSchema {
                 help: SettingsText.keyed("settings.updates.web.help", "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."),
                 kind: .choice([
                     SettingChoice(UpdatesWebSetting.everyMerge.rawValue, SettingsText.keyed("settings.choice.updatesWebEveryMerge", "Every Merge")),
+                    SettingChoice(UpdatesWebSetting.nightly.rawValue, SettingsText.keyed("settings.choice.updatesWebNightly", "With Nightly")),
                     SettingChoice(UpdatesWebSetting.off.rawValue, SettingsText.keyed("settings.choice.updatesWebOff", "Off")),
                 ]),
                 default: .string(UpdatesSettings.webDefault.rawValue),
-                keywords: ["update", "web", "ota", "hot reload", "bundle", "merge"]
+                keywords: ["update", "web", "ota", "hot reload", "bundle", "nightly", "merge"]
             ),
             SettingDescriptor(
                 UpdatesSettings.installOnQuitPath,

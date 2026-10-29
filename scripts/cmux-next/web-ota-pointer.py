@@ -33,7 +33,7 @@ import tempfile
 import time
 
 SCHEMA = 1
-CHANNELS = ("every-merge",)
+CHANNELS = ("every-merge", "nightly")
 # The SubjectPublicKeyInfo DER prefix of an ed25519 key; the raw 32 bytes follow.
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 # The exit status of "nothing to publish" (`newer`: the published pointer is current; `payload`: the
