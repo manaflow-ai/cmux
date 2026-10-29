@@ -840,6 +840,18 @@
     },
     {
       "date": "2026-10-29",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "Trunk sync (cp/sync-trunk-20261029a, merge of perf/chrome-parity f95978fd5d2): feat-cmux-next's own line, unchanged, that the earlier trunk-sync exception (2026-10-28, +21) does not name: DebugCloudMachineFixture.holders (CmuxNextApp, DEBUG only; trunk 9b7d6d9f93c). Judged against the branch's pushed head ff72376a66c the merge adds no site (arch-ratchet.py --base ff72376a66c: global_mutable_statics -1, from perf's MainJobGate removal). It goes to the composition root with the landing slices that move trunk's debug fixtures onto perf's injection (landing-plan.md)."
+    },
+    {
+      "date": "2026-10-29",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "Trunk sync (cp/sync-trunk-20261029a, merge of perf/chrome-parity f95978fd5d2): feat-cmux-next's own line, unchanged, beyond the earlier trunk-sync exceptions: DockBadge.activationPolicies' KVO observation of NSRunningApplication.activationPolicy (CmuxNextDesign/DockBadge.swift:46; trunk 9b7d6d9f93c), its only change signal, one per app. Judged against the branch's pushed head ff72376a66c the merge adds no site (arch-ratchet.py --base ff72376a66c: observer_sites -1)."
+    },
+    {
+      "date": "2026-10-29",
       "row": "assume_isolated_outside_adapters",
       "allow": 2,
       "why": "Trunk sync (cp/sync-trunk-20261029a, replaces cp/sync-trunk-20261028a): no new site. MainQueueObservation.swift:17 is perf/chrome-parity's own seam, unchanged by the merge (7eb211cdf65 has the same line); MobileKeyboardFrameTracker.swift:72 is the one queue: .main observer block both sides already had (trunk 9b7d6d9f93c and perf 7eb211cdf65 each have it), its body merged to trunk's record(change:endFrame:) inside perf's lock-held token list. The ratchet counts them only because the merge brings the other side's file in. They move to a @MainActor observation when their owners rewrite those observers."
