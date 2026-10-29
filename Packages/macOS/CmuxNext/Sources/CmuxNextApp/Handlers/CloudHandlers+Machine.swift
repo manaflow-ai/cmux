@@ -202,7 +202,13 @@ extension CloudHandlers {
         bind("palette.cloud.status", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.stats) else { throw operationUnavailable }
             answer("machine status", invocation, context) {
-                let stats = try await cloud.api.stats(session.machineID)
+                // Stats are a separate provider read, while idle-pause diagnostics
+                // live on the VM record. Fetch both so a status action observes a
+                // cron decision written after the sidebar last refreshed.
+                async let stats = cloud.api.stats(session.machineID)
+                async let record = cloud.api.machine(session.machineID)
+                let (stats, record) = try await (stats, record)
+                session.machine = record
                 return CloudAnswer(title: CloudStrings.statusTitle, text: describe(session, stats), fields: statusFields(session, stats))
             }
         }
@@ -425,9 +431,9 @@ extension CloudHandlers {
         if let usage = CloudCreationRows.cost(session.machine, limits: nil).flatMap({ $0.usage(now: now) }) { lines.append(usage) }
         if let idlePause = session.machine.idlePause {
             lines.append("idle pause: \(idlePause.minutes) minutes")
-            lines.append("idle pause last checked: \(idlePause.lastCheckedAt.map(String.init) ?? \"null\")")
-            lines.append("idle pause idle since: \(idlePause.idleSince.map(String.init) ?? \"null\")")
-            lines.append("idle pause last API activity: \(idlePause.lastApiActivityAt.map(String.init) ?? \"null\")")
+            lines.append("idle pause last checked: \(idlePause.lastCheckedAt.map(String.init) ?? "null")")
+            lines.append("idle pause idle since: \(idlePause.idleSince.map(String.init) ?? "null")")
+            lines.append("idle pause last API activity: \(idlePause.lastApiActivityAt.map(String.init) ?? "null")")
             lines.append("idle pause private address known: \(idlePause.privateAddressKnown)")
             if let decision = idlePause.lastDecision {
                 lines.append("idle pause decision: \(decision.outcome) (\(decision.reason)) at \(decision.at); run checked=\(decision.run.checked), elapsed_ms=\(decision.run.elapsedMs)")
