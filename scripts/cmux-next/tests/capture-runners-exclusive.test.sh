@@ -37,4 +37,24 @@ bounded 60 bash "$ROOT/scripts/cmux-next/restore-journey-slot.sh" 0123456789abcd
 check restore-journey-slot.sh
 bounded 60 bash "$ROOT/scripts/cmux-next/perceived-speed-slot.sh" --job 0123456789abcdef01234567 --out "$tmp/ps" >/dev/null 2>&1 || true
 check perceived-speed-slot.sh
+# A lease printed just before acquire exits, with the run failing after (no ssh to the host here):
+# the runner still releases it, so the mini is not held for the lease's 10 minutes.
+cat >"$tmp/bin/capture-host" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >>"$CAPTURE_HOST_ARGS_LOG"
+case "$1" in
+  acquire) echo slot-fakehost-0123456789ab; exit 0 ;;
+  slot-info) echo "host=fakehost slot=1 root=/nonexistent"; exit 0 ;;
+esac
+exit 0
+SH
+printf '#!/bin/sh\nexit 255\n' >"$tmp/bin/ssh"; chmod +x "$tmp/bin/ssh"
+cp "$tmp/bin/ssh" "$tmp/bin/scp"
+bounded 60 bash "$ROOT/scripts/cmux-next/restore-journey-slot.sh" 0123456789abcdef01234567 "$tmp/rj2" >/dev/null 2>&1 || true
+grep -q '^release slot-fakehost-0123456789ab' "$CAPTURE_HOST_ARGS_LOG" ||
+  { echo "FAIL: restore-journey-slot.sh did not release its lease: $(cat "$CAPTURE_HOST_ARGS_LOG")" >&2; exit 1; }
+: >"$CAPTURE_HOST_ARGS_LOG"
+bounded 60 bash "$ROOT/scripts/cmux-next/perceived-speed-slot.sh" --job 0123456789abcdef01234567 --out "$tmp/ps2" >/dev/null 2>&1 || true
+grep -q '^release slot-fakehost-0123456789ab' "$CAPTURE_HOST_ARGS_LOG" ||
+  { echo "FAIL: perceived-speed-slot.sh did not release its lease: $(cat "$CAPTURE_HOST_ARGS_LOG")" >&2; exit 1; }
 printf 'capture-runners-exclusive tests: ok\n'

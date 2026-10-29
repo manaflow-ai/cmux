@@ -43,10 +43,18 @@ capture-host acquire --slot --exclusive >"$out/lease.txt" 2>"$out/lease.err" &
 lease_pid=$!
 release() {
   if [ -n "${host:-}" ]; then ssh -o BatchMode=yes "$host" "rm -rf '$run'" >/dev/null 2>&1 || true; fi
-  if [ -n "${lease:-}" ]; then capture-host release "$lease" >/dev/null 2>&1 || true; fi
+  # Stop acquire (it ends the reservation of a lease it has not granted), then release a lease it printed
+  # that this script had not read yet: a stop between the print and the read held the mini for the lease.
   kill "$lease_pid" 2>/dev/null || true
+  for _ in $(seq 1 50); do kill -0 "$lease_pid" 2>/dev/null || break; sleep 0.2; done
+  [ -n "${lease:-}" ] || lease=$(grep -o 'slot-[A-Za-z0-9._-]*' "$out/lease.txt" 2>/dev/null | head -1 || true)
+  if [ -n "${lease:-}" ]; then capture-host release "$lease" >/dev/null 2>&1 || true; fi
 }
 trap release EXIT
+# A stop runs the EXIT trap too.
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 # Until acquire prints a lease or exits: it bounds itself (its timeout, plus an exclusive drain of up to
 # CAPTURE_HOST_EXCLUSIVE_DRAIN_SECONDS per busy host), so a fixed wait here would stop it mid-drain.
 lease=

@@ -30,11 +30,17 @@ release_slot() {
     [ -n "$pid" ] && ssh "$host" "for _ in \$(seq 1 30); do kill -0 $pid 2>/dev/null || exit 0; sleep 1; done; echo 'perceived-speed: app pid $pid still up after quit' >&2"
     sock=""
   fi
+  # Stop an acquire in flight (it ends the reservation of a lease it has not granted), then release a lease it
+  # printed that this script had not read yet: a stop between the print and the read held the mini.
+  if [ -n "$acquire" ]; then
+    kill "$acquire" 2>/dev/null
+    for _ in $(seq 1 50); do kill -0 "$acquire" 2>/dev/null || break; sleep 0.2; done
+    [ -n "$lease" ] || lease=$(grep '^slot-' "$work/lease" 2>/dev/null | tail -1)
+  fi
+  acquire=""
   [ -n "$lease" ] && capture-host release "$lease" >/dev/null 2>&1
   lease=""
   [ -n "$state" ] && ssh "$host" "rm -rf $state"
-  [ -n "$acquire" ] && kill "$acquire" 2>/dev/null
-  acquire=""
 }
 cleanup() {
   release_slot
@@ -44,6 +50,10 @@ cleanup() {
   rm -rf "$work"
 }
 trap cleanup EXIT
+# A stop runs the EXIT trap too.
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 
 # The app is staged once per job outside any lease (a fetch can outlive a 600 s lease). It is
 # fetched ON the slot host with that host's cmux-ci (never relayed through this machine). When the
@@ -74,7 +84,7 @@ for attempt in 1 2 3; do
   capture-host release "$lease" >/dev/null 2>&1; lease=""; kill "$acquire" 2>/dev/null; acquire=""
   echo "perceived-speed: staging job $job on $host"
   stage "$host" || { echo "could not stage the app on $host" >&2; exit 3; }
-  prefer=(--prefer "$host")
+  prefer+=(--prefer "$host")
 done
 [ -n "$lease" ] || { echo "no lease on a host with the app staged" >&2; exit 3; }
 app=$(ssh "$host" "ls -d $cache/*.app | head -1")
