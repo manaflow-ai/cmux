@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4091361851901",
+  "notes": "notes/4091361851901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27461,
+      "title": "ci(signing): the owned-Mac signing cap skips queued runs and retries a 5xx, so it stops failing every pick closed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27266,
+      "title": "fix(next): cancel notification watchers on teardown",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27050,
+      "title": "feat(acpmux): route lifecycle controls through owner-authorized mesh senders",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26957,
+      "title": "NEXT: paste a clipboard image of any size into a terminal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27183,
+      "title": "NEXT Home: attach any number of files, sent as messages within the owner's part limit",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
