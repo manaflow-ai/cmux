@@ -449,12 +449,14 @@ button.acpmux-chat-inspector-port:hover,
   margin-left: auto;
 }
 .acpmux-chat-inspector-section__meta {
-  flex: 0 1 auto;
+  /* Counts yield to the section name before either reaches the trailing control. */
+  flex: 1 1 0;
   min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: var(--grid-gap);
   margin-left: auto;
+  justify-content: flex-end;
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
 }
