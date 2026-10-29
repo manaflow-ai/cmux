@@ -1260,13 +1260,19 @@
   background: repeating-linear-gradient(
     to bottom,
     transparent 0 0.4em,
-    var(--cv-codeblock-ring) 0.4em calc(var(--cv-loading-line-height) - 0.4em),
+    color-mix(in srgb, var(--cv-text-muted) 24%, transparent) 0.4em calc(var(--cv-loading-line-height) - 0.4em),
     transparent calc(var(--cv-loading-line-height) - 0.4em) var(--cv-loading-line-height)
   );
 }
 .cv-edit-diff__loading-lines[data-numbered="true"]::before {
-  margin-inline-start: 6ch;
-  max-width: calc(100% - 6ch);
+  /* Pierre's 4ch number, 2ch leading + 1ch trailing padding, and 2px divider. */
+  margin-inline-start: calc(7ch + 2px);
+  max-width: calc(100% - 7ch - 2px);
+}
+.cv-edit-diff__loading-lines[data-numbered="false"]::before {
+  /* The unnumbered diff retains its 4px indicator lane and 2px divider. */
+  margin-inline-start: 6px;
+  max-width: calc(100% - 6px);
 }
 .cv-link.is-file {
   color: var(--cv-text);
