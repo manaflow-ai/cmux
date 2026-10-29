@@ -14,13 +14,14 @@ import subprocess
 import tempfile
 import sys
 import unittest
+from unittest import mock
 import git_fixture_env  # disables git auto maintenance
 
 
 SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
-              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON")
+              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_LOCAL_HEAVY_CHECKS")
 
 # Two `&&` pieces, as webviews' real check script has many; each fails on BAD.
 WEBVIEWS_PACKAGE = """{
@@ -449,6 +450,85 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertFalse(marker.exists(), "the hook ran a check script from the pushed branch")
         self.assertIn("not linted here", result.stderr)
         self.assertIn("webviews/check-lanes.sh", result.stderr)
+
+    def heavy_fixture(self):
+        """webviews' check gains a type-aware lint piece (`vp lint`, tsgolint: ~9 GB on webviews) whose stand-in logs
+        each call with its niceness and Go thread cap. Seeded on origin, so the push under test changes only source;
+        returns that push's env (outside CI) and the log."""
+        self.write("webviews/package.json", WEBVIEWS_PACKAGE.replace(
+            '"sh check-lanes.sh && sh check-format.sh"', '"sh check-lanes.sh && vp lint && sh check-format.sh"'))
+        self.commit("a heavy piece")
+        seeded = self.push(CMUX_WEB_LINT_SKIP_REASON="fixture: seed the heavy piece on origin first")
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        vp = self.repo / "webviews/node_modules/.bin/vp"
+        vp.parent.mkdir(parents=True)
+        vp.write_text('#!/bin/sh\necho "vp $* nice=$(nice) GOMAXPROCS=$GOMAXPROCS" >> "$VP_LOG"\n')
+        vp.chmod(0o755)
+        self.write("webviews/src/app.ts", "export const app = 7;\n")
+        self.commit("source change")
+        log = self.root / "vp.log"
+        env = {key: value for key, value in self.env.items() if key != "GITHUB_ACTIONS"}
+        env["VP_LOG"] = str(log)
+        return env, log
+
+    def push_with(self, env):
+        return subprocess.run(["git", "-C", str(self.repo), "push", "origin", "feat-cmux-next"],
+                              env=env, text=True, capture_output=True)
+
+    def test_a_host_that_runs_no_heavy_checks_pushes_without_starting_the_type_checker(self):
+        env, log = self.heavy_fixture()
+
+        result = self.push_with({**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"})
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(log.exists(), "the type-aware lint ran on a host that runs no heavy checks")
+        self.assertIn("webviews: not run on this host (CMUX_LOCAL_HEAVY_CHECKS=0): vp lint", result.stderr)
+        self.assertIn("cmux-ci test", result.stderr, "must say where to run it instead")
+        self.assertRegex(result.stderr, r"web lint passed in \d+\.\ds \(webviews\)")
+
+    def test_light_pieces_still_refuse_a_bad_push_on_a_host_that_runs_no_heavy_checks(self):
+        env, log = self.heavy_fixture()
+        self.write("webviews/test/app.test.ts", "export const t = BAD_LANE;\n")
+        self.commit("bad lane")
+
+        result = self.push_with({**env, "CMUX_LOCAL_HEAVY_CHECKS": "0"})
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("browser lane import", result.stderr)
+        self.assertFalse(log.exists())
+
+    def test_a_build_host_runs_the_heavy_piece_niced_and_capped(self):
+        env, log = self.heavy_fixture()
+
+        result = self.push_with(env)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = log.read_text().splitlines()
+        self.assertEqual(len(calls), 1, calls)
+        self.assertRegex(calls[0], r"^vp lint nice=\d+ GOMAXPROCS=\d+$")
+        self.assertGreaterEqual(int(calls[0].split("nice=")[1].split()[0]), 10, calls[0])
+
+    def test_heavy_pieces_are_the_type_checking_ones(self):
+        lint = load_lint(self.repo)
+        for piece in ("vp lint", "vp check --no-fmt --no-lint", "tsc -p .", "tsgo --noEmit"):
+            self.assertTrue(lint.is_heavy(piece), piece)
+        for piece in ("vp fmt --check", "bun run check:effect-cleanup", "sh vp-lint.sh", "python3 ../check.py"):
+            self.assertFalse(lint.is_heavy(piece), piece)
+
+    def test_ci_runs_a_heavy_piece_as_is_and_a_caller_cap_is_kept(self):
+        lint = load_lint(self.repo)
+        package = lint.SCRIPT_PACKAGES[0]
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+            _, command, _, env, shown = lint.piece_job(package, "vp lint", self.repo)
+        self.assertEqual((command, shown), ("vp lint", "vp lint"))
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "CI": "", "GOMAXPROCS": "3",
+                                          "NODE_OPTIONS": "--max-old-space-size=1024"}):
+            _, command, _, env, shown = lint.piece_job(package, "vp lint", self.repo)
+        self.assertEqual(shown, "vp lint")
+        self.assertTrue(command.endswith("vp lint"), command)
+        self.assertEqual(env["GOMAXPROCS"], "3")
+        self.assertEqual(env["NODE_OPTIONS"], "--max-old-space-size=1024")
+        self.assertEqual(env["GOMEMLIMIT"], lint.HEAVY_GOMEMLIMIT)
 
 
 # cmux-tui/frontends/web imports `cmux` from file:../../bindings/typescript, whose exports point at a

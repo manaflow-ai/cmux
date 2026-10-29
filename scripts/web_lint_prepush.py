@@ -47,6 +47,13 @@ Usage:
 
 Skip once, with a reason that names the evidence (logged in the push output):
     CMUX_WEB_LINT_SKIP_REASON="webviews check:text-focus is red on base 1a2b3c4" git push
+
+Heavy pieces: the type-aware lint and the type check (`vp lint`, `vp check`, tsc, tsgo; see
+config/vite-plus/check.ts, typeAware and typeCheck) start tsgolint, about 9 GB and 5 GB on webviews,
+both at once. A host that must not run builds or heavy checks (a shared agent host, a laptop) sets
+CMUX_LOCAL_HEAVY_CHECKS=0: the other pieces still run there, and the heavy ones are left to CI's
+`web lint` job and the pull request's fast gates, or to `cmux-ci test` on a build box. Wherever they
+do run outside CI, they run under `nice` with capped Go and Node concurrency and heap (heavy_env).
 """
 from __future__ import annotations
 
@@ -67,6 +74,15 @@ from pathlib import Path
 ESLINT_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts")
 FIX_COMMAND = "scripts/web-lint.sh --fix"
 MIN_SKIP_REASON = 20
+# A check piece that starts with one of these runs the type checker (tsgolint or tsc): gigabytes per run.
+HEAVY_COMMANDS = (("vp", "lint"), ("vp", "check"), ("tsc",), ("tsgo",))
+# "0" (or false/no/off/skip): this host runs no heavy piece. Set by the host, e.g. from a fleet registry.
+LOCAL_HEAVY_ENV = "CMUX_LOCAL_HEAVY_CHECKS"
+# Outside CI a heavy piece runs at lower priority with these caps, each only when the caller set none:
+# Go threads (tsgolint's checkers run one per thread) and its soft heap goal, and Node's old-space heap.
+HEAVY_NICE = 10
+HEAVY_GOMEMLIMIT = "6GiB"
+HEAVY_NODE_HEAP_MB = 4096
 
 
 @dataclass(frozen=True)
@@ -273,6 +289,37 @@ def check_pieces(repo: Path, package: ScriptPackage, script: str, read=None) -> 
     return [piece.strip() for piece in body.split("&&") if piece.strip()]
 
 
+def is_heavy(piece: str) -> bool:
+    words = tuple(piece.split())
+    return any(words[:len(prefix)] == prefix for prefix in HEAVY_COMMANDS)
+
+
+def local_heavy_checks() -> bool:
+    """False when the host said it runs no heavy piece (CMUX_LOCAL_HEAVY_CHECKS=0)."""
+    return os.environ.get(LOCAL_HEAVY_ENV, "").strip().lower() not in ("0", "false", "no", "off", "skip")
+
+
+def in_ci() -> bool:
+    return os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI", "").lower() in ("1", "true")
+
+
+def heavy_env(env: dict[str, str]) -> dict[str, str]:
+    """ENV for a heavy piece run outside CI: half the cores (at most 8) for Go, a soft Go heap goal, a capped Node
+    heap. A value the caller already set is kept."""
+    env = dict(env)
+    env.setdefault("GOMAXPROCS", str(max(1, min(8, (os.cpu_count() or 2) // 2))))
+    env.setdefault("GOMEMLIMIT", HEAVY_GOMEMLIMIT)
+    node = env.get("NODE_OPTIONS", "")
+    if "--max-old-space-size" not in node:
+        env["NODE_OPTIONS"] = f"{node} --max-old-space-size={HEAVY_NODE_HEAP_MB}".strip()
+    return env
+
+
+def heavy_command(piece: str) -> str:
+    """PIECE under `nice` (a plain command: every heavy piece starts with its tool), when nice is there."""
+    return f"nice -n {HEAVY_NICE} {piece}" if shutil.which("nice") else piece
+
+
 def package_env(repo: Path, directory: str) -> dict[str, str]:
     # A hook's GIT_DIR names the checkout's repository; a check run in a lint tree must see that tree.
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")}
@@ -399,12 +446,34 @@ def install(repo: Path, directory: str, stale: dict[LocalBuild, str] | None) -> 
     return failure
 
 
-def run(label: str, command: list[str] | str, cwd: Path, env: dict[str, str]) -> Result:
+def run(label: str, command: list[str] | str, cwd: Path, env: dict[str, str], shown: str | None = None) -> Result:
     started = time.monotonic()
     result = subprocess.run(command, cwd=cwd, env=env, text=True, capture_output=True,
                             shell=isinstance(command, str))
-    shown = command if isinstance(command, str) else " ".join(command)
+    if shown is None:
+        shown = command if isinstance(command, str) else " ".join(command)
     return Result(label, shown, result.returncode, result.stdout + result.stderr, time.monotonic() - started)
+
+
+def piece_job(package: ScriptPackage, piece: str, repo: Path) -> tuple:
+    """run()'s arguments for one `check` piece; a heavy one outside CI runs niced and capped (heavy_env)."""
+    env = package_env(repo, package.directory)
+    if is_heavy(piece) and not in_ci():
+        return package.directory, heavy_command(piece), repo / package.directory, heavy_env(env), piece
+    return package.directory, piece, repo / package.directory, env, piece
+
+
+def local_pieces(package: ScriptPackage, pieces: list[str], heavy: bool, mode: str) -> list[str]:
+    """PIECES this host runs: all of them, or, when it runs no heavy check, the rest, saying which were left out."""
+    if heavy:
+        return pieces
+    skipped = [p for p in pieces if is_heavy(p)]
+    if skipped:
+        print(f"{mode}: {package.directory}: not run on this host ({LOCAL_HEAVY_ENV}=0): {', '.join(skipped)}. "
+              "CI's `web lint` job and the pull request's fast gates run them; to run them before the push, "
+              f"use a build box: cmux-ci test -- bash -c 'cd {package.directory} && bun install --frozen-lockfile "
+              "&& bun run check'.", file=sys.stderr)
+    return [p for p in pieces if not is_heavy(p)]
 
 
 def eslint_command(repo: Path, directory: str, files: list[str], fix: bool, cache: bool = True) -> list[str]:
@@ -417,7 +486,8 @@ def eslint_command(repo: Path, directory: str, files: list[str], fix: bool, cach
     return command + relative
 
 
-def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True) -> list[Result]:
+def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
+             mode: str = "web-lint") -> list[Result]:
     stale, failures = prepare_builds(repo, plan.script_packages)
     if failures:
         return failures
@@ -428,15 +498,15 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True) -> list[Resu
         return installs
     if fix:
         for package in plan.script_packages:
-            for piece in check_pieces(repo, package, "check:fix"):
-                run(package.directory, piece, repo / package.directory, package_env(repo, package.directory))
+            for piece in local_pieces(package, check_pieces(repo, package, "check:fix"), heavy, mode):
+                run(*piece_job(package, piece, repo))
         for directory, files in plan.eslint_files.items():
             run(directory, eslint_command(repo, directory, files, True, cache), repo / directory,
                 package_env(repo, directory))
     jobs = []
     for package in plan.script_packages:
-        for piece in check_pieces(repo, package, "check"):
-            jobs.append((package.directory, piece, repo / package.directory, package_env(repo, package.directory)))
+        for piece in local_pieces(package, check_pieces(repo, package, "check"), heavy, mode):
+            jobs.append(piece_job(package, piece, repo))
     for directory, files in plan.eslint_files.items():
         jobs.append((directory, eslint_command(repo, directory, files, False, cache), repo / directory,
                      package_env(repo, directory)))
@@ -614,6 +684,7 @@ def main(argv: list[str] | None = None) -> int:
             heads.setdefault(None if args.fix else head, []).extend(own_files(repo, own, head))
 
     started = time.monotonic()
+    heavy = local_heavy_checks()
     results: list[Result] = []
     for head, changed in heads.items():
         files = sorted(set(changed))
@@ -634,7 +705,8 @@ def main(argv: list[str] | None = None) -> int:
             for package in plan.script_packages:
                 for build in package.builds:
                     print(f"{build.directory}: install and build, unless current (for {package.directory})")
-                print(f"{package.directory}: {' && '.join(check_pieces(repo, package, 'check', read))}")
+                pieces = check_pieces(repo, package, "check", read)
+                print(f"{package.directory}: {' && '.join(local_pieces(package, pieces, heavy, mode))}")
             for directory, targets in plan.eslint_files.items():
                 print(f"{directory}: eslint {' '.join(targets)}")
             continue
@@ -642,7 +714,7 @@ def main(argv: list[str] | None = None) -> int:
         # into node_modules, so the checkout's copy holds the checkout's build, not this commit's.
         directories = [p.directory for p in plan.script_packages if not p.builds] + list(plan.eslint_files)
         with tree_of(repo, head, directories) as tree:
-            found = run_plan(tree, plan, args.fix, cache=tree == repo)
+            found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)
             if args.new_only:
                 charge_new_only(repo, args.base, plan, tree, found)
             results += found
