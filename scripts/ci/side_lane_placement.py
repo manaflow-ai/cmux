@@ -42,6 +42,18 @@ contains(' <key> ') matches whole keys only:
   need a logged-in session but not the console gui token (daemon tests,
   generated files) take it, so they run beside a console GUI job; until the
   fleet carries the label they keep the gui label;
+- `gui_runner` and `session_runner` are health-checked, not only live: a role label is
+  written only while it has room (role_room()): an idle online runner carries it, or the
+  janitor snapshot's queue on it is shorter than its online runners, or its queue per
+  runner is no longer than Blacksmith 6 vCPU's queue per slot. A label whose queue is
+  deeper than the pool (#26809, 2026-10-29: eleven swift tests queued behind nine busy
+  gui runners for 45+ minutes) is written empty, so the GUI jobs take the workflow's
+  Blacksmith macOS leg instead of joining it. With no snapshot to weigh, the live label
+  stays (today's route; the rescue still watches it);
+- `gui_overflow`: the Blacksmith macOS label the GUI jobs take when the owned GUI route
+  is declined above, and on the rescue's full re-run (rerun_main()), whose GUI jobs
+  never read gui_runner: before it, that re-run wrote no route and the GUI jobs fell
+  through to the fixed glaeda-gui label they were rescued from;
 - `watch`: "false" when every job took its fallback, so the run uploads no
   owned-pool-watch marker; "true" otherwise;
 - `blacksmith_12_jobs`, `blacksmith_6_jobs` and `retry_runner`: the jobs no idle
@@ -196,6 +208,52 @@ def _live_role_label(label: str, runners: Sequence[Mapping[str, Any]] | None, ro
                              for runner in runners):
             return candidate
     return ""
+
+
+# The GUI jobs' Blacksmith macOS leg (cmux-next.yml swift-test, daemon-test, generated-files).
+GUI_OVERFLOW = cascade.SMALL
+
+
+def _role_online(candidate: str, runners: Sequence[Mapping[str, Any]]) -> tuple[int, int]:
+    """(online, idle) runners carrying the role label `candidate`."""
+    carrying = [runner for runner in runners
+                if runner.get("status") == "online" and candidate in pool.runner_labels(runner)]
+    return len(carrying), sum(1 for runner in carrying if not runner.get("busy"))
+
+
+def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = None,
+              waiting: Mapping[str, int] | None = None) -> bool:
+    """Whether a GUI or session job queued on `candidate` now gets a runner about as soon as anywhere else.
+
+    Room is an idle online runner carrying it, or a queue (the janitor snapshot's, `seen.owned`) shorter
+    than its online runners: each queued job has a machine within one job length. A deeper queue keeps
+    the label only while Blacksmith 6 vCPU's queue per slot is at least as deep (`waiting`, with
+    next_macos_cascade.CAPACITY), so the job joins the shorter of the two queues. With no snapshot the
+    queue is unknown and the label stays, as before this check.
+    """
+    online, idle = _role_online(candidate, runners)
+    if not online:
+        return False
+    if idle:
+        return True
+    owned = getattr(seen, "owned", None)
+    if owned is None:
+        return True
+    queued = int(owned.get(candidate, 0))
+    if queued < online:
+        return True
+    if waiting is None:
+        return False
+    slots = cascade.CAPACITY.get(GUI_OVERFLOW, 1) or 1
+    return queued / online <= waiting.get(GUI_OVERFLOW, 0) / slots
+
+
+def healthy_role_label(live: str, runners: Sequence[Mapping[str, Any]] | None, seen: Any = None,
+                       waiting: Mapping[str, int] | None = None) -> str:
+    """`live` (a gui_route_label() or session_route_label() result) while role_room() holds, else ""."""
+    if not live or runners is None:
+        return live
+    return live if role_room(live, runners, seen, waiting) else ""
 
 
 def gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
@@ -502,7 +560,10 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
+            # The GUI jobs of the rescue's re-run never read gui_runner: they leave the owned GUI queue they were
+            # rescued from for Blacksmith macOS (cmux-next.yml's gui_overflow leg).
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
+                         f"gui_overflow={GUI_OVERFLOW}\n"
                          f"watch={'false' if fallback and not owned else 'true'}\n")
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     placed = cascade.place(env, owned, live, waiting, seen)
@@ -539,8 +600,18 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners, len((env.get("JOBS") or "").split()))
-    gui_route = gui_route_label(label, runners)
-    session_route = session_route_label(label, runners)
+    # The pool snapshot and Blacksmith's queues, read once: the GUI routes are weighed against them here and
+    # the cascade places with them below.
+    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
+    live_gui = gui_route_label(label, runners)
+    gui_route = healthy_role_label(live_gui, runners, seen, waiting)
+    session_route = healthy_role_label(session_route_label(label, runners), runners, seen, waiting)
+    # An empty session route falls through to gui_runner in the workflow, so only a declined gui route overflows.
+    gui_overflow = GUI_OVERFLOW if live_gui and not gui_route else ""
+    if live_gui and not gui_route:
+        owned = getattr(seen, "owned", {}) or {}
+        why += (f"; `{live_gui}` has no room ({owned.get(live_gui, 0)} queued, "
+                f"{_role_online(live_gui, runners or [])[0]} online, none idle), so the GUI jobs take `{GUI_OVERFLOW}`")
     if route and route != label:
         why += (f"; `{route}` has more live room than `{label}`, routing jobs there"
                 if route.startswith(pool.SIDE_PREFIX) else f"; no online side runner, routing jobs on `{route}`")
@@ -577,6 +648,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
                          f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
+                         f"gui_overflow={gui_overflow}\n"
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
                          f"fast_runner={fast}\n"
                          f"fresh_runner={fresh}\nfresh_jobs={delimited(fresh_jobs)}\n"
@@ -588,7 +660,6 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             handle.write(f"### macOS placement\n\n{why}\n")
     # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now and its
     # queue moves; the rest stay on the owned label (no GitHub-hosted overflow).
-    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     # The dedicated nightly runner is preferred for Release compile. When it is
     # configured but busy/offline, send the compile to Blacksmith immediately
     # instead of queueing it on the reserved promotion label.

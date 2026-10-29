@@ -195,6 +195,57 @@ class Decide(unittest.TestCase):
         self.assertEqual(placement.free_gui_route_label(SIDE, [busy, idle]), GUI)
         self.assertEqual(placement.free_session_route_label(SIDE, [busy, idle]), SESSION)
 
+    def test_a_gui_label_is_routed_only_while_it_has_room(self):
+        """#26809, 2026-10-29: eleven swift tests queued on the std gui label behind nine busy gui runners for
+        45+ minutes. The label existed, so every run was sent to it; a queue deeper than the pool is no room."""
+        Seen = placement.cascade.Seen
+        small = placement.cascade.SMALL
+        busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, GUI, SESSION)) for host in "abcdefghi"]
+        idle = runner("mini-j-glaeda-4", labels=(STD, GUI, SESSION))
+        incident = Seen(waits={}, owned={GUI: 11, SESSION: 7})
+        # An idle runner is room whatever the queue.
+        self.assertEqual(placement.healthy_role_label(GUI, [*busy, idle], incident, {small: 0}), GUI)
+        # Every runner busy and a queue shorter than the pool: each queued job has a machine within one job.
+        self.assertEqual(placement.healthy_role_label(GUI, busy, Seen(waits={}, owned={GUI: 8}), {small: 0}), GUI)
+        # The incident: a queue deeper than the pool while Blacksmith 6 vCPU has a shorter queue per slot.
+        self.assertEqual(placement.healthy_role_label(GUI, busy, incident, {small: 3}), "")
+        self.assertEqual(placement.healthy_role_label(SESSION, busy, incident, {small: 3}), SESSION)
+        # Blacksmith deeper per slot than the gui queue per runner: the owned queue is the shorter one.
+        self.assertEqual(placement.healthy_role_label(GUI, busy, incident, {small: 28}), GUI)
+        # Blacksmith's queue unread: a pool-deep owned queue is not taken blind.
+        self.assertEqual(placement.healthy_role_label(GUI, busy, incident, None), "")
+        # No snapshot (unread, stale): the queue is unknown and the live label stays, as before.
+        self.assertEqual(placement.healthy_role_label(GUI, busy, None, None), GUI)
+        # Nothing live, or unread runners: the input is kept as it was.
+        self.assertEqual(placement.healthy_role_label("", busy, incident, None), "")
+        self.assertEqual(placement.healthy_role_label(GUI, None, incident, None), GUI)
+
+    def test_main_sends_the_gui_jobs_to_blacksmith_when_the_gui_queue_has_no_room(self):
+        busy = [runner(f"mini-{host}-glaeda-4", busy=True, labels=(STD, SIDE, GUI)) for host in "abc"]
+        small, large = placement.cascade.SMALL, placement.cascade.LARGE
+        for owned, expected in (({GUI: 5}, ("", small)), ({GUI: 1}, (GUI, ""))):
+            with self.subTest(owned=owned), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                seen = placement.cascade.Seen(waits={}, owned=owned)
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read",
+                                          return_value=({large: 0, small: 0}, {large: 0, small: 0}, seen)), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = busy
+                    placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output)))
+                lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual((lines["gui_runner"], lines["gui_overflow"]), expected)
+
+    def test_the_rescues_full_rerun_names_the_gui_overflow(self):
+        # Its GUI jobs never read gui_runner; with no route written they fell back to the fixed gui label.
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            output = Path(tmp) / "out"
+            with mock.patch.object(placement.cascade, "read", return_value=(None, None, None)):
+                placement.rerun_main(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR="github-actions[bot]",
+                                         GITHUB_OUTPUT=str(output)), [])
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(lines["gui_overflow"], placement.cascade.SMALL)
+
     def test_attempt_2_and_later_are_unchanged(self):
         # Attempt 2+ keeps its own route (the workflow's expression sends it to the fallback): no decision.
         idle = [runner(f"mini-{host}-glaeda-3") for host in "abc"]
@@ -785,6 +836,29 @@ class CmuxNextWiring(unittest.TestCase):
         context["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="")
         for name in GUI_JOBS:
             self.assertEqual(evaluate(jobs[name]["runs-on"], context), FALLBACK, name)
+
+    def test_a_declined_gui_route_and_the_rescues_rerun_take_the_gui_overflow(self):
+        jobs = self.workflow()["jobs"]
+        bot = "github-actions[bot]"
+        for name in GUI_JOBS:
+            runs_on = jobs[name]["runs-on"]
+            with self.subTest(job=name):
+                # Attempt 1, gui queue deeper than the pool: placement writes the gui routes empty and the
+                # overflow, and no session-lane variable pulls the job back onto an owned queue.
+                declined = self.context(runner=STD)
+                declined["vars"]["CI_SESSION_LANE_RUNNER"] = SESSION
+                declined["needs"][self.PLACEMENT]["outputs"].update(gui_runner="", session_runner="",
+                                                                    gui_overflow=FALLBACK)
+                self.assertEqual(evaluate(runs_on, declined), FALLBACK)
+                # The rescue's full re-run as rerun_main() writes it: no runner, the overflow named.
+                rerun = self.context("2", triggering_actor=bot)
+                rerun["needs"][self.PLACEMENT]["outputs"].update(runner="", gui_overflow=FALLBACK)
+                self.assertEqual(evaluate(runs_on, rerun), FALLBACK)
+                # A carried overflow from an earlier attempt is stale: a person's attempt 3 ignores it.
+                carried = self.context("3", runner=STD)
+                carried["needs"][self.PLACEMENT]["outputs"]["gui_overflow"] = FALLBACK
+                self.assertEqual(evaluate(runs_on, carried), on(name, STD))
+                self.assertEqual(jobs[name]["env"]["CMUX_NEXT_RUNNER"], label_copy(runs_on))
 
     def test_bot_retry_uses_a_newly_free_owned_session_runner(self):
         job_spec = self.workflow()["jobs"]["generated-files"]

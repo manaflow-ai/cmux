@@ -262,6 +262,9 @@ class Seen:
     # release.yml runs (queue_janitor.RESERVED_POOL_WORKFLOW) queued for it. No PR job takes a label's
     # slot while it is above 0 (place()).
     reserved: Mapping[str, int] = dataclasses.field(default_factory=dict)
+    # Each owned (glaeda-*) label's queued jobs in the same snapshot: how deep the GUI and session queues are,
+    # which side_lane_placement.py weighs against the runners online (a busy pool is not a pool with room).
+    owned: Mapping[str, int] = dataclasses.field(default_factory=dict)
 
 
 def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
@@ -309,7 +312,9 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
     waits = {label: float(_field(pools, label, "oldest_queued_minutes")) + age
              if _field(pools, label, "queued") else 0.0 for label in LABELS}
     reserved = {label: _field(pools, label, "reserved_queued") for label in LABELS}
-    return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v})
+    owned = {str(label): _field(pools, str(label), "queued") for label in pools if str(label).startswith("glaeda-")}
+    return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v},
+                owned={k: v for k, v in owned.items() if v})
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],

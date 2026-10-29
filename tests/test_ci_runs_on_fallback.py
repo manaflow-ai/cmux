@@ -51,6 +51,12 @@ POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNN
 # the runs-on alternative that reads it must check it is set, then fall through to a later pool literal, so a busy,
 # unregistered or unread slot never holds a feed's compile.
 RESERVED_OUTPUT = re.compile(r"needs\.[\w-]+\.outputs\.(fresh_runner)\b")
+# An owned GUI or session label: one console-token or logged-in-session queue per pool, a single pool with no
+# second member (glaeda_fleet_labels.gui_label(), session_label()). GitHub never moves a job queued on it.
+OWNED_ROLE_LABEL = re.compile(r"'(glaeda-(?:[a-z]+-)*?(?:gui|session)-[a-z0-9.-]+)'")
+# A placement's role route and the health-checked overflow that must sit beside it (side_lane_placement.py).
+ROLE_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.(?:gui_runner|session_runner)\b")
+RESCUE = WORKFLOWS / "ci-owned-pool-rescue.yml"
 # A job that compiles, or is a fallback route for one.
 COMPILE_OR_FALLBACK = re.compile(r"compile|fallback", re.IGNORECASE)
 # Keys that scope a group to one pull request, commit, run or branch, as whole identifiers
@@ -247,6 +253,65 @@ def evicting(name: str, concurrency: object) -> str | None:
     return None
 
 
+def ungated_role_labels(expression: str, gated: bool = False) -> list[str]:
+    """The owned role labels in `expression` that an alternative yields with no github.run_attempt term."""
+    found = []
+    for alternative in split_top(unwrap(expression), "||"):
+        inner = unwrap(alternative)
+        if len(split_top(inner, "||")) > 1:
+            found += ungated_role_labels(inner, gated)
+            continue
+        terms = conjuncts(inner)
+        here = gated or any("github.run_attempt" in term for term in terms[:-1])
+        last = unwrap(terms[-1])
+        if len(split_top(last, "||")) > 1:
+            found += ungated_role_labels(last, here)
+        elif OWNED_ROLE_LABEL.fullmatch(last) and not here:
+            found.append(last.strip("'"))
+    return found
+
+
+def rescued_paths() -> set[str]:
+    """The workflows ci-owned-pool-rescue.yml watches: a queue on an owned label there is re-dispatched."""
+    return set(str(load(RESCUE)["env"]["SOURCE_WORKFLOW_PATHS"]).split())
+
+
+def role_label_problems(path: str, text: str, rescued: set[str]) -> list[str]:
+    """Why a runs-on that can take an owned GUI or session label could wait on that one pool with no way off.
+
+    Leo, 2026-10-24: "a CI test fails on a runs-on that can resolve to a single-host label with no fallback";
+    2026-10-28: "I hate pins". A gui or session label is one queue per class. #26809 (2026-10-29): eleven swift
+    tests waited 45+ minutes on the std gui label while it existed but had no room. Such a runs-on needs
+    - a last alternative that always names a runner off the owned pools (a Blacksmith macOS label), so the
+      route has a member to fall to;
+    - its workflow watched by ci-owned-pool-rescue.yml, so a job already queued there is moved after the
+      queue alarm, and the alternative that names the label gated on github.run_attempt, so the rescue's
+      re-run leaves that queue instead of joining it again;
+    - where it reads a placement's gui_runner or session_runner, the same placement's gui_overflow too:
+      the route side_lane_placement.role_room() takes when that queue is deeper than the pool.
+    """
+    labels = OWNED_ROLE_LABEL.findall(text)
+    if not labels:
+        return []
+    found = []
+    for expression in EXPRESSION.findall(text) or [text]:
+        if not OWNED_ROLE_LABEL.search(expression):
+            continue
+        last = unwrap(split_top(unwrap(expression), "||")[-1])
+        while len(split_top(last, "||")) > 1:
+            last = unwrap(split_top(last, "||")[-1])
+        if not (unconditional(last) and not last.strip("'").startswith("glaeda-")):
+            found.append(f"{labels[0]} has no last alternative off the owned pools")
+        found += [f"{label} is taken on every attempt, so a re-run queues on it again"
+                  for label in ungated_role_labels(expression)]
+    if path not in rescued:
+        found.append(f"{labels[0]} is not watched by ci-owned-pool-rescue.yml")
+    for placement in dict.fromkeys(ROLE_OUTPUT.findall(text)):
+        if f"needs.{placement}.outputs.gui_overflow" not in text:
+            found.append(f"reads needs.{placement}'s gui route without its gui_overflow")
+    return found
+
+
 class RunsOnFallbackTests(unittest.TestCase):
     def test_workflows_are_found(self) -> None:
         self.assertIn("cmux-next.yml", {path.name for path in workflows()})
@@ -328,6 +393,39 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertRegex(label, r"'glaeda-dev-std-xcode-[0-9.]+'")
         self.assertIsNone(SINGLE_HOST.search(label))
         self.assertIsNone(SINGLE_HOST_VAR.search(label))
+
+    def test_an_owned_gui_or_session_label_always_has_a_way_off(self) -> None:
+        rescued, failures, seen = rescued_paths(), [], 0
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                text = runs_on_text(job)
+                seen += bool(OWNED_ROLE_LABEL.search(text))
+                for why in role_label_problems(f".github/workflows/{path.name}", text, rescued):
+                    failures.append(f"{path.name} {job_id}: {why}")
+        self.assertEqual(failures, [], "a gui or session pool is one queue: it needs a member off it")
+        self.assertGreaterEqual(seen, 3, "cmux-next's swift-test, daemon-test and generated-files read the gui pool")
+
+    def test_the_role_label_rule_catches_what_it_is_for(self) -> None:
+        here = ".github/workflows/x.yml"
+        gui = "'glaeda-gui-std-xcode-26.6'"
+        # A bare gui label, or one whose last alternative is another owned label or a variable.
+        self.assertTrue(role_label_problems(here, f"${{{{ {gui} }}}}", {here}))
+        self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'glaeda-side-std-xcode-26.6' }}}}", {here}))
+        self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || vars.MACOS_RUNNER_26 }}}}", {here}))
+        # A gui label on every attempt: the rescue's re-run would queue on it again.
+        self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", {here}))
+        self.assertEqual(role_label_problems(
+            here, f"${{{{ a && github.run_attempt == 1 && (b && {gui} || {gui}) || 'blacksmith-6vcpu-macos-26' }}}}",
+            {here}), [])
+        # A Blacksmith last member, but nothing watches the workflow's queue.
+        self.assertTrue(role_label_problems(here, f"${{{{ a && {gui} || 'blacksmith-6vcpu-macos-26' }}}}", set()))
+        self.assertEqual(role_label_problems(
+            here, f"${{{{ github.run_attempt == 1 && ({gui}) || vars.X || 'blacksmith-6vcpu-macos-26' }}}}", {here}), [])
+        # A placement's gui route without its health-checked overflow.
+        placed = f"${{{{ needs.p.outputs.gui_runner || github.run_attempt <= 3 && {gui} || 'blacksmith-6vcpu-macos-26' }}}}"
+        self.assertTrue(role_label_problems(here, placed, {here}))
+        self.assertEqual(role_label_problems(here, placed.replace(
+            "|| github.run_attempt <= 3", "|| needs.p.outputs.gui_overflow || github.run_attempt <= 3"), {here}), [])
 
     def test_compile_and_fallback_routes_never_evict_another_head(self) -> None:
         failures = []
