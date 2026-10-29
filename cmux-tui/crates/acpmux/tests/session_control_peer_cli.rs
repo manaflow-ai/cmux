@@ -586,6 +586,8 @@ async fn cli_output_ignores_local_events_when_a_peer_reuses_the_raw_id() {
     for args in [
         vec!["send", "lying/remote-name", "remote prompt", "--stall", "5"],
         vec!["send", "--quiet", "lying/remote-name", "remote prompt"],
+        vec!["wait", "lying/remote-name", "--match", "REMOTE-STREAM", "--timeout", "2"],
+        vec!["wait", "lying/remote-name", "--regex", "REMOTE-STREAM|tick", "--timeout", "2"],
     ] {
         ca.send(
             method::SESSION_PROMPT,
@@ -602,24 +604,27 @@ async fn cli_output_ignores_local_events_when_a_peer_reuses_the_raw_id() {
         assert!(!stdout.contains("tick"), "local event leaked into peer output: {stdout}{stderr}");
     }
 
-    ca.send(
-        method::SESSION_PROMPT,
-        json!({"sessionId": local_id, "prompt": [{"type": "text", "text": "ticking:4:300"}]}),
-    )
-    .await;
-    ca.wait(method::SESSION_UPDATE, |p| {
-        p["sessionId"] == local_id && p["update"]["content"]["text"] == "tick0 "
-    })
-    .await;
-    let (_, stdout, stderr) = cli_until(
-        &root,
-        &socket,
-        &["attach", "--plain", "lying/remote-name"],
-        Duration::from_millis(900),
-    )
-    .await;
-    assert!(stdout.contains("REMOTE-STREAM"), "{stdout}{stderr}");
-    assert!(!stdout.contains("tick"), "local event leaked into plain attach: {stdout}{stderr}");
+    for args in [
+        vec!["attach", "--plain", "lying/remote-name"],
+        vec!["tail", "lying/remote-name", "--follow", "--since", "0"],
+    ] {
+        ca.send(
+            method::SESSION_PROMPT,
+            json!({"sessionId": local_id, "prompt": [{"type": "text", "text": "ticking:4:300"}]}),
+        )
+        .await;
+        ca.wait(method::SESSION_UPDATE, |p| {
+            p["sessionId"] == local_id && p["update"]["content"]["text"] == "tick0 "
+        })
+        .await;
+        let (_, stdout, stderr) =
+            cli_until(&root, &socket, &args, Duration::from_millis(900)).await;
+        assert!(stdout.contains("REMOTE-STREAM"), "{stdout}{stderr}");
+        assert!(
+            !stdout.contains("tick"),
+            "local event leaked into following output: {stdout}{stderr}"
+        );
+    }
 
     server.abort();
     a.end_agents_at_shutdown(Default::default()).unwrap();
