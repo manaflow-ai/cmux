@@ -728,7 +728,8 @@ mod forward_projection_tests {
         assert_eq!(
             messages[0].msg,
             json!({"sessionId": sender.id, "sender": sender_meta,
-            "text": "already accepted", "messageId": "d-restart", "at": 1234})
+            "text": "already accepted", "messageId": "d-restart", "at": 1234,
+            "_acpmuxTarget": receiver.id})
         );
         assert_eq!(
             receiver.meta().event_count,
