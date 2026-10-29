@@ -214,6 +214,9 @@ final class SidebarListView: NSView {
     /// The app's left presses and releases while this list is in a window (`observePointerEnds`).
     private var pointerMonitor: Any?
     var onPointerKeyDown: ((NSEvent) -> Void)?
+    /// Other sidebar rows share the list's pointer-end and focus-loss routing.
+    var hasAdditionalPointerGesture: (() -> Bool)?
+    var onPointerGestureEnd: (() -> Void)?
     /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.
     var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     override func viewWillMove(toWindow newWindow: NSWindow?) {

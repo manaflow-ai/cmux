@@ -21,6 +21,7 @@ extension SidebarListViewComponents {
         if drag != nil { cancelDrag() }
         press = nil
         syncRowStates()
+        onPointerGestureEnd?()
     }
 
     /// The app lost focus: the gesture ends and no row stays hovered (the pointer's next move hovers again).
@@ -38,7 +39,7 @@ extension SidebarListViewComponents {
     }
 
     /// Whether a gesture is alive: a press or a drag the list still holds.
-    var holdsPointerGesture: Bool { press != nil || drag != nil }
+    var holdsPointerGesture: Bool { press != nil || drag != nil || hasAdditionalPointerGesture?() == true }
 
     /// A left press or release anywhere in the app, before its window gets it (`observePointerEnds`).
     /// - A press while this list still holds one: the old press's release never came (a menu, a modal session or

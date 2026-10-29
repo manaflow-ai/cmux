@@ -32,6 +32,7 @@ final class SidebarPriorityPanelView: NSView {
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
     private(set) var draggingID: String?
+    var holdsPointerGesture: Bool { draggingID != nil || rows.values.contains(where: \.holdsPointerGesture) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -54,6 +55,11 @@ final class SidebarPriorityPanelView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     nonisolated override var isFlipped: Bool { true }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if window !== newWindow { endPointerGesture(animated: false) }
+        super.viewWillMove(toWindow: newWindow)
+    }
 
     /// The header's height and the rows' full height; the sidebar caps it (`height(maximum:)`).
     var headerHeight: CGFloat { SidebarDensityTokens.rowHeight }
@@ -215,8 +221,8 @@ final class SidebarPriorityPanelView: NSView {
     }
 
     func keyEventSeen(_ event: NSEvent) {
-        guard event.keyCode == 53, draggingID != nil, owns(event.window) else { return }
-        cancelDrag()
+        guard event.keyCode == 53, holdsPointerGesture, owns(event.window) else { return }
+        endPointerGesture()
     }
 
     private func owns(_ eventWindow: NSWindow?) -> Bool {
@@ -232,19 +238,19 @@ final class SidebarPriorityPanelView: NSView {
 
     private func stopPresses() {
         for row in rows.values { row.cancelPress() }
-        guard let id = draggingID else { return }
         draggingID = nil
-        rows[id]?.layer?.zPosition = 0
     }
 
-    private func cancelDrag() {
-        guard draggingID != nil else { return }
+    /// Every cancellation clears pending presses as well as a lifted row, without committing a drop.
+    func endPointerGesture(animated: Bool = true) {
+        guard holdsPointerGesture else { return }
+        let wasDragging = draggingID != nil
         stopPresses()
-        placeRows(animated: window != nil)
+        if wasDragging { placeRows(animated: animated && window != nil) }
     }
 
     override func cancelOperation(_ sender: Any?) {
-        if draggingID != nil { cancelDrag() }
+        endPointerGesture()
     }
 
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.

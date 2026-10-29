@@ -16,6 +16,7 @@ final class SidebarPriorityRowView: NSView {
     private var pressStart: NSPoint?
     private var dragging = false
     private var pressCancelled = false
+    var holdsPointerGesture: Bool { pressStart != nil }
 
     private let title = ChromeLabel(labelWithString: "")
     private let placeLabel = ChromeLabel(labelWithString: "")
@@ -242,6 +243,7 @@ final class SidebarPriorityRowView: NSView {
         pressCancelled = true
         pressStart = nil
         dragging = false
+        layer?.zPosition = 0
     }
 
     override func accessibilityPerformPress() -> Bool {

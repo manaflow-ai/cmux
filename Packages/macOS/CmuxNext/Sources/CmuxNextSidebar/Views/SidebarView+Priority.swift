@@ -32,6 +32,8 @@ extension SidebarViewComponents {
     }
 
     func buildPriority() {
+        list.hasAdditionalPointerGesture = { [weak self] in self?.priorityPanelView.holdsPointerGesture ?? false }
+        list.onPointerGestureEnd = { [weak self] in self?.priorityPanelView.endPointerGesture() }
         list.onPointerKeyDown = { [weak self] event in
             self?.priorityPanelView.keyEventSeen(event)
         }
