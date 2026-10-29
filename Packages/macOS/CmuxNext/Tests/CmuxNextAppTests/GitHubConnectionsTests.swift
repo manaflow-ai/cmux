@@ -116,7 +116,7 @@ import Testing
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, key in
             if op == "integration.connect" {
                 keys.append(key)
-                if keys.count == 1 { throw GitHubConnections.GitHubFailure.refused }
+                if keys.count == 1 { throw URLError(.networkConnectionLost) }
                 return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
             }
             return self.listing
@@ -127,6 +127,39 @@ import Testing
         #expect(keys.count == 2)
         #expect(keys.first! != nil)
         #expect(keys[0] == keys[1])
+    }
+
+    @Test func policyRejectionDoesNotReplayAfterPolicyChanges() async throws {
+        var keys: [String] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, key in
+            if op == "integration.connect" {
+                keys.append(try #require(key))
+                if keys.count == 1 { throw GitHubConnections.GitHubFailure.refused }
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            return self.listing
+        }, open: { _ in })
+        await model.connect()
+        #expect(model.error)
+        await model.connect()
+        #expect(!model.error)
+        try #require(keys.count == 2)
+        #expect(keys[0] != keys[1])
+    }
+
+    @Test func restoredPendingConnectionDoesNotCreateADuplicate() async {
+        var connects = 0
+        var opened = 0
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in
+            if op == "integration.connect" { connects += 1 }
+            return ["connections": [["id": "pending", "provider": "github", "created_by": "user", "status": "pending"]], "providers": [["provider": "github", "configured": true]]]
+        }, open: { _ in opened += 1 })
+        await model.connect()
+        #expect(model.pageState["canConnect"] == false)
+        #expect(model.pageState["outcome"] == "pending")
+        await model.perform("githubConnect")
+        #expect(connects == 0)
+        #expect(opened == 0)
     }
 
     @Test func sharedConnectDoesNotCreateAnotherActiveConnection() async {
@@ -164,6 +197,7 @@ import Testing
                 keys.append(key)
                 return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
             }
+            if keys.isEmpty { return self.listing }
             return ["connections": [["id": "sample", "provider": "github", "status": "pending"]], "providers": [["provider": "github", "configured": true]]]
         }, open: { _ in }, now: { clock })
         await model.connect()
