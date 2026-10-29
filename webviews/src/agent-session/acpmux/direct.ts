@@ -209,9 +209,8 @@ export const MCP_RECONNECT_METHOD = "_acpmux/mcp/reconnect";
 /// (`readRunningLimit`): enough for an attach and a record landing together, never a loop.
 const LIMIT_READS = 3;
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
-/// How long Stop waits for the turn to end before the pane stops showing it as working. It is
-/// shorter than acpmux's own grace (`CANCEL_GRACE`, 10 s), so a slow agent's turn stops showing
-/// as working before acpmux's forced end and its note.
+/// Non-compaction turns retain acpmux's normal grace; a compaction Stop is settled by its
+/// immediate cancelled turn_result and never gets a local forced-end notice.
 const STOP_GRACE_MS = 5_000;
 const COMMANDS_KIND = "available_commands_update";
 /// How many withdrawn queue prompts a snapshot names (`queueWithdrawn`).
@@ -1281,6 +1280,10 @@ export class AcpmuxDirectClient {
   /// The turns this page saw end (`turn_result`): a summary that still names one as running was
   /// read before it ended (``staleRun``).
   private endedTurns = new Set<string>();
+  /// A forced Stop retires its compaction. The next explicit prompt fences the old compaction's
+  /// delayed boundary; a new running update after that prompt starts a fresh row.
+  private retiredCompactionTurnId?: string;
+  private compactionFenceSeq?: number;
   /// Each steer's row by its promptId. A steer that reaches the agent as its turn ends runs as the
   /// next prompt with the same promptId, recorded again: that prompt's row replaces the steer's.
   private steerRows = new Map<string, string>();
@@ -1932,6 +1935,8 @@ export class AcpmuxDirectClient {
     this.interrupting = undefined;
     this.awaiting = undefined;
     this.endedTurns.clear();
+    this.retiredCompactionTurnId = undefined;
+    this.compactionFenceSeq = undefined;
     this.continuations.clear();
     this.steerRows.clear();
     this.promptsShown.clear();
@@ -4071,7 +4076,16 @@ export class AcpmuxDirectClient {
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
         const promptId = typeof msg.promptId === "string" ? msg.promptId : undefined;
-        if (msg.steer !== true && typeof msg.turnId === "string") this.runningTurnId = msg.turnId;
+        if (msg.steer !== true && typeof msg.turnId === "string") {
+          this.runningTurnId = msg.turnId;
+          // A forced compaction result can follow the next prompt's echo. Retire the old inferred
+          // row before that prompt so the delayed boundary cannot complete it or close the new turn.
+          if (this.retiredCompactionTurnId !== undefined) {
+            this.compactionFenceSeq = event.seq;
+            this.settleCompactions(event.seq, false);
+            this.retiredCompactionTurnId = undefined;
+          }
+        }
         const text = typeof msg.text === "string" ? msg.text : undefined;
         const fallbackPromptId =
           promptId ??
@@ -4273,6 +4287,7 @@ export class AcpmuxDirectClient {
         if (event.kind === "turn_result") this.interrupting = undefined;
         const turnId = resultTurnId;
         if (event.kind === "turn_result" && turnId) {
+          if (msg.cancelForced === true) this.retiredCompactionTurnId = turnId;
           this.endedTurns.add(turnId);
           if (this.runningTurnId === turnId) this.runningTurnId = undefined;
         }
@@ -4432,6 +4447,9 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "compaction") {
       const compaction = compactionOf(update);
       if (!compaction) return;
+      // The cancelled compaction's boundary may arrive after the next prompt. It has no turn id,
+      // so fence non-running updates until a fresh running update proves a new compaction.
+      if (this.compactionFenceSeq !== undefined && compaction.state !== "running") return;
       // A note between messages: the text and tool fold before it close.
       this.endAssistantSegment();
       this.streamingActivity = undefined;
@@ -4450,12 +4468,14 @@ export class AcpmuxDirectClient {
               (compaction.state !== "running" ||
                 event.at - (this.compactionHeardAt.get(row.id) ?? -Infinity) <= COMPACTION_REPEAT_WINDOW))) &&
           (row.seq ?? 0) < event.seq &&
-          (row.seq ?? 0) > (running?.seq ?? -1)
+          (row.seq ?? 0) > (running?.seq ?? -1) &&
+          (this.compactionFenceSeq === undefined || (row.seq ?? 0) >= this.compactionFenceSeq)
         )
           running = row;
       const id = running?.id ?? `compaction-${event.seq}`;
       if (compaction.state === "running") this.compactionHeardAt.set(id, event.at);
       else this.compactionHeardAt.delete(id);
+      if (compaction.state === "running") this.compactionFenceSeq = undefined;
       this.rows.set(id, {
         id,
         version: (running?.version ?? 0) + 1,
@@ -5531,10 +5551,11 @@ export class AcpmuxDirectClient {
     });
     this.wire.sent(text, "session/cancel");
     this.socket.send(text);
-    // Stop always frees the chat: a turn still open after the grace (acpmux ends one whose agent
-    // ignores the cancel; an older one does not) stops showing as working, and the chat says so.
-    const sessionId = this.actingSessionId;
-    const generation = this.selectionGeneration;
+    const compacting = [...this.rows.values()].some(
+      (row) => row.kind === "compaction" && row.compaction?.state === "running",
+    );
+    // The daemon's cancelled turn_result is the completion authority while compacting. Do not
+    // invent a local completion or forced-end notice while that result is in flight.
     clearTimeout(this.stopTimer);
     this.stopAfterSeq = this.lastSeq;
     const openerTurnId = this.turnOpener?.msg?.turnId;
@@ -5543,12 +5564,16 @@ export class AcpmuxDirectClient {
       this.runningTurnId ??
       (typeof openerTurnId === "string" && openerTurnId ? openerTurnId : undefined) ??
       (typeof listedTurnId === "string" && listedTurnId ? listedTurnId : undefined);
-    this.stopTimer = setTimeout(() => {
-      if (this.closed || generation !== this.selectionGeneration || this.actingSessionId !== sessionId) return;
-      if (!this.turnOpen && this.summary?.status !== "running") return;
-      this.stopGaveUp = true;
-      this.notice(translate("stop.forced"));
-    }, STOP_GRACE_MS);
+    if (!compacting) {
+      const sessionId = this.actingSessionId;
+      const generation = this.selectionGeneration;
+      this.stopTimer = setTimeout(() => {
+        if (this.closed || generation !== this.selectionGeneration || this.actingSessionId !== sessionId) return;
+        if (!this.turnOpen && this.summary?.status !== "running") return;
+        this.stopGaveUp = true;
+        this.notice(translate("stop.forced"));
+      }, STOP_GRACE_MS);
+    }
   }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {

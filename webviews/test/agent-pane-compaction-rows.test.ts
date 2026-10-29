@@ -281,6 +281,10 @@ test("a compacting forced Stop is one notice and exposes Continue after the matc
   await client.cancel();
   await client.cancel();
   expect(daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel")).toHaveLength(1);
+  // A compacting Stop settles only when acpmux publishes its terminal result; the GUI must not
+  // manufacture a forced-end notice or Continue while that result is still in flight.
+  expect(rows().filter((row) => row.kind === "notice" && row.text === translate("stop.forced"))).toHaveLength(0);
+  expect(turnView(rows(), new Set(), { now: START + 30_000 }).some((row) => row.resumable)).toBe(false);
   daemon.push(
     record(
       [
@@ -329,8 +333,48 @@ test("an interrupted continuation drops its turn-id summary when its queued prom
   const { client, rows } = await connect(daemon);
   const summary = () => rows().find((row) => row.id === "summary-turn-1");
   expect(summary()?.continued).toBe(true);
-  daemon.push(record([["mux", "queue_removed", { promptId: "prompt-2" }]], 6));
+  daemon.push(record([["mux", "queue_removed", { promptId: "prompt-2", _meta: { acpmux: { withdrawn: true } } }]], 6));
   expect(summary()?.continued).toBeUndefined();
+  client.close();
+});
+
+test("a late cancelled compaction boundary is fenced after the next explicit prompt", async () => {
+  const forced = {
+    status: "cancelled",
+    stopReason: "cancelled",
+    cancelForced: true,
+    turnId: "turn-old",
+    turnSeq: 2,
+    promptId: "prompt-old",
+  };
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "compact this", promptId: "prompt-old", turnId: "turn-old" }],
+      ["mux", "turn_started", { turnId: "turn-old", promptId: "prompt-old" }],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["mux", "turn_result", forced],
+      ["mux", "user_message", { text: "continue", promptId: "prompt-new", turnId: "turn-new" }],
+      ["mux", "turn_started", { turnId: "turn-new", promptId: "prompt-new" }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  const compactions = () => rows().filter((row) => row.kind === "compaction");
+  expect(compactions().map((row) => row.compaction?.state)).toEqual(["failed"]);
+
+  // The old cancelled compaction reports its boundary after the new prompt. It must not revive
+  // the old row or create a row that looks like the new turn's compaction.
+  daemon.push(
+    record(
+      [["in", "compaction", update({ sessionUpdate: "compaction", state: "completed", preTokens: 12, postTokens: 4 })]],
+      7,
+    ),
+  );
+  expect(compactions().map((row) => row.compaction?.state)).toEqual(["failed"]);
+
+  // A genuine post-prompt compaction still gets its own row and can complete normally.
+  daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })]], 8));
+  daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })]], 9));
+  expect(compactions().map((row) => row.compaction?.state)).toEqual(["failed", "completed"]);
   client.close();
 });
 
