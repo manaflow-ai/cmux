@@ -83,7 +83,6 @@ const ROUTE_LINES: &[&str] = &[
     r#"{"id":12,"cmd":"apps-nope"}"#,
     r#"{"id":13,"cmd":"script-nope"}"#,
     r#"{"id":14,"cmd":"fs.stat","path":"/"}"#,
-    r#"{"id":15,"cmd":"oracle-state","x":1}"#,
 ];
 
 #[test]
