@@ -879,6 +879,10 @@ extension LiveCoordinator {
 
     private func updateDiagnostics(_ session: MacSession) {
         guard sessions[session.macID] === session else { return }
+        guard session.link.phase != .idle else {
+            if store.macLinkDiagnostics.removeValue(forKey: session.macID) != nil { return }
+            return
+        }
         var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media)]
         if let error = session.chatsError { parts.append("Chats: \(error)") }
         if let error = session.daemonError ?? session.workspaces.lastError { parts.append("Workspaces: \(error)") }

@@ -204,12 +204,14 @@ public struct ConnectionBannerState: Sendable, Hashable {
     /// A second line, smaller, for what to do next (pairing: where the Mac asks).
     public var detail: String? = nil
     public var offersRetry = false
+    /// Stable identity so two Macs with the same state still refresh the banner.
+    public var identity: String? = nil
 
-    public static func reconnecting(to _: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…") }
+    public static func reconnecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: mac) }
     public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true)
-    public static func macOffline(_ _: String) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true) }
+    public static func macOffline(_ mac: String) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: mac) }
     public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
-    public static func connecting(to _: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…") }
+    public static func connecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: mac) }
     public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true)
     /// An application failure distinct from connection state.
     public static func failed(_ text: String) -> Self { Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text) }
