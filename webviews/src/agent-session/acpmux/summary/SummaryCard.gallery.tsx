@@ -23,7 +23,7 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
   "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions"
-> & { tabRowHeight?: number; preview?: boolean };
+> & { tabRowHeight?: number; preview?: boolean; inspectorPush?: boolean };
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -38,12 +38,26 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard({ tabRowHeight, preview, ...props }: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: Props) {
   return (
     <div
       className="acpmux-shell"
       data-tab-row={tabRowHeight ? "" : undefined}
-      style={{ height: "100%", "--acpmux-tab-row-height": `${tabRowHeight ?? 0}px` } as CSSProperties}
+      data-inspector-chat-placement={inspectorPush ? "push" : undefined}
+      style={
+        {
+          height: "100%",
+          "--acpmux-tab-row-height": `${tabRowHeight ?? 0}px`,
+          ...(inspectorPush
+            ? {
+                "--acpmux-inspector-top": `${tabRowHeight ?? 0}px`,
+                // ChatInspector.tsx writes this as a measured shell px value. The fixture is 1000px
+                // wide, with Preview's 46vw artifact resolving to 460px at that width.
+                "--acpmux-header-room": preview ? "540px" : "1000px",
+              }
+            : {}),
+        } as CSSProperties
+      }
     >
       <div className="acpmux-main" data-summary="inline">
         {tabRowHeight && (
@@ -57,12 +71,26 @@ function GallerySummaryCard({ tabRowHeight, preview, ...props }: Props) {
           </div>
         )}
       </div>
+      {inspectorPush && (
+        <aside
+          className="ui-glass ui-glass-floats acpmux-chat-inspector"
+          data-placement="push"
+          data-presence="shown"
+          aria-label="Session Info"
+          style={{ width: "220px" }}
+        >
+          <div className="acpmux-chat-inspector__head">Session Info</div>
+          <div className="acpmux-chat-inspector__body">
+            <div className="acpmux-chat-inspector-section">Pushed Session Info</div>
+          </div>
+        </aside>
+      )}
       {preview ? (
         <ArtifactPanel
           artifact={{ kind: "markdown", lang: "markdown", code: "# Preview\nA document beside the chat." }}
           onClose={none}
         />
-      ) : (
+      ) : inspectorPush ? null : (
         <SummaryCard
           card={card}
           subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: none }}
@@ -166,6 +194,14 @@ export default componentEntry<Props>({
     "preview-tab-row": {
       note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
       props: { tabRowHeight: 32, preview: true, rows: [] },
+    },
+    "preview-pushed-inspector-tab-row": {
+      note: "Preview and a pushed Session Info card share the pane; the native tools span both side-panel terms.",
+      props: { tabRowHeight: 32, preview: true, inspectorPush: true, rows: [] },
+    },
+    "inspector-pushed-tab-row": {
+      note: "A pushed Session Info card keeps the native tools at the pane edge.",
+      props: { tabRowHeight: 32, inspectorPush: true, rows: [] },
     },
     "shared-tab-row": {
       note: "The inline Summary column beside the chat, under a 32px native tab row. Two commands and a failed subagent keep long counts visible with a right ellipsis, outside the native header holes.",

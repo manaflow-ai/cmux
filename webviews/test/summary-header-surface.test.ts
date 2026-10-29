@@ -120,7 +120,10 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
             );
             await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
             await page.locator(".acpmux-shell").evaluate((node, pixels) => {
-              (node as HTMLElement).style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
+              const shell = node as HTMLElement;
+              shell.style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
+              if (shell.dataset.inspectorChatPlacement === "push")
+                shell.style.setProperty("--acpmux-inspector-top", `${pixels}px`);
             }, height);
             await page.locator(".acpmux-artifact").waitFor();
             if (process.env.CMUX_SUMMARY_CAPTURE_DIR) {
@@ -150,6 +153,73 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
             expect(actual.bottom).toBeLessThanOrEqual(0);
             expect(actual.toolsWidth).toBeGreaterThan(0);
             expect(actual.toolsRight).toBe(actual.shellRight);
+          } finally {
+            await page.close();
+          }
+        });
+      }
+    }
+  }
+  for (const variant of ["preview-tab-row", "preview-pushed-inspector-tab-row", "inspector-pushed-tab-row"] as const) {
+    for (const height of [28, 40]) {
+      for (const theme of ["Apple System Colors", "Apple System Colors Light"]) {
+        test(`${variant} keeps tools at the shell edge at ${height}px (${theme})`, async () => {
+          const page = await browser.newPage({
+            viewport: { width: 1000, height: 560 },
+            reducedMotion: "reduce",
+          });
+          try {
+            const port = (server.httpServer!.address() as { port: number }).port;
+            await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.summary-card", { variant, theme })}`);
+            await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+            await page.locator(".acpmux-shell").evaluate((node, pixels) => {
+              const shell = node as HTMLElement;
+              shell.style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
+              if (shell.dataset.inspectorChatPlacement === "push")
+                shell.style.setProperty("--acpmux-inspector-top", `${pixels}px`);
+            }, height);
+            if (
+              process.env.CMUX_SUMMARY_CAPTURE_DIR &&
+              variant === "preview-pushed-inspector-tab-row" &&
+              height === 28
+            ) {
+              await mkdir(process.env.CMUX_SUMMARY_CAPTURE_DIR, { recursive: true });
+              await page.screenshot({
+                path: path.join(
+                  process.env.CMUX_SUMMARY_CAPTURE_DIR,
+                  `preview-pushed-inspector-${theme.endsWith("Light") ? "light" : "dark"}.png`,
+                ),
+              });
+            }
+            const actual = await page.evaluate(() => {
+              const shell = document.querySelector<HTMLElement>(".acpmux-shell")!;
+              const shellRect = shell.getBoundingClientRect();
+              const tools = document.querySelector<HTMLElement>(".acpmux-header-tools")!.getBoundingClientRect();
+              const panels = [
+                ...document.querySelectorAll<HTMLElement>(
+                  ".acpmux-artifact, .acpmux-chat-inspector[data-placement=push]",
+                ),
+              ].map((panel) => {
+                const rect = panel.getBoundingClientRect();
+                return {
+                  top: rect.top - shellRect.top,
+                  intersectsTools:
+                    rect.left < tools.right &&
+                    rect.right > tools.left &&
+                    rect.top < tools.bottom &&
+                    rect.bottom > tools.top,
+                };
+              });
+              return {
+                toolsWidth: tools.width,
+                toolsRight: tools.right,
+                shellRight: shellRect.right,
+                panels,
+              };
+            });
+            expect(actual.toolsWidth).toBeGreaterThan(0);
+            expect(actual.toolsRight).toBe(actual.shellRight);
+            expect(actual.panels.every((panel) => panel.top >= height && !panel.intersectsTools)).toBe(true);
           } finally {
             await page.close();
           }
