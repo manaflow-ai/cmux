@@ -136,8 +136,12 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
   });
 
   describe("a chat on an SSH machine", () => {
-    for (const rejected of ["folder", "model"] as const) {
-      test(`a rejected seeded peer ${rejected} keeps its connection for an explicit corrected retry`, async () => {
+    for (const rejected of ["folder", "model", "start"] as const) {
+      const name =
+        rejected === "start"
+          ? "composer Send after a rejected seeded peer start runs the prompt only on that peer"
+          : `a rejected seeded peer ${rejected} keeps its connection for an explicit corrected retry`;
+      test(name, async () => {
         const cwd = "/home/dev/project";
         const model = "fixture-model";
         const seed = {
@@ -146,8 +150,14 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
           cwd: rejected === "folder" ? "/missing/project" : cwd,
           model: rejected === "model" ? "missing-model" : model,
         };
-        const failure = rejected === "folder" ? "Peer folder does not exist" : "Peer model is unavailable";
+        const failure =
+          rejected === "folder"
+            ? "Peer folder does not exist"
+            : rejected === "model"
+              ? "Peer model is unavailable"
+              : "Peer could not start the chat";
         type Start = { cwd?: string; _meta?: { acpmux?: { peer?: string; harness?: string; model?: string } } };
+        type Prompt = { sessionId?: string; prompt?: { type: string; text?: string }[] };
         type Fixture = { ready: number; persisted: string[] };
         type Pane = {
           peerStartupFixture: Fixture;
@@ -155,11 +165,22 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
           seededPeerAction?: unknown;
         };
         const starts: Start[] = [];
+        const prewarms: Start[] = [];
+        const prompts: Prompt[] = [];
+        const prompted = Promise.withResolvers<void>();
         const connections = { opened: 0, initialized: 0, closed: 0 };
         const live = new Set<Bun.ServerWebSocket<unknown>>();
         const closed = Promise.withResolvers<void>();
-        let created = false;
-        const chat = () => ({ ...summary(), cwd, harness: "fake", model, status: "idle" });
+        let created: string | undefined;
+        const chat = () => ({
+          ...summary(),
+          sessionId: created ?? SESSION,
+          peer: created === SESSION ? PEER : undefined,
+          cwd,
+          harness: "fake",
+          model,
+          status: "idle",
+        });
         const peerDaemon = Bun.serve({
           port: 0,
           hostname: "127.0.0.1",
@@ -177,22 +198,40 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
               closed.resolve();
             },
             message(ws, raw) {
-              const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Start };
+              const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Start & Prompt };
               if (message.id === undefined) return;
               if (message.method === "initialize") connections.initialized += 1;
               let result: unknown;
-              if (message.method === "session/new") {
+              if (message.method === "initialize") {
+                result = {
+                  protocolVersion: 1,
+                  _meta: { acpmux: { origin: "local", extensions: ["_acpmux/prewarm"] } },
+                };
+              } else if (message.method === "_acpmux/prewarm") {
+                prewarms.push(message.params ?? {});
+                result = null;
+              } else if (message.method === "session/new") {
                 const params = message.params ?? {};
                 starts.push(params);
-                if (params.cwd !== cwd || params._meta?.acpmux?.model !== model) {
+                if (
+                  rejected === "start"
+                    ? starts.length === 1
+                    : params.cwd !== cwd || params._meta?.acpmux?.model !== model
+                ) {
                   // A normal RPC refusal leaves the established transport healthy.
                   ws.send(
                     JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32602, message: failure } }),
                   );
                   return;
                 }
-                created = true;
-                result = { sessionId: SESSION };
+                // Accept a mistakenly local start too, so the regression observes its routing
+                // and prompt destination instead of passing because the daemon refused it.
+                created = params._meta?.acpmux?.peer === PEER ? SESSION : "local-session-1";
+                result = { sessionId: created };
+              } else if (message.method === "session/prompt") {
+                prompts.push(message.params ?? {});
+                result = { stopReason: "end_turn" };
+                prompted.resolve();
               } else if (message.method === "_acpmux/watch") result = { sessions: created ? [chat()] : [] };
               else if (message.method === "_acpmux/attach") result = { session: chat(), lastSeq: 0, events: [] };
               else result = answer(message.method);
@@ -266,18 +305,41 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
             }),
           ).toBe(true);
 
-          const started = await page.evaluate(
-            async (args) => {
-              const w = window as unknown as Pane;
-              return w.cmuxAcpmuxActions["chat.new"]!(args);
-            },
-            { peer: PEER, harness: "fake", cwd, model },
-          );
-          expect(started).toBe(SESSION);
-          expect(await page.evaluate(() => (window as unknown as Pane).peerStartupFixture)).toEqual({
-            ready: 1,
-            persisted: [SESSION],
-          });
+          if (rejected === "start") {
+            // Use the real composer path: projectDraft used to call chat.new with cwd but no
+            // peer, bypassing ensureSession's remote retry and sending this prompt locally.
+            await page.clock.resume();
+            const editor = page.locator(".acpmux-composer-prompt .ProseMirror");
+            await editor.fill("Run this only on the peer");
+            await editor.press("Enter");
+            await prompted.promise;
+            expect(prompts).toEqual([
+              expect.objectContaining({
+                sessionId: SESSION,
+                prompt: [{ type: "text", text: "Run this only on the peer" }],
+              }),
+            ]);
+            // The daemon supports local prewarm, but typing into a pending peer chat must not
+            // run that peer's project folder on this computer before the actual remote start.
+            expect(prewarms).toEqual([]);
+            const fixture = await page.evaluate(() => (window as unknown as Pane).peerStartupFixture);
+            expect(fixture.ready).toBe(1);
+            expect(fixture.persisted.length).toBeGreaterThan(0);
+            expect(fixture.persisted.every((id) => id === SESSION)).toBe(true);
+          } else {
+            const started = await page.evaluate(
+              async (args) => {
+                const w = window as unknown as Pane;
+                return w.cmuxAcpmuxActions["chat.new"]!(args);
+              },
+              { peer: PEER, harness: "fake", cwd, model },
+            );
+            expect(started).toBe(SESSION);
+            expect(await page.evaluate(() => (window as unknown as Pane).peerStartupFixture)).toEqual({
+              ready: 1,
+              persisted: [SESSION],
+            });
+          }
           expect(starts).toHaveLength(2);
           expect(starts[1]).toEqual(
             expect.objectContaining({ cwd, _meta: { acpmux: { peer: PEER, harness: "fake", model } } }),
