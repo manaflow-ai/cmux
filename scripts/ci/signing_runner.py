@@ -19,7 +19,8 @@ so on an owned Mac it must have the mini to itself:
   waited on.
 - With no drained mini (under steady PR load there never is one: run 40859232446), a nightly-next signing job is
   sent to drain one: an idle runner of glaeda's nightly slot (NIGHTLY_SLOT_LABEL, offered only when OWNED_LABELS
-  names it, which nightly.yml's does and the DEV daily's does not) on the mini with the fewest busy runners. The
+  names it, which nightly.yml's does and the DEV daily's does not), by its own label: glaeda pins only root
+  runners (glaeda-runner-<name>), so GitHub hands the job to whichever slot is idle. The
   slot listens however full its mini is, and the waiting signing job, a nightly job, stops every other admission
   and holds every other runner's gate there (glaeda FEED_FIRST): the running jobs finish, nothing new starts, and it
   takes the whole mini within glaeda's SIGNING_DRAIN_WAIT_S (600 s), or is refused and the run's Blacksmith twin
@@ -100,6 +101,7 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
         return "", f"no owned pool label among {list(labels) or 'none'}"
     busy: collections.Counter[str] = collections.Counter()
     idle: dict[str, list[tuple[str, str]]] = {}
+    slots: list[tuple[str, str, str]] = []  # (mini, nightly slot label, runner name) of every idle nightly slot
     for runner in runners:
         name = str(runner.get("name") or "")
         mini = member(name)
@@ -120,15 +122,23 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
         label = next((label for label in wanted if pool.carries_office_pool_label(runner, label)), "")
         if label and pool.runner_label(name) in names:
             idle.setdefault(mini, []).append((label, name))
+        # glaeda gives the glaeda-runner-<name> label to root runners only (glaeda-cmux-runner, warm affinity), so
+        # a nightly slot can never be pinned; it is offered by its own label (SLOT_DRAIN below).
+        slot = next((label for label in wanted if NIGHTLY_SLOT_LABEL.fullmatch(label) and label in names), "")
+        if slot:
+            slots.append((mini, slot, name))
     drained = sorted(mini for mini in idle if mini not in busy)
     if not drained:
-        slots = sorted((busy[mini], mini, label, name) for mini, found in idle.items()
-                       for label, name in found if NIGHTLY_SLOT_LABEL.fullmatch(label))
+        # SLOT_DRAIN: the nightly slot's own label, unpinned. GitHub hands the job to one of the idle slots, and
+        # glaeda drains that slot's mini for it (holds every new job off it, then the whole mini, or a refusal and
+        # the run's Blacksmith twin within 600 s). No slot carries a runner label to pin, so naming the least busy
+        # mini's slot was never possible (run 40878506769: 3 idle nightly slots, and no pick).
         if slots:
-            count, mini, label, name = slots[0]
-            return (json.dumps([label, pool.runner_label(name)], separators=(",", ":")),
-                    f"`{name}` on {mini}, to drain: no mini is drained now, and glaeda holds every new job off "
-                    f"{mini} while this one waits for its {count} busy runner(s) to finish")
+            label = sorted({slot for _, slot, _ in slots})[0]
+            ready = sorted(f"{name} ({busy[mini]} busy beside it)" for mini, slot, name in slots if slot == label)
+            return (json.dumps([label], separators=(",", ":")),
+                    f"`{label}` to drain: no mini is drained now; {len(ready)} idle nightly slot(s): "
+                    f"{', '.join(ready)}; glaeda holds every new job off the slot's mini while this one waits there")
         return "", f"no mini with an idle {' or '.join(f'`{label}`' for label in wanted)} runner is drained now"
     mini = drained[sum(map(ord, seed)) % len(drained)] if seed else drained[0]
     label, name = sorted(idle[mini])[0]
@@ -138,7 +148,8 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
 
 def owned_signing_jobs(read: Callable[[str], Any]) -> int:
     """How many signing jobs (SIGNING_JOBS) are queued or running on an owned Mac now: pinned by a
-    `glaeda-runner-<name>` label, which only the owned pick adds to a signing job's runs-on. `read` GETs a path
+    `glaeda-runner-<name>` label or sent to a nightly slot (NIGHTLY_SLOT_LABEL), which only the owned pick puts in
+    a signing job's runs-on. `read` GETs a path
     under the repository (actions: read). Raises on any read it cannot make, so the caller offers no owned Mac."""
     count, seen = 0, set()
     for workflow, names in SIGNING_JOBS.items():
@@ -160,7 +171,8 @@ def owned_signing_jobs(read: Callable[[str], Any]) -> int:
                 for job in jobs:
                     name = str(job.get("name") or "").split(" (", 1)[0]
                     if (name in names and job.get("status") in ("queued", "in_progress", "waiting", "pending", "requested")
-                            and any(str(label).startswith(pool.RUNNER_LABEL_PREFIX) for label in job.get("labels") or [])):
+                            and any(str(label).startswith(pool.RUNNER_LABEL_PREFIX)
+                                    or NIGHTLY_SLOT_LABEL.fullmatch(str(label)) for label in job.get("labels") or [])):
                         count += 1
     return count
 

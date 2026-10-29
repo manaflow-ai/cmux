@@ -453,45 +453,33 @@ class SigningOwnedMacTests(unittest.TestCase):
 
     def test_with_no_drained_mini_a_nightly_slot_is_offered_to_drain(self) -> None:
         """Under steady PR load no mini is ever drained (run 40859232446: "no mini with an idle ... runner is drained
-        now"), so legacy signing always went to Blacksmith. Then an idle nightly slot on the mini with the fewest busy
-        runners is offered: glaeda holds every new job off that mini while the signing job waits there
-        (SIGNING_DRAIN). A side label alone (the DEV daily's) is never drained for."""
+        now"), so legacy signing always went to Blacksmith. Then the nightly slot's own label is offered while one of
+        its runners is idle: glaeda holds every new job off that slot's mini while the signing job waits there
+        (SIGNING_DRAIN). glaeda pins only root runners, so the live slots carry no glaeda-runner-<name> label (run
+        40878506769 found 3 idle slots and offered nothing). A side label alone (the DEV daily's) is never drained for."""
         slot = "glaeda-nightly-std-xcode-26.6"
-        runners = [
-            runner("cmux12-glaeda", [SIDE], busy=True),
-            runner("cmux12-glaeda-2", [SIDE], busy=True),
-            runner("cmux12-glaeda-nightly", [slot, "glaeda-runner-cmux12-glaeda-nightly"]),
-            runner("cmux13-glaeda", [SIDE], busy=True),
-            runner("cmux13-glaeda-3", [SIDE, "glaeda-runner-cmux13-glaeda-3"]),  # idle side runner, busy mini
-            runner("cmux13-glaeda-nightly", [slot, "glaeda-runner-cmux13-glaeda-nightly"]),
-            runner("cmux14-glaeda-nightly", [slot, "glaeda-runner-cmux14-glaeda-nightly"], busy=True),
-            runner("cmux14-glaeda", [SIDE]),
-            runner("cmux15-glaeda", [SIDE], busy=True),
-            runner("cmux15-glaeda-nightly", [slot, "glaeda-runner-cmux15-glaeda-nightly"], status="offline"),
+        runners = [  # the live fleet's shape: no slot or side runner carries a glaeda-runner-<name> label
+            runner("cmux12s-mac-mini-glaeda", [SIDE], busy=True),
+            runner("cmux12s-mac-mini-glaeda-2", [slot]),
+            runner("cmux13s-mac-mini-glaeda-3", [SIDE]),  # an idle side runner on a busy mini
+            runner("cmux13s-mac-mini-glaeda", [SIDE], busy=True),
+            runner("cmux14-glaeda-2", [slot], busy=True),
+            runner("cmux15-glaeda-2", [slot], status="offline"),
         ]
         labels, why = signing_runner.drained_runner(runners, [slot, SIDE])
-        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux13-glaeda-nightly"],
-                         f"the fewest busy runners, and only through the nightly slot: {why}")
+        self.assertEqual(json.loads(labels), [slot], f"the slot's own label, unpinned: {why}")
         self.assertIn("to drain", why)
-        self.assertIn("1 busy runner(s)", why)
+        self.assertIn("1 idle nightly slot(s): cmux12s-mac-mini-glaeda-2 (1 busy beside it)", why)
         self.assertEqual(signing_runner.drained_runner(runners, [SIDE]), (
             "", f"no mini with an idle `{SIDE}` runner is drained now"), "the DEV daily's side label never drains")
-        runners[3]["busy"] = runners[4]["busy"] = True  # cmux13 now has more busy runners than cmux12
-        runners[0]["busy"] = False
+        runners[1]["busy"] = True
+        self.assertEqual(signing_runner.drained_runner(runners, [slot, SIDE])[0], "",
+                         "no idle slot: nothing is offered, and the job signs on Blacksmith")
         runners[1]["busy"] = False
-        labels, why = signing_runner.drained_runner(runners, [slot, SIDE])
-        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux12-glaeda-nightly"], why)
-        self.assertNotIn("to drain", why, "a drained mini still comes first")
-        runners[0]["busy"] = True  # cmux12: 1 busy runner, cmux13: 3
-        labels, why = signing_runner.drained_runner(runners, [slot, SIDE])
-        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux12-glaeda-nightly"], why)
-        self.assertIn("to drain", why)
-        tie = [runner("cmux21-glaeda", [SIDE], busy=True),
-               runner("cmux21-glaeda-nightly", [slot, "glaeda-runner-cmux21-glaeda-nightly"]),
-               runner("cmux20-glaeda", [SIDE], busy=True),
-               runner("cmux20-glaeda-nightly", [slot, "glaeda-runner-cmux20-glaeda-nightly"])]
-        self.assertEqual(json.loads(signing_runner.drained_runner(tie, [slot])[0])[1],
-                         "glaeda-runner-cmux20-glaeda-nightly", "a tie goes by name, so two pickers agree")
+        pinned = [runner("cmux20-glaeda", [SIDE, "glaeda-runner-cmux20-glaeda"]), *runners]
+        labels, why = signing_runner.drained_runner(pinned, [slot, SIDE])
+        self.assertEqual(json.loads(labels), [SIDE, "glaeda-runner-cmux20-glaeda"], "a drained mini still comes first")
+        self.assertNotIn("to drain", why)
         self.assertEqual(signing_runner.member("blacksmith-runner"), "")
 
     def test_owned_pick_is_off_unless_enabled_on_attempt_one_with_a_token(self) -> None:
@@ -559,6 +547,9 @@ class SigningOwnedMacTests(unittest.TestCase):
         self.assertTrue(signing_runner.owned_pick(env, read, jobs)[0], "a finished one holds nothing")
         held[0]["status"] = "queued"
         self.assertEqual(signing_runner.owned_pick(env, read, jobs)[0], "", "a matrix leg counts by its job id")
+        held[0].update({"name": "sign-nightly-identity-legacy", "labels": ["glaeda-nightly-std-xcode-26.6"]})
+        self.assertEqual(signing_runner.owned_pick(env, read, jobs)[0], "",
+                         "one sent to drain a nightly slot (unpinned) holds a mini too")
         held.clear()
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
