@@ -41,9 +41,9 @@ export function MessageTime({ at, className }: { at: number; className: string }
 }
 
 /// Shared footer rail for sent, received and answer rows. Timestamp text and every action stay on
-/// one centered 24px line; the retry model chevron keeps its narrower slot inside the same rail.
+/// one centered 24px line with equal control slots, including the retry model chevron.
 export function MessageFooterRow({ children, className }: { children: ReactNode; className?: string }) {
-  return <span className={['cv-message-footer-row', className].filter(Boolean).join(' ')}>{children}</span>;
+  return <span className={["cv-message-footer-row", className].filter(Boolean).join(" ")}>{children}</span>;
 }
 
 /// The dot between a prompt's age and its buttons (Leo's spec for the row under a prompt).

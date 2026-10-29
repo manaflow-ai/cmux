@@ -1,29 +1,21 @@
-// Synthetic, privacy-safe geometry fixture for the shared transcript/Session Info glyph slot.
-// Leo's ask names the tool rows, "Worked for", "Received N" and peer-card secondary tone; this
-// test keeps those labels synthetic while checking the shared 16px slot at both row rhythms.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+// Real transcript and Session Info components; all displayed content is synthetic.
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
-  try {
-    await (await chromium.launch({ headless: true })).close();
-  } catch {
-    describe.skip("transcript glyph alignment", () => test("chromium", () => {}));
-    return;
-  }
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
-  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-  let browser: Browser | undefined;
+  let vite: Awaited<ReturnType<typeof createServer>>;
+  let browser: Browser;
   beforeAll(async () => {
     vite = await createServer({
       root: webviews,
       configFile: path.join(webviews, "vite.config.ts"),
-      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      server: { port: 0, host: "127.0.0.1" },
       logLevel: "error",
     });
     await vite.listen();
@@ -34,49 +26,89 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
     await browser?.close();
     await vite?.close();
   });
-
-  const measure = async (page: Page) =>
-    page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>("[data-glyph-row]")].map((row) => {
-        const text = row.querySelector<HTMLElement>(".cv-tool__text, .cv-worked__label, .cv-received__name, .acpmux-chat-inspector-row__name");
-        const glyphs = [...row.querySelectorAll<HTMLElement>(".cv-tool__icon svg, .cv-command__ok, .cv-command__time, .cv-tool__chevron svg, .cv-worked__chevron, .cv-received__icon svg, .acpmux-row-glyph")];
-        if (!glyphs.length) throw new Error(`missing glyph for ${row.dataset.glyphRow}`);
-        const lineBox = (text ?? row).getBoundingClientRect();
-        const lineCenter = (lineBox.top + lineBox.bottom) / 2;
-        return { kind: row.dataset.glyphRow, deltas: glyphs.map((glyph) => { const box = glyph.getBoundingClientRect(); return Math.abs(lineCenter - (box.top + box.bottom) / 2); }) };
-      }),
-    );
-
-  const measureFooter = async (page: Page) =>
-    page.evaluate(() => {
-      const time = document.querySelector<HTMLElement>("[data-footer-row] .cv-message-footer-row .cv-user__time")!;
-      const timeBox = time.getBoundingClientRect();
-      const center = (box: DOMRect) => (box.top + box.bottom) / 2;
-      return [...document.querySelectorAll<SVGElement>("[data-footer-row] .cv-message-footer-row .cv-iconbtn svg")].map((glyph) => ({
-        kind: glyph.parentElement?.getAttribute("aria-label") ?? "action",
-        delta: Math.abs(center(glyph.getBoundingClientRect()) - center(timeBox)),
-      }));
-    });
-
-  for (const theme of ["dark", "light"] as const) {
+  for (const theme of ["dark", "light"] as const)
     for (const height of [28, 40] as const) {
-      test(`${theme} ${height}px rows keep every glyph on the center line`, async () => {
-        const port = (vite!.httpServer!.address() as { port: number }).port;
-        const page = await browser!.newPage({ viewport: { width: 680, height: 320 } });
-        // Add `capture=before` when collecting the synthetic baseline alongside this after-state capture.
-        await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}&height=${height}&capture=after`);
-        await page.locator("[data-glyph-row]").first().waitFor();
-        await page.locator('[data-glyph-row="tool"]').hover();
-        const rows = await measure(page);
-        expect(rows).toHaveLength(4);
-        for (const row of rows) for (const delta of row.deltas) expect(delta, `${theme}/${height}/${row.kind}`).toBeLessThanOrEqual(0.5);
-        const footer = await measureFooter(page);
-        expect(footer).toHaveLength(3);
-        for (const glyph of footer) expect(glyph.delta, `${theme}/${height}/footer/${glyph.kind}`).toBeLessThanOrEqual(0.5);
-        expect(await page.locator('[data-received-row="nonretryable"] .cv-message-retry').evaluate((el) => getComputedStyle(el).display)).toBe("none");
-        expect(await page.locator('[data-received-row="retryable"] .cv-message-retry').evaluate((el) => getComputedStyle(el).display)).toBe("inline-flex");
-        await page.close();
+      test(`${theme} ${height}px: production glyphs share the text center line`, async () => {
+        const page = await browser.newPage({
+          viewport: { width: 760, height: 740 },
+          deviceScaleFactor: 2,
+        });
+        try {
+          const errors: string[] = [];
+          page.on("pageerror", (error) => errors.push(error.message));
+          const port = (vite.httpServer!.address() as { port: number }).port;
+          await page.goto(
+            `http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}&height=${height}`,
+          );
+          await page.locator("[data-footer-row] .cv-user__time").waitFor();
+          await page.evaluate(() => document.fonts.ready);
+          const measurements = await page.evaluate(() => {
+            const center = (el: Element) => {
+              const r = el.getBoundingClientRect();
+              return (r.top + r.bottom) / 2;
+            };
+            const measure = (scope: Element, label: string, glyphs: string) => {
+              const text = scope.querySelector(label);
+              if (!text) throw new Error(`Missing text: ${label}`);
+              return [...scope.querySelectorAll(glyphs)].map((glyph) => {
+                const r = glyph.getBoundingClientRect();
+                return {
+                  delta: Math.abs(center(glyph) - center(text)),
+                  width: r.width,
+                  height: r.height,
+                };
+              });
+            };
+            const rows = [...document.querySelectorAll<HTMLElement>("[data-glyph-row]")].map((scope) => {
+              const kind = scope.dataset.glyphRow!;
+              const selectors: Record<string, [string, string]> = {
+                tool: [".cv-command__time", ".cv-command__ok, svg.cv-tool__chevron"],
+                command: [".cv-command__time", ".cv-command__ok, svg.cv-tool__chevron"],
+                worked: [".cv-worked__label", ".cv-worked__chevron"],
+                thought: [".cv-thought__label", ".cv-tool__chevron"],
+                plan: [".cv-plan__text", ".cv-plan__mark"],
+                "session-info": [
+                  ".acpmux-chat-inspector-section__title",
+                  ".acpmux-chat-inspector-section__icon, .acpmux-chat-inspector-section__fold",
+                ],
+                read: ["[data-read-label]", ".cv-user__read svg"],
+              };
+              return { kind, glyphs: measure(scope, ...selectors[kind]!) };
+            });
+            const footer = measure(document.querySelector("[data-footer-row]")!, ".cv-user__time", ".cv-iconbtn svg");
+            const retry = (kind: string) =>
+              getComputedStyle(document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`)!).display;
+            return {
+              rows,
+              footer,
+              retryHidden: retry("nonretryable"),
+              retryShown: retry("retryable"),
+            };
+          });
+          console.log(`GLYPH_METRICS ${JSON.stringify({ theme, height, ...measurements })}`);
+          if (process.env.CMUX_GLYPH_CAPTURES === "1") {
+            const png = await page.screenshot();
+            console.log(
+              `GLYPH_CAPTURE ${JSON.stringify({ name: `${theme}-${height}.png`, base64: png.toString("base64") })}`,
+            );
+          }
+          expect(errors).toEqual([]);
+          expect(measurements.rows).toHaveLength(7);
+          for (const row of measurements.rows) {
+            expect(row.glyphs.length, row.kind).toBeGreaterThan(0);
+            for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
+          }
+          expect(measurements.footer).toHaveLength(3);
+          for (const glyph of measurements.footer) {
+            expect(glyph.delta, "sent footer").toBeLessThanOrEqual(0.5);
+            expect(glyph.width, "footer glyph width").toBe(16);
+            expect(glyph.height, "footer glyph height").toBe(16);
+          }
+          expect(measurements.retryHidden).toBe("none");
+          expect(measurements.retryShown).toBe("flex");
+        } finally {
+          await page.close();
+        }
       });
     }
-  }
 });
