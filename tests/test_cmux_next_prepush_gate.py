@@ -467,6 +467,118 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output)
         self.assertIn("a merge", output)
 
+    def long_lived_branch(self, name, debt):
+        """A long-lived integration branch NAME on the remote, three commits ahead of feat-cmux-next (its own merge
+        train), the first carrying a try! in DEBT.swift (pushed past the hook); this clone fetches it."""
+        self.git("checkout", "--quiet", "-b", name, "origin/feat-cmux-next")
+        self.kit(debt, self.with_try(debt))
+        self.commit(f"{name}: debt landed on its own train")
+        for index in range(2):
+            self.kit(f"{debt}Clean{index}", NEW_CLEAN.replace("Fresh", f"{debt}Clean{index}"))
+            self.commit(f"{name}: more of its train")
+        self.git("push", "--quiet", "--no-verify", "origin", name)
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+
+    def topic_from(self, start, *flags):
+        """Branch `topic` cut from START (git checkout -b topic FLAGS START) with one commit adding a try!."""
+        self.git("checkout", "--quiet", "-b", "topic", *flags, start)
+        self.kit("Topic", self.with_try("Topic"))
+        self.commit("the branch's own try!")
+
+    def test_a_branch_cut_from_the_perf_integration_branch_is_judged_only_over_its_own_commits(self):
+        # origin/perf/chrome-parity runs far ahead of feat-cmux-next with debt of its own (2026-10-29: one agent's
+        # push was judged over 9,426 perf commits and refused for files it never touched). No upstream is set
+        # (--no-track): the known integration refs bound the walk.
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.topic_from("origin/perf/chrome-parity", "--no-track")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output, "the branch's own try! is judged")
+        self.assertNotIn("PerfDebt.swift", output, "perf's own debt is not the branch's")
+        self.assertIn(" 1 own commit(s)", output)
+
+        self.git("reset", "--quiet", "--hard", "HEAD~1")
+        self.kit("Topic", NEW_CLEAN.replace("Fresh", "Topic"))
+        self.commit("clean work on perf")
+
+        clean = self.push_ref("topic")
+
+        output = clean.stdout + clean.stderr
+        self.assertEqual(clean.returncode, 0, output)
+        self.assertNotIn("PerfDebt.swift", output)
+
+    def test_a_branch_tracking_any_long_lived_remote_branch_is_judged_over_its_upstream(self):
+        # A long-lived branch no list names: the branch's configured upstream (git worktree add -b topic
+        # origin/release/train sets it) is a fact of where it was cut from.
+        self.long_lived_branch("release/train", "TrainDebt")
+        self.topic_from("origin/release/train", "--track")
+        self.assertEqual(self.git("rev-parse", "--symbolic-full-name", "topic@{upstream}").stdout.strip(),
+                         "refs/remotes/origin/release/train", "control: the branch tracks the train")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertNotIn("TrainDebt.swift", output, "the train's debt is not the branch's")
+        self.assertIn(" 1 own commit(s)", output)
+        self.assertIn("origin/release/train", output, "the report names the upstream that bounds the push")
+
+    def test_a_branch_with_no_known_base_is_still_judged_over_feat_cmux_next(self):
+        # Cut from a remote branch that is neither its upstream nor a known integration ref: no base is found,
+        # so the push is judged over origin/feat-cmux-next as before, never given a free pass.
+        self.long_lived_branch("release/train", "TrainDebt")
+        self.topic_from("origin/release/train", "--no-track")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertIn("TrainDebt.swift", output, "with no known base the train's commits count as the push's")
+        self.assertIn(" 4 own commit(s)", output)
+
+    def test_an_upstream_that_is_a_local_branch_bounds_nothing(self):
+        # A local branch's commits are not on the remote: tracking one (git branch --track) must not hide them.
+        self.git("checkout", "--quiet", "-b", "local-train")
+        self.kit("LocalDebt", self.with_try("LocalDebt"))
+        self.commit("debt that was never pushed")
+        self.topic_from("local-train", "--track")
+        self.assertEqual(self.git("rev-parse", "--symbolic-full-name", "topic@{upstream}").stdout.strip(),
+                         "refs/heads/local-train", "control: the upstream is a local branch")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("LocalDebt.swift", output, "an unpushed upstream's commits are the push's own")
+        self.assertIn(" 2 own commit(s)", output)
+
+    def test_a_base_given_on_the_command_line_wins_over_the_branch_s_integration_base(self):
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.topic_from("origin/perf/chrome-parity", "--track")
+        run = lambda *args: subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo,
+                                           env=self.env, text=True, capture_output=True)
+
+        inferred = run()
+
+        output = inferred.stdout + inferred.stderr
+        self.assertNotEqual(inferred.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertNotIn("PerfDebt.swift", output, "with no flag the base is where the branch left perf")
+
+        given = run("--base", "origin/feat-cmux-next")
+
+        output = given.stdout + given.stderr
+        self.assertNotEqual(given.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertIn("PerfDebt.swift", output, "--base A judges exactly what HEAD adds over A")
+        self.assertIn("the base given", output)
+
     def test_install_adds_the_gate_to_the_pre_push_hook(self):
         hooks = Path(self.git("config", "--get", "core.hooksPath").stdout.strip())
         self.assertTrue((hooks / "cmux_next_prepush_gate.py").is_file())
