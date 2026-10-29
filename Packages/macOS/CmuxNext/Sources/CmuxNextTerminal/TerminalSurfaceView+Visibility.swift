@@ -1,14 +1,14 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextWakeups
+package import CmuxNextWakeups
 
 /// Shown or not (recipe R-hide, plans/cmux-next/main-thread-budget.md section 11): AppKit's hide hooks
 /// only tell the view's ``visibilityNode``, and the window and parking checks only set its child
 /// ``windowNode``. The flips of that child (the view hidden or shown, its tab selected or not, its pane
 /// suspended, its workspace parked, its window minimized or left, the app hidden) all reach
-/// ``syncWindowState()`` through its subscription, and the size and scale work a terminal skipped while it
-/// was not shown waits on it under a key (``DeferredWork``), so a show runs each once. Nothing walks the
-/// ancestors for hidden state. An occluded window keeps its terminals shown: they keep their layout ready
+/// ``syncWindowState()`` through its subscription. A terminal that is not shown does no size or scale work;
+/// the edge to shown reconciles both from its current bounds and window, once (``reconcileShown()``). Nothing
+/// walks the ancestors for hidden state. An occluded window keeps its terminals shown: they keep their layout ready
 /// and their own occlusion watch pauses the drawing (``Visibility/occluded``).
 extension TerminalSurfaceView {
     // The draw pause reads AppKit's own hidden state (``WindowDrawPolicy/inputs(for:suspended:forced:)``), not the
@@ -35,15 +35,41 @@ extension TerminalSurfaceView {
         windowNode.set(window != nil && !isParkedOrHasParkedAncestor ? .visible : .hidden)
     }
 
-    /// Shown in a window: observe it and apply its current scale, screen, occlusion and key state, and the cursor
-    /// layer's shown state (each a no-op when unchanged). The size it owes runs next, from ``windowNode``'s deferred work.
+    /// Shown in a window: observe it and apply its current occlusion and key state and the cursor layer's
+    /// shown state (each a no-op when unchanged), then its scale and size from its window and bounds
+    /// (``reconcileShown()``).
     func syncWindowState() {
         let shown = isShown
         cursorLayer?.setShown(shown) // the cursor's blink runs only while the terminal shows
         observeWindow(shown)
         // A hidden terminal gets no mouseExited: its link hover and modifier watcher end here.
-        if shown { updateContentScale() } else { linkPointer.exited() }
+        if !shown { linkPointer.exited() }
         updateOcclusion()
         updateFocus()
+        // The edge to shown only: a flip between visible and occluded keeps the layout ready (it sized all along).
+        // `sizesToBounds` is set before the reconcile, which sizes through it.
+        let wasSizing = sizesToBounds
+        sizesToBounds = shown
+        if shown, !wasSizing { reconcileShown() }
+    }
+}
+
+extension TerminalSurfaceView {
+    /// The node this surface's tab node hangs it under: the tab node it was made for (or moved to with its content).
+    /// The app's G3 check (`InputInvariantMonitor.terminalNodes`) compares it with the node its pane selected.
+    package var tabNode: VisibilityNode? { visibilityNode.parent }
+}
+
+extension TerminalSurfaceView {
+    /// The window node and every node above it, "name own/effective" (``TerminalSurfaceDiagnostics/nodeChain``).
+    /// A chain that ends before a window's node (a detached tab node) shows why a terminal is never shown.
+    var nodeChain: [String] {
+        var chain: [String] = []
+        var node: VisibilityNode? = windowNode
+        while let current = node, chain.count < 16 {
+            chain.append("\(current.name) \(current.own)/\(current.effective)")
+            node = current.parent
+        }
+        return chain
     }
 }

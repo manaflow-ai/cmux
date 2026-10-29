@@ -1,6 +1,9 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextInputModel
 import CmuxNextSettings
+import CmuxNextTerminal
+import CmuxNextTerminalGeometry
 import CmuxNextWakeups
 import Foundation
 import os
@@ -97,6 +100,8 @@ final class InputInvariantMonitor {
         checks += 1
         var result = InputInvariants.world(InputObservationBuilder.observe(services))
         result.violations += Self.pageGeometry(services)
+        result.violations += Self.terminalGrids(services)
+        result.violations += Self.terminalNodes(services)
         result.violations += Self.tabConservation(services)
         result.violations += Self.mirrorWrites(services)
         result.violations += services.hoverCards.singleCardViolations().map {
@@ -116,6 +121,48 @@ final class InputInvariantMonitor {
             let (hosts, pages) = ChildPageGeometry.sample(controller)
             return ChildPageGeometry.mismatches(hosts: hosts, pages: pages).map {
                 InputViolation(invariant: .chromiumGeometry, window: controller.state.id, detail: $0)
+            }
+        }
+    }
+
+    /// G2 (felt 1e; principled-audit R3), from facts only (no settle timing, R5): every terminal a pane shows in a
+    /// visible window counts as shown (it sizes itself to its bounds), and a shown terminal at rest was sized to
+    /// the grid its bounds fit and reported it; where the owner applies this view's grid and none of it is in
+    /// flight (`ResizeCoordinator` idle, no echo due), the owner announced that grid (the PTY and the daemon
+    /// have it). Skips a window in a live resize or whose frame animation holds content sizes
+    /// (`Motion.holdsContentResize`): its grids move every frame by design.
+    static func terminalGrids(_ services: AppServices) -> [InputViolation] {
+        services.windows.controllers.flatMap { controller -> [InputViolation] in
+            guard let window = controller.window, window.isVisible, !window.isMiniaturized, !window.inLiveResize,
+                  !Motion.holdsContentResize(window) else { return [] }
+            return (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
+                // A pane whose presentation trails its selection (a launch hold, the one-surface-per-frame queue) is W9's.
+                guard !pane.isSuspended, let key = pane.currentTabKey, pane.stripModel.selectedID?.rawValue == key,
+                      let entry = services.cache.existingTerminal(key), entry.session.view.window === window else { return nil } // a view moving to another window is that window's
+                let onScreen = !entry.session.view.isHiddenOrHasHiddenAncestor // visibility-walk-allow: a debug invariant reads AppKit's own state once per check, the ground truth the nodes must match
+                // The owner's grid, from the IO's attach machine, only where the owner applies this view's grid and
+                // none of it waits to be sent or echoed: the same machine answers both, so no frame lies between them.
+                let owns = services.resizes.isIdle && !entry.io.awaitsEcho && entry.io.appliesViewGrid(reporting: false)
+                let owner = owns ? entry.io.announcedGrid.map { TerminalGridSize(columns: $0.cols, rows: $0.rows) } : nil
+                guard let problem = entry.session.surfaceView.restingGridMismatch(onScreen: onScreen, ownerGrid: owner) else { return nil }
+                return InputViolation(invariant: .terminalGridFits, window: controller.state.id, detail: "pane \(pane.paneKey) tab \(key): \(problem)")
+            }
+        }
+    }
+
+    /// G3 (felt 1e; principled-audit R3): the terminal a pane presents for its selected tab hangs under the node the pane
+    /// selected for that tab, so it counts as shown exactly when the pane shows it (an adopted Ctrl-` stand-in stayed under
+    /// its own node, hidden as the pane's old selection: on screen, never sized). Facts only: the selection the pane
+    /// presents and the parent of the surface's node; a pane whose presentation trails its selection is W9's.
+    static func terminalNodes(_ services: AppServices) -> [InputViolation] {
+        services.windows.controllers.flatMap { controller -> [InputViolation] in
+            (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
+                guard !pane.isSuspended, let key = pane.currentTabKey, pane.stripModel.selectedID?.rawValue == key,
+                      let entry = services.cache.existingTerminal(key), let selected = pane.selectedNode else { return nil }
+                let parent = entry.session.surfaceView.tabNode
+                guard parent !== selected else { return nil }
+                return InputViolation(invariant: .terminalUnderSelectedNode, window: controller.state.id,
+                                      detail: "pane \(pane.paneKey) tab \(key): its terminal hangs under \(parent?.name ?? "no node"), the pane selected \(selected.name)")
             }
         }
     }
