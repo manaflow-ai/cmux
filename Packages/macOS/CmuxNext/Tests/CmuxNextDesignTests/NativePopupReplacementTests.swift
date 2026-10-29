@@ -338,4 +338,33 @@ import Testing
         #expect(content.model?.id == "newest" && count == 1)
     }
 
+    @Test(.enabled("needs an awake display") { !NSScreen.screens.isEmpty })
+    func declarativeOwnerDismissalPreservesReentrantLegacyMenu() throws {
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let page = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
+        window.contentView = page
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        let declaration = try #require(WebPopupHost.Model([
+            "schemaVersion": 1, "id": "old", "revision": 1,
+            "anchor": ["left": 0, "top": 0, "right": 20, "bottom": 20],
+            "side": "bottom", "align": "start", "width": 320, "rows": []
+        ]))
+        let legacy = try #require(WebPopupHost.Model([
+            "items": [["id": "new", "label": "New"]],
+            "anchor": ["left": 0, "top": 0, "right": 20, "bottom": 20]
+        ]))
+        var count = 0
+        var host: WebPopupHost!
+        host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in
+            count += 1
+            if count == 1 { _ = host.show(legacy) }
+        })
+        defer { host.hide() }
+        #expect(host.show(declaration)["shown"] as? Bool == true)
+        host.dismiss()
+        #expect(count == 1 && host.shownFrame != nil)
+    }
+
 }
