@@ -961,7 +961,9 @@ describe("overlapping probes", () => {
       duringProbe: (repo) => Effect.runSync(repo.recordVmApiActivity!({ id: "row-1", providerVmId: VM, at: T0 - 40 * MIN })),
     });
     await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
-    expect(rows[0].providerMetadata.cmuxIdleObservation).toBeUndefined();
+    // A's write lost: the row keeps what it had, not A's re-stamped stretch.
+    expect(rows[0].providerMetadata.cmuxIdleObservation).toEqual(carried);
+    expect(rows[0].providerMetadata.cmuxIdleProbedAt).toBeUndefined();
   });
 });
 
