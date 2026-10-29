@@ -1172,6 +1172,50 @@ mod tests {
         assert_eq!(activity.idle_since(), None, "`sleep 600` is not answered");
     }
 
+    /// Review 8 of cp/daemon-foreground-state, should-fix 1: Ghostty's zsh
+    /// integration (`A;redraw=1;cl=line` in PS1) with a transient prompt, in
+    /// a fresh shell before its first `C` or `D`: the PS1 redrawn at accept
+    /// (no `D` before it) must not pay the heredoc's Return; Ghostty's PS2 is
+    /// `P;k=s` (no mark here), so nothing else would block idle.
+    #[test]
+    fn shell_idle_a_redraw_before_the_first_command_mark_pays_no_line() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::parse(b"A;redraw=1;cl=line").unwrap(), 1_000);
+        check_at_b(&mut activity, 1_001);
+        assert!(activity.idle_since().is_some(), "the first prompt");
+        activity.note_input(b"cat <<EOF\r");
+        activity.observe(ShellMark::parse(b"A;redraw=1;cl=line").unwrap(), 1_100);
+        check_at_b(&mut activity, 1_101);
+        assert_eq!(activity.idle_since(), None, "the heredoc is open");
+    }
+
+    /// Should-fix 2: an accept key that is not Return (Ctrl-O: bash
+    /// operate-and-get-next, zsh accept-line-and-down-history) runs the line
+    /// with nothing counted; a line typed ahead while it runs must stay owed
+    /// at the prompt after it. Both a shell that sends `C`/`D` and one that
+    /// sends only `A` and `B`.
+    #[test]
+    fn shell_idle_a_command_accepted_by_ctrl_o_answers_no_typed_ahead_line() {
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 900);
+        activity.observe(ShellMark::PromptStart, 1_000);
+        check_at_b(&mut activity, 1_001);
+        activity.note_input(b"sleep 5\x0f");
+        activity.observe(ShellMark::CommandStart, 1_100);
+        activity.note_input(b"make deploy\r");
+        activity.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 1_200);
+        activity.observe(ShellMark::PromptStart, 1_300);
+        check_at_b(&mut activity, 1_301);
+        assert_eq!(activity.idle_since(), None, "C/D shell: `make deploy` waits");
+
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"sleep 5\x0f");
+        activity.note_input(b"make deploy\r");
+        activity.observe(ShellMark::PromptStart, 1_300);
+        check_at_b(&mut activity, 1_301);
+        assert_eq!(activity.idle_since(), None, "A/B shell: `make deploy` waits");
+    }
+
     /// Review 2, finding 6: a reconnect without host state checks again.
     #[test]
     fn shell_idle_a_forgotten_check_is_not_idle_until_checked_again() {
