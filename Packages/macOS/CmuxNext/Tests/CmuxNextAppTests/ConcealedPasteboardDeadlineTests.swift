@@ -4,7 +4,7 @@ import CmuxNextBrowserImport
 import CmuxNextWakeups
 import Testing
 
-/// A copied password's clear is a `background` ``MainDeadline`` (p06-scheduler-320, recipe R-timer): a side
+/// A copied password's clear is a `background` ``MainDeadline`` (recipe R-timer): a side
 /// effect nobody watches, which still runs with no window on screen, and leaves a later copy alone.
 @MainActor
 struct ConcealedPasteboardDeadlineTests {

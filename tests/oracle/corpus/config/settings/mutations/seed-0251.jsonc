@@ -1,3 +1,0 @@
-{"window":{/* // inside */ "titlebarButtons":"hover",},"browser":{"omnibar":{// note
-"shadow":"true"}},"appearance":{"experimentalControls":1,"saturation":0},"sidebar":{"workspaceRow":{/* * */ "browser":{"branch":"true",/* * */ "log":true,}},// note
-"hoverCards":{/* * */ "groups":{"order":"status",}},"showTimestamps":true},/* // inside */ "tabs":{/* * */ "newTabWidgets":{"quote":"true","weatherCity":null,}},/* block */ "layout":{"mainPane":"off",},}

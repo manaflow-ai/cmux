@@ -113,21 +113,27 @@ pub fn parse_choice(item: &Value, value: &str) -> Result<Choice, String> {
 /// The item `key` names: its id, exact prompt or header, then the same
 /// ignoring case and surrounding spaces when exactly one item matches.
 pub fn find_item(question: &Value, key: &str) -> Result<usize, String> {
-    let items = items(question);
+    find_entry(items(question), key).map(|(i, _)| i)
+}
+
+/// [`find_item`] over `items`: the index and the item it names.
+fn find_entry<'a>(items: &'a [Value], key: &str) -> Result<(usize, &'a Value), String> {
     fn fields(item: &Value) -> [&str; 3] {
         [str_of(item, "id"), str_of(item, "prompt"), str_of(item, "header")]
     }
-    if let Some(i) = items.iter().position(|item| fields(item).contains(&key)) {
-        return Ok(i);
+    if let Some(found) = items.iter().enumerate().find(|(_, item)| fields(item).contains(&key)) {
+        return Ok(found);
     }
     let key = key.trim();
-    let loose: Vec<usize> = (0..items.len())
-        .filter(|&i| {
-            fields(&items[i]).iter().any(|f| !f.is_empty() && f.trim().eq_ignore_ascii_case(key))
+    let loose: Vec<(usize, &Value)> = items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| {
+            fields(item).iter().any(|f| !f.is_empty() && f.trim().eq_ignore_ascii_case(key))
         })
         .collect();
     match loose.as_slice() {
-        [i] => Ok(*i),
+        [found] => Ok(*found),
         [] => Err(format!(
             "no question matches {key:?}; the questions are: {}",
             items
@@ -175,10 +181,12 @@ pub fn parse_answers(question: &Value, args: &[String]) -> Result<Value, String>
         // A value error outranks a key error: the key named a question.
         let (mut key_error, mut value_error, mut found) = (None, None, None);
         for &at in &splits {
-            match find_item(question, &arg[..at]) {
-                Ok(index) => match parse_choice(&items[index], &arg[at + 1..]) {
+            // `at` is a '=' from match_indices: both sides are on character boundaries.
+            let (Some(key), Some(value)) = (arg.get(..at), arg.get(at + 1..)) else { continue };
+            match find_entry(items, key) {
+                Ok((index, item)) => match parse_choice(item, value) {
                     Ok(choice) => {
-                        found = Some((index, choice));
+                        found = Some((index, item, choice));
                         break;
                     }
                     Err(e) => {
@@ -190,13 +198,17 @@ pub fn parse_answers(question: &Value, args: &[String]) -> Result<Value, String>
                 }
             }
         }
-        let Some((index, choice)) = found else {
+        let Some((index, item, choice)) = found else {
             return Err(value_error.or(key_error).unwrap_or_default());
         };
-        if choices[index].is_some() {
-            return Err(format!("{:?} is answered twice", item_name(&items[index])));
+        // `choices` has one slot per item, and `index` names an item.
+        let Some(slot) = choices.get_mut(index) else {
+            return Err(format!("no question matches {arg:?}"));
+        };
+        if slot.is_some() {
+            return Err(format!("{:?} is answered twice", item_name(item)));
         }
-        choices[index] = Some(choice);
+        *slot = Some(choice);
     }
     let missing: Vec<String> = items
         .iter()

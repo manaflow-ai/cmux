@@ -10,6 +10,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use super::{AppCommand, UsageError, WAITING_RUN_TIMEOUT, action_origin, caller_path};
+use crate::cli::json_fields::JsonFields;
 
 #[derive(Debug, PartialEq)]
 pub(in crate::cli) struct OpenRequest {
@@ -55,8 +56,7 @@ pub(super) fn parse_open_with(
     let mut targets = Vec::new();
     let mut index = 0;
     let mut literal = false;
-    while index < args.len() {
-        let arg = &args[index];
+    while let Some(arg) = args.get(index) {
         if literal {
             targets.push(arg.clone());
             index += 1;
@@ -172,10 +172,10 @@ pub(super) fn parse_open_with(
     let url_params = |url: &str| {
         let mut params = json!({"url": url, "focus": focus, "origin": action_origin()});
         if let Some(workspace) = &workspace {
-            params["workspace_id"] = json!(workspace);
+            params.insert("workspace_id", json!(workspace));
         }
         if let Some(terminal) = &terminal {
-            params["terminal_id"] = json!(terminal);
+            params.insert("terminal_id", json!(terminal));
         }
         params
     };
@@ -202,10 +202,10 @@ pub(super) fn parse_open_with(
                     "origin": action_origin(),
                 });
                 if let Some(terminal) = &terminal {
-                    params["terminal_id"] = json!(terminal);
+                    params.insert("terminal_id", json!(terminal));
                 }
                 if let Some(target) = &forced_target {
-                    params["target"] = json!(target);
+                    params.insert("target", json!(target));
                 }
                 OpenRequest { method: "browser.open_link", params }
             })
@@ -230,7 +230,7 @@ pub(super) fn parse_open_with(
         // caller's terminal pane through the `file.open` action.
         let mut params = json!({"paths": paths, "focus": focus, "origin": action_origin()});
         if let Some(terminal) = &terminal {
-            params["terminal_id"] = json!(terminal);
+            params.insert("terminal_id", json!(terminal));
         }
         requests.push(OpenRequest { method: "file.open", params });
     };

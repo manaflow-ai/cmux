@@ -12,11 +12,6 @@ workspace = true
 
 [features]
 default = []
-# Correctness-oracle items (oracle-state, the virtual clock, seeded ids): code
-# behind cfg(any(debug_assertions, feature = "oracle")), so debug and test builds
-# have it and release builds never do. Off by default; the oracle builds
-# `--profile oracle --features oracle` (p15-oracle task 201).
-oracle = []
 # Decoder entry points for the cmux-tui/fuzz targets (`fuzz_entry`): only the
 # fuzz workspace (cmux-tui/fuzz/Cargo.toml) turns it on.
 fuzz = []
@@ -42,7 +37,7 @@ cmux-pty.workspace = true
 cmux-panic-log.workspace = true
 # The Release hang watch (p09-observability 3E): frame, request, journal batch,
 # terminal job and line-out write scopes, and the terminal host's loop
-# registrations (p09-observability-074).
+# registrations.
 cmux-hang-watch.workspace = true
 cmux-holder.workspace = true
 cmux-ipc.workspace = true

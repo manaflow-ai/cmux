@@ -1,4 +1,4 @@
-//! Stream visibility priority (p05-ipc-142): a hidden snapshot viewer gets
+//! Stream visibility priority: a hidden snapshot viewer gets
 //! nothing while its terminal prints and one READY at the right offset when
 //! it shows; a quiet hidden one shows with no READY; a focused stream's
 //! queued items move ahead of a visible one's; and the command answers like

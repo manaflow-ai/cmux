@@ -3,6 +3,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
+import CmuxNextWakeups
 
 /// Browser page operations (`browser.page.*`, `cmux browser tab_…`) on the page a tab shows,
 /// creating the page when the tab was never shown.
@@ -27,7 +28,7 @@ enum AppBrowserPage {
     }
 
     static func run(_ operation: BrowserPageOperation, tabID: String, services: AppServices) async throws -> CmuxNextSettings.JSONValue {
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per request; no walk, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, read once per request; no walk, no observation
         guard let (tab, _) = services.locateTab(tabID) else {
             throw ControlError(code: "not_found", message: "Surface not found or not a browser")
         }
@@ -88,7 +89,7 @@ enum AppBrowserPage {
                 throw ControlError(code: "js_error", message: String(describing: error))
             }
         case .screenshot(let capture):
-            return try await screenshot(page, tabID: tabID, capture)
+            return try await screenshot(page, tabID: tabID, capture, runner: services.work)
         case .cookies(let request):
             return try await cookies(page, request, work: services.work)
         case .input(let input):

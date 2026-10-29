@@ -7,7 +7,9 @@
 //! stream). The supervisor restarts a browser that exits, with a backoff that grows while
 //! it keeps crashing fast, and kills it when the host stops.
 
+use crate::cdp_socket::{self, CdpBridge};
 use std::io;
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -52,22 +54,25 @@ impl BrowserCommand {
         }
     }
 
-    /// Opens Chrome's DevTools protocol (CDP) on `127.0.0.1:port`, so an agent on the same
-    /// machine drives the browser the person watches (`--browser-cdp-port`, off by default).
-    /// Loopback only: anyone who reaches the port controls the browser and its logins.
-    pub fn with_cdp_port(mut self, port: u16) -> Self {
+    /// Chrome speaks CDP on an inherited pipe (`--remote-debugging-pipe`: fds 3 and 4), never
+    /// on a TCP port that every local process could reach. The supervisor opens the pipe for
+    /// each launch and hands it to the host's owner-only CDP socket (`cdp_socket.rs`,
+    /// `--browser-cdp-socket`, off by default).
+    pub fn with_cdp_pipe(mut self) -> Self {
         // Before the URL, which stays the last argument.
         let at = self.args.len().saturating_sub(1);
-        self.args.splice(
-            at..at,
-            [
-                "--remote-debugging-address=127.0.0.1".to_string(),
-                format!("--remote-debugging-port={port}"),
-            ],
-        );
+        self.args.insert(at, CDP_PIPE_SWITCH.to_string());
         self
     }
+
+    /// Does this command ask the browser to read CDP from fds 3 and 4?
+    fn wants_cdp_pipe(&self) -> bool {
+        self.args.iter().any(|a| a == CDP_PIPE_SWITCH)
+    }
 }
+
+/// Chrome's switch for CDP on fds 3 (read) and 4 (write).
+const CDP_PIPE_SWITCH: &str = "--remote-debugging-pipe";
 
 /// Restart delays: the first restart waits `min`; each fast crash (uptime under `healthy`)
 /// doubles it up to `max`; a run that stayed up `healthy` resets it.
@@ -89,6 +94,8 @@ impl Default for Backoff {
 }
 
 struct Shared {
+    /// Where each launch's CDP pipe goes (commands with `--remote-debugging-pipe` only).
+    cdp: Option<Arc<CdpBridge>>,
     stop: AtomicBool,
     pid: AtomicU32,
     starts: AtomicU32,
@@ -106,7 +113,32 @@ impl BrowserSupervisor {
     /// Starts the browser now and supervises it on a thread. Fails if the first spawn fails
     /// (a missing binary is a configuration error, not a crash to retry).
     pub fn start(cmd: BrowserCommand, backoff: Backoff) -> io::Result<Self> {
+        Self::launch(cmd, backoff, None)
+    }
+
+    /// As [`BrowserSupervisor::start`] for a command made `with_cdp_pipe`: every launch,
+    /// restarts included, gets a new CDP pipe that is attached to `cdp`.
+    pub fn start_with_cdp(
+        cmd: BrowserCommand,
+        backoff: Backoff,
+        cdp: Arc<CdpBridge>,
+    ) -> io::Result<Self> {
+        Self::launch(cmd, backoff, Some(cdp))
+    }
+
+    fn launch(
+        cmd: BrowserCommand,
+        backoff: Backoff,
+        cdp: Option<Arc<CdpBridge>>,
+    ) -> io::Result<Self> {
+        if cmd.wants_cdp_pipe() != cdp.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a browser with --remote-debugging-pipe needs a CDP socket, and only it",
+            ));
+        }
         let shared = Arc::new(Shared {
+            cdp,
             stop: AtomicBool::new(false),
             pid: AtomicU32::new(0),
             starts: AtomicU32::new(0),
@@ -152,7 +184,21 @@ fn spawn(cmd: &BrowserCommand, shared: &Shared) -> io::Result<Child> {
     for (k, v) in &cmd.env {
         c.env(k, v);
     }
+    let pipes = match &shared.cdp {
+        Some(_) => Some(cdp_socket::browser_pipes()?),
+        None => None,
+    };
+    if let Some((_, ends)) = &pipes {
+        let (read, write) = ends.raw();
+        // SAFETY: the closure runs in the forked child before exec and calls only
+        // async-signal-safe functions (fcntl, dup2, close) on fds the child inherited.
+        unsafe { c.pre_exec(move || cdp_socket::install_child_fds(read, write)) };
+    }
     let child = c.spawn()?;
+    // The browser's ends close here (dropped with `pipes`); the host keeps its own.
+    if let (Some((pipe, _ends)), Some(cdp)) = (pipes, &shared.cdp) {
+        cdp.attach(pipe);
+    }
     shared.pid.store(child.id(), Ordering::SeqCst);
     shared.starts.fetch_add(1, Ordering::SeqCst);
     Ok(child)
@@ -297,15 +343,95 @@ mod tests {
         assert!(BrowserSupervisor::start(cmd, fast()).is_err());
     }
 
-    /// Real Chrome, real CDP: an agent on the host drives the page the person watches.
-    /// Needs Google Chrome and Xvfb (the cloud browser VM image); run on a Linux VM with
-    /// `cargo test -- --ignored cdp`. `CMUX_RD_TEST_CHROME` names another Chrome binary.
+    #[test]
+    fn chrome_speaks_cdp_on_a_pipe_never_a_tcp_port() {
+        let cmd = BrowserCommand::chrome("chrome", ":99", "https://example.com/", 1280, 800, "/p")
+            .with_cdp_pipe();
+        assert!(cmd.args.iter().any(|a| a == "--remote-debugging-pipe"), "{:?}", cmd.args);
+        assert!(
+            !cmd.args.iter().any(|a| a.starts_with("--remote-debugging-port")
+                || a.starts_with("--remote-debugging-address")),
+            "a TCP debugging endpoint in {:?}",
+            cmd.args
+        );
+        // The URL stays the last argument.
+        assert_eq!(cmd.args.last().map(String::as_str), Some("https://example.com/"));
+        // A pipe command needs the CDP socket that serves it, and a plain one refuses it.
+        assert!(BrowserSupervisor::start(cmd, fast()).is_err());
+    }
+
+    /// A private test directory under /tmp (short enough for a socket path).
+    fn private_dir(tag: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::path::PathBuf::from(format!("/tmp/rdbr-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        dir
+    }
+
+    /// Sends `msg` on the CDP socket and reads one NUL-terminated reply (None if closed).
+    fn cdp_roundtrip(s: &mut std::os::unix::net::UnixStream, msg: &str) -> Option<String> {
+        use std::io::{Read, Write};
+        s.write_all(msg.as_bytes()).ok()?;
+        s.write_all(&[0]).ok()?;
+        let mut out = Vec::new();
+        let mut byte = [0u8; 1];
+        loop {
+            match s.read(&mut byte) {
+                Ok(1) if byte[0] == 0 => return String::from_utf8(out).ok(),
+                Ok(1) => out.push(byte[0]),
+                _ => return None,
+            }
+        }
+    }
+
+    fn cdp_connect(path: &std::path::Path) -> std::os::unix::net::UnixStream {
+        let s = std::os::unix::net::UnixStream::connect(path).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        s
+    }
+
+    #[test]
+    fn a_browser_restart_reconnects_the_cdp_pipe_and_closes_the_old_client() {
+        use std::io::Read;
+        let dir = private_dir("restart");
+        let log = dir.join("starts");
+        let sock = dir.join("cdp.sock");
+        let bridge = Arc::new(CdpBridge::serve(&sock).expect("CDP socket"));
+        // A fake browser that answers on fds 3 and 4 by echoing every message.
+        let mut cmd = fake(&log, "exec cat <&3 >&4");
+        cmd.args.push("--remote-debugging-pipe".into()); // sh's $0: the pipe switch only
+        let sup =
+            BrowserSupervisor::start_with_cdp(cmd, fast(), Arc::clone(&bridge)).expect("start");
+        let mut client = cdp_connect(&sock);
+        assert_eq!(cdp_roundtrip(&mut client, "{\"id\":1}").as_deref(), Some("{\"id\":1}"));
+        // The browser crashes: its client is closed, and the restarted browser has a new pipe.
+        let first = sup.pid();
+        // SAFETY: kill takes integers only; `first` is the supervisor's live browser child.
+        unsafe { libc::kill(first as libc::pid_t, libc::SIGKILL) };
+        let mut byte = [0u8; 1];
+        assert!(
+            matches!(client.read(&mut byte), Ok(0) | Err(_)),
+            "the client of a crashed browser stayed open"
+        );
+        wait_until("restart", || sup.starts() == 2 && sup.pid() != 0 && sup.pid() != first);
+        let mut again = cdp_connect(&sock);
+        assert_eq!(cdp_roundtrip(&mut again, "{\"id\":2}").as_deref(), Some("{\"id\":2}"));
+        drop(again);
+        drop(sup);
+        drop(bridge);
+        assert!(!sock.exists(), "the CDP socket outlived the host");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Real Chrome, real CDP: an agent on the host drives the page the person watches, over
+    /// the owner-only socket, and reconnects after a crash. Needs Google Chrome and Xvfb (the
+    /// cloud browser VM image); run on a Linux VM with `cargo test -- --ignored cdp`.
+    /// `CMUX_RD_TEST_CHROME` names another Chrome binary.
     #[test]
     #[ignore = "needs Google Chrome and Xvfb; run with --ignored on a Linux VM"]
-    fn cdp_an_agent_drives_the_cloud_browser_on_loopback_only() {
-        use std::io::{Read, Write};
-        use std::net::{TcpListener, TcpStream, UdpSocket};
-
+    fn cdp_an_agent_drives_the_cloud_browser_over_the_owner_only_socket() {
         let chrome =
             std::env::var("CMUX_RD_TEST_CHROME").unwrap_or_else(|_| "google-chrome".into());
         let display = format!(":{}", 50 + std::process::id() % 40);
@@ -313,129 +439,107 @@ mod tests {
             .args([display.as_str(), "-screen", "0", "1280x800x24", "-nolisten", "tcp"])
             .spawn()
             .expect("Xvfb");
-        let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-        let dir = std::env::temp_dir().join(format!("cmux-rd-cdp-{}", std::process::id()));
+        let dir = private_dir("chrome");
+        let sock = dir.join("cdp.sock");
+        let profile = dir.join("profile");
+        let bridge = Arc::new(CdpBridge::serve(&sock).expect("CDP socket"));
         let cmd = BrowserCommand::chrome(
             &chrome,
             &display,
             "about:blank",
             1280,
             800,
-            &dir.to_string_lossy(),
+            &profile.to_string_lossy(),
         )
-        .with_cdp_port(port);
-        let sup = BrowserSupervisor::start(cmd, fast()).expect("start chrome");
+        .with_cdp_pipe();
+        let sup = BrowserSupervisor::start_with_cdp(cmd, fast(), Arc::clone(&bridge))
+            .expect("start chrome");
 
-        let http = |method: &str, path: &str| -> Option<String> {
-            let mut s = TcpStream::connect(("127.0.0.1", port)).ok()?;
-            s.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
-            write!(s, "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").ok()?;
-            // Chrome may keep the connection open: read the head, then Content-Length bytes.
-            let mut buf = Vec::new();
-            let mut chunk = [0u8; 4096];
+        // One CDP call: send it, then read messages (events too) until its reply.
+        let call = |s: &mut std::os::unix::net::UnixStream,
+                    id: u64,
+                    method: &str,
+                    params: serde_json::Value,
+                    session: Option<&str>|
+         -> serde_json::Value {
+            use std::io::{Read, Write};
+            let mut msg = serde_json::json!({"id": id, "method": method, "params": params});
+            if let Some(session) = session {
+                msg["sessionId"] = session.into();
+            }
+            s.write_all(format!("{msg}\0").as_bytes()).unwrap();
             loop {
-                let n = s.read(&mut chunk).ok()?;
-                if n == 0 {
-                    return None;
+                let mut out = Vec::new();
+                let mut byte = [0u8; 1];
+                loop {
+                    s.read_exact(&mut byte).expect("a CDP reply");
+                    if byte[0] == 0 {
+                        break;
+                    }
+                    out.push(byte[0]);
                 }
-                buf.extend_from_slice(&chunk[..n]);
-                let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") else { continue };
-                let head = String::from_utf8_lossy(&buf[..end]).to_ascii_lowercase();
-                let len: usize = head
-                    .lines()
-                    .find_map(|l| l.strip_prefix("content-length:"))
-                    .and_then(|v| v.trim().parse().ok())?;
-                if buf.len() >= end + 4 + len {
-                    return Some(
-                        String::from_utf8_lossy(&buf[end + 4..end + 4 + len]).into_owned(),
-                    );
+                let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+                if v["id"] == id {
+                    return v;
                 }
             }
         };
-        let pages = || -> Vec<serde_json::Value> {
-            http("GET", "/json/list")
-                .and_then(|b| serde_json::from_str::<Vec<serde_json::Value>>(&b).ok())
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|t| t["type"] == "page")
-                .collect()
+        let drive = |s: &mut std::os::unix::net::UnixStream, title: &str| {
+            // The page target appears shortly after Chrome answers its first call.
+            let t0 = Instant::now();
+            let page = loop {
+                let targets = call(s, 1, "Target.getTargets", serde_json::json!({}), None);
+                let page = targets["result"]["targetInfos"]
+                    .as_array()
+                    .and_then(|t| t.iter().find(|t| t["type"] == "page"))
+                    .map(|t| t["targetId"].clone());
+                if let Some(page) = page {
+                    break page;
+                }
+                assert!(t0.elapsed() < Duration::from_secs(30), "no page target: {targets}");
+                // Test-only wait for a real browser; the code under test uses no polling.
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            let attached = call(
+                s,
+                2,
+                "Target.attachToTarget",
+                serde_json::json!({"targetId": page, "flatten": true}),
+                None,
+            );
+            let session = attached["result"]["sessionId"].as_str().expect("session").to_string();
+            let reply = call(
+                s,
+                3,
+                "Runtime.evaluate",
+                serde_json::json!({
+                    "expression": format!("document.title = '{title}'; 6 * 7"),
+                    "returnByValue": true
+                }),
+                Some(&session),
+            );
+            assert_eq!(reply["result"]["result"]["value"], 42, "CDP reply: {reply}");
         };
-        wait_until("CDP answers on the cdp port", || !pages().is_empty());
+        let mut client = cdp_connect(&sock);
+        client.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+        drive(&mut client, "driven by cdp");
+        // No TCP endpoint: Chrome wrote no DevToolsActivePort file.
+        assert!(!profile.join("DevToolsActivePort").exists(), "Chrome opened a debugging port");
 
-        // Drive the page over the DevTools WebSocket: run script in it and read the result.
-        let ws_url = pages()[0]["webSocketDebuggerUrl"].as_str().expect("ws url").to_string();
-        let path = &ws_url[ws_url.find("/devtools/").expect("devtools path")..];
-        let mut ws = TcpStream::connect(("127.0.0.1", port)).unwrap();
-        ws.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-        write!(
-            ws,
-            "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
-             Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
-        )
-        .unwrap();
-        let mut head = Vec::new();
+        // A crash closes the client; the restarted Chrome answers a new one.
+        let first = sup.pid();
+        // SAFETY: kill takes integers only; `first` is the supervisor's live browser child.
+        unsafe { libc::kill(first as libc::pid_t, libc::SIGKILL) };
         let mut byte = [0u8; 1];
-        while !head.ends_with(b"\r\n\r\n") {
-            ws.read_exact(&mut byte).unwrap();
-            head.push(byte[0]);
-        }
-        assert!(String::from_utf8_lossy(&head).starts_with("HTTP/1.1 101"), "no WebSocket upgrade");
-        let call = serde_json::json!({
-            "id": 1, "method": "Runtime.evaluate",
-            "params": {"expression": "document.title = 'driven by cdp'; 6 * 7", "returnByValue": true}
-        })
-        .to_string();
-        // One masked text frame (clients must mask; mask 0 keeps the payload as is).
-        let mut frame = vec![0x81u8];
-        let n = call.len();
-        if n < 126 {
-            frame.push(0x80 | n as u8);
-        } else {
-            frame.push(0x80 | 126);
-            frame.extend_from_slice(&(n as u16).to_be_bytes());
-        }
-        frame.extend_from_slice(&[0, 0, 0, 0]);
-        frame.extend_from_slice(call.as_bytes());
-        ws.write_all(&frame).unwrap();
-        let reply = loop {
-            let mut h = [0u8; 2];
-            ws.read_exact(&mut h).unwrap();
-            let mut len = u64::from(h[1] & 0x7f);
-            if len == 126 {
-                let mut b = [0u8; 2];
-                ws.read_exact(&mut b).unwrap();
-                len = u64::from(u16::from_be_bytes(b));
-            } else if len == 127 {
-                let mut b = [0u8; 8];
-                ws.read_exact(&mut b).unwrap();
-                len = u64::from_be_bytes(b);
-            }
-            let mut body = vec![0u8; len as usize];
-            ws.read_exact(&mut body).unwrap();
-            let v: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
-            if v["id"] == 1 {
-                break v;
-            }
-        };
-        assert_eq!(reply["result"]["result"]["value"], 42, "CDP reply: {reply}");
-        wait_until("the page title the agent set", || {
-            pages().iter().any(|p| p["title"] == "driven by cdp")
-        });
+        assert!(matches!(std::io::Read::read(&mut client, &mut byte), Ok(0) | Err(_)));
+        wait_until("chrome restart", || sup.starts() == 2 && sup.pid() != 0);
+        let mut again = cdp_connect(&sock);
+        again.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+        drive(&mut again, "driven again");
 
-        // Loopback only: the port is not reachable on the machine's network address.
-        let probe = UdpSocket::bind("0.0.0.0:0").unwrap();
-        if probe.connect("1.1.1.1:53").is_ok() {
-            let ip = probe.local_addr().unwrap().ip();
-            if !ip.is_loopback() && !ip.is_unspecified() {
-                assert!(
-                    TcpStream::connect_timeout(&(ip, port).into(), Duration::from_secs(2)).is_err(),
-                    "CDP port {port} answered on {ip}"
-                );
-            }
-        }
-
-        drop(ws);
+        drop(again);
         drop(sup);
+        drop(bridge);
         let _ = xvfb.kill();
         let _ = xvfb.wait();
         let _ = fs::remove_dir_all(&dir);

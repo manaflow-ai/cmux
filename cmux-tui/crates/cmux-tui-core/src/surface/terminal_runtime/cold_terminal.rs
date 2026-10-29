@@ -1,4 +1,4 @@
-//! A terminal runtime's emulator, hot or cold (p07-memory-041).
+//! A terminal runtime's emulator, hot or cold.
 //!
 //! [`TerminalCell`] holds the runtime's [`Terminal`] (`pty.term`). Every
 //! [`TerminalCell::lock`] and [`TerminalCell::try_lock`] restores a cold
@@ -8,7 +8,7 @@
 //! (`chrome/browser/resource_coordinator/tab_lifecycle_unit.cc`, `Load`).
 //!
 //! Only [`Surface::freeze_cold_terminal`] makes a terminal cold, with
-//! ghostty-vt's lossless codec ([`Terminal::into_cold`], p07-memory-040),
+//! ghostty-vt's lossless codec ([`Terminal::into_cold`]),
 //! and only for a terminal with no attach or render tap; mux/cold_scrollback.rs
 //! decides when. [`Surface::scrollback_memory`] reads a cold terminal's size
 //! without restoring it, for the scrollback memory budget, and

@@ -41,7 +41,9 @@ Rules (each violation names the file and line):
      DaemonCapability.required or .optional, so check-daemon-capabilities.sh
      proves the bundled binary serves it (and RefusalStrings says "restart to
      update" for an older daemon). CONDITIONAL lists the few the daemon serves
-     only beside a sidecar binary.
+     only beside a sidecar binary; every framed IPC grant (the names of
+     `IpcCapability::name` in capabilities.rs) is conditional too, since
+     identify offers it per connection once its transport is bound.
   2. A capability the daemon source does not define may appear only at a
      refusal site (a feature not built yet, shown as "not available in this
      version"), in DaemonCapability.unservedByBundledDaemon, or in PEERS (a
@@ -89,15 +91,23 @@ ENDPOINT = "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndp
 
 # Served by cmux-tui only when a sidecar binary sits beside it, so the
 # isolated identify probe of check-daemon-capabilities.sh cannot require it.
+# The framed IPC grants join it from the source (ipc_grants), not by hand.
 CONDITIONAL = {
     "apps-v1": "only with cmux-app-host beside the binary (cmux-tui-core apps.rs advertised())",
-    # A framed IPC grant: identify offers it only once its transport is bound (capabilities.rs
-    # IpcTransports::BOUND, p05-ipc-074), and the app falls back to a connection per view without it.
-    "attach-streams-v1": "only once its transport is bound (cmux-tui-core capabilities.rs IpcTransports::BOUND)",
-    # The same class: the frame reader's grant. BOUND lists only AttachStreams until p05-ipc-061 binds Frames, so
-    # identify never offers it yet, and the app sends lines without it (WireNegotiation.echo, p05-ipc-092).
-    "ipc-frames-v2": "only once its transport is bound (cmux-tui-core capabilities.rs IpcTransports::BOUND)",
 }
+
+# Every name of `IpcCapability::name` in capabilities.rs is a framed IPC grant: identify
+# offers it per connection, only once its transport is in IpcTransports::BOUND and only to
+# a peer IpcCapability::allowed admits, and never in the static set the release check reads
+# (`__daemon-capabilities`). So no identify probe can require it, and `optional` would turn
+# every Mac build red while a transport is unbound (ipc-frames-v2 before p05-ipc-061 binds
+# it). The app falls back to JSON lines and a connection per view without a grant
+# (DaemonWireNegotiation). A grant name added to the enum is conditional at once, so the next
+# one the app references (attach-frames-v1, terminal-output-ring-v1) is not a red base.
+IPC_GRANT_REASON = ("a framed IPC grant (cmux-tui-core capabilities.rs IpcCapability): offered per connection, "
+                    "only once its transport is in IpcTransports::BOUND")
+IPC_NAME_FN = re.compile(r"\bimpl\s+IpcCapability\s*\{.*?\bfn\s+name\s*\(\s*self\s*\)[^{]*\{", re.S)
+IPC_NAME_ARM = re.compile(r'\bSelf::\w+\s*=>\s*"([a-z][a-z0-9.-]*)"')
 
 # Capabilities of other servers that the app gates on with the same helpers.
 PEERS = {
@@ -335,6 +345,20 @@ def rust_capabilities(repo: Path) -> dict[str, str]:
     return found
 
 
+def ipc_grants(repo: Path) -> dict[str, str]:
+    """{name: reason} for every arm of `IpcCapability::name` in capabilities.rs (none when the enum is gone)."""
+    path = repo / RUST_LIST
+    text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    start = IPC_NAME_FN.search(text)
+    if not start:
+        return {}
+    depth, end = 1, start.end()
+    while end < len(text) and depth:
+        depth += {"{": 1, "}": -1}.get(text[end], 0)
+        end += 1
+    return {name: IPC_GRANT_REASON for name in IPC_NAME_ARM.findall(text, start.end(), end)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
@@ -347,6 +371,7 @@ def main() -> int:
             print(f"{ref.capability}\t{ref.kind}\t{served}\t{ref.where}")
         return 0
 
+    conditional = {**CONDITIONAL, **ipc_grants(args.repo)}
     checked = set(lists["required"]) | set(lists["optional"])
     unserved = set(lists["unservedByBundledDaemon"])
     problems: list[str] = []
@@ -359,7 +384,7 @@ def main() -> int:
         sites = [r for r in refs if r.capability == capability]
         gates = [r.where for r in sites if r.kind == GATE]
         if capability in daemon:
-            if capability not in checked and capability not in CONDITIONAL:
+            if capability not in checked and capability not in conditional:
                 problems.append(
                     f"{capability}: the app references it ({', '.join(r.where for r in sites[:3])}) and the daemon "
                     f"defines it ({daemon[capability]}), but it is not in DaemonCapability.required or .optional, so "

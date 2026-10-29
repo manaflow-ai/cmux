@@ -10,9 +10,9 @@ import CmuxNextWakeupsTestSupport
 import Observation
 import Testing
 
-/// The startup phases wired to the app (p06-scheduler-007): `LaunchReveal`'s last produced region
+/// The startup phases wired to the app: `LaunchReveal`'s last produced region
 /// reveals the launch, the daemon store's first snapshot and an unavailable daemon mark the settle
-/// references, and the launch's windows give the visible panes their startup refs (p08-startup-013).
+/// references, and the launch's windows give the visible panes their startup refs.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct StartupPhaseWiringTests {
     @MainActor private final class Count {
         var value = 0
@@ -163,7 +163,7 @@ import Testing
         defer { TerminalTimings.onContentApplied = previous }
         let refs = VisiblePaneRefs(hold: { _ in { _ in } }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let settle = LaunchSettle(reveal: LaunchReveal(clock: ManualClock(), deadline: .seconds(60)), paneRefs: refs)
-        TerminalTimings.onContentApplied = {}
+        TerminalTimings.onContentApplied = { _ in }
         settle.terminalContentApplied()
         settle.terminalContentApplied()
         #expect(TerminalTimings.onContentApplied != nil, "the restore ref still holds: later content is a signal too")

@@ -183,7 +183,7 @@ public final class SessionInputPending: InputPendingSource {
     }
 
     /// Every kind of input pending at `uptime` (seconds since boot), for the input-turn hop
-    /// recorder's turn (p04-input-022). Empty when the app is inactive. Safe next to the budget's checks: the only state a check keeps is when it first
+    /// recorder's turn. Empty when the app is inactive. Safe next to the budget's checks: the only state a check keeps is when it first
     /// saw an undispatched scroll begin or drag, which is the same whoever looks.
     public func pendingKinds(uptime: TimeInterval) -> Kinds {
         scan(uptime: uptime, firstOnly: false)

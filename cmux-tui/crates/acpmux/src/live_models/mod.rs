@@ -302,8 +302,10 @@ pub fn overlay(models: &mut [Value], live: &[LiveModel]) {
         && let Some(at) = models.iter().position(|m| m["id"] == default.id.as_str())
     {
         let first = usize::from(models.first().is_some_and(|m| m["id"] == "default"));
-        if at > first {
-            models[first..=at].rotate_right(1);
+        if at > first
+            && let Some(moved) = models.get_mut(first..=at)
+        {
+            moved.rotate_right(1);
         }
     }
 }

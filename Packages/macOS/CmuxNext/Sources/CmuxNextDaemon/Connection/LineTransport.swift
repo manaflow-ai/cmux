@@ -18,7 +18,7 @@ public enum TransportCloseReason: Sendable, Equatable {
 /// One connection to a cmux-tui Unix socket (raw protocol v12): the app's DaemonTransport.
 ///
 /// A dedicated reader thread cuts messages with CmuxNextIPC's ``FrameReader`` and routes them without
-/// touching any actor or decoding them (p05-ipc-144): responses resume their waiter by `id` (the oldest pending
+/// touching any actor or decoding them: responses resume their waiter by `id` (the oldest pending
 /// request for the id-less `bad request` envelope, which is safe because commands start serially per
 /// connection), and events go to `onEvent` through the connection's ``DecodeLane``, the one FIFO of its replies
 /// and events: a heavy event (a control event's decode, a snapshot inflate) runs on the lane's serial queue, a
@@ -38,8 +38,8 @@ final class LineTransport: Sendable {
 
     /// Inbound limit: the server may send up to 32 MiB (VT replay).
     static let maxLineBytes = 64 << 20
-    /// SO_SNDBUF and SO_RCVBUF of the socket, and the reader's read size: the daemon's own value
-    /// (p05-ipc-083), so a burst of output or a pipelined handshake moves in a few reads, not in hundreds
+    /// SO_SNDBUF and SO_RCVBUF of the socket, and the reader's read size: the daemon's own value,
+    /// so a burst of output or a pipelined handshake moves in a few reads, not in hundreds
     /// of the 8 KiB AF_UNIX default.
     static let socketBufferBytes = 512 << 10
     /// The event name a `cmux.protocol/2` stream line is routed under
@@ -57,7 +57,7 @@ final class LineTransport: Sendable {
 
     /// The transport's routing state (LineTransport+State.swift); the reader's routing reads it
     /// (LineTransport+Route.swift).
-    let state = Mutex(State(), rank: .daemonLineTransportState)
+    let state = Mutex(State())
     private let socket: Mutex<Socket>
     /// Nonblocking, ordered writes (never parks the calling actor's thread).
     private let writer: SocketWriter
@@ -115,7 +115,7 @@ final class LineTransport: Sendable {
             child = nil
         }
         Self.sizeBuffers(fd)
-        socket = Mutex(Socket(fd: fd), rank: .daemonLineTransportSocket)
+        socket = Mutex(Socket(fd: fd))
         writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget, hangs: hangs)
         recorder?.connectionOpened(role, bridged: opened != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
@@ -367,7 +367,7 @@ final class LineTransport: Sendable {
         // An attach connection carries the terminal's output: the reader's copies of its bytes
         // are copies of that output (``DaemonWireStats/Snapshot/outputBytesCopiedApp``).
         let outputStream = role == .terminalAttach ? recorder : nil
-        // Frames come only with their negotiation (p05-ipc-092); until the handshake asks for them
+        // Frames come only with their negotiation; until the handshake asks for them
         // (``acceptFrames()``) a 0xFF boundary is a bad message.
         var reader = FrameReader(limits: FrameReader.Limits(maxLine: Self.maxLineBytes, maxFramePayload: FrameHeader.maxPayloadCap))
         var framesAccepted = false

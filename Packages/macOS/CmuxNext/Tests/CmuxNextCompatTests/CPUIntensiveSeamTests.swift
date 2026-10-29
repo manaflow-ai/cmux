@@ -6,7 +6,7 @@ import ImageIO
 import Testing
 import UniformTypeIdentifiers
 
-/// The size-gated seams for long CPU work (``BlockingKind/cpuIntensive``, p02-threads-121): above its gate each
+/// The size-gated seams for long CPU work (``BlockingKind/cpuIntensive``): above its gate each
 /// seam on the main thread records one site at its caller's line; at or below the gate, or off the main thread (a
 /// named queue, the pool, the `.cpu` lane), none records. Each test binds its own table
 /// (``BlockingViolationTable/scoped``). Sites are compared by kind, location, count and context: their wall time

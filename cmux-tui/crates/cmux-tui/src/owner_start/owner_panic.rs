@@ -30,8 +30,7 @@ const TEST_PANIC_ENV: &str = "CMUX_TUI_TEST_OWNER_PANIC";
 #[cfg(debug_assertions)]
 const TEST_PANIC_THREAD: &str = "owner-panic-test";
 
-/// The log for `session` (the rule lives in core, so `oracle-state` reports
-/// the same path).
+/// The log for `session` (the rule lives in core).
 pub(super) use cmux_tui_core::diagnostics::owner_panic_log_path as log_path;
 
 /// Install the owner's panic hook and hang log. Call once, in the headless
@@ -121,15 +120,18 @@ fn is_test_thread(thread: &str) -> bool {
 
 /// Debug builds only: panic a worker thread when the test asks for it.
 #[cfg(debug_assertions)]
+#[allow(
+    clippy::panic,
+    reason = "debug builds only: the owner panic-log test asks for this panic through its environment variable"
+)]
 fn panic_for_test() {
     if std::env::var(TEST_PANIC_ENV).as_deref() != Ok("thread") {
         return;
     }
     // supervise-allow: debug-only test trigger; the test asks for exactly this thread's panic line.
-    let _ = std::thread::Builder::new()
-        .name(TEST_PANIC_THREAD.into())
-        // crash-allow: debug-only test trigger for the owner panic log
-        .spawn(|| panic!("cmux-tui test owner panic"));
+    let _ = cmux_threads::spawn(TEST_PANIC_THREAD, cmux_threads::ThreadQos::Utility, || {
+        panic!("cmux-tui test owner panic")
+    });
 }
 
 #[cfg(unix)]

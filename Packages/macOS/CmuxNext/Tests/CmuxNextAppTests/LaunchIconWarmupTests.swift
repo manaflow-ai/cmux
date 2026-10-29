@@ -4,7 +4,7 @@ import CmuxNextLaunch
 import Foundation
 import Testing
 
-/// p08-startup-039: the icon pack and catalog (367 KB of JSON, a `swift_once` each) decode on the
+/// The icon pack and catalog (367 KB of JSON, a `swift_once` each) decode on the
 /// launch's icon warm-up thread, not on main at the first tab or sidebar icon before the first frame.
 /// The decode and the launch-mark sink are injected: the process-wide icon globals may already be
 /// decoded by another suite, so reading them here would prove nothing about where the decode ran.

@@ -15,8 +15,7 @@ import Testing
 /// Critical memory pressure reaches evicted terminals' last frames on two paths in one turn (the
 /// warm set's budget, `WarmSetRelease`, and the memory coordinator's limit).
 /// Only the coordinator's release slice drops the stored frames, on a later frame: the warm set's
-/// smaller budget bounds the frames kept from then on and frees nothing in the event's turn
-/// (p07-memory-035).
+/// smaller budget bounds the frames kept from then on and frees nothing in the event's turn.
 @MainActor @Suite(.serialized)
 struct TerminalLastFramesPressureTests {
     /// Keeps the coordinator's release slices until the test runs them, as the next frames would.

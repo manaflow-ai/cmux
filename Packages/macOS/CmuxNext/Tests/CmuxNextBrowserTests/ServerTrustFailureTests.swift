@@ -3,7 +3,7 @@ import Foundation
 import Security
 import Testing
 
-/// A failed server trust gives Page Info its chain and reason (p10-stability-058: the trust is no longer
+/// A failed server trust gives Page Info its chain and reason (the trust is no longer
 /// boxed across threads; WebKit's delegate evaluates it with `SecTrustEvaluateAsyncWithError`). Off main, as the probe runs it.
 @Suite nonisolated struct ServerTrustFailureTests {
     @Test func aRootUsedAsAServerForAnotherHostFailsWithItsChainAndAReason() throws {

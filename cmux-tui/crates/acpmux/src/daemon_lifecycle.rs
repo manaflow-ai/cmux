@@ -1,4 +1,4 @@
-//! A leftover daemon exits (p07-memory-063, behind the default-off
+//! A leftover daemon exits (behind the default-off
 //! `leftoverDaemonIdleExit` feature in `schemas/features/features.d`).
 //!
 //! Every cmux app, tagged dev build and CLI start leaves an acpmux daemon
@@ -458,11 +458,15 @@ impl OwnerApp {
         let Some(pid) = self.pid else { return std::future::pending().await };
         let (done, exit) = tokio::sync::oneshot::channel::<()>();
         // Scoped to this wait: a panic in the thread drops `done`, which ends the wait below.
-        let watch = crate::supervised::scoped_thread("acpmux-owner-exit", move || {
-            if wait_for_process_exit(pid) {
-                let _ = done.send(());
-            }
-        });
+        let watch = crate::supervised::scoped_thread(
+            "acpmux-owner-exit",
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                if wait_for_process_exit(pid) {
+                    let _ = done.send(());
+                }
+            },
+        );
         if watch.is_err() || exit.await.is_err() {
             // No watch: only the grace ends this daemon.
             std::future::pending::<()>().await;

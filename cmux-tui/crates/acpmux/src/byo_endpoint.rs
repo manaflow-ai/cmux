@@ -311,9 +311,11 @@ pub enum Problem {
 
 /// Whether `text` has `code` as a whole number (not inside 4011).
 fn has_code(text: &str, code: &str) -> bool {
-    text.match_indices(code).any(|(at, _)| {
-        let before = text[..at].chars().next_back();
-        let after = text[at + code.len()..].chars().next();
+    text.match_indices(code).any(|(at, found)| {
+        // `at` comes from match_indices, so it is a character boundary.
+        let Some((head, tail)) = text.split_at_checked(at) else { return false };
+        let before = head.chars().next_back();
+        let after = tail.strip_prefix(found).and_then(|t| t.chars().next());
         !before.is_some_and(|c| c.is_ascii_digit()) && !after.is_some_and(|c| c.is_ascii_digit())
     })
 }

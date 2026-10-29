@@ -4,6 +4,7 @@
   "targets": {
     "CCmuxAppFFI": {"layer": "core"},
     "CmuxNextCompat": {"layer": "core"},
+    "CmuxNextCompatAppKit": {"layer": "core", "plan": "exception to core (DESIGN section 2: AppKit value types only): Compat's AppKit side effects (p15-oracle 119/121: LaunchServices and Finder opens and queries, terminate, menu item titles, CATransaction completion), stateless wrappers that Cloud (service) and ui targets call; relabel to service in a push that changes its sources"},
     "CmuxNextCompatCore": {"layer": "core", "note": "what the privileged server helper shares with the app (runOnOwnThread, the signing-team read); no swift-atomics"},
     "CmuxNextWakeups": {"layer": "core"},
     "CmuxNextWakeupsTestSupport": {"layer": "core"},
@@ -126,7 +127,6 @@
     "CmuxNextSignposts": {"layer": "core"},
     "CmuxNextSignpostsC": {"layer": "core", "note": "C: os_signpost macros for the key and stall signposts, no heap allocation (p09-observability 007); libSystem only"},
     "CmuxNextSharedRegionC": {"layer": "core", "note": "C: shm_open for the Chromium host control channel's sealed payload regions (p01-process 020); libSystem only"},
-    "CmuxNextProfileRuntimeC": {"layer": "core", "note": "C header: the compiler-rt profile runtime's write, reset and file name for ProfileFlush (p08-startup 103); only the profile build calls them"},
     "CmuxNextTrace": {"layer": "core", "note": "TraceRuntime, Release trace rings, crash keys, HangWatch slots (p09-observability); depends on Compat and swift-atomics only"},
     "CmuxNextMetrics": {"layer": "core", "note": "field histograms (HistogramID, Metrics.record; p09-observability); depends on Compat and Trace only"},
     "CmuxNextFeatures": {"layer": "core", "note": "base::FeatureList: feature declarations and the immutable resolved snapshot (p12-perf-process 3.9)"},
@@ -137,6 +137,7 @@
     "CmuxNextWireDigest": {"layer": "core", "note": "FNV-1a 64, the schema content digest CmuxNextIPC and CmuxNextWireGen share (cmux-ipc's schema_digest.rs); pure, no Foundation (p05-ipc 3.3, task 027)"},
     "CmuxNextIPCTestSupport": {"layer": "core", "note": "the fixture schema's generated DaemonWireEvent (CmuxNextWireGenPlugin) and its payload types; test targets only (p05-ipc-022)"},
     "CmuxNextIPC": {"layer": "core", "note": "the app-daemon wire; bindings built from cmux-tui/spec at build time by CmuxNextWireGenPlugin; its only I/O is the daemon socket's sendmsg in FrameWriter's SocketFrameSink and the reader's recvmsg (p05-ipc 3.3, tasks 027, 054, 055)"},
+    "OracleReplay": {"layer": "domain", "mixes": ["service"], "note": "oracle-replay: host executable, not linked into the app: replays saved input journals with CmuxNextInputModel's InputReplay (domain, p15-oracle-102), so it takes that layer like OracleConfigDump; its own file I/O (read the journals, write diff.py's run files) is the service part (p15-oracle-104)"},
     "CmuxNextWireGen": {"layer": "service", "note": "host build executable, not linked into the app: reads the two cmux-tui/spec schema files and writes CmuxNextIPC's bindings into the plugin work directory (file I/O) (p05-ipc 3.3, task 027)"},
     "CmuxNextDesignTokens": {"layer": "core", "plan": "labeled core by its imports (72673e48762) but holds state and I/O, so arch-layers.py lists it under impure core; the label stays until the code moves (the layer gate refuses a relabel without the code change that moves the target). It is values only once its state moves out: TunableStore and TunableFile to a service target with Tunable.value reading an injected store (lead decision 2026-10-23), RecoveryDraftStore to the Quit domain, MuseumArtSearch (URLSession) to a service (LowPowerMode moved to CmuxNextEnergy, p14-energy-021), BackdropRevision to CmuxNextAppearance with DesignSettings and ThemeStore (B3)"},
 

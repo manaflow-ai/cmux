@@ -26,14 +26,14 @@
  ],
  "crates": {
   "acpmux": {
-   "unwrap_used": 191,
-   "expect_used": 24,
-   "panic": 2,
-   "unreachable": 2,
+   "unwrap_used": 0,
+   "expect_used": 0,
+   "panic": 0,
+   "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 800,
-   "string_slice": 99,
+   "indexing_slicing": 0,
+   "string_slice": 0,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 978,
    "cast_possible_truncation": 113
@@ -144,16 +144,16 @@
   },
   "cmux-browser-host": {
    "unwrap_used": 0,
-   "expect_used": 1,
+   "expect_used": 0,
    "panic": 0,
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 209,
-   "string_slice": 14,
+   "indexing_slicing": 0,
+   "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 155,
-   "cast_possible_truncation": 38
+   "arithmetic_side_effects": 135,
+   "cast_possible_truncation": 37
   },
   "cmux-build-identity": {
    "unwrap_used": 0,
@@ -533,16 +533,16 @@
    "cast_possible_truncation": 1
   },
   "cmux-remote": {
-   "unwrap_used": 4,
-   "expect_used": 41,
+   "unwrap_used": 0,
+   "expect_used": 0,
    "panic": 0,
-   "unreachable": 10,
+   "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 91,
-   "string_slice": 7,
+   "indexing_slicing": 0,
+   "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 105,
+   "arithmetic_side_effects": 89,
    "cast_possible_truncation": 10
   },
   "cmux-remote-browser": {
@@ -702,16 +702,16 @@
    "cast_possible_truncation": 0
   },
   "cmux-tui": {
-   "unwrap_used": 354,
-   "expect_used": 70,
-   "panic": 1,
-   "unreachable": 30,
+   "unwrap_used": 1,
+   "expect_used": 7,
+   "panic": 0,
+   "unreachable": 2,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 1060,
-   "string_slice": 82,
+   "indexing_slicing": 7,
+   "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 1115,
+   "arithmetic_side_effects": 1055,
    "cast_possible_truncation": 133
   },
   "cmux-tui-cdp": {
@@ -741,14 +741,14 @@
    "cast_possible_truncation": 1
   },
   "cmux-tui-core": {
-   "unwrap_used": 198,
-   "expect_used": 32,
+   "unwrap_used": 0,
+   "expect_used": 0,
    "panic": 0,
-   "unreachable": 5,
+   "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 355,
-   "string_slice": 32,
+   "indexing_slicing": 7,
+   "string_slice": 2,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 830,
    "cast_possible_truncation": 89

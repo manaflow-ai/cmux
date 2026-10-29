@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// p06-scheduler-221: no per-event check puts the overlay host's panel back above a page window
+/// No per-event check puts the overlay host's panel back above a page window
 /// the fork re-adds, so every window that shows pages does it from `addChildWindow`. The DevTools
 /// window shows the DevTools page and can hold an overlay (a context menu over DevTools).
 @MainActor @Suite(.serialized) struct CEFDevToolsWindowOverlayOrderTests {
@@ -31,7 +31,7 @@ import Testing
         #expect(host.isAbovePages, "the DevTools page covers the window's overlays")
     }
 
-    /// p01-process-223: in host mode the DevTools page is a view of the panel (the hosted page), so
+    /// In host mode the DevTools page is a view of the panel (the hosted page), so
     /// its overlay host checks no child order on the panel's notices; in process each notice checks it.
     @Test(arguments: [PageSurface.views, .childWindows])
     func theDevToolsWindowChecksTheOrderOnItsNoticesOnlyInProcess(_ surface: PageSurface) {

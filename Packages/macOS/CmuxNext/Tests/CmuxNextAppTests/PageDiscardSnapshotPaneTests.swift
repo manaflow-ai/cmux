@@ -1,10 +1,12 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextPages
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// A page discarded in place (p13-webui-030) shows its hide-time snapshot in the key's turn: the pane
+/// A page discarded in place shows its hide-time snapshot in the key's turn: the pane
 /// that switches to it holds no paint (the snapshot is its first frame), so the page is visible at
 /// once and the tab it leaves goes in the same swap. Runs a real pane in a window.
 @MainActor @Suite(.serialized) struct PageDiscardSnapshotPaneTests {
@@ -14,7 +16,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let descriptor = PageDescriptor(id: "test.discard-pane", resource: "discard-pane", processGroup: .solo, namespaces: [])
-        let page = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        let page = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil, deadlines: .testing()))
         defer { page.close() }
         let tab = InternalPageView(key: "k", page: InternalPageID(rawValue: "cmux.markdown"), content: page)
         let pane = TabSwitchNoBlankFrameTests.Pane()

@@ -220,10 +220,10 @@ inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 66;
-inline constexpr char kShimAbiID[] = "183b298b198b385c17c2812753a8ae86772b4cd78d9f687f56db9260136a3889";
+inline constexpr int kEventKindCount = 68;
+inline constexpr char kShimAbiID[] = "641e57a19bd827069848e7610171deda12fd58f5576ab72b2afae3083a8203b4";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "3ec17138f8508529b7b1c105a843a8e60f986ca4a4ec0e02544aa8f75dee4f71";
+inline constexpr char kWireID[] = "d7a832720219ab8c5bf90994fa22b3a1107ac48595eaf77da206a33e4d66fe6e";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {
@@ -1629,13 +1629,13 @@ CMUX_SHIM_EXPORT int cmux_shim_certificate_proceed(int arg_browser_id, const cha
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int arg_browser_id, int* arg_out, int arg_capacity) {
-  TlvWriter op_w;
-  op_w.I32(arg_browser_id);
-  op_w.I32(static_cast<int32_t>(arg_capacity));
-  const uint32_t op_token = NextToken();
-  if (arg_out != nullptr && arg_capacity > 0) arg_out[0] = 0;
-  const bool op_sent = PostForReply(kOpRendererClientIds, op_token, op_w);
-  return op_sent ? 1 : 0;
+  TlvWriter key_w;
+  key_w.I32(arg_browser_id);
+  TlvReader value_r = MirrorLookup(kOpRendererClientIds, key_w);
+  if (!value_r.present()) return 0;
+  const auto mirror_result = value_r.I32();
+  value_r.I32Array(arg_out, arg_capacity);
+  return mirror_result;
 }
 
 CMUX_SHIM_EXPORT int cmux_shim_set_context_proxy(const char* arg_profile_cache_path, int arg_port) {

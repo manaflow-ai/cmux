@@ -2,7 +2,7 @@ import CmuxNextCompat
 import CmuxNextHibernation
 import Testing
 
-/// The `memory.saver` mode times the proactive discards of the newer kinds (p07-memory-065), as
+/// The `memory.saver` mode times the proactive discards of the newer kinds, as
 /// Chrome's memory_saver_mode_policy.cc times its tab discards: conservative 1.5x, medium 1x (the
 /// timeouts shipped before the setting), aggressive 0.5x of each kind's own timeout, and off none.
 /// Critical pressure still discards whatever the mode. A mode change looks again after its turn,

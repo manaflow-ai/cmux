@@ -8,6 +8,7 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+use crate::cli::json_fields::JsonFields;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
@@ -91,7 +92,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         Err(error) => {
             // The resolver's typed refusal passes through unchanged.
             let failure = super::wire::resolve_failure(&error);
-            if failure["code"] == "socket.no_daemon" {
+            if failure.field("code") == "socket.no_daemon" {
                 return super::wire::print_local_error(
                     &failure,
                     global.output,
@@ -211,7 +212,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             );
         }
     };
-    if identity["app"] != "cmux-tui" {
+    if identity.field("app") != "cmux-tui" {
         return local_error(
             "server.wrong_owner",
             crate::localization::catalog().local_server.wrong_owner,
@@ -238,7 +239,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             );
         }
     }
-    let actual_session = identity["session"].as_str().unwrap_or_default();
+    let actual_session = identity.field("session").as_str().unwrap_or_default();
     if actual_session.is_empty() {
         return local_error(
             "server.invalid_identity",
@@ -247,7 +248,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             3,
         );
     }
-    let Some(pid) = identity["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()) else {
+    let Some(pid) = identity.field("pid").as_u64().and_then(|pid| u32::try_from(pid).ok()) else {
         return local_error(
             "server.invalid_identity",
             crate::localization::catalog().local_server.invalid_identity,
@@ -255,7 +256,8 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             3,
         );
     };
-    let Some(generation) = identity["generation"].as_str().filter(|value| !value.is_empty()) else {
+    let Some(generation) = identity.field("generation").as_str().filter(|value| !value.is_empty())
+    else {
         return local_error(
             "server.invalid_identity",
             crate::localization::catalog().local_server.invalid_identity,
@@ -273,6 +275,10 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 
     match plan.action {
+        #[allow(
+            clippy::unreachable,
+            reason = "INVARIANT: run returns for Ensure and CompactRegistry before it connects"
+        )]
         ServerAction::Ensure { .. } | ServerAction::CompactRegistry { .. } => {
             unreachable!("ensure and compact-registry return before the lifecycle exchange")
         }
@@ -334,7 +340,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                         );
                     }
                 };
-            if result["reloaded"].as_bool() != Some(true) {
+            if result.field("reloaded").as_bool() != Some(true) {
                 return local_error(
                     "server.invalid_response",
                     crate::localization::catalog().local_server.invalid_response,
@@ -346,7 +352,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 json!({
                     "reloaded":true,
                     "session":actual_session,
-                    "warnings":result["warnings"].as_array().cloned().unwrap_or_default(),
+                    "warnings":result.field("warnings").as_array().cloned().unwrap_or_default(),
                     "message":crate::localization::catalog().local_server.reloaded,
                 }),
                 global.output,
@@ -412,7 +418,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     );
                 }
             };
-            if result["accepted"] != true {
+            if result.field("accepted") != true {
                 return local_error(
                     "server.invalid_response",
                     crate::localization::catalog().local_server.invalid_response,
@@ -430,7 +436,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "session":actual_session,
                     "pid":pid,
                     "generation":generation,
-                    "ended_terminals":result["ended_terminals"].as_u64(),
+                    "ended_terminals":result.field("ended_terminals").as_u64(),
                     "message":if end_terminals {
                         crate::localization::catalog().local_server.stopped_terminals_ended
                     } else {
@@ -554,7 +560,7 @@ impl StopWait<'_> {
                 let phase = loop {
                     let slice = deadline.max(Instant::now() + STOP_POLL_INTERVAL);
                     let slice = slice.min(Instant::now() + STOP_WAIT_SLICE);
-                    match read_reply(&mut connection, &request["id"], slice) {
+                    match read_reply(&mut connection, request.field("id"), slice) {
                         Ok(identity) => match identity.get("lifecycle_ready") {
                             Some(Value::Bool(false)) => {
                                 break RestorePhase::Starting(
@@ -677,10 +683,10 @@ fn read_reply(
         let Some(response) = read_response(connection, deadline)? else {
             return Err(ExchangeError::Closed);
         };
-        if response.get("event").is_some() || &response["id"] != id {
+        if response.get("event").is_some() || response.field("id") != id {
             continue;
         }
-        if response["ok"] == true {
+        if response.field("ok") == true {
             return Ok(response.get("data").cloned().unwrap_or(Value::Null));
         }
         let error =
@@ -788,7 +794,7 @@ fn run_ensure(
                 "message":message,
             });
             if let Some(pid) = replaced {
-                result["replaced_pid"] = json!(pid);
+                result.insert("replaced_pid", json!(pid));
             }
             print_success(result, output)
         }
@@ -878,10 +884,10 @@ fn exchange(
         let Some(response) = read_response(connection, deadline)? else {
             return Err(ExchangeError::Closed);
         };
-        if response.get("event").is_some() || response["id"] != request["id"] {
+        if response.get("event").is_some() || response.field("id") != request.field("id") {
             continue;
         }
-        if response["ok"] == true {
+        if response.field("ok") == true {
             return Ok(response.get("data").cloned().unwrap_or(Value::Null));
         }
         let error =

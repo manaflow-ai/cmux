@@ -83,8 +83,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         }
     }
     /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation can
-    /// move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``, p14-energy-124).
-    /// In process only: with the Chromium Host on, those shim calls are wire replies (p14-energy-124a).
+    /// move it to another renderer), a frame's renderer came or went (FRAME_RENDERERS) or its renderer ended
+    /// (``publishRenderers(as:into:while:)``). In process only: with the Chromium Host on, those
+    /// shim calls are wire replies.
     @ObservationIgnored var onRenderersMayChange: (() -> Void)?
     /// Runs each time a frame of this page outside its main frame's renderer crashes (`BrowserSubframeCrashReporting`).
     @ObservationIgnored public var onSubframeCrash: (@MainActor () -> Void)?

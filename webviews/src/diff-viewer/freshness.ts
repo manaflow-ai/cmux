@@ -7,7 +7,7 @@
 //
 // The host has no push for a changed work tree, so a shown viewer compares on each minute of the
 // page's one clock (ui/pageClock.ts), and once each time the reader comes back (the page shows
-// again, or its window takes focus). A hidden viewer runs no timer (p14-energy-062a), as Chrome
+// again, or its window takes focus). A hidden viewer runs no timer, as Chrome
 // stops a hidden page's timers (third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc).
 import { useEffect, useRef, useState } from "react";
 import { useSyncedRef } from "./useSyncedRef";

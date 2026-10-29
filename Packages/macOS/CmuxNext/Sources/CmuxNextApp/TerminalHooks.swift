@@ -10,7 +10,7 @@ struct TerminalHooks {
 
     func install() {
         GhosttyRuntime.shared.appActionHandler = { [weak services] in services?.terminalDelegate.performAppAction($0) ?? false }
-        // A resized or shown terminal's drawn frame goes into the commit that carries its size (p03-rendering-084).
+        // A resized or shown terminal's drawn frame goes into the commit that carries its size.
         let preCommitPresent = services?.features.isEnabled(.terminalPreCommitPresent) ?? false
         GhosttyRuntime.shared.hostFramePresenter = preCommitPresent ? TerminalHostFramePresenter.makeIfPresentNeverWaits() : nil
         TerminalKeyEquivalent.menuMayClaim = { [weak services] in services?.keyRouter.menuMayClaim($0) ?? true }
@@ -18,7 +18,7 @@ struct TerminalHooks {
         // encodes it with the program's keyboard modes. A refused key falls back; one that may have
         // arrived (a timeout) does not, so it never reaches the program twice.
         TerminalKeyEquivalent.sendToProgram = { [weak services] session, chord, fallback in
-            // view-observation-allow: no observation; locateTab is the MachineTabIndex's one lookup (p06-scheduler-051)
+            // view-observation-allow: no observation; locateTab is the MachineTabIndex's one lookup
             guard let services, let key = services.cache.tabKey(for: session), let (tab, pane) = services.locateTab(key),
                   tab.kind == .pty else { return false }
             let surface = tab.surface

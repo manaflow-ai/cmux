@@ -15,7 +15,7 @@ import os
 ///
 /// The attachment lifecycle is one `TerminalAttachMachine` run by a
 /// `TerminalAttachDriver` (state-audit.md T1, T3-T5):
-/// - Attaches on its own connection without claiming geometry, so showing a
+/// - Attaches on its machine's connection (`TerminalAttachment.attach(on:)`) without claiming geometry, so showing a
 ///   tab never reflows the PTY. The first settled grid report after the
 ///   replay claims it while the view renders (SurfaceLedger visibility).
 /// - Input typed while attaching or reattaching is queued and sent once, in
@@ -59,8 +59,6 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     private let surface: UInt64
     /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
     private let resizes: ResizeCoordinator
-    /// Told after each step this view maps, and each live chunk its lane takes (nil in Release).
-    private let screenChanged: (@Sendable () -> Void)?
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
 
@@ -74,15 +72,17 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// go while a recording runs (`debug.burst`, or a trace recording's `burst` category).
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
     /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
-    /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
-    /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
-    /// `streamFocus`: the app's one focused terminal view, whose stream rides the input lane (p05-ipc-142).
+    /// `keyStamps`: takes the daemon's stages of each key echo; only for a daemon on this Mac, whose
+    /// clock they are on.
+    /// `connection`: the machine connection each attach streams on, or reaches its endpoint from.
+    /// `streamFocus`: the app's one focused terminal view, whose stream rides the input lane.
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          createIntent: UInt64 = 0, creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
-         hangWatch: (any HangWatchScoping)? = nil, screenChanged: (@Sendable () -> Void)? = nil,
+         hangWatch: (any HangWatchScoping)? = nil,
+         keyStamps: (any TerminalKeyStampSink)? = nil,
          streamFocus: TerminalStreamFocus? = nil,
-         endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
+         connection: @escaping @Sendable () async throws -> DaemonConnection) {
         self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
@@ -103,14 +103,14 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                 #if DEBUG
                 try await DebugSlowAttach.shared.beforeAttach(surface: String(surface))
                 #endif
-                return try await TerminalAttachment.attach(endpoint: try await endpoint(), target: attachment,
+                return try await TerminalAttachment.attach(on: try await connection(), target: attachment,
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,
                                                     images: Self.attachImages,
                                                     device: await Self.sizingDevice.value,
                                                     hangs: hangWatch, createIntent: firstAttach.take(),
-                                                    inputQueue: inputQueue)
+                                                    inputQueue: inputQueue, keyStamps: keyStamps)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -135,11 +135,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         self.creatingInput = creatingInput
         self.burstTrace = burstTrace
         self.surface = surface
-        self.screenChanged = screenChanged
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
-                screenChanged?()
                 // Each mark checks for a recording itself; with none, it drops an ended one's echo matching.
                 if let burstTrace {
                     switch event {
@@ -194,14 +192,15 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     ///
     /// While the terminal is still being created its bytes go by id, one awaited send at a time; the lane holds
     /// every later record meanwhile, and a chunk the daemon refused goes by the attachment on `queue` before the
-    /// lane resumes, so no record passes it.
+    /// lane resumes, so no record passes it. A key's bytes carry its latency slot's flow to the link;
+    /// by id they go without it.
     static func inputDrain<Link: TerminalAttachLink>(on queue: DispatchQueue, driver: TerminalAttachDriver<Link>,
                                                      creating: (any CreatingTerminalInputSending)?) -> TerminalInputDrain {
         TerminalInputDrain(queue: queue) { record, resume in
             switch record {
-            case .bytes(let data):
+            case .bytes(let data), .keyBytes(let data, _):
                 guard let creating, !creating.sendsByAttachment else {
-                    driver.input(data)
+                    driver.input(data, keyFlow: record.keyFlow)
                     return .next
                 }
                 // The drain's closure is nonisolated: the send never touches the main thread.
@@ -224,14 +223,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     /// Live output goes from the attach link's reader thread straight to `lane` (``TerminalAttachDriver/setOutputSink(_:)``),
-    /// with the marks the stream's output step makes: the burst trace's first output and the oracle's screen change.
+    /// with the mark the stream's output step makes: the burst trace's first output.
     func setOutputLane(_ lane: TerminalEchoLane?) {
         driver.setOutputSink(lane.map { lane in
-            TerminalEchoSink { [burstTrace, surface, screenChanged] data, flow, wake in
+            TerminalEchoSink { [burstTrace, surface] data, flow, wake in
                 burstTrace?.output(surface: surface)
-                let full = lane.enqueue(data, flow: flow, wake: wake)
-                screenChanged?()
-                return full
+                return lane.enqueue(data, flow: flow, wake: wake)
             }
         })
     }

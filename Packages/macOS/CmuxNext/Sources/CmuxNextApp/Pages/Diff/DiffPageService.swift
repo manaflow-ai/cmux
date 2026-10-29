@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextControl
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -61,12 +61,15 @@ final class DiffPageService: InternalPageProvider {
     private let launch: LaunchIdentity
     /// The app's main-thread work scheduler (``AppServices/mainWork``), read when the service is made.
     private let mainWork: MainWorkScheduler
+    /// The app's blocking-work lanes (``AppServices/work``): the recents, viewed and collapsed files are read and
+    /// written on its files lane.
+    private let work: BackgroundWork
     /// Made on the first tab (tests pass their own).
     private lazy var runtime = DiffPageRuntime(git: localGit, mainWork: mainWork)
-    private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: launch))
+    private lazy var recentsStore = DiffRecents(url: DiffRecents.standardURL(launch: launch), runner: work)
     /// Prefs (`diff.*` settings) and viewed marks (next to the recents), shared by every tab.
     private lazy var stores = DiffPageStores(prefs: SettingsDiffPrefs(mainWork: mainWork) { [servicesReference] in servicesReference.resolve()?.settings },
-                                             viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url)))
+                                             viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url), runner: work))
     /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
     /// WebKit's default nearest 60 fps.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -91,6 +94,7 @@ final class DiffPageService: InternalPageProvider {
         localGit = services.agentGit.local
         launch = services.environment.launch
         mainWork = services.mainWork
+        work = services.work
         self.clock = clock
         if let runtime { self.runtime = runtime }
         if let recents { recentsStore = recents }
@@ -310,7 +314,7 @@ final class DiffPageService: InternalPageProvider {
         tab.viewState = nil
         let native = AppPageNativeProvider(services: services, page: .diff)
         let routes = [PageRoute(prefix: "cmux.diff.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let patches = DiffPatchSource { [weak provider] in provider?.ready }
+        let patches = DiffPatchSource(runner: services.work) { [weak provider] in provider?.ready }
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .diff, routes: routes, options: Self.engineOptions,
                                                              surface: .diff, dynamicResources: patches)) else {
             ready?.cancel()
@@ -368,7 +372,7 @@ final class DiffPageService: InternalPageProvider {
         }
     }
 
-    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// How long a page may take to say what it shows before its discard goes on without it.
     static let viewStateTimeout: Duration = .seconds(1)

@@ -4,7 +4,7 @@ public import CmuxNextWakeups
 import Darwin
 import Foundation
 
-/// The app's input-turn hop recorder (p04-input-022, machine queue MQ-input-turn-hops), owned by
+/// The app's input-turn hop recorder (machine queue MQ-input-turn-hops), owned by
 /// the app's control wiring: one ``InputTurnHopRecorder`` that `debug.input` action `hops`
 /// reads, and the main run loop's ``InputTurnCalloutTimer`` that records its non-Swift lane, with
 /// a ``CalloutStackSampler`` that samples the main thread (``ThreadStackSampler``) to name a long

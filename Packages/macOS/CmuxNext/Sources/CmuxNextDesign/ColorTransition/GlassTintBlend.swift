@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextDesignTokens
 
 /// The Liquid Glass tint of a window backdrop moving to a new color with the color transition

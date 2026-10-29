@@ -7,6 +7,7 @@
 //! refusal that carries one (then `data` holds the daemon's error data, such
 //! as `cwd_missing` with the missing `cwd`).
 
+use crate::no_panic::JsonExt;
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,7 +90,7 @@ impl AppError {
     pub fn envelope(&self) -> serde_json::Value {
         let mut envelope = serde_json::json!({"error": {"code": self.code.name(), "exit": self.code as i32, "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}});
         if let Some(data) = &self.data {
-            envelope["error"]["data"] = data.clone();
+            envelope.set_path(&["error", "data"], data.clone());
         }
         envelope
     }

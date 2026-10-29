@@ -231,24 +231,27 @@ fn an_admitted_frame_reaches_dispatch() {
     assert_eq!(reply["ok"], json!(true), "{reply}");
 }
 
-/// p02-threads task 210: a remote connection's reader is the local reader's
-/// class (registered, blocking disallowed), not a lower one under a raised
-/// writer.
+/// A remote connection's handshake thread
+/// (`mux-remote-conn`) ends once the dial reaches the line connection; the
+/// mux-io loop serves it from there, as it serves a local one.
 #[test]
-fn a_remote_connection_reader_is_the_local_connection_class() {
+fn a_remote_connection_is_served_by_the_mux_io_loop_after_its_handshake() {
     let entry = entry(true, Arc::new(AdmitAll));
     let (mut stream, mut reader) = connect_as_link(&entry);
     stream.write_all(format!("{STAMP}\n{{\"id\":7,\"cmd\":\"identify\"}}\n").as_bytes()).unwrap();
     let reply = response(&mut reader);
     assert_eq!(reply["ok"], json!(true), "{reply}");
-    let rows: Vec<_> = cmux_threads::snapshot()
-        .into_iter()
-        .filter(|row| row.name == "mux-remote-conn")
-        .map(|row| row.declared)
-        .collect();
-    assert!(!rows.is_empty(), "mux-remote-conn is registered while it serves");
-    let class = line_connection::CONNECTION_READER_QOS;
-    assert!(rows.iter().all(|declared| *declared == class), "{rows:?}");
+    let rows =
+        |name: &str| cmux_threads::snapshot().into_iter().filter(|row| row.name == name).count();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while rows("mux-remote-conn") > 0 {
+        assert!(Instant::now() < deadline, "the handshake thread never ended");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(rows("mux-io") > 0, "the mux-io loop serves the dial");
+    stream.write_all(b"{\"id\":8,\"cmd\":\"ping\"}\n").unwrap();
+    let reply = response(&mut reader);
+    assert_eq!(reply["id"], json!(8), "{reply}");
 }
 
 /// A stamp sent to the local socket is not a stamp there: it is an unknown

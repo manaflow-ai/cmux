@@ -1,4 +1,4 @@
-//! p09-observability-099: the app host's panic log (`--panic-log`). A panic
+//! The app host's panic log (`--panic-log`). A panic
 //! after the sandbox holds still reaches the log, through the handle
 //! `panic_log::install` opened before it.
 #![cfg(unix)]

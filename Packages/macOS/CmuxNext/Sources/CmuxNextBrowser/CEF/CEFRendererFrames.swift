@@ -1,6 +1,6 @@
 /// Every frame of every browser this process's Chromium holds, by browser and renderer
-/// (`cmux_shim_renderer_frames`): what memory per hidden workspace splits a shared renderer by
-/// (p09-observability-061). The list covers every browser the shim holds (tabs, popups, popup windows,
+/// (`cmux_shim_renderer_frames`): what memory per hidden workspace splits a shared renderer by.
+/// The list covers every browser the shim holds (tabs, popups, popup windows,
 /// spares, DevTools), so ``totals`` is each renderer's whole frame count, the denominator Chrome splits a
 /// process's memory by (components/performance_manager/resource_attribution/attribution_helpers.h,
 /// `SplitResourceAmongFramesAndWorkers`).

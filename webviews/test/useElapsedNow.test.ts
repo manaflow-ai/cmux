@@ -1,4 +1,4 @@
-// Elapsed labels on the page clock (p14-energy-061): seconds under a minute, whole minutes after,
+// Elapsed labels on the page clock: seconds under a minute, whole minutes after,
 // re-rendered each second and then each minute.
 import { expect, test } from "bun:test";
 import { ELAPSED_MINUTE_MS, elapsedGranularity, shownElapsed } from "../src/ui/useElapsedNow";

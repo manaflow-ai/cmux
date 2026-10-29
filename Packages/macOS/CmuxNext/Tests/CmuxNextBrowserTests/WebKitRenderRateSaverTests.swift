@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Testing
 import WebKit
 
-/// `WebKitEngine` follows the app's Energy Saver policy (`MainWorkScheduler.energy`, p14-energy-031):
+/// `WebKitEngine` follows the app's Energy Saver policy (`MainWorkScheduler.energy`):
 /// open tabs and new tabs render near 60 fps under the saver (or Low Power Mode while the `energySaver`
 /// feature is off, `EnergyPolicy.pageSaver`), at the display's full rate without it. Off screen, no tab
 /// re-shows under a snapshot; the rate is set on its preferences.

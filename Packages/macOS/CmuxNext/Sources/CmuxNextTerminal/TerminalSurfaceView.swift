@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
-import CmuxNextInput
+public import CmuxNextInput
 import CmuxNextTerminalGeometry
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -18,7 +18,7 @@ import QuartzCore
 ///
 /// Created and owned by ``TerminalSession``; embed ``TerminalSession/view``,
 /// not this view directly.
-public final class TerminalSurfaceView: NSView {
+public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     // MARK: State
 
     /// SAFETY: the view's live surface: made in `init`, freed only in `deinit`, and never
@@ -107,6 +107,11 @@ public final class TerminalSurfaceView: NSView {
     }
 
     var lastOcclusionVisible: Bool?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// When the pause last ended and the layer's next frame after it (`debug.surfaces` `show`); record only.
+    /// Its gate is the one every terminal layer's hook reads (``TypingFrameProbe``).
+    let showRecord: TerminalShowRecord
+    #endif
     /// When the paused surface lets its GPU memory go (``TerminalGPUResidencyGate``).
     var gpu: TerminalGPUResidencyGate
     /// Away, outside the keep-alive band: paused, the surface lets its GPU memory go.
@@ -153,6 +158,9 @@ public final class TerminalSurfaceView: NSView {
     var textInputStage: TextInputStage?
     /// Where `doCommand` re-sends a chord no one claimed: the app's dispatch (a test records it).
     var resendKey: @MainActor (NSEvent) -> Void = { NSApp.sendEvent($0) }
+    /// The input methods' turn for a key: nil is AppKit's (`interpretKeyEvents`, the selected input
+    /// source); a test replays a recorded input method's calls (setMarkedText, insertText, doCommand).
+    var inputMethod: (@MainActor (TerminalSurfaceView, NSEvent) -> Void)?
     var previousPressureStage = 0
     /// The left press went to Ghostty as a link click, in a program that has the mouse or with
     /// Shift- or Option-Command (``TerminalPointerMods``): its drags and release go the same way.
@@ -198,7 +206,7 @@ public final class TerminalSurfaceView: NSView {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
         let cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
         let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks,
-                                   cursor: cursorLayer?.presenter)
+                                   keySlots: echoStages, cursor: cursorLayer?.presenter)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
@@ -210,6 +218,9 @@ public final class TerminalSurfaceView: NSView {
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
         self.vsyncSource = vsyncSource
         self.cursorLayer = cursorLayer
+        #if DEBUG || CMUX_BENCH_HOOKS
+        showRecord = TerminalShowRecord(gate: echoStages.contentsGate)
+        #endif
         offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
         let visibilityNode = node.map { VisibilityNode("terminal.surface", parent: $0) } ?? VisibilityNode(root: "terminal.surface", own: .visible)
@@ -327,6 +338,9 @@ public final class TerminalSurfaceView: NSView {
         if let layer {
             cursorLayer?.install(on: layer)
             echoStage?.attach(to: layer)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            showRecord.attach(to: layer)
+            #endif
             TypingFrameProbe.install(on: layer, stages: stages, keyFlows: bridgeObject.typingSurface)
         }
         registerForDraggedTypes([.fileURL, .URL, .string])

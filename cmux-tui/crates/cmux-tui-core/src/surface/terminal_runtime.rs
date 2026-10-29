@@ -110,11 +110,26 @@ impl PtyTerminalRuntime {
         &self,
         bytes: &[u8],
     ) -> Vec<crate::terminal_metadata::TerminalNotification> {
+        self.observe_terminal_output_replayed(bytes, false)
+    }
+
+    /// [`Self::observe_terminal_output`] of output that may be a restarted
+    /// daemon's replay of a holder's ring (`replayed`): its prompt marks are
+    /// old, so the shell is not idle until a prompt after it. Noted in the
+    /// same metadata lock as the marks, so no publication sees them idle.
+    pub(super) fn observe_terminal_output_replayed(
+        &self,
+        bytes: &[u8],
+        replayed: bool,
+    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
         let mut metadata = self.terminal_metadata.lock().recover_poison();
         if !bytes.is_empty() {
             metadata.activity.note_output(crate::workspace_registry::unix_epoch_ms().unwrap_or(0));
         }
         metadata.observe_output(bytes);
+        if replayed {
+            metadata.activity.note_replayed_output();
+        }
         metadata.take_admitted_notifications(Instant::now())
     }
 
@@ -362,11 +377,15 @@ pub struct PtyTerminalRuntime {
     pub(super) attach_colors_force_pending: AtomicBool,
     /// The flow of the newest key press a `send` wrote on this terminal's
     /// local PTY master (0: none since the last output took it): the
-    /// daemon's next read of that PTY carries it, once
-    /// (p09-observability-018). A hosted terminal's host and a holder
+    /// daemon's next read of that PTY carries it, once.
+    /// A hosted terminal's host and a holder
     /// terminal's sink keep their own slot: the daemon does not read
     /// their PTY.
     pub(super) last_input_flow: crate::input_flow::InputFlowSlot,
+    /// This terminal's key presses on their way to their echo: the daemon's
+    /// receive, the PTY write and the echo's read. Shared
+    /// with each attach writer, which sends the stamps with the echo.
+    pub(super) input_stages: Arc<crate::input_stages::InputStageRing>,
     /// Published byte offset and grid generation for snapshot viewers.
     pub(super) snapshot_position: snapshot_attach::SnapshotStreamPosition,
     /// Last effective color state emitted to attach streams. This suppresses

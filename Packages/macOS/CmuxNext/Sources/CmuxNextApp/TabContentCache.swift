@@ -42,7 +42,7 @@ final class TabContentCache {
             if browsers.count < oldValue.count { tabRenderers.keep(only: Set(browsers.keys)) }
         }
     }
-    /// Each Chromium tab's renderers, for the busy watchdog off the main thread (p14-energy-124): a tab
+    /// Each Chromium tab's renderers, for the busy watchdog off the main thread: a tab
     /// publishes itself at mount (`CEFTab.publishRenderers`) and leaves with its entry.
     let tabRenderers = TabRendererDirectory()
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -85,7 +85,7 @@ final class TabContentCache {
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs: GoneTabWatch
     /// The terminal view whose stream rides the input lane, the last one focused, while `terminalStreamPriority`
-    /// is on (p05-ipc-142); nil: every view's stream keeps the priority it opened with.
+    /// is on; nil: every view's stream keeps the priority it opened with.
     let streamFocus: TerminalStreamFocus?
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
     /// each, with the page version each shows (`pageVersion`): a page is captured again only when
@@ -131,7 +131,7 @@ final class TabContentCache {
     /// Terminals made before their daemon knew its tab records, waiting to take their record's font scale
     /// (`applyFontScaleWhenKnown`), by tab; each ends when it applies or its tab is released.
     var fontScaleWaits: [String: ServiceObservation<Bool>] = [:]
-    /// Tabs whose page waits for `enginesAwait`, one posted step each (p08-startup-028).
+    /// Tabs whose page waits for `enginesAwait`, one posted step each.
     private var awaitingRead: Set<String> = [] {
         didSet { if !oldValue.isEmpty, !hasPendingPages { onPagesSettled?() } }
     }
@@ -157,7 +157,7 @@ final class TabContentCache {
     /// node that starts it when it shows: held here, as `node(for:)` holds nodes weakly.
     var launchDeferredNodes: [String: VisibilityNode] = [:]
     /// The launch read every browser tab's page waits for before an engine makes it (the browser
-    /// profiles, p08-startup-028); nil: none.
+    /// profiles); nil: none.
     var enginesAwait: LaunchReadEvent?
     /// The browser pages' pictures from the last quit, drawn over their panes at launch (feature `browserLaunchPictures`; nil while off).
     var launchPictures: BrowserLaunchPictures?
@@ -200,6 +200,8 @@ final class TabContentCache {
 
     /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
     let resizes: ResizeCoordinator
+    /// Takes the daemon's stages of each key echo of a local terminal; set by the App.
+    var terminalKeyStamps: (any TerminalKeyStampSink)?
 
     /// - Parameters:
     ///   - chromium: The Chromium engine's slot: its stores now, the engine (and the App's wiring) at its first read.
@@ -267,6 +269,13 @@ final class TabContentCache {
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
         // Daemon restarted or the tab's surface changed: the pane presenting the old view lets it go before it closes.
+        // The new view of the same terminal (a daemon restart: a new generation) shows what the old one showed
+        // until its own content draws (no empty pane between them); another terminal shows nothing of the old one.
+        // The tab's terminal id, else its content id (a terminal the daemon still adopts has no runtime surface, so no
+        // terminal id yet, but keeps its content id), else its surface handle.
+        let identity = (tab.terminalResourceID ?? tab.snapshot.contentResourceID).map { "term:\($0.rawValue)" }
+            ?? "surface:\(tab.surface.rawValue)"
+        let carried = terminals[tab.id].flatMap { $0.terminalIdentity == identity ? $0.session.carriedFrame() : nil }
         discardTerminal(tab.id)
         let target = DaemonTerminalIO.Target(attachment: attachTarget, initialSize: tab.size ?? CellSize(cols: 80, rows: 24),
                                              cursorDefault: .user)
@@ -275,11 +284,14 @@ final class TabContentCache {
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil, create = createTabs.waitingInterval(.terminal, tab: tab.id, surface: tab.surface.rawValue) // create: a new tab's, whose stages its view marks (NewTerminalTrace)
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, createIntent: create?.intentID ?? 0, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
-                                  hangWatch: daemon.hangWatch, screenChanged: pageRequests.services?.terminalScreenChanged,
-                                  streamFocus: streamFocus, endpoint: { try await daemon.endpoint() })
+                                  hangWatch: daemon.hangWatch,
+                                  keyStamps: daemon.isLocal ? terminalKeyStamps : nil, streamFocus: streamFocus,
+                                  connection: { try await daemon.machineConnection() })
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
+        if let carried { session.holdCarriedFrame(carried) }
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate, mainWork: mainWork)
+        entry.terminalIdentity = identity
         terminals[tab.id] = entry
         // The delegate builds a machine-aware link filter. Install it only
         // after this session can be resolved back to its owning tab.
@@ -345,7 +357,7 @@ final class TabContentCache {
             return nil
         }
         if let page = appPage(for: tab, url: url) { return page }
-        let origin = launchOrigin(of: tab)  // read once: the deferral and the page made now agree (p08-startup-040)
+        let origin = launchOrigin(of: tab)  // read once: the deferral and the page made now agree
         if let page = deferredPage(tab, url: url, origin: origin) { return page }  // after crashes, or hidden at launch
         if let read = enginesAwait, !read.isSignaled { return awaitLaunchRead(read, key) }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
@@ -514,7 +526,10 @@ final class TabContentCache {
     /// (yet) or `tab` has one: `tab` then makes its own.
     func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
         guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
-        if let node = tabNodes.removeValue(forKey: key), tabNodes[tab.id]?.node == nil { tabNodes[tab.id] = node } // the page's node goes with it
+        if let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[tab.id]?.node == nil { // the page's node goes with it
+            tabNodes[tab.id] = WeakTabNode(node: node)
+            daemon.trackVisibility(ofTab: tab.id, node: node)
+        }
         release(key, displacing: false)
         mount(entry, as: tab.id)
         goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
@@ -589,6 +604,7 @@ final class TabContentCache {
         if let node = tabNodes[key]?.node { return node }
         let node = VisibilityNode("tab:\(key)", own: .hidden, parent: unselectedTabs)
         tabNodes[key] = WeakTabNode(node: node)
+        daemon.trackVisibility(ofTab: key, node: node)  // the daemon holds a hidden tab's field events (frontend.visibility.set)
         if tabNodes.count >= tabNodesPruneAt {
             tabNodes = tabNodes.filter { $0.value.node != nil }
             tabNodesPruneAt = max(64, tabNodes.count * 2)

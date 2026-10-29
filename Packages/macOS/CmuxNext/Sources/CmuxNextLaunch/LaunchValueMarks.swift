@@ -1,4 +1,4 @@
-/// Numeric launch values kept in the process (p08-startup-064), each also sent to the startup bench's pipe.
+/// Numeric launch values kept in the process, each also sent to the startup bench's pipe.
 /// One per app, owned by `AppServices`. `debug.startup` (task 008) reads ``values`` through its composition
 /// root's `counters:` source, `{ StartupReport.Counters(values: services.launchValues.values) }`;
 /// `debug.timings` lists them as `launch_values`.
@@ -31,7 +31,7 @@ public final class LaunchValueMarks {
         pipe(name, value)
     }
 
-    /// Keeps the registry's read of the launch's action catalog (p08-startup-092).
+    /// Keeps the registry's read of the launch's action catalog.
     public func recordActionCatalogMainAccess(waitMicroseconds: UInt64, readMicroseconds: UInt64) {
         record(Self.actionCatalogMainWait, value: waitMicroseconds)
         record(Self.actionCatalogMainRead, value: readMicroseconds)

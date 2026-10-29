@@ -21,8 +21,6 @@ final class HomeDockTab: InternalPageProvider {
     private var views: [String: HomeDockView] = [:]
     /// Each dock view's follow of `home.channelsEnabled` (``HomeDock/followChannelsSetting(_:work:shown:)``), by key.
     private var channelsFollows: [String: ServiceObservation<Bool>] = [:]
-    /// Bumped when a dock's view is made or goes: `views` is plain storage, so a reader of ``messagesViews`` hears it.
-    private let installs = PageInstallCounter()
     /// The Messages list width every docked Home shares (`HomeSidebarWidth` keeps one per key).
     static let widthKey = "home-dock"
     /// The page command the host asks the Channels page for its selection with (hq-ec's page).
@@ -43,7 +41,6 @@ final class HomeDockTab: InternalPageProvider {
         view.channelsSelection = { await Self.askSelection($0) }
         channelsFollows[key] = HomeDock.followChannelsSetting(view, work: services.mainWork) { [weak services] in services?.home.dockMode = $0 }
         views[key] = view
-        installs.bump()
         for tab in pending.keys where services.pages.storeKey(of: tab) == key {
             let work = pending.removeValue(forKey: tab) ?? []
             // After this view is in its window, so a sheet has a window to show on.
@@ -56,7 +53,6 @@ final class HomeDockTab: InternalPageProvider {
         views.removeValue(forKey: key)?.close()
         saved[key] = nil
         channelsFollows.removeValue(forKey: key)?.cancel()
-        installs.bump()
         services?.home.dockMode = .messages // no dock view shows Channels now
     }
 
@@ -87,7 +83,6 @@ final class HomeDockTab: InternalPageProvider {
         saved[key] = SavedView(mode: view.mode, messages: view.messages?.viewState)
         channelsFollows.removeValue(forKey: key)?.cancel()
         view.close()
-        installs.bump()
         if view.mode == .channels { services?.home.dockMode = .messages } // its next view opens on Messages
     }
 
@@ -103,16 +98,6 @@ final class HomeDockTab: InternalPageProvider {
     func whenShown(_ tabID: String, services: AppServices, _ body: @escaping @MainActor (HomeDockView) -> Void) {
         if let key = services.pages.storeKey(of: tabID), let view = views[key] { return view.whenInWindow { body(view) } }
         pending[tabID, default: []].append(body)
-    }
-
-    /// The Messages view of each docked Home that shows it, by provider key; observed (a view made or gone, a
-    /// switch). A dock on Channels shows no conversation, so it has none here.
-    var messagesViews: [(key: String, view: TopHomePageView)] {
-        _ = installs.revision
-        return views.compactMap { key, view in
-            guard view.mode == .messages, let messages = view.messages else { return nil }
-            return (key, messages)
-        }
     }
 
     /// The docked Home's view in the live tree, once its tab has shown (nil while it is discarded).

@@ -1,4 +1,4 @@
-/// An owner that takes typing keys before the focused view while it is on (p04-input-054). The App's key router
+/// An owner that takes typing keys before the focused view while it is on. The App's key router
 /// asks each one, in its fixed order, only while some mode is on; with none on (normal mode), a typing key (no
 /// Command or Control, not Escape) skips them all.
 ///
@@ -20,7 +20,7 @@ public nonisolated enum KeyRouterMode: Int, CaseIterable, Sendable {
     case focusModeEscape
     /// A chord (`ctrl+b c`, the Cmd-J leader) waits for its next key.
     case chord
-    /// A window shows its launch picture, or keys wait for a terminal it showed (`LaunchPictureKeys`, p08-startup-061).
+    /// A window shows its launch picture, or keys wait for a terminal it showed (`LaunchPictureKeys`).
     case launchPicture
 
     var bit: UInt16 { 1 << UInt16(rawValue) }

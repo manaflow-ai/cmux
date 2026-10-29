@@ -1,4 +1,4 @@
-//! A sequence that changes priority (p05-ipc-142): an attach stream's view
+//! A sequence that changes priority: an attach stream's view
 //! drains at input priority while it is focused, utility while it is only
 //! visible and background while it is hidden. Chrome moves a hidden
 //! renderer's task runners the same way
@@ -33,8 +33,7 @@ impl Sequence {
         if (!ready && !has_delayed) || !self.shared.wake_or_reserve(&mut state, priority) {
             return;
         }
-        if self.shared.spawn_worker_locked(&mut state, priority)
-            || state.workers[priority.index()].live > 0
+        if self.shared.spawn_worker_locked(&mut state, priority) || state.workers[priority].live > 0
         {
             return;
         }
@@ -70,10 +69,10 @@ impl Shared {
 
     /// Notifies one idle worker of `priority`, if there is one.
     fn wake_idle(&self, state: &mut PoolState, priority: SequencePriority) {
-        let workers = &mut state.workers[priority.index()];
+        let workers = &mut state.workers[priority];
         if workers.idle > workers.waking {
             workers.waking += 1;
-            self.work[priority.index()].notify_one();
+            self.work[priority].notify_one();
         }
     }
 }
@@ -89,16 +88,16 @@ fn move_sequence(
     if let Some(sequence) = state.sequences.get_mut(&id) {
         sequence.priority = to;
     }
-    if let Some(position) = state.ready[from.index()].iter().position(|ready| *ready == id) {
-        state.ready[from.index()].remove(position);
-        state.ready[to.index()].push_back(id);
+    if let Some(position) = state.ready[from].iter().position(|ready| *ready == id) {
+        state.ready[from].remove(position);
+        state.ready[to].push_back(id);
     }
-    let delayed = std::mem::take(&mut state.delayed[from.index()]);
+    let delayed = std::mem::take(&mut state.delayed[from]);
     let (moved, kept): (Vec<_>, Vec<_>) =
         delayed.into_vec().into_iter().partition(|task| task.sequence == id);
-    state.delayed[from.index()] = kept.into();
+    state.delayed[from] = kept.into();
     let has_delayed = !moved.is_empty();
-    state.delayed[to.index()].extend(moved);
+    state.delayed[to].extend(moved);
     has_delayed
 }
 

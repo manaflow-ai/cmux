@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// p05-ipc-045: StateResourceClient and AgentCLIJobCarrier send generated `cmux.protocol/2`
+/// StateResourceClient and AgentCLIJobCarrier send generated `cmux.protocol/2`
 /// requests (`ResourceOperationClient`) instead of hand-built `ResourceRequestEnvelope`s, and
 /// every migrated call writes the same line byte for byte as the envelope it replaces. Each
 /// expected envelope below is the params dictionary the call site built before the migration.

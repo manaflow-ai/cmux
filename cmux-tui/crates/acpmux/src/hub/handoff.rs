@@ -9,9 +9,10 @@
 //! get, draft and a start retry work across a restart.
 
 use super::*;
+use crate::no_panic::{JsonExt, LockExt};
 use serde::{Deserialize, Serialize};
 
-mod capsule;
+pub(super) mod capsule;
 mod ops;
 
 /// The UTF-8 byte budget of `capsule.text`, shared by prepare, draft and start.
@@ -216,7 +217,7 @@ struct KeyGuard<'a> {
 
 impl Drop for KeyGuard<'_> {
     fn drop(&mut self) {
-        let mut locks = self.locks.lock().unwrap();
+        let mut locks = self.locks.lock_or_recover();
         self.guard.take();
         // Only the map and this guard hold it, and new holders clone it
         // under the map lock: nobody waits.
@@ -263,8 +264,7 @@ impl Handoffs {
     async fn lock(&self, key: String) -> KeyGuard<'_> {
         let lock = self
             .locks
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .entry(key.clone())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone();
@@ -273,17 +273,17 @@ impl Handoffs {
     }
 
     fn get(&self, id: &str) -> Option<Record> {
-        self.records.lock().unwrap().get(id).cloned()
+        self.records.lock_or_recover().get(id).cloned()
     }
 
     fn by_key(&self, key: &str) -> Option<Record> {
-        self.records.lock().unwrap().values().find(|r| r.handoff_key == key).cloned()
+        self.records.lock_or_recover().values().find(|r| r.handoff_key == key).cloned()
     }
 
     /// The handoff whose target is `session_id`, else the newest one not
     /// discarded whose source it is.
     fn for_session(&self, session_id: &str) -> Option<Record> {
-        let records = self.records.lock().unwrap();
+        let records = self.records.lock_or_recover();
         if let Some(r) = records.values().find(|r| r.target.session_id == session_id) {
             return Some(r.clone());
         }
@@ -318,7 +318,7 @@ impl Handoffs {
             };
             write().map_err(|e| RpcError::internal(format!("save handoff: {e}")))?;
         }
-        self.records.lock().unwrap().insert(record.handoff_id.clone(), record.clone());
+        self.records.lock_or_recover().insert(record.handoff_id.clone(), record.clone());
         Ok(())
     }
 }
@@ -333,7 +333,7 @@ fn refuse(
 ) -> RpcError {
     let mut data = json!({"reason": reason});
     if let Some(h) = handoff {
-        data["handoff"] = h;
+        data.set("handoff", h);
     }
     RpcError::new(code, format!("{reason}: {message}")).with_data(data)
 }
@@ -357,14 +357,14 @@ impl Hub {
     fn handoff_view(&self, r: &Record) -> Value {
         let coverage = r.coverage();
         let side = |s: &Side| {
-            let live = self.sessions.lock().unwrap().get(&s.session_id).cloned();
+            let live = self.sessions.lock_or_recover().get(&s.session_id).cloned();
             let enforcement = live
                 .map(|l| self.session_enforcement(&l.meta()))
                 .unwrap_or_else(|| s.enforcement.clone());
             json!({"sessionId": s.session_id, "harness": s.harness, "cwd": s.cwd, "coverage": coverage, "enforcement": enforcement})
         };
         let mut source = side(&r.source);
-        source["seq"] = json!(r.source_seq);
+        source.set("seq", json!(r.source_seq));
         json!({
             "handoffId": r.handoff_id,
             "handoffKey": r.handoff_key,

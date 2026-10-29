@@ -77,7 +77,14 @@ fn write_all_fd(fd: RawFd, mut bytes: &[u8]) -> io::Result<()> {
         if written == 0 {
             return Err(io::Error::new(io::ErrorKind::WriteZero, "short terminal probe write"));
         }
-        bytes = &bytes[written as usize..];
+        bytes = usize::try_from(written).ok().and_then(|written| bytes.get(written..)).ok_or_else(
+            || {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "terminal probe write overran its buffer",
+                )
+            },
+        )?;
     }
     Ok(())
 }
@@ -128,7 +135,10 @@ fn read_available_until(fd: RawFd, timeout: Duration) -> Vec<u8> {
         if read == 0 {
             break;
         }
-        out.extend_from_slice(&buf[..read as usize]);
+        let Some(chunk) = usize::try_from(read).ok().and_then(|read| buf.get(..read)) else {
+            break;
+        };
+        out.extend_from_slice(chunk);
         let colors = parse_replies(&out);
         if colors.fg.is_some() && colors.bg.is_some() {
             break;
@@ -141,12 +151,14 @@ fn read_available_until(fd: RawFd, timeout: Duration) -> Vec<u8> {
 fn parse_replies(bytes: &[u8]) -> DefaultColors {
     let mut colors = DefaultColors::default();
     let mut offset = 0;
-    while let Some(relative_start) = find_subslice(&bytes[offset..], b"\x1b]") {
+    while let Some(unparsed) = bytes.get(offset..)
+        && let Some(relative_start) = find_subslice(unparsed, b"\x1b]")
+    {
         let start = offset + relative_start + 2;
         let Some((end, next)) = find_terminator(bytes, start) else {
             break;
         };
-        if let Some((target, color)) = parse_reply(&bytes[start..end]) {
+        if let Some((target, color)) = bytes.get(start..end).and_then(parse_reply) {
             match target {
                 10 => colors.fg = Some(color),
                 11 => colors.bg = Some(color),
@@ -161,8 +173,8 @@ fn parse_replies(bytes: &[u8]) -> DefaultColors {
 #[cfg(any(unix, test))]
 fn find_terminator(bytes: &[u8], start: usize) -> Option<(usize, usize)> {
     let mut i = start;
-    while i < bytes.len() {
-        match bytes[i] {
+    while let Some(&byte) = bytes.get(i) {
+        match byte {
             b'\x07' => return Some((i, i + 1)),
             b'\x1b' if bytes.get(i + 1) == Some(&b'\\') => return Some((i, i + 2)),
             _ => i += 1,

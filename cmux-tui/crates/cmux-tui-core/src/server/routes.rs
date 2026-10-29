@@ -1,5 +1,5 @@
 //! The feature routes: lines whose `cmd` a feature module answers before the
-//! `Command` parse (p05-ipc-062). Each module exports its own `ROUTES`;
+//! `Command` parse. Each module exports its own `ROUTES`;
 //! [`MODULE_ROUTES`] is the one list of them, and [`find`] picks the one
 //! route a line's `cmd` names, so no route scans a line for a substring
 //! to learn whether it is its own. Chrome's receivers are found by name the
@@ -82,12 +82,11 @@ pub(super) struct Route {
 /// Every module's routes. An exact name belongs to one route and two
 /// prefixes never overlap (`connection_frame_routes_names_are_disjoint`).
 pub(super) const MODULE_ROUTES: &[&[Route]] = &[
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    super::oracle_state_command::ROUTES,
     #[cfg(any(debug_assertions, feature = "bench"))]
     super::debug_crash_inject::ROUTES,
     super::loopback_forward::ROUTES,
     super::energy_op::ROUTES,
+    super::frontend_visibility::ROUTES,
     super::memory_limit::ROUTES,
     #[cfg(unix)]
     super::browser_runtime::ROUTES,
@@ -160,7 +159,7 @@ pub(super) struct OperationRoute {
 /// (`connection_frame_page_routed_operations_are_not_catalog_operations`).
 pub(super) const OPERATION_ROUTES: &[&[OperationRoute]] = &[
     super::page_router::OPERATION_ROUTES,
-    // A held v2 handler for the sequencing tests (p05-ipc-086).
+    // A held v2 handler for the sequencing tests.
     #[cfg(test)]
     super::connection_frame::sequenced_lines_tests::OPERATION_ROUTES,
 ];

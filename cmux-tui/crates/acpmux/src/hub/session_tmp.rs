@@ -38,8 +38,10 @@ impl Hub {
             return;
         }
         tracing::info!(count = stale.len(), "removing temporary folders of forgotten sessions");
-        let sweep = self.supervisor.supervise_thread(
+        let sweep = crate::supervised::thread(
+            &self.supervisor,
             "acpmux-session-tmp-sweep",
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move |_stop| crate::agent::session_tmp::remove_all(&stale),

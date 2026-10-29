@@ -225,8 +225,6 @@ mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
 mod metrics_file;
-#[cfg(any(debug_assertions, feature = "oracle"))]
-mod oracle;
 mod pinned_columns;
 mod power_source;
 mod sqlite_trim;
@@ -574,13 +572,6 @@ pub struct Mux {
     /// The history search index (`history-search-v1`), installed by the
     /// binary with its feeds; absent otherwise.
     history_search: OnceLock<crate::history_search::HistorySearch>,
-    /// The refactor switch arms `oracle-state` reports, frozen at first read.
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    oracle_switches: OnceLock<crate::oracle_state::SwitchArms>,
-    /// Holders of this session that ended since this owner started
-    /// (`oracle-state` `childExits.holder`, invariant I17).
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    oracle_holder_exits: AtomicU64,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -771,7 +762,7 @@ pub struct Mux {
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     template_completion_failures: AtomicU64,
-    server_lifecycle_ready: AtomicBool,
+    server_startup: crate::startup_marks::ServerStartup,
     shutting_down: AtomicBool,
     /// When this owner's session (and the previous owner's) was shutting
     /// down: signal exits then are host losses (`session-shutdown`).
@@ -839,8 +830,12 @@ pub struct Mux {
     pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     /// The daemon-wide sequenced pool: every connection's control sequence
-    /// and stream sequences run on its fixed workers (p05-ipc-073).
+    /// and stream sequences run on its fixed workers.
     pub(crate) sequenced_pool: crate::server::SequencedPool,
+    /// The one `mux-io` loop that reads and writes every local connection
+    /// (server/mux_io.rs).
+    #[cfg(unix)]
+    pub(crate) mux_io: crate::server::MuxIo,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
     /// The blocking, inversion and slow-request sites of this daemon life
@@ -853,7 +848,7 @@ pub struct Mux {
     /// Waits for the exits of the daemon's long-lived children (terminal
     /// shells, terminal hosts, Chief brains, the journal plugin) on one
     /// `mux-reaper` thread and completes each on `work`
-    /// (`cmux_threads::reaper`, p02-threads-237).
+    /// (`cmux_threads::reaper`).
     #[cfg(unix)]
     pub(crate) reaper: Arc<cmux_threads::reaper::Reaper>,
     /// Each client's git requests, run on `work` one at a time in arrival

@@ -1,5 +1,5 @@
 //! The remote end of the SSH mux bridge says it reads frames
-//! (`bridge-hello` with `bridge-frames-v1`, p01-process-237), only to a
+//! (`bridge-hello` with `bridge-frames-v1`), only to a
 //! daemon that knows the line, and a real cmux-tui-core daemon serves the far
 //! client through it as it serves a direct one.
 

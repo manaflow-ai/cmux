@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
@@ -40,9 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let launchSettle: LaunchSettle
     /// An unavailable daemon's settle: every phase reference and startup ref it ends.
     let startupReferences: StartupReferences
-    /// The launch's order owners, made in `main` (p08-startup-012): every deferred launch task is a post to `order.startup`.
+    /// The launch's order owners, made in `main`: every deferred launch task is a post to `order.startup`.
     let order: LaunchOrder
-    /// The agent panes' launch images, one startup ref while any shows (p08-startup-016).
+    /// The agent panes' launch images, one startup ref while any shows.
     let launchImageHold: LaunchImageHold
     /// Cleanup deferred until startup completes (injected; tests pass their own).
     let launchCleanup: LaunchCleanup
@@ -99,16 +99,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The launch's phase (made in main with the main-thread scheduler) reveals at the first frame.
         let startup = order.mainWork.startup
         let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
-        // The restore ref and one ref per visible pane (p08-startup-013): one instance, on the launch's scheduler.
+        // The restore ref and one ref per visible pane: one instance, on the launch's scheduler.
         let paneRefs = VisiblePaneRefs(startup: order.startup, mainWork: order.mainWork, phase: startup)
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
         startupReferences = StartupReferences(startup: startup, reveal: reveal, mainWork: order.mainWork, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
-        let control = AppControl(mainWork: order.mainWork, input: inputTap, watchdog: watchdog)
-        #if CMUX_PGO_PROFILE
-        control.profileFlush = order.profileFlush
-        #endif
-        self.control = control
+        control = AppControl(mainWork: order.mainWork, input: inputTap, watchdog: watchdog)
         mouseSideButtons = MouseSideButtons(input: inputTap)
         super.init()
     }
@@ -127,9 +123,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger, features] read in
             DebugTimings.markLaunch("dfl.settings_wait")  // the read in hand: at once warm, after the disk cold
             if let failure = read.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
-            // cmux.json's appearance goes on the Ghostty overrides; the first config builds with them on a files lane and the launch goes on when it lands (p02-threads-129).
+            // cmux.json's appearance goes on the Ghostty overrides; the first config builds with them on a files lane and the launch goes on when it lands.
             TerminalThemeSetting.prime(read.snapshot)
-            // The Kitty image budget per screen before the first config builds: with memorySmallAppStores sized from this Mac's memory (p07-memory-083).
+            // The Kitty image budget per screen before the first config builds: with memorySmallAppStores sized from this Mac's memory.
             GhosttyRuntime.shared.setImageStorageBytesPerScreen(GhosttyImageStorageBudget.startingBytes(memoryBudget: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface, sizedFromMemory: features?.isEnabled(.memorySmallAppStores) == true))
         }, then: { [self] read in GhosttyRuntime.shared.start(loadingOn: GhosttyLaneConfigLoader(work: launchReads.work, mainWork: mainWork)) { [self] in finishLaunching(settings: read, launchStart: launchStart) } })
     }
@@ -153,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerTerminal(services: services)
         DebugTimings.markLaunch("dfl.bind")
         let settings = registerSettings(services: services, launch: settingsRead)
-        // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
+        // The platform services: what the first frame or the restore reads now, the rest posted.
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
         registerSavedPicture(services: services, settings: settings)
@@ -295,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The app stays running with no windows (standard macOS behavior); the daemon keeps every terminal regardless.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    /// Secure coding for any restorable state (as chrome/browser/app_controller_mac.mm); every cmux window is `isRestorable = false` (p08-startup-087).
+    /// Secure coding for any restorable state (as chrome/browser/app_controller_mac.mm); every cmux window is `isRestorable = false`.
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
     /// Dock click with no window open: the last closed window comes back

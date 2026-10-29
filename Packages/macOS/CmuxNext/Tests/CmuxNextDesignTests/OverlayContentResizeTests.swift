@@ -3,7 +3,7 @@ import AppKit
 import Testing
 
 /// An overlay whose content grows or shrinks on its own is hit-tested at its new size with no frame
-/// notification (p03-rendering-038). A content Auto Layout resizes (a SwiftUI popover) is read in its
+/// notification. A content Auto Layout resizes (a SwiftUI popover) is read in its
 /// holder's `layout()` during the panel's real layout pass; one that sets its own frame tells its handle.
 /// Either way the panel takes the mouse under a pointer that did not move.
 @MainActor

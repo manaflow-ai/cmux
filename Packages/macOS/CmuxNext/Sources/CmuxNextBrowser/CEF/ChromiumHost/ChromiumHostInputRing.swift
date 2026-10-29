@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Darwin
 
 /// cmux's writer of the input ring to the Chromium Host
-/// (plans/cmux-next/chrome-parity/p01-process.md 3.1, task p01-process-041).
+/// (plans/cmux-next/chrome-parity/p01-process.md 3.1).
 ///
 /// Keys, clicks, pointer moves and wheel ticks go to the host through 4,096
 /// frames of 64 bytes in a shared memory region, not the control socket. One
@@ -301,7 +301,7 @@ final class ChromiumHostInputRing {
             return true
         }
         if next.rawKind == ChromiumHostFrame.Kind.wheel.rawValue {
-            // One phase and momentum phase only (p04-input-063), as Blink's
+            // One phase and momentum phase only, as Blink's
             // WebMouseWheelEvent::CanCoalesce: a gesture's edges reach Chromium.
             guard waiting.v[4] == next.v[4], waiting.v[5] == next.v[5] else { return false }
             let dx = waiting.v[2], dy = waiting.v[3]

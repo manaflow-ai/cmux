@@ -336,6 +336,12 @@ extension DaemonConnection {
         try await requestNew(AckTabNotificationsRequest(surface: surface))
     }
 
+    /// Tells the daemon which surfaces this app shows (`frontend-visibility-v1`): the others' latest-state events
+    /// on this connection's subscription arrive once per aligned second, or at once when they show.
+    public func setFrontendVisibility(_ visible: [SurfaceID]?) async throws {
+        _ = try await request(FrontendVisibilitySetRequest(visible: visible))
+    }
+
     public func notificationLedger(limit: Int? = nil) async throws -> [ListNotificationsRequest.Entry] {
         try await requestNew(ListNotificationsRequest(limit: limit)).notifications
     }

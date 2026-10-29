@@ -47,11 +47,11 @@ public final class LagSpikeReporter: Sendable {
     /// Test seam: an explicit enabled check, sink and monotonic clock.
     public init(limiter: LagSpikeRateLimiter, isEnabled: @escaping @Sendable () -> Bool, sink: @escaping Sink,
                 uptime: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
-        self.limiter = Mutex(limiter, rank: .lagSpikeLimiter)
+        self.limiter = Mutex(limiter)
         self.isEnabled = isEnabled
         self.sink = sink
         self.uptime = uptime
-        self.contextProvider = Mutex(nil, rank: .lagSpikeContextProvider)
+        self.contextProvider = Mutex(nil)
     }
 
     /// Sets the context read for each admitted spike (main thread).

@@ -10,7 +10,7 @@ import CmuxNextDesign
 /// Chrome's view adds one cursor rect over its visible rect, and no browser UI lies over it: the
 /// find bar is a widget of its own. Here cmux's find bar, prompt bar, divider grab and crash page
 /// lie over the page view and the grab moves on every frame of a divider drag, so the page shows its
-/// cursor in `.cursorUpdate` areas over the same pieces instead (p04-input-090): moving them swaps
+/// cursor in `.cursorUpdate` areas over the same pieces instead: moving them swaps
 /// tracking areas and rebuilds none of the window's cursor rects. They leave out ``cursorHoles`` and
 /// the crash page: the holes the in-process page window gets for the same views (``CEFHostView/occlusionRects``).
 extension ChromiumHostPageView {

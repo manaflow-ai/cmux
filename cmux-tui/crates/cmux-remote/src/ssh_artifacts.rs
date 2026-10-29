@@ -21,6 +21,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::sync::watch;
 
+use crate::read_buffer::filled;
 use crate::ssh_bootstrap::BootstrapError;
 
 /// `remote-probe` capability: a remote platform's build that the app does not
@@ -163,6 +164,31 @@ enum ClientArchitecture {
     Slice { offset: u64, size: u64 },
 }
 
+/// One `fat_arch` (20 bytes) or `fat_arch_64` (32 bytes) entry of a
+/// universal binary's header, big-endian.
+struct FatArch {
+    cpu: u32,
+    offset: u64,
+    size: u64,
+}
+
+impl FatArch {
+    fn parse(entry: &[u8], wide: bool) -> Option<Self> {
+        let u32_at = |at: usize| {
+            entry.get(at..).and_then(<[u8]>::first_chunk::<4>).map(|word| u32::from_be_bytes(*word))
+        };
+        let u64_at = |at: usize| {
+            entry.get(at..).and_then(<[u8]>::first_chunk::<8>).map(|word| u64::from_be_bytes(*word))
+        };
+        let (offset, size) = if wide {
+            (u64_at(8)?, u64_at(16)?)
+        } else {
+            (u64::from(u32_at(8)?), u64::from(u32_at(12)?))
+        };
+        Some(Self { cpu: u32_at(0)?, offset, size })
+    }
+}
+
 fn client_architecture(
     executable: &Path,
     arch: &str,
@@ -178,17 +204,18 @@ fn client_architecture(
     if file.read_exact(&mut header).is_err() {
         return Ok(None);
     }
-    let word = |bytes: &[u8]| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-    if u32::from_le_bytes([header[0], header[1], header[2], header[3]]) == MH_MAGIC_64 {
-        let header_cpu = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
+    let [m0, m1, m2, m3, c0, c1, c2, c3] = header;
+    if u32::from_le_bytes([m0, m1, m2, m3]) == MH_MAGIC_64 {
+        let header_cpu = u32::from_le_bytes([c0, c1, c2, c3]);
         return Ok((header_cpu == cpu).then_some(ClientArchitecture::Whole));
     }
-    let entry_size = match word(&header) {
-        FAT_MAGIC => 20,
-        FAT_MAGIC_64 => 32,
+    let wide = match u32::from_be_bytes([m0, m1, m2, m3]) {
+        FAT_MAGIC => false,
+        FAT_MAGIC_64 => true,
         _ => return Ok(None),
     };
-    let count = word(&header[4..]) as usize;
+    let entry_size = if wide { 32 } else { 20 };
+    let count = u32::from_be_bytes([c0, c1, c2, c3]) as usize;
     if count > 16 {
         return Ok(None);
     }
@@ -197,14 +224,11 @@ fn client_architecture(
         return Ok(None);
     }
     for entry in entries.chunks_exact(entry_size) {
-        let (offset, size) = if entry_size == 20 {
-            (u64::from(word(&entry[8..])), u64::from(word(&entry[12..])))
-        } else {
-            let wide = |bytes: &[u8]| (u64::from(word(bytes)) << 32) | u64::from(word(&bytes[4..]));
-            (wide(&entry[8..]), wide(&entry[16..]))
+        let Some(FatArch { cpu: entry_cpu, offset, size }) = FatArch::parse(entry, wide) else {
+            return Ok(None);
         };
         let inside = size > 0 && offset.checked_add(size).is_some_and(|end| end <= length);
-        if word(entry) == cpu && inside {
+        if entry_cpu == cpu && inside {
             return Ok(Some(ClientArchitecture::Slice { offset, size }));
         }
     }
@@ -404,7 +428,7 @@ fn file_sha256(path: &Path) -> std::io::Result<String> {
         if count == 0 {
             break;
         }
-        digest.update(&buffer[..count]);
+        digest.update(filled(&buffer, count));
     }
     Ok(format!("{:x}", digest.finalize()))
 }
@@ -678,6 +702,9 @@ fn prune_cache(directory: &Path, keep: &str) {
         }
     }
 }
+
+#[cfg(test)]
+mod fat_tests;
 
 #[cfg(test)]
 mod tests {

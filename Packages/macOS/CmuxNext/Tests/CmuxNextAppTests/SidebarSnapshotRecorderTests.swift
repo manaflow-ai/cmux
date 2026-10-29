@@ -2,7 +2,7 @@
 import CmuxNextSidebar
 import Testing
 
-/// A sidebar pass only posts the snapshot (p06-scheduler-050): it is built in an idle task, from
+/// A sidebar pass only posts the snapshot: it is built in an idle task, from
 /// what the sidebar shows then, one per burst of passes, and the checks run again when it does.
 @MainActor struct SidebarSnapshotRecorderTests {
     final class Harness {

@@ -3,7 +3,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p08-startup-032: both start profiles use the same options, so the handlers-first start (feature
+/// Both start profiles use the same options, so the handlers-first start (feature
 /// `sentryHandlersFirst`) keeps crash capture, session tracking, network breadcrumbs and app-hang
 /// tracking; it only pauses app-hang reports until `resumeAfterStartup()`.
 @Suite struct CrashReporterStartProfileTests {

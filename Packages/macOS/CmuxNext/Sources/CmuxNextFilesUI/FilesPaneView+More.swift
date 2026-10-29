@@ -12,7 +12,7 @@ extension FilesPaneView {
                 open.panel.makeKeyAndOrderFront(nil)
                 continue
             }
-            let window = FileInfoWindow(url: url, icons: icons, mainWork: mainWork) { [weak self] in
+            let window = FileInfoWindow(url: url, icons: icons, mainWork: mainWork, reader: model.info) { [weak self] in
                 self?.infoWindows[url] = nil
             }
             infoWindows[url] = window

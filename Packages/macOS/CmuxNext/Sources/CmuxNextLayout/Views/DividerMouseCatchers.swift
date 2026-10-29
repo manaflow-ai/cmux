@@ -227,7 +227,7 @@ final class DividerMouseCatcherView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) { forward(event) }
-    // input-coalesce: native (a forward into the parent window, whose divider drag coalesces it, p04-input-031)
+    // input-coalesce: native (a forward into the parent window, whose divider drag coalesces it)
     override func mouseDragged(with event: NSEvent) { forward(event) } // local-monitor-allow: a forward to the parent window, order and count kept; the divider there coalesces its drag
     override func mouseUp(with event: NSEvent) { forward(event) }
     override func rightMouseDown(with event: NSEvent) { forward(event) }

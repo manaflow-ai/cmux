@@ -10,6 +10,7 @@ use std::sync::OnceLock;
 use serde_json::Value;
 
 use super::OutputMode;
+use crate::cli::json_fields::JsonFields;
 
 const ACTIONS_JSON: &str = include_str!("../../../../../plans/cmux-next/action-surfaces.json");
 
@@ -20,7 +21,7 @@ fn non_verbs() -> &'static HashMap<String, String> {
     static NON_VERBS: OnceLock<HashMap<String, String>> = OnceLock::new();
     NON_VERBS.get_or_init(|| {
         let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
-        doc["actions"]
+        doc.field("actions")
             .as_array()
             .into_iter()
             .flatten()

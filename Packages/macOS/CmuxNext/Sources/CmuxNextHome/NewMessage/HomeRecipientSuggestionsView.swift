@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 
 /// The people under New Message's To: field (Messages' suggestion list):

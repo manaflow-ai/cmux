@@ -5,7 +5,7 @@ import Foundation
 import CmuxNextSettings
 import Testing
 
-/// `features.list` (p12-perf-process-096): every feature with its state and
+/// `features.list`: every feature with its state and
 /// source, read-only, answered with no params and unchanged by any.
 /// Run: `swift test --filter FeatureFlagsReportTests`.
 struct FeatureFlagsReportTests {
@@ -79,7 +79,7 @@ struct FeatureFlagsReportTests {
         #expect(report.json["next_local"] == nil)
     }
 
-    /// A live Debug toggle (p12-perf-process-101) shows as the feature's value, source `local`, while it answers a
+    /// A live Debug toggle shows as the feature's value, source `local`, while it answers a
     /// value; unset (nil), the launch's resolution shows.
     @Test func aLiveToggleReportsWhatTheAppRunsWith() throws {
         func report(_ toggle: Bool?) -> FeatureFlagsReport {
@@ -95,7 +95,7 @@ struct FeatureFlagsReportTests {
         #expect(report(true).entries.map { $0.resolution.source } == [.local, .policy, .environment])
     }
 
-    /// Hang reports and Sentry read ``FeatureFlagsReport/fieldState`` (p12-perf-process-151): a live toggle that
+    /// Hang reports and Sentry read ``FeatureFlagsReport/fieldState``: a live toggle that
     /// flips a feature changes the hash and names the feature as a `local` override, the same hash
     /// `features_hash` reports; a toggle that answers the launch's value keeps the hash.
     @Test func aLiveToggleChangesTheFieldStateThatHangReportsAndSentryName() throws {
@@ -138,7 +138,7 @@ struct FeatureFlagsReportTests {
         #expect(list.isEnabled(Self.registry.features[2]))
     }
 
-    /// The daemon outlives the app (p12-perf-process-150): its answer to the last hello shows on each row it
+    /// The daemon outlives the app: its answer to the last hello shows on each row it
     /// concerns, a kill switch it turned off as `applied` and a value it keeps until it restarts as `pending`.
     @Test func theDaemonsAnswerMarksPendingAndAppliedRows() throws {
         let hello = DaemonFeatureHello(hash: "h", values: [:])

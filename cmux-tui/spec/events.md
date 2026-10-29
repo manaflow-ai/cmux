@@ -176,6 +176,35 @@ latest-state events (for example two `title-changed` of one surface), the
 kept event takes the higher cause, in the order `frontend`, absent,
 `automation`.
 
+## Frontend visibility
+
+A daemon that advertises `frontend-visibility-v1` answers
+`frontend.visibility.set` from the verified app's connection (origin `user`;
+any other connection gets `frontend_visibility.not_trusted`):
+
+```json
+{"id": 9, "cmd": "frontend.visibility.set", "visible": [12, 15]}
+```
+
+`visible` is the whole set of surface IDs the app shows now, at most 4,096;
+`null` clears the scope. The app sends it at most once per frame and only
+when the set changed. The reply is `{"visible": <count or null>,
+"released": <held events made ready>}`.
+
+The set scopes that connection's own `subscribe` streams, made before or
+after it, until the connection ends. On those streams the latest-state
+events of a surface not in the set (`title-changed`, `agent-changed`,
+`program-status-changed`, `surface-output`, `scroll-changed`) wait in their
+coalesced slots: still at most one per surface and kind, and all of them are
+delivered together once per aligned second (a grid of 1 s from the first
+set). When a surface joins the set, its waiting events are delivered at
+once. These never wait: events of a shown surface, `surface-exited` (which
+drops the surface's waiting events, as before), tree deltas (a tab's
+waiting events go first; a pane, screen or workspace close sends every
+waiting event first), bells, notifications, every other event, and a
+change the app's own request caused (`cause: frontend`). Other connections'
+subscriptions, such as the CLI's and agents', are never scoped.
+
 ## Subscribe Events
 
 ### overflow

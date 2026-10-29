@@ -53,7 +53,7 @@ struct AgentTabContent {
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { AgentPaneNewTabFrame.shared.capture(view, in: pane.view.contentHost) }
         if view.model.newTab != nil { BenchSpans.mark(view.superview is PagePreloadParkingView ? "newTab.show.parked" : "newTab.show") }
-        // A page the slot handed over with its cover keeps that cover until its first frame here (p13-webui-044).
+        // A page the slot handed over with its cover keeps that cover until its first frame here.
         if view.model.hasPainted, view.superview is PagePreloadParkingView, !services.newTabSpares.openingCovered(view) { coverMove(of: view) }
         AgentReplySites(services: services).wire(view.model.replyLinks)
         return .agent(view)

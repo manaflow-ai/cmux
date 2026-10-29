@@ -5,6 +5,7 @@ import CmuxNextFiles
 @testable import CmuxNextScreenshots
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The pane's file commands: open and reveal through the app, rename and trash through
 /// CmuxNextFiles' operations, each undoable.
@@ -29,7 +30,7 @@ import Testing
         let file = try folder.write("a.png")
         let undo = UndoManager()
         undo.groupsByEvent = false
-        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: FileOperator())
+        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: FileOperator(work: BackgroundWork()))
         undo.beginUndoGrouping()
         let renamed = try await commands.rename(Self.item(file), to: "b.png", undo: undo)
         undo.endUndoGrouping()
@@ -45,7 +46,7 @@ import Testing
         let folder = try TemporaryFolder()
         let file = try folder.write("a.png")
         try folder.write("b.png")
-        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: FileOperator())
+        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: FileOperator(work: BackgroundWork()))
         await #expect(throws: FileBrowserError.self) { try await commands.rename(Self.item(file), to: "b.png", undo: nil) }
     }
 
@@ -59,7 +60,7 @@ import Testing
         let file = try folder.write("a.png")
         let window = AnsweringWindow(newName: "b.png")
         defer { window.close() }
-        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: FileOperator())
+        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: FileOperator(work: BackgroundWork()))
 
         commands.perform(.rename, on: [Self.item(file)], in: window)
         await commands.pendingRename?.value
@@ -85,13 +86,13 @@ import Testing
         #expect(await files.putBack == [shot.url])
     }
 
-    /// p02-threads-132: a pane in no window never spins a nested modal loop (`runModal`). Rename has
+    /// A pane in no window never spins a nested modal loop (`runModal`). Rename has
     /// no sheet to show, so it asks nothing and renames nothing.
     @Test(.timeLimit(.minutes(1))) func renameInNoWindowAsksNothing() async throws {
         let folder = try TemporaryFolder()
         let file = try folder.write("a.png")
         let dialogs = CmuxDialogCenter(host: SilentDialogHost())
-        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: FileOperator(), dialogs: dialogs)
+        let commands = ScreenshotsCommands(workspace: RecordingWorkspace(), files: FileOperator(work: BackgroundWork()), dialogs: dialogs)
 
         commands.perform(.rename, on: [Self.item(file)], in: nil)
         await commands.pendingRename?.value
@@ -100,7 +101,7 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: file.path))
     }
 
-    /// p02-threads-132: a failed Move to Trash in no window says so in an app-scope cmux dialog
+    /// A failed Move to Trash in no window says so in an app-scope cmux dialog
     /// that nothing waits for, not in an app-modal alert loop.
     @Test(.timeLimit(.minutes(1))) func trashFailureInNoWindowShowsAnAppDialog() async {
         let dialogs = CmuxDialogCenter(host: SilentDialogHost())
@@ -189,6 +190,7 @@ actor RecordingFiles: FileOperating {
 
     func rename(_ url: URL, to name: String) async throws -> URL { throw FileBrowserError.cancelled }
     func newFolder(in folder: URL, named name: String) async throws -> URL { throw FileBrowserError.cancelled }
+    func newFile(in folder: URL, named name: String, contents: Data) async throws -> URL { throw FileBrowserError.cancelled }
     func duplicate(_ urls: [URL]) async throws -> [URL] { throw FileBrowserError.cancelled }
     func move(_ pairs: [(from: URL, to: URL)]) async throws { throw FileBrowserError.cancelled }
     nonisolated func transfer(_ sources: [URL], to folder: URL, mode: TransferMode,

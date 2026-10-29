@@ -1,9 +1,6 @@
 // swift-tools-version: 6.2
 
 import PackageDescription
-#if os(Linux)
-import Foundation
-#endif
 
 // Umbrella package for the cmux-next app (plans/cmux-next/shell.md).
 // The Xcode target `cmux-next` compiles only App/main.swift and links the
@@ -12,7 +9,7 @@ import Foundation
 //
 // Dependency direction (no cycles, no upward imports):
 //   CmuxNextApp -> every feature module
-//   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable); Oracle (the layout facet)
+//   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextBrowserCore -> Compat, Wakeups, CmuxSafeConcurrency (the browser's engine-neutral values and protocols; Browser re-exports it)
 //   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextTabs (public read-only favicon leaf)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
@@ -23,33 +20,35 @@ import Foundation
 //     Process.runOnOwnThread, the running code's signing-team read; its users import it directly)
 //   CmuxNextCompat -> CompatCore, swift-atomics, CmuxSafeConcurrency, CmuxThreading, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
-//   CmuxNextWakeups -> Compat, CmuxSafeConcurrency, Signposts, Trace, Metrics, system frameworks (the only sanctioned wakeup
+//   CmuxNextCompatAppKit -> Compat (re-exported), CmuxSafeConcurrency, AppKit, QuartzCore (Compat's AppKit helpers:
+//     openInBackground and revealInBackground, the checked NSWorkspace queries and WorkspaceQuerying, table/browser
+//     rows, CATransaction.setMainCompletion, NSApplication.terminateFromRunLoop; p15-oracle.md section H)
+//   CmuxNextWakeups -> Compat, CompatAppKit (WorkspaceQueries' NSWorkspace queries), CmuxSafeConcurrency, Signposts, Trace,
+//     Metrics, system frameworks (the only sanctioned wakeup
 //     primitives: FrameScheduler, DemandTimer, Backoff, WakeupLedger, the one main-thread scheduler's
 //     per-frame budget MainFrameBudget, and TracedTask; plans/cmux-next/idle-wakeups.md,
 //     main-thread-budget.md). Every target that calls Task.detached depends on it, except Compat.
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph),
 //     Wakeups, Trace, Metrics, Signposts; CmuxNextActions -> Signposts, Wakeups, Trace, Metrics;
 //     CmuxNextDaemon -> Compat, Wakeups, Trace, Metrics, Signposts (the p09-observability trace points and histograms),
-//       IPC (the generated `cmux.protocol/2` requests ResourceOperationClient sends, p05-ipc-045),
-//       CmuxSafeConcurrency (OnceContinuation, p10-stability-087)
+//       IPC (the generated `cmux.protocol/2` requests ResourceOperationClient sends),
+//       CmuxSafeConcurrency (OnceContinuation)
 //   CmuxNextSignposts -> Compat, Trace, Metrics, SignpostsC, system frameworks (always-on os_signpost intervals, the one
 //     name catalog, CommitBoundary, the opt-in MetricKit mirror for hang reports, the typed ring trace points; Metrics for
 //     the key.frame and input.frame histograms, p09-observability tasks 054 and 111)
 //   CmuxNextSignpostsC -> libSystem only (C: os_signpost macros for the key and stall signposts, no heap allocation;
 //     p09-observability task 007)
-//   CmuxNextLaunch -> Compat, Signposts, Trace, Wakeups, Design, InputCore, ProfileRuntimeC (launch-only types: the launch
-//     image hold, and the startup trace, temperature and saved window picture to come; the App only wires them;
+//   CmuxNextLaunch -> Compat, Signposts, Trace, Wakeups, Design, InputCore (launch-only types: the launch image hold, and the
+//     startup trace, temperature and saved window picture to come; the App only wires them;
 //     plans/cmux-next/chrome-parity/p08-startup.md, task 073; Trace: LaunchMarks moves each mark's date onto the
 //     trace clock through the launch's one LaunchClock pairing)
-//   CmuxNextProfileRuntimeC -> nothing (C header: the compiler-rt profile runtime's write, reset and file name,
-//     which only the profile build calls; p08-startup task 103)
 //   CmuxNextTrace -> Compat, swift-atomics (the process's TraceRuntime: category flags, Release trace rings, crash-key page,
 //     HangWatch slots and scopes; plans/cmux-next/chrome-parity/p09-observability.md)
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
 //     motion tokens, theme specs, settings enums; CmuxNextDesign re-exports it)
 //   CmuxNextAppearance -> Compat, DesignTokens, Wakeups, CmuxTheme (the appearance state without views: DesignSettings,
-//     AppearanceSignals, the backdrop art catalog, the selection and its names; CmuxNextDesign re-exports it; p15-oracle-134)
+//     AppearanceSignals, the backdrop art catalog, the selection and its names; CmuxNextDesign re-exports it)
 //   CmuxNextFeatures -> Compat, Wakeups, swift-atomics (base::FeatureList: the feature registry and the immutable
 //     resolved snapshot the App builds once, and the signed remote document's store, whose file I/O runs on
 //     BackgroundWork's files lane; plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9)
@@ -58,9 +57,9 @@ import Foundation
 //   CmuxNextInputCore -> Compat, swift-atomics (input latency: event kinds, stages, open-slot table, closed-slot
 //     ring, buckets; no AppKit; plans/cmux-next/chrome-parity/p04-input.md section 3; Compat's Atomic for
 //     the counters, swift-atomics for the table's packed UnsafeAtomic storage, which Compat's Atomic cannot lay out)
-//   CmuxNextOracle -> system frameworks only (the refactor oracle's facet providers, the one immutable list the
-//     composition root builds and the snapshot capture; Control serves it as debug.oracle.snapshot;
-//     every source is under DEBUG || CMUX_BENCH_HOOKS, so Release builds an empty module; p15-oracle.md section 3A)
+//   CmuxNextOracle -> system frameworks only (debug.oracle.snapshot's overlays facet, the one immutable list the
+//     composition root builds and the snapshot capture; every source is under DEBUG || CMUX_BENCH_HOOKS, so
+//     Release builds an empty module)
 //   CmuxNextInput -> InputCore, Signposts, Wakeups (the one input tap: typed subscriptions by class, phase and window;
 //     globalObserve; p04-input.md section 3 (A); PointerFrameConsumer.post(NSEvent) into Wakeups, (C);
 //     InputLatencyTracker, Chrome's EventLatency over CommitBoundary and PresentationClock, the input.latency signpost,
@@ -93,7 +92,7 @@ import Foundation
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
 //   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, Icons, IPC, Wakeups,
 //     CmuxHomeCore, CmuxAgentQuestion (Home sources, Chief host and migration, Home strings; the App
-//     supplies HomeService over AppServices; IPC: the generated `cmux.protocol/2` requests, p05-ipc-047)
+//     supplies HomeService over AppServices; IPC: the generated `cmux.protocol/2` requests)
 //   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Trace (HangWatch), Wakeups
 //     (DaemonService: one machine's daemon connection, command funnels, launch snapshot; FrameBatcher;
 //     the Refusals and Cloud strings it shows; no AppServices; the App sets its launch-mark hook)
@@ -190,21 +189,6 @@ let stabilitySwiftSettings: [SwiftSetting] = [
     .strictMemorySafety(),
 ]
 
-/// Release-only profile-guided optimization of the CmuxNext Swift targets (plans/cmux-next/chrome-parity/p08-startup.md,
-/// section F, task 052). `scripts/cmux-next/pgo/release-env.sh` (check-release-compile.sh and the Nightly's Release
-/// build) sets `CMUX_PGO_PROFDATA` only when the switch in Resources/build/cmux-next.pgo.conf is on and the profile's
-/// sha256 matches Resources/build/cmux-next.profdata.sha256, at a path that names that sha256, so a new profile is a
-/// new flag. A flag here reaches this package's targets and no remote
-/// package (startup-DESIGN.md section 9, `scope-xcodebuild`). `CMUX_PGO_COMPANIONS` adds task 110's adopted
-/// variants (startup-DESIGN.md section 10), which ship only with the profile, as Chrome ships PGO only on ThinLTO.
-let releaseProfileSwiftSettings: [SwiftSetting] = {
-    guard let profile = Context.environment["CMUX_PGO_PROFDATA"], !profile.isEmpty else { return [] }
-    let companionFlags: [String: String] = ["thinlto": "-lto=llvm-thin", "cmo": "-cross-module-optimization"]
-    let companions = (Context.environment["CMUX_PGO_COMPANIONS"] ?? "").split(separator: ",")
-    let flags: [String] = ["-profile-use=\(profile)"] + companions.compactMap { companionFlags[String($0)] }
-    return [.unsafeFlags(flags, .when(configuration: .release))]
-}()
-
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),
@@ -213,7 +197,7 @@ let uiSwiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("InferIsolatedConformances"),
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("InternalImportsByDefault"),
-] + stabilitySwiftSettings + releaseProfileSwiftSettings
+] + stabilitySwiftSettings
 
 /// The daemon client is not main-actor by default: one actor owns the socket.
 let daemonSwiftSettings: [SwiftSetting] = [
@@ -222,7 +206,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("InferIsolatedConformances"),
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("InternalImportsByDefault"),
-] + stabilitySwiftSettings + releaseProfileSwiftSettings
+] + stabilitySwiftSettings
 
 /// Exports of the pinned GhosttyNextKit (Packages/Shared/CmuxGhosttyKit) beyond the API every pin has,
 /// as compile-time conditions of CmuxNextTerminal. libghostty links statically and Release exports no
@@ -243,7 +227,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   `ghostty_surface_presented_cb presented_cb` (userdata, frame id, host time, presented time) with
 ///   `presented_userdata`. CmuxNextTerminal reads, hides and purges frames through the first two
 ///   (`GhosttyFrameSource`), reads no layer contents, and takes each presented frame as its contents mark
-///   (`ghosttySurfacePresented`, p03-rendering-081).
+///   (`ghosttySurfacePresented`).
 /// - GHOSTTY_PRESENT_NEVER_WAITS: `ghostty_surface_present_host_frame` never waits and orders its frame
 ///   against the renderer's by one sequence, and `ghostty_surface_render_counters_s` ends with
 ///   `host_superseded_presents` (ghostty-next cp/p03-rendering-084, not in 723c4ab93):
@@ -254,7 +238,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   surface config's `bool vsync_external`, `ghostty_surface_vsync_wanted_cb vsync_wanted_cb` and
 ///   `void *vsync_userdata`, and `void ghostty_surface_vsync(ghostty_surface_t)`. With a `VSyncHub` (feature
 ///   `vsyncHub`) each surface makes no display link and ticks from its display's hub thread while it draws and
-///   wants frames (`TerminalVSync`, p03-rendering-083).
+///   wants frames (`TerminalVSync`).
 /// - GHOSTTY_EXTERNAL_CURSOR: the external cursor (ghostty-next cp/p03-rendering-090 1d35a0460, not in 723c4ab93):
 ///   the surface config's `bool cursor_external` (the renderer neither draws nor blinks the cursor),
 ///   `ghostty_surface_cursor_cb cursor_cb` and `void *cursor_userdata`. The callback,
@@ -269,7 +253,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   (`IOSurfaceLayer.setSurfaceCallback` on main, `setSurfaceOffMain` on the GPU completion thread; a cell whose
 ///   frame is dropped goes with the next frame presented): 1d35a0460 calls it after the present, from
 ///   `frameCompleted`, so the cursor would not move with its text. `TerminalCursorLayer` shows it behind feature
-///   `terminalCursorLayer` (p03-rendering-091).
+///   `terminalCursorLayer`.
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasTraceHook = false
 let ghosttyNextKitHasEnergySaver = false
@@ -346,6 +330,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAppCore",
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextFavicons",
                 "CmuxNextFeatures",
                 "CmuxNextFiles",
@@ -399,7 +384,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 // The free tier's App Attest provider is composed here (cx-ds09i).
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
-                // OnceContinuation, the continuation that resumes exactly once (p10-stability-083/084).
+                // OnceContinuation, the continuation that resumes exactly once.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 "CmuxNextWakeups",
                 "CmuxNextActions",
@@ -479,7 +464,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // and feed) and the floating chat's per-display frames. Wiring stays in the App.
         .target(
             name: "CmuxNextFloating",
-            // CmuxNextInput: the pet's drag posts to its panel's frame-aligned pointer input (p04-input-089).
+            // CmuxNextInput: the pet's drag posts to its panel's frame-aligned pointer input.
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
@@ -496,7 +481,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextFloatingTests",
-            // CmuxNextWakeups: the pet's AppEvents and the scheduler its setting follow posts on (p06-scheduler-337).
+            // CmuxNextWakeups: the pet's AppEvents and the scheduler its setting follow posts on.
             // WakeupsTestSupport: ChiefPetDragFramesTests' fake-link coalescer.
             dependencies: ["CmuxNextFloating", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
@@ -530,7 +515,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextHibernation", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextActions", "CmuxNextDictation", "CmuxNextHibernation", "CmuxNextPages", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups",
                            "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInput",
                            .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
@@ -551,7 +536,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // audio tap, so the module is not main-actor by default.
         .target(
             name: "CmuxNextDictation",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -604,14 +589,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // that start from it (cx-p0im9). Kept out of the App target (SW14).
         .target(
             name: "CmuxNextBrowserHistory",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-171).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextBrowser", "CmuxNextWakeups",
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextBrowserImport",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextWakeups"],
             // browser-sources.json: the one browser source registry (decision
             // BOOKMARKS-IMPORT-EVERY-BROWSER I1).
             resources: [
@@ -626,7 +611,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the agent consent panel and the import. The App supplies `CookieImportHost`.
         .target(
             name: "CmuxNextCookieImport",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextActions", "CmuxNextBrowser", "CmuxNextBrowserImport", "CmuxNextDesign", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources"),
@@ -649,7 +634,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextImportSuggestions", "CmuxNextBrowserImport"],
             swiftSettings: daemonSwiftSettings
         ),
-        // Corrupted Chrome, Firefox and Safari profiles through every import reader (p10-stability-025).
+        // Corrupted Chrome, Firefox and Safari profiles through every import reader.
         .testTarget(
             name: "CmuxNextBrowserImportTests",
             dependencies: ["CmuxNextBrowserImport", "CmuxNextCompat", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
@@ -659,14 +644,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Settings › Import (no Home or New Tab suggestion). The App supplies `ImportCardsHost`.
         .target(
             name: "CmuxNextImportCards",
-            dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
+            dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDesign",
                            "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextOnboarding",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport", "CmuxNextTrace", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            // CmuxSafeConcurrency: OnceContinuation.
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport", "CmuxNextTrace", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources"),
             ],
@@ -688,7 +673,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // store, the reason check, computer use onboarding flow, the card, panel and mock TCC probe.
         .target(
             name: "CmuxNextAgentPermissions",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources"),
@@ -723,12 +708,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHome",
             dependencies: [
-                "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextIcons", "CmuxNextWakeups",
+                "CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
                 .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
-                // OnceContinuation (p10-stability-089).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             resources: [
@@ -741,14 +726,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // string catalog. No AppServices; the App's HomeService wires it.
         .target(
             name: "CmuxNextHomeEngine",
-            // CmuxNextIPC: the generated `cmux.protocol/2` requests of the Chief owner calls (p05-ipc-047).
-            // CmuxNextLaunch: the Home list's launch read lands on a LaunchReadEvent (p08-startup-076).
+            // CmuxNextIPC: the generated `cmux.protocol/2` requests of the Chief owner calls.
+            // CmuxNextLaunch: the Home list's launch read lands on a LaunchReadEvent.
             dependencies: [
-                "CmuxNextAgentPane", "CmuxNextActions", "CmuxNextCloud", "CmuxNextCompat",
+                "CmuxNextAgentPane", "CmuxNextActions", "CmuxNextCloud", "CmuxNextCompat", "CmuxNextCompatAppKit",
                 "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextIcons", "CmuxNextIPC", "CmuxNextLaunch", "CmuxNextWakeups",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-                // OnceContinuation (p10-stability-083/088).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 "CmuxNextTrace",
             ],
@@ -763,7 +748,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextHomeEngineTests",
             dependencies: [
                 "CmuxNextHomeEngine", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIPC", "CmuxNextWakeups",
-                // ManualClock: PageCallDeadlineTests' deadline (p10-stability-171).
+                // ManualClock: PageCallDeadlineTests' deadline.
                 "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
@@ -789,7 +774,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextControl",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextTrace", "CmuxNextWakeups",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
-                // OnceContinuation (p10-stability-089).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             resources: [
@@ -812,8 +797,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextFocusUI",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextSignposts", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            // CmuxSafeConcurrency: OnceContinuation.
+            dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources"),
             ],
@@ -824,7 +809,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // reader. Setup (ComputerUseSetup) stays in the App.
         .target(
             name: "CmuxNextComputerUse",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),
@@ -846,7 +831,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // favicons, markdown remote images, and Agent reply media without coupling their domains.
         .target(
             name: "CmuxNextRemoteFetch",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -855,9 +840,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // index.html each under Resources/pages (scripts/cmux-next/build-pages-web.sh).
         .target(
             name: "CmuxNextPages",
-            // Hibernation: PageLifecyclePlanner, the pure plan PageLifecycle performs (p13-webui-022).
-            // InputCore: the quiet-input wait of the Settings, History and Cloud preload (PagePreloads, p13-webui-045).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextHibernation", "CmuxNextInputCore", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
+            // Hibernation: PageLifecyclePlanner, the pure plan PageLifecycle performs.
+            // InputCore: the quiet-input wait of the Settings, History and Cloud preload (PagePreloads).
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextHibernation", "CmuxNextInputCore", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
@@ -867,13 +852,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // protocol's own tests (a private copy in CmuxNextAgentPaneTests broke the test build).
         .target(
             name: "CmuxNextPagesTestSupport",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups",
+            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextMemory", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
                            "CmuxNextTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
@@ -924,7 +909,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies its browser pages, New Tab pages and the rename command.
         .target(
             name: "CmuxNextWorkspaceNaming",
-            // CmuxNextWakeups: the auto-namer's follow is a ServiceObservation (p06-scheduler-339).
+            // CmuxNextWakeups: the auto-namer's follow is a ServiceObservation.
             dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesignTokens", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
@@ -939,7 +924,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // no UI framework beyond AppKit; the App supplies the page and the sink.
         .target(
             name: "CmuxNextPhone",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [.process("Localizable.xcstrings")],
             swiftSettings: daemonSwiftSettings
@@ -957,14 +942,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Screenshots pane and the Files pane both read folders through it.
         .target(
             name: "CmuxNextFiles",
-            // Compat: the FSEvents callback's CallbackRegistry (p10-stability-081).
+            // Compat: the FSEvents callback's CallbackRegistry.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextFilesTests",
-            // CmuxFuzzSupport: FilePathFuzzTests (p10-stability-030).
-            dependencies: ["CmuxNextFiles", "CmuxNextWakeups", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            // CmuxFuzzSupport: FilePathFuzzTests.
+            dependencies: ["CmuxNextCompat", "CmuxNextFiles", "CmuxNextWakeups", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // The Files pane's AppKit views over CmuxNextFiles: list (NSTableView), icons
@@ -972,8 +957,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the shared icon and thumbnail cache. The App hosts it as an internal page.
         .target(
             name: "CmuxNextFilesUI",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextFiles", "CmuxNextDesign", "CmuxNextCompat", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            // CmuxSafeConcurrency: OnceContinuation.
+            dependencies: ["CmuxNextFiles", "CmuxNextDesign", "CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources"),
             ],
@@ -1028,7 +1013,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // footprint emitter's one-shot DemandTimer), and only the App imports it.
         .target(
             name: "CmuxNextMemory",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),
@@ -1060,7 +1045,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // CmuxNextBrowser's CEFRuntimeSource.
         .target(
             name: "CmuxNextChromiumRuntime",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1071,10 +1056,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Browser tabs (the App's browser tab domain, moved out leaf-first): the engine a new tab
         // gets (BrowserEngineResolver) and where it goes (BrowserTabRoute). Pure; the App composes it.
-        // CmuxNextOracle: the tabs facet's values read through BrowserTab (DEV and bench only).
         .target(
             name: "CmuxNextBrowserTabs",
-            dependencies: ["CmuxNextBrowser", "CmuxNextDaemon", "CmuxNextSettings", "CmuxNextOracle"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextDaemon", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1121,7 +1105,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // daemon's create and close (`EmptyWorkspaceRepair(daemon:)`).
         .target(
             name: "CmuxNextWorkspaceRepair",
-            // CmuxNextWakeups: the repair's follows are ServiceObservations (p06-scheduler-339).
+            // CmuxNextWakeups: the repair's follows are ServiceObservations.
             dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
@@ -1137,7 +1121,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // owns every session; the App supplies the source.
         .target(
             name: "CmuxNextAgentActivity",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-171).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CmuxNextTrace",
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
@@ -1161,7 +1145,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The Screenshots pane (cmux://screenshots): macOS and screenshot-tool folders, live.
         .target(
             name: "CmuxNextScreenshots",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -1215,7 +1199,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextChiefViewsTests",
             dependencies: ["CmuxNextAgentActivity", "CmuxNextChiefViews", "CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings",
-                           "CmuxNextWakeups"],
+                           "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // The acpmux watch feed (turn states and lanes), the sidebar's top items (Lanes, cx-v9k2f), its Chief item
@@ -1319,7 +1303,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Share This Mac. Input capture comes from CmuxNextRemoteView.
         .target(
             name: "CmuxNextMacScreen",
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", "CmuxNextDevices", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextActions", "CmuxNextControl", "CmuxNextDesign", "CmuxNextRemoteView", "CmuxNextDevices", .product(name: "CmuxScreenKit", package: "CmuxScreenKit")],
             resources: [
                 .process("Resources"),
             ],
@@ -1373,7 +1357,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Only whole modules without swift-atomics, which "Bundle server helper" compiles with swiftc
             // (scripts/cmux-next/bundle-server-helper.sh, HELPER_MODULES: keep it this target's closure):
             // CmuxNextCompatCore (runOnOwnThread, the team read), CmuxThreading (Mutex), CmuxSafeConcurrency
-            // (OnceContinuation, p10-stability-089). Never CmuxNextCompat.
+            // (OnceContinuation). Never CmuxNextCompat.
             dependencies: [
                 "CmuxNextCompatCore",
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
@@ -1387,14 +1371,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .executableTarget(
             name: "CmuxNextServerHelperDaemon",
             dependencies: ["CmuxNextServerHelper"],
-            swiftSettings: daemonSwiftSettings
-        ),
-        // The oracle's config suite, app side (p15-oracle-212): dumps the effective config of
-        // every tests/oracle/corpus/config file; cmux-config's oracle_effective example dumps the
-        // daemon side. An executable, not a test target; the app does not link it.
-        .executableTarget(
-            name: "OracleConfigDump",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -1411,6 +1387,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextUpdater",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
                 "CmuxNextPages",
@@ -1434,7 +1411,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // a safe point and answers `updates.web.*`.
         .target(
             name: "CmuxNextWebUpdates",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextAgentPane", "CmuxNextControl", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings", "CmuxNextUpdater", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),
@@ -1444,12 +1421,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCloud",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
                 "CmuxNextTrace",
-                // OnceContinuation (p10-stability-089).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             swiftSettings: daemonSwiftSettings
@@ -1459,11 +1437,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // pinned cmux-tui install and the remote-to-local deny policy. No UI.
         .target(
             name: "CmuxNextRemote",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextCloud", "CmuxNextTrace", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
-        // The input model (p15-oracle-102): the terminal attach machine and the input journal's values, the input
+        // The input model: the terminal attach machine and the input journal's values, the input
         // observation and the model and transition invariants of plans/cmux-next/input-spec.md, as pure values and
         // rules with no AppKit, so replay and the oracle run them off the app (and on Linux). The journal ring, its
         // AppKit recorders and the key routing invariants (KeyRouter's tier rules) stay in the App.
@@ -1482,11 +1460,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // TerminalAttachDriver runs CmuxNextInputModel's TerminalAttachMachine.
                 "CmuxNextInputModel",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
-                // OracleLayoutFacet (DEBUG || CMUX_BENCH_HOOKS): the layout facet from LayoutModel values.
-                "CmuxNextOracle",
                 "CmuxNextTrace",
                 "CmuxNextWakeups",
-                // OnceContinuation (p10-stability-089).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             swiftSettings: uiSwiftSettings
@@ -1500,11 +1476,22 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // SigningTeamInstall reads the team through CompatCore's RunningCodeSigningTeam, which the helper shares.
                 "CmuxNextCompatCore",
                 .product(name: "Atomics", package: "swift-atomics"),
-                // Mutex wraps the portable one (p10-stability-172), with the blocking detector as its wait observer.
+                // Mutex wraps the portable one, with the blocking detector as its wait observer.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
-                // SharedThreadingBridge: the detector as the shared packages' blockingCall hook (p02-threads-130).
+                // SharedThreadingBridge: the detector as the shared packages' blockingCall hook.
                 .product(name: "CmuxThreading", package: "CmuxThreading"),
             ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Compat's AppKit and QuartzCore helpers (background NSWorkspace opens, the checked NSWorkspace
+        // queries and WorkspaceQuerying, checked table and browser rows, CATransaction main completion,
+        // terminate from the run loop), apart so CmuxNextCompat sheds its AppKit helpers on the way to building
+        // on Linux (plans/cmux-next/chrome-parity/p15-oracle.md section H, tasks 119 and 121). It re-exports
+        // CmuxNextCompat, so an AppKit file imports it in place of CmuxNextCompat.
+        .target(
+            name: "CmuxNextCompatAppKit",
+            // CmuxSafeConcurrency: OnceContinuation (openedInBackground).
+            dependencies: ["CmuxNextCompat", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
         // The part of CmuxNextCompat a process without swift-atomics and the app's blocking detector links: the
@@ -1519,6 +1506,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextCompatTests",
             dependencies: [.target(name: "CmuxNextCompat"), "CmuxNextCompatCore", .product(name: "CmuxThreading", package: "CmuxThreading")],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The CmuxNextCompatAppKit seams' tests (the checked NSWorkspace queries, the background opens,
+        // CATransaction main completion), apart from CmuxNextCompatTests (p15-oracle task 143).
+        .testTarget(
+            name: "CmuxNextCompatAppKitTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit"],
             swiftSettings: uiSwiftSettings
         ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
@@ -1564,16 +1558,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextLaunch",
             // Trace: LaunchMarks moves each mark's Date onto the trace clock through the launch's one LaunchClock pairing.
             // CmuxTheme: a window picture's theme fingerprint (WindowPictureMeta+Theme).
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextProfileRuntimeC",
-                           "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups", .product(name: "CmuxTheme", package: "CmuxTheme"),
+            // CmuxSafeConcurrency: OnceContinuation.
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts",
+                           "CmuxNextTrace", "CmuxNextWakeups", .product(name: "CmuxTheme", package: "CmuxTheme"),
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
-        // The compiler-rt profile runtime's C entry points for ProfileFlush (p08-startup task 103); only the
-        // profile build (CMUX_PGO_PROFILE) imports it, so no other build references the symbols.
-        // settings-allow: C header only, no Swift sources
-        .target(name: "CmuxNextProfileRuntimeC"),
         .testTarget(
             name: "CmuxNextLaunchTests",
             // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime;
@@ -1615,8 +1605,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget), and
             // the typing probe's key-press flow hops (`key.flow`). swift-atomics: JobDelegate's inlinable shouldYield
             // names its `Bool: AtomicValue` conformance.
-            // CmuxSafeConcurrency: OnceContinuation, the continuation that resumes exactly once (p10-stability-083/088).
-            dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics",
+            // CmuxSafeConcurrency: OnceContinuation, the continuation that resumes exactly once.
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics",
                            .product(name: "Atomics", package: "swift-atomics"),
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
@@ -1624,7 +1614,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The one test clock of the CmuxNext test targets (ManualClock); test targets only.
         .target(
             name: "CmuxNextWakeupsTestSupport",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1632,7 +1622,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextWakeupsTests",
             // Trace: the black-box file steps' tests read the ring. Signposts: the frame.tick and present tests (037).
             // Metrics: the key.echo_frame tests (054) and the frame sequences' histograms (057).
-            dependencies: ["CmuxNextCompat", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextTestSupport", "CmuxNextTrace", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextTestSupport", "CmuxNextTrace", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
@@ -1669,17 +1659,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCrashReporting",
             dependencies: [
                 "CmuxNextCompat",
-                // InvariantSink: the process's Invariant reports go to Sentry (p10-stability-099).
+                // InvariantSink: the process's Invariant reports go to Sentry.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
-                // SentryScrubber: the previous run's blackbox.txt is scrubbed like the event (p09-observability-079).
+                // SentryScrubber: the previous run's blackbox.txt is scrubbed like the event.
                 .product(name: "CmuxSentryScrubbing", package: "CmuxSentryTelemetry"),
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
                 "CmuxNextTrace",
                 "CmuxNextWakeups",
-                // FeatureFieldState: the launch's features on the Sentry scope (p12-perf-process-151).
+                // FeatureFieldState: the launch's features on the Sentry scope.
                 "CmuxNextFeatures",
-                // WatchdogHangSinks: the main-thread watchdog's hang sinks, set before Sentry starts (p09-observability-076).
+                // WatchdogHangSinks: the main-thread watchdog's hang sinks, set before Sentry starts.
                 "CmuxNextControl",
             ],
             swiftSettings: daemonSwiftSettings
@@ -1700,7 +1690,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
                 // SystemCrashReportTests plants a Rust ring and scans the forwarded black box with the hang
-                // reports' PrivacyLeakScanner (p09-observability-097).
+                // reports' PrivacyLeakScanner.
                 "CmuxNextTrace",
                 "CmuxNextHangReports",
             ],
@@ -1717,7 +1707,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
-                // OnceContinuation (p10-stability-089).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             resources: [.process("Resources")],
@@ -1762,7 +1752,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // BackgroundWork: the remote flags store's file reads and writes (FeatureRemoteStore).
                 "CmuxNextWakeups",
                 .product(name: "Atomics", package: "swift-atomics"),
-                // OnceContinuation (p10-stability-089).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             swiftSettings: daemonSwiftSettings
@@ -1803,9 +1793,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextIPC",
-            // CmuxNextCompat: the Mutex of FrameWriter's priority FIFOs (p05-ipc-055)
-            // and of StreamDemux's sinks (p05-ipc-056).
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
+            // CmuxNextCompat: the Mutex of FrameWriter's priority FIFOs
+            // and of StreamDemux's sinks.
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextWireDigest", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings,
             plugins: [.plugin(name: "CmuxNextWireGenPlugin")]
@@ -1860,11 +1850,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
-        // The refactor oracle's facet providers and snapshot capture (p15-oracle.md section 3A): the
-        // App builds the one provider list (OracleHost) and Control serves it as debug.oracle.snapshot in
-        // DEV and bench builds. Pure values: no AppKit, no control socket, so headless services can too.
-        // Every source is under DEBUG || CMUX_BENCH_HOOKS (p15-oracle.md section 4 rule 3): Release builds it empty.
-        // CmuxNextCompat: the ax facet reads the string tables with the checked file calls.
+        // `debug.oracle.snapshot`'s facet list and capture (only the overlays facet stays, for the Chromium Host
+        // find rows): the App builds the one provider list (OracleHost) and Control serves it in DEV and bench
+        // builds. Every source is under DEBUG || CMUX_BENCH_HOOKS: Release builds it empty.
         .target(
             name: "CmuxNextOracle",
             dependencies: ["CmuxNextCompat"],
@@ -1873,6 +1861,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextOracleTests",
             dependencies: ["CmuxNextOracle", "CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // oracle-replay (p15-oracle-104): saved input journals replayed against CmuxNextInputModel's reducers, the
+        // offline debug.replay (input-spec.md section 5). A tool for the oracle's journals suite on the Linux VM and
+        // the fleet: not linked into the app, not a test target, not run by CI.
+        .executableTarget(
+            name: "OracleReplay",
+            dependencies: ["CmuxNextInputModel"],
             swiftSettings: daemonSwiftSettings
         ),
         // The app's one input tap (p04-input.md section 3 (A)): typed subscriptions by event class,
@@ -1884,9 +1880,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // PointerFrameConsumer.post(NSEvent) feeds the window's FrameInputCoalescer.
         .target(
             name: "CmuxNextInput",
-            // CmuxNextCompat: MemoryPressureEvents for IntentPrewarmService (p04-input-043).
+            // CmuxNextCompat: MemoryPressureEvents for IntentPrewarmService.
             // CmuxNextSignposts: InputLatencyTracker's input.latency events and the key.frame and key.scroll_frame
-            // intervals its slots carry (p04-input-004, 005).
+            // intervals its slots carry.
             dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
@@ -1911,13 +1907,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextDesign",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextAppearance",
                 "CmuxNextDesignTokens",
                 // The shared overflow button's ⋮ glyph (OverflowButton, action.more.vertical).
                 "CmuxNextIcons",
                 "CmuxNextWakeups",
-                // The app's one input tap: popups, overlays, tooltips and hover cards subscribe to it
-                // (p04-input-013), no AppKit event monitor.
+                // The app's one input tap: popups, overlays, tooltips and hover cards subscribe to it,
+                // no AppKit event monitor.
                 "CmuxNextInput",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 // cmux-motion's curves and color mix for ColorTransition (cx-3rf4z).
@@ -1925,9 +1922,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTrace",
                 "CmuxNextMetrics",
                 "CmuxNextSignposts",
-                // OnceContinuation (p10-stability-089).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
-                // LoopHost, the loop seam LoopVisibility conforms to and the Shared views take (p14-energy-056).
+                // LoopHost, the loop seam LoopVisibility conforms to and the Shared views take.
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
             resources: [.process("Resources")],
@@ -1994,8 +1991,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextDaemon",
-            // CmuxNextIPC: the generated `cmux.protocol/2` requests ResourceOperationClient sends (p05-ipc-045).
-            // CmuxSafeConcurrency: OnceContinuation, the continuation that resumes exactly once (p10-stability-087).
+            // CmuxNextIPC: the generated `cmux.protocol/2` requests ResourceOperationClient sends.
+            // CmuxSafeConcurrency: OnceContinuation, the continuation that resumes exactly once.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
                            "CmuxNextIPC", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
@@ -2007,7 +2004,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // CmuxNextWakeups: StoreWaitersTests drive the store's deadline queue on a timer of their own.
             // CmuxNextWakeupsTestSupport: ManualClock, the one test clock (the keyed browser-tab create's waits).
             // CmuxNextIPC: ResourceRequestLineParityTests compares its generated v2 request lines with
-            // the hand-built ResourceRequestEnvelope bytes they replace (p05-ipc-024, 045).
+            // the hand-built ResourceRequestEnvelope bytes they replace.
             dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups",
                            "CmuxNextWakeupsTestSupport", "CmuxNextIPC", "CmuxNextSignposts",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
@@ -2019,9 +2016,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextTerminal",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextWakeups",
                 "CmuxNextInputCore",
-                // The terminals' one modifier watch subscribes to the app's input tap (p04-input-019).
+                // The terminals' one modifier watch subscribes to the app's input tap.
                 "CmuxNextInput",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextDesign",
@@ -2033,9 +2031,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTrace",
                 "CmuxNextMetrics",
                 "CmuxNextSignposts",
-                // The bounded Kitty image budget the runtime starts with (SubsystemBudget, p07-memory-083).
+                // The bounded Kitty image budget the runtime starts with (SubsystemBudget).
                 "CmuxNextMemory",
-                // OnceContinuation (p10-stability-089).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             resources: [
@@ -2049,7 +2047,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextTerminalTests",
             // Compat for Mutex and GhosttyKit for ghostty_surface_t (TerminalOutputLaneHangScopeTests); Wakeups for
             // the typing probe a lane marks (TerminalOutputLaneKeyFlowTests); CmuxFuzzSupport for the link and
-            // Ghostty action fuzz suites (p10-stability-030); WakeupsTestSupport for the pointer coalescer's manual clock
+            // Ghostty action fuzz suites; WakeupsTestSupport for the pointer coalescer's manual clock
             // (TerminalPointerCoalescingTests); Design for the scroller's shared clip (TerminalScrollerTests).
             dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups", "CmuxNextInput",
                            "CmuxNextWakeupsTestSupport", "CmuxNextSignposts", "CmuxNextDesign",
@@ -2084,9 +2082,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextTabs",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", "CmuxNextIcons", "CmuxNextInput",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
-                // OnceContinuation (p10-stability-089).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             resources: [
@@ -2096,9 +2095,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSidebar",
-            // CmuxNextInput: the list hears the app's left presses and releases through the input tap (p04-input-019).
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextInput", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
+            // CmuxNextInput: the list hears the app's left presses and releases through the input tap.
+            // CmuxSafeConcurrency: OnceContinuation.
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextResources", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextInput", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Resources"),
             ],
@@ -2107,8 +2106,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextPalette",
-            // CmuxNextInput: the results' and the Actions menu's frame-aligned hover (PointerFrameHover, p04-input-037).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextInput"],
+            // CmuxNextInput: the results' and the Actions menu's frame-aligned hover (PointerFrameHover).
+            dependencies: ["CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextInput"],
             resources: [
                 .process("Localizable.xcstrings"),
                 .process("Resources"),
@@ -2127,8 +2126,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextLayout",
-            // CmuxNextInput: the root's scroll, magnify and button routing is an intercept on the app's input tap (p04-input-019).
-            // CmuxNextInputCore: the strip pan's InputResampler (p04-input-041).
+            // CmuxNextInput: the root's scroll, magnify and button routing is an intercept on the app's input tap.
+            // CmuxNextInputCore: the strip pan's InputResampler.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextInput",
                            "CmuxNextInputCore"],
             resources: [
@@ -2164,15 +2163,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // section 8). CmuxNextBrowser depends on it and re-exports it.
         .target(
             name: "CmuxNextBrowserCore",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089); SitePermissionRequest awaits the prompt bar's answer (withOnceContinuation).
+            // CmuxSafeConcurrency: OnceContinuation; SitePermissionRequest awaits the prompt bar's answer (withOnceContinuation).
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextTrace", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),
         .target(
             name: "CmuxNextBrowser",
             // SharedRegionC: the Chromium host control channel's sealed shm regions (ChromiumHostSharedRegion).
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-083/088).
-            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextSharedRegionC",
+            // CmuxSafeConcurrency: OnceContinuation.
+            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextCompatAppKit", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextSharedRegionC",
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
@@ -2199,7 +2198,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
         .target(
             name: "CmuxNextBrowserAutomation",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-083/088).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextBrowser", "CmuxNextWakeups", "CmuxNextTrace", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),
@@ -2221,7 +2220,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextRemoteLocalhost",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-087).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [.process("Resources")],
             swiftSettings: daemonSwiftSettings
@@ -2240,7 +2239,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSettings",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-089). No UI target (p15-oracle-134): the
+            // CmuxSafeConcurrency: OnceContinuation. No UI target: the
             // values come from DesignTokens and the state it applies to from Appearance.
             dependencies: ["CmuxNextCompat", "CmuxNextDesignTokens", "CmuxNextAppearance", "CmuxNextActions", "CmuxNextWakeups",
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
@@ -2261,7 +2260,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSettingsWindow",
-            // CmuxSafeConcurrency: ChatRootPicker's OnceContinuation (moved from CmuxNextSettings, p15-oracle-133).
+            // CmuxSafeConcurrency: ChatRootPicker's OnceContinuation (moved from CmuxNextSettings).
             dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextActions", "CmuxNextWakeups",
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
@@ -2271,7 +2270,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextControl",
-            // CmuxSafeConcurrency: OnceContinuation (p10-stability-087).
+            // CmuxSafeConcurrency: OnceContinuation.
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextProcessEnvironment", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextInputCore", "CmuxNextOracle", "CmuxNextFeatures", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -2298,7 +2297,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             path: "Tests/Support/CmuxNextTestExitTrace"
         ),
         // Test-only: the in-process benches' cmux-perf-result/v1 writer (PerfResultWriter, read when
-        // CMUX_PERF_RESULT_DIR is set; scripts/perf-lab/stories/swift_benches.py, p12-perf-process-217).
+        // CMUX_PERF_RESULT_DIR is set; scripts/perf-lab/stories/swift_benches.py).
         // Foundation only, so the Linux tier's bench targets keep building.
         .target(
             name: "CmuxNextTestSupport",
@@ -2324,6 +2323,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextChromiumRuntime",
                 "CmuxNextChromiumWarmup",
                 "CmuxNextCompat",
+                "CmuxNextCompatAppKit",
                 "CmuxNextComputerUse",
                 "CmuxNextCookieImport",
                 "CmuxNextCopyMode",
@@ -2390,7 +2390,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // UnmountedWorkspaceLeavesNoObjectsTests and the rule-9 sweep cases read the repair's counts.
                 "CmuxNextWorkspaceRepair",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-                // DiffTurnPatchFuzzTests (p10-stability-030).
+                // DiffTurnPatchFuzzTests.
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
                 // GhosttyGlassMinimumContrastTests builds a Ghostty config.
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
@@ -2398,7 +2398,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 // MacInstallTeamAuthTests signs team challenges with the install key.
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
-                // AgentActivityOneShotCancelTests records the oneShot continuation's faults (p10-stability-171).
+                // AgentActivityOneShotCancelTests records the oneShot continuation's faults.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 // UpdateLoadingIndicatorTests feeds Sparkle's update states.
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
@@ -2421,7 +2421,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 .product(name: "CmuxIrxTransport", package: "CmuxIrxTransport"),
-                // OnceContinuation (p10-stability-087).
+                // OnceContinuation.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 "CmuxNextTrace",
             ],
@@ -2471,34 +2471,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]
-
-/// Linux SwiftPM copies an `.xcstrings` catalog into the bundle as JSON that Foundation cannot read.
-/// In the Linux mode (`CMUX_SWIFTPM_TARGET_LINUX=1`, plans/cmux-next/chrome-parity/p15-oracle.md H),
-/// a target with a catalog takes the tables scripts/cmux-next/linux/compile-xcstrings.py compiled
-/// from it, linked into its folder as `LinuxStringTables/<lang>.lproj/<table>.strings`; without
-/// them the build stops on that missing folder. macOS compiles the catalogs itself.
-func addLinuxStringTables(to targets: [Target]) {
-#if os(Linux)
-    let files = FileManager.default
-    for target in targets {
-        let parent: String
-        switch target.type {
-        case .regular, .executable: parent = "Sources"
-        case .test: parent = "Tests"
-        default: continue
-        }
-        let folder = Context.packageDirectory + "/" + (target.path ?? parent + "/" + target.name)
-        let hasCatalog = files.enumerator(atPath: folder)?.contains { ($0 as? String)?.hasSuffix(".xcstrings") == true }
-        if hasCatalog == true {
-            target.resources = (target.resources ?? []) + [.process("LinuxStringTables")]
-        }
-    }
-#endif
-}
-
-if Context.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
-    addLinuxStringTables(to: packageTargets)
-}
 
 let package = Package(
     name: "CmuxNext",
@@ -2553,234 +2525,3 @@ let package = Package(
     ],
     targets: packageTargets,
 )
-
-#if os(Linux)
-// The Linux mode (plans/cmux-next/chrome-parity/p15-oracle.md section H): only the Linux tier scripts
-// (scripts/cmux-next/linux/) set CMUX_SWIFTPM_TARGET_LINUX. A build for an Apple platform, here or on a
-// Linux host, never sets it, so the Apple manifest above, its dump-package and Package.resolved are the
-// same with or without this block. The mode keeps the tier's targets and only the packages they use.
-// The tier is a literal in this file, never a file read: SwiftPM's manifest cache is keyed on this text.
-import Foundation
-
-if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
-    /// The Linux tier as scripts/cmux-next/linux/linux-tier.py renders it from linux-tier.json.
-    struct LinuxTier {
-        struct FFI {
-            let replaces: String
-            let target: String
-            let library: String
-            let libraryDirectory: String
-        }
-
-        struct Generated {
-            let targets: [String]
-            let testTargets: [String]
-            let products: [String]
-            let pathDependencies: [String]
-            let remoteDependencies: [String]
-            let linuxDependencies: [String: [String]]
-        }
-
-        let ffi: FFI
-        let generated: Generated
-
-        var zlibTarget: String { "CZlib" }
-        var cryptoPackage: String { "swift-crypto" }
-
-        /// SwiftPM's identity of a package location: its last path component without `.git`, lowercased.
-        func identity(_ location: String) -> String {
-            let last = location.split(separator: "/").last.map(String.init) ?? location
-            return (last.hasSuffix(".git") ? String(last.dropLast(4)) : last).lowercased()
-        }
-
-        /// The Linux-only targets the tier lists: the FFI module map in place of the xcframework, and zlib.
-        func linuxTargets(packageDirectory: String) -> [Target] {
-            var targets: [Target] = []
-            if generated.targets.contains(ffi.target) {
-                targets.append(Target.target(
-                    name: ffi.target,
-                    path: "Sources/" + ffi.target,
-                    publicHeadersPath: ".",
-                    linkerSettings: [
-                        .unsafeFlags(["-L", packageDirectory + "/" + ffi.libraryDirectory]),
-                        .linkedLibrary(ffi.library),
-                    ]
-                ))
-            }
-            if generated.targets.contains(zlibTarget) {
-                targets.append(Target.systemLibrary(name: zlibTarget, path: "Sources/" + zlibTarget))
-            }
-            return targets
-        }
-
-        /// A dependency as the Linux mode keeps it: the FFI target in place of the xcframework, nil for a
-        /// target outside the tier or a product of a package the tier does not use.
-        func linuxDependency(_ dependency: Target.Dependency, kept: Set<String>, packages: Set<String>) -> Target.Dependency? {
-            switch dependency {
-            case .targetItem(let name, let condition), .byNameItem(let name, let condition):
-                if name == ffi.replaces {
-                    return kept.contains(ffi.target) ? .target(name: ffi.target, condition: condition) : nil
-                }
-                return kept.contains(name) ? dependency : nil
-            case .productItem(_, let package, _, _):
-                return packages.contains(identity(package ?? "")) ? dependency : nil
-            @unknown default:
-                return dependency
-            }
-        }
-
-        /// The stand-ins a target's imports need on Linux (linux-tier.py reads them from its sources).
-        func standIns(of target: String) -> [Target.Dependency] {
-            (generated.linuxDependencies[target] ?? []).map { name in
-                name == zlibTarget ? .target(name: name) : .product(name: name, package: cryptoPackage)
-            }
-        }
-
-        func apply(to package: Package, crypto: Package.Dependency, packageDirectory: String) {
-            let kept = Set(generated.targets + generated.testTargets)
-            let packages = Set(generated.pathDependencies.map(identity) + generated.remoteDependencies)
-            var targets = package.targets.filter { kept.contains($0.name) }
-            for target in targets {
-                target.dependencies = target.dependencies.compactMap {
-                    linuxDependency($0, kept: kept, packages: packages)
-                } + standIns(of: target.name)
-            }
-            targets += linuxTargets(packageDirectory: packageDirectory)
-            package.targets = targets
-            package.products = package.products.filter { generated.products.contains($0.name) }
-            package.dependencies = package.dependencies.filter { dependency in
-                switch dependency.kind {
-                case .fileSystem(_, let path): packages.contains(identity(path))
-                case .sourceControl(_, let location, _): packages.contains(identity(location))
-                default: false
-                }
-            }
-            if generated.remoteDependencies.contains(cryptoPackage) {
-                package.dependencies.append(crypto)
-            }
-        }
-    }
-
-    // BEGIN linux-tier.py: generated from linux-tier.json by scripts/cmux-next/linux/linux-tier.py; do not edit.
-    let linuxTier = LinuxTier(
-        ffi: LinuxTier.FFI(
-            replaces: "CCmuxAppFFI",
-            target: "CCmuxAppFFILinux",
-            library: "cmux_app_ffi",
-            libraryDirectory: ".build-linux/ffi/lib",
-        ),
-        generated: LinuxTier.Generated(
-            targets: [
-                "CmuxNextCompat",
-                "CmuxNextTrace",
-                "CmuxNextMetrics",
-                "CmuxNextFeatures",
-                "CmuxNextSignposts",
-                "CmuxNextWakeups",
-                "CmuxNextWakeupsTestSupport",
-                "CmuxNextTestSupport",
-                "CmuxNextProcessEnvironment",
-                "CCmuxAppFFILinux",
-                "CmuxNextActions",
-                "CmuxNextDaemon",
-                "CmuxNextFocus",
-                "CmuxNextTerminalGeometry",
-                "CmuxNextCopyMode",
-                "CmuxNextTerminalFind",
-                "CmuxNextHostPressure",
-                "CmuxNextDesignTokens",
-                "CmuxNextErrorJournal",
-                "CmuxNextHangReports",
-                "CmuxNextFiles",
-                "CmuxNextBrowserImport",
-                "CmuxNextImportSuggestions",
-                "CmuxNextChromiumRuntime",
-                "CmuxNextDevices",
-                "CmuxNextVSCodeServer",
-                "CmuxNextRemoteFetch",
-                "CmuxNextBrowserCore",
-                "CmuxNextAppearance",
-                "CmuxNextBridge",
-                "CmuxNextWorkspaceNaming",
-                "CmuxNextCloud",
-                "CmuxNextCodeRouter",
-                "CmuxNextRemote",
-                "CmuxNextMobile",
-                "CmuxNextSettings",
-                "CmuxNextControl",
-                "CmuxNextHibernation",
-                "CmuxNextWorkspaceRepair",
-                "CmuxNextKeepAwake",
-                "CmuxNextRemoteLocalhost",
-                "CmuxNextServerHelper",
-                "CmuxNextCLIInstall",
-                "CmuxNextInputModel",
-                "CZlib",
-            ],
-            testTargets: [
-                "CmuxNextActionsTests",
-                "CmuxNextChromiumRuntimeTests",
-                "CmuxNextCodeRouterTests",
-                "CmuxNextCompatTests",
-                "CmuxNextControlTests",
-                "CmuxNextDaemonTests",
-                "CmuxNextDevicesTests",
-                "CmuxNextErrorJournalTests",
-                "CmuxNextFeaturesTests",
-                "CmuxNextFilesTests",
-                "CmuxNextHangReportsTests",
-                "CmuxNextHostPressureTests",
-                "CmuxNextImportSuggestionsTests",
-                "CmuxNextKeepAwakeTests",
-                "CmuxNextMetricsTests",
-                "CmuxNextMobileTests",
-                "CmuxNextSignpostsTests",
-                "CmuxNextTraceTests",
-                "CmuxNextVSCodeServerTests",
-                "CmuxNextWakeupsTests",
-                "CmuxNextWorkspaceRepairTests",
-            ],
-            products: [],
-            pathDependencies: [
-                "Packages/Shared/CMUXAuthCore",
-                "Packages/Shared/CMUXMobileCore",
-                "Packages/Shared/CmuxAgentBrands",
-                "Packages/Shared/CmuxAuthRuntime",
-                "Packages/Shared/CmuxInstallAuthCore",
-                "Packages/Shared/CmuxIrxTransport",
-                "Packages/Shared/CmuxSafeConcurrency",
-                "Packages/Shared/CmuxTheme",
-                "Packages/Shared/CmuxThreading",
-                "Packages/iOS/CmuxMobileRPC",
-                "Packages/iOS/CmuxMobileSSH",
-            ],
-            remoteDependencies: ["swift-atomics", "swift-crypto"],
-            linuxDependencies: [
-                "CmuxNextBrowserCore": ["Crypto"],
-                "CmuxNextBrowserImport": ["CZlib"],
-                "CmuxNextChromiumRuntime": ["Crypto"],
-                "CmuxNextChromiumRuntimeTests": ["Crypto"],
-                "CmuxNextCloud": ["Crypto"],
-                "CmuxNextCodeRouter": ["Crypto"],
-                "CmuxNextDaemon": ["CZlib", "Crypto"],
-                "CmuxNextDaemonTests": ["Crypto"],
-                "CmuxNextDesignTokens": ["Crypto"],
-                "CmuxNextDevices": ["Crypto"],
-                "CmuxNextDevicesTests": ["Crypto"],
-                "CmuxNextMobile": ["Crypto"],
-                "CmuxNextRemote": ["Crypto"],
-                "CmuxNextRemoteFetch": ["CZlib"],
-                "CmuxNextRemoteLocalhost": ["Crypto"],
-                "CmuxNextSettings": ["Crypto"],
-            ],
-        ),
-    )
-    // END linux-tier.py
-
-    linuxTier.apply(
-        to: package,
-        crypto: .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
-        packageDirectory: Context.packageDirectory
-    )
-}
-#endif

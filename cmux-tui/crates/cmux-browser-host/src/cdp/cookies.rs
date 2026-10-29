@@ -6,6 +6,7 @@
 //! first (crate::cookie_backups) and `cookies.restore` puts them back.
 
 use super::driver::{INTERNAL_TIMEOUT, Inner, cookie_matches, playwright_cookie};
+use crate::panic_free::JsonFields;
 use crate::protocol::DriverError;
 use serde_json::{Value, json};
 
@@ -50,7 +51,7 @@ impl Inner {
             }
             None => self.conn.call(None, "Storage.getCookies", store.clone(), INTERNAL_TIMEOUT)?,
         };
-        Ok(reply["cookies"].as_array().cloned().unwrap_or_default())
+        Ok(reply.field("cookies").as_array().cloned().unwrap_or_default())
     }
 
     /// Sets `cookies` (`Storage.setCookies` params) in `store`; on a relayed
@@ -72,7 +73,7 @@ impl Inner {
             )?,
             None => {
                 let mut call = store.clone();
-                call["cookies"] = Value::Array(cookies);
+                call.insert("cookies", Value::Array(cookies));
                 self.conn.call(None, "Storage.setCookies", call, INTERNAL_TIMEOUT)?
             }
         };
@@ -153,7 +154,7 @@ impl Inner {
         // A relayed app tab's store has no id here: the restore goes back
         // through that tab (its CDP target id), never another profile's.
         if self.conn.root_alias().is_some() {
-            record["relayTarget"] = json!(session.target_id);
+            record.insert("relayTarget", json!(session.target_id));
         }
         let full = |message: String| {
             DriverError::new(
@@ -208,7 +209,7 @@ impl Inner {
         let record = backups
             .load(restore_id)
             .map_err(|message| DriverError::invalid(format!("cookies.restore: {message}")))?;
-        let store = match record["store"].as_str() {
+        let store = match record.field("store").as_str() {
             Some(context) => {
                 let open = self
                     .proxy_contexts
@@ -317,7 +318,7 @@ pub(super) fn forget_store(inner: &Inner, context: &str) {
 fn copy_profile_cookies(inner: &Inner, context: &str) -> Result<(), DriverError> {
     let cookies = inner.conn.call(None, "Storage.getCookies", json!({}), INTERNAL_TIMEOUT)?;
     let copies: Vec<Value> =
-        cookies["cookies"].as_array().into_iter().flatten().map(cookie_param).collect();
+        cookies.field("cookies").as_array().into_iter().flatten().map(cookie_param).collect();
     if !copies.is_empty() {
         inner.conn.call(
             None,

@@ -8,6 +8,7 @@
 //! crash reports are allowed (`crash_forward`), sends it to Sentry at once.
 //! Doubling keeps a runaway process to a handful of events.
 
+use crate::json_fields::JsonFields;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -114,7 +115,7 @@ pub(super) fn spawn(
             .map(|elapsed| elapsed.as_millis())
             .unwrap_or_default();
         let line = record(memory, crossed, started.elapsed(), at_ms);
-        crate::client_log::warn(LOG_AREA, line["message"].as_str().unwrap_or_default());
+        crate::client_log::warn(LOG_AREA, line.field("message").as_str().unwrap_or_default());
         append(&log, &line);
         if let Some(forwarder) = &forwarder
             && let Err(error) = forwarder.forward(&log)

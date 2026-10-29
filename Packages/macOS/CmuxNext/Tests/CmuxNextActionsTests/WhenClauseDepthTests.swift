@@ -3,7 +3,7 @@ import Testing
 
 /// A keybindings.json `when` nests `!` and `(` at most ``WhenClauseParser/maxDepth`` (200) levels: a deeper
 /// clause is a parse error for its entry, never a recursion that runs the app out of stack
-/// (p10-stability-026; Chromium bounds JSON the same way, base/json/json_common.h `kAbsoluteMaxDepth`).
+/// (Chromium bounds JSON the same way, base/json/json_common.h `kAbsoluteMaxDepth`).
 struct WhenClauseDepthTests {
     nonisolated static let limit = 200
 

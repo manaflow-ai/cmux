@@ -52,8 +52,7 @@ public final class ChromiumHostPrototype {
     ///   - deadlines: The app's deadline scheduler: the idle deadline waits on it.
     ///   - idleExitAfter: How long a host runs with its page in no window before it quits
     ///     (`chromiumHostIdleExit`, resolved by the composition root); nil keeps it running.
-    ///   - inputPresented: Takes the host's presentation report of each input (the app's input latency tracker,
-    ///     task p04-input-066).
+    ///   - inputPresented: Takes the host's presentation report of each input (the app's input latency tracker).
     ///   - reportsInputPresented: Takes whether the current host sends those reports (the tracker's
     ///     `pagesReportPresentation`).
     public convenience init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, isOn: @escaping @MainActor () -> Bool,

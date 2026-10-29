@@ -27,7 +27,7 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
         window.titleVisibility = content == nil ? .hidden : .visible
         window.titlebarAppearsTransparent = content == nil
         window.isReleasedWhenClosed = false
-        window.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
+        window.isRestorable = false  // AppKit state restoration is off for every cmux window
         window.contentMinSize = NSSize(width: 680, height: 420)
         window.identifier = NSUserInterfaceItemIdentifier("cmux.debugSettings")
         window.setFrameAutosaveName("cmux.debugSettings")

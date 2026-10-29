@@ -153,7 +153,7 @@ import Testing
     }
 
     /// A dotted key with no member name in it sets nothing; it trapped in `removeFirst` on an empty
-    /// split before (p10-stability-097). Empty segments between dots are skipped, as before.
+    /// split before. Empty segments between dots are skipped, as before.
     @Test func aKeyWithNoMemberNameSetsNothing() {
         var section: [String: JSONValue] = ["tabSize": 2]
         EditorSettingsImport.set(&section, "", true)

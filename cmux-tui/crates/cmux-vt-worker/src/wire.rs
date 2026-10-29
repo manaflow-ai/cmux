@@ -7,7 +7,7 @@
 //! events worker to daemon; a kind from the other direction, a short
 //! payload, a wrong descriptor count or a payload over [`MAX_PAYLOAD`] is a
 //! [`WireError`] and ends the connection (the daemon then treats the worker
-//! as a bad message, p01-process-141).
+//! as a bad message).
 
 use std::io;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};

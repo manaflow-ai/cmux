@@ -2,6 +2,7 @@
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Open Chat on a chat that cannot resume here (cx-khns1): its folder is gone, or acpmux plans a
 /// terminal or a read-only transcript. The fresh chat that opens names the chat, and its page's
@@ -47,7 +48,7 @@ struct AgentPanePastChatTests {
             return [AgentPanePastTurn(prompt: "Fix the build", answer: "Fixed: a missing import.", promptAt: 1, answerAt: 2)]
         }
         defer { AgentPanePastTurn.reader = nil }
-        let model = AgentPaneModel(host: Host(), seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp", pastChat: Self.key)))
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: Host(), seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp", pastChat: Self.key)))
         for _ in 0..<2 {
             let reply = await model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
             let result = try #require(reply["value"] as? [String: Any], "\(reply)")
@@ -57,7 +58,7 @@ struct AgentPanePastChatTests {
         }
         #expect(asked.keys == [Self.key, Self.key])
 
-        let started = AgentPaneModel(host: Host(), sessionId: "s1",
+        let started = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: Host(), sessionId: "s1",
                                      seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp", pastChat: Self.key)))
         let reply = await started.respond(to: AgentPaneRequest(body: ["method": "ready"]))
         #expect((reply["value"] as? [String: Any])?["pastTurns"] == nil)

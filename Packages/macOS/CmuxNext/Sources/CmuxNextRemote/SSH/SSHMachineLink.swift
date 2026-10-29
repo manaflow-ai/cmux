@@ -74,6 +74,14 @@ public enum SSHLinkError: Error, Sendable, CustomStringConvertible {
 /// ``SSHConnectionMachine``. Every status change is reported through
 /// `onStatus` (the App shows it in the sidebar).
 public actor SSHMachineLink {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.remote.ssh-link`): its socket and binary checks block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.remote.ssh-link
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.remote.ssh-link", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public nonisolated let host: SSHHost
     public nonisolated let machineID: String
     private let binary: URL

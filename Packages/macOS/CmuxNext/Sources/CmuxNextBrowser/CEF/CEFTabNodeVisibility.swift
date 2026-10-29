@@ -102,7 +102,7 @@ final class CEFTabNodeVisibility {
         return done
     }
 
-    /// ``CEFTab/freezeShownInOffScreenWindow()``: the page an off-screen window shows (p07-memory-097). A tab that
+    /// ``CEFTab/freezeShownInOffScreenWindow()``: the page an off-screen window shows. A tab that
     /// follows its node was hidden to Chromium by the window node and freezes as a hidden page. One that follows none
     /// (a fork before API 37) still counts visible to Chromium, so `SetPageFrozen` would refuse it: DevTools
     /// `Page.setWebLifecycleState` hides it first (`WasHidden`), as for a page that is never shown. Its thaw is

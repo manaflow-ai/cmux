@@ -1,4 +1,4 @@
-//! Trace control of a hosted terminal's host (p09-observability-015): the
+//! Trace control of a hosted terminal's host: the
 //! daemon's `trace-start`, `trace-stop` and `trace-status` reach every live
 //! terminal host through its surface's admin connection.
 

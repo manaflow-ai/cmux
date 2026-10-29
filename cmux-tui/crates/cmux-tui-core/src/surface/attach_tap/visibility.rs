@@ -1,11 +1,11 @@
-//! Hiding a snapshot viewer (`set-stream-priority hidden`, p05-ipc-142).
+//! Hiding a snapshot viewer (`set-stream-priority hidden`).
 
 use super::{AttachFrameReceiver, AttachTapQueue, AttachTapState};
 use crate::panic_free::RecoverPoison;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 
-/// Hides a snapshot viewer (p05-ipc-142), as Chrome's `WasHidden()` stops a
+/// Hides a snapshot viewer, as Chrome's `WasHidden()` stops a
 /// hidden widget's frames while its renderer keeps running
 /// (content/browser/renderer_host/render_widget_host_impl.cc): the terminal
 /// still parses every byte, the viewer queues none of it and is not woken,

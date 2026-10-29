@@ -135,7 +135,7 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: tree.path))
     }
 
-    /// The kept update read on a launch lane before the channel is known (p08-startup-077) decides
+    /// The kept update read on a launch lane before the channel is known decides
     /// as the launch check that reads the disk itself: the same tree for a kept update newer than
     /// the bundled web, and for a bundle with newer web no tree, then the bundled web served and
     /// the kept update forgotten.

@@ -29,8 +29,8 @@ extension VSyncHub: TerminalVSyncSource {
 
 nonisolated extension VSyncHub.Subscription: TerminalVSyncSubscription {}
 
-/// Paces one Ghostty surface from its display's ``VSyncHub`` thread (ghostty-next external vsync,
-/// p03-rendering-082), so the app runs one display link per display instead of one Ghostty link per
+/// Paces one Ghostty surface from its display's ``VSyncHub`` thread (ghostty-next external vsync),
+/// so the app runs one display link per display instead of one Ghostty link per
 /// surface (DC1).
 ///
 /// Chrome's form: `components/viz/service/frame_sinks/external_begin_frame_source_mac.cc` registers a

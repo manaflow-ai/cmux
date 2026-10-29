@@ -5,7 +5,7 @@ extension HangReport {
     /// The most blocking call sites one report names.
     public static let maxBlockingSites = 20
 
-    /// One main-thread blocking call site in a report's `blocking_sites` (p12-perf-process-226): its id, what it
+    /// One main-thread blocking call site in a report's `blocking_sites`: its id, what it
     /// waited on, how many calls ended there and their wall time since the last report. Counts only: the id is a
     /// hash, so no path, file or symbol leaves the Mac, and `lab.py field --sites-from <checkout>` names the line
     /// by hashing every line of that build's Swift sources.

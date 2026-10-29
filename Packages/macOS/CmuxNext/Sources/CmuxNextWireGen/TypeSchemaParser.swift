@@ -1,5 +1,5 @@
-// Reads sdk-schema.json's `commands`, `events` and `types` into TypeSchema
-// (p05-ipc-020). It reads a named type only when TypeSchema asks for it, so the
+// Reads sdk-schema.json's `commands`, `events` and `types` into TypeSchema.
+// It reads a named type only when TypeSchema asks for it, so the
 // app's build depends only on the types its own commands and events reach.
 
 struct TypeSchemaParser {

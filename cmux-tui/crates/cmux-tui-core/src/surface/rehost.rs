@@ -60,35 +60,44 @@ pub(super) fn request_custody(surface: &Arc<Surface>) {
     let surface = Arc::downgrade(surface);
     // The name is unique and within Linux's 15-byte thread name, so a
     // boundary test sees in `/proc` when the custody exchange has finished.
-    let _ = supervised::spawn("pty-custody", Fatal, ShutdownBehavior::Continue, move || {
-        let discovery = {
+    let _ = supervised::spawn_at(
+        "pty-custody",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let discovery = {
+                let Some(surface) = surface.upgrade() else { return };
+                let Some(pty) = surface.as_pty() else { return };
+                match &*pty.runtime.lock().unwrap_or_else(PoisonError::into_inner) {
+                    PtyRuntime::Hosted(host)
+                        if host.record.supports_pty_custody && !host.holds_pty_custody() =>
+                    {
+                        Some(host.discovery_record())
+                    }
+                    PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => {
+                        None
+                    }
+                }
+            };
+            let Some((record, record_path)) = discovery else { return };
+            let Ok(custody) = crate::terminal_host_runtime::request_terminal_host_pty_custody(
+                &record,
+                &record_path,
+            ) else {
+                return;
+            };
             let Some(surface) = surface.upgrade() else { return };
             let Some(pty) = surface.as_pty() else { return };
-            match &*pty.runtime.lock().unwrap_or_else(PoisonError::into_inner) {
-                PtyRuntime::Hosted(host)
-                    if host.record.supports_pty_custody && !host.holds_pty_custody() =>
-                {
-                    Some(host.discovery_record())
-                }
-                PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => None,
+            let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
+            if let PtyRuntime::Hosted(host) = &mut *runtime
+                && host.record.host_start_nonce == record.host_start_nonce
+                && !host.holds_pty_custody()
+            {
+                host.keep_pty_custody(custody);
             }
-        };
-        let Some((record, record_path)) = discovery else { return };
-        let Ok(custody) =
-            crate::terminal_host_runtime::request_terminal_host_pty_custody(&record, &record_path)
-        else {
-            return;
-        };
-        let Some(surface) = surface.upgrade() else { return };
-        let Some(pty) = surface.as_pty() else { return };
-        let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-        if let PtyRuntime::Hosted(host) = &mut *runtime
-            && host.record.host_start_nonce == record.host_start_nonce
-            && !host.holds_pty_custody()
-        {
-            host.keep_pty_custody(custody);
-        }
-    });
+        },
+    );
 }
 
 /// Handle the proven death of the host `record` names: attach to a live
@@ -234,7 +243,6 @@ fn replace_host(
         (record.host_pid, attachment.record.host_pid),
         panic_log.as_ref(),
     );
-    mux.note_holder_exit();
     attachment.keep_pty_custody(custody);
     Some(attachment)
 }

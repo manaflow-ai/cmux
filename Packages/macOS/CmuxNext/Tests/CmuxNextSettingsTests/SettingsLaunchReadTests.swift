@@ -222,7 +222,7 @@ struct SettingsLaunchReadTests {
         #expect(reader.reads.withLock { $0 } == 0, "a launch step read the managed preferences again on the main thread")
     }
 
-    /// p08-startup-079: the launch applies its read as the first load before any watch (the first frame in the
+    /// The launch applies its read as the first load before any watch (the first frame in the
     /// file's look, no read on the main thread, the MDM status posted), and the watches the app arms after the first
     /// frame reload once, so an edit made in between applies.
     @Test func theLaunchReadAppliesBeforeTheWatchesAndAnEditInBetweenApplies() async throws {

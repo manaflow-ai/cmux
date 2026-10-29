@@ -36,7 +36,7 @@ pub(super) fn run(mut session: Session) -> i32 {
     let lines: Vec<Line> = Vec::new();
     let tx = session.tx.clone();
     // supervise-allow: this CLI run's key reader; it ends with stdin, and a panic drops `tx`, so the run's input loop ends.
-    let _ = std::thread::Builder::new().name("chief-keys".into()).spawn(move || {
+    let _ = cmux_threads::spawn("chief-keys", cmux_threads::ThreadQos::UserInitiated, move || {
         while let Ok(event) = crossterm::event::read() {
             if tx.send(Input::Term(event)).is_err() {
                 return;

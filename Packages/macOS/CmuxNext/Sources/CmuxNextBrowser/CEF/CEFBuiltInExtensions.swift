@@ -89,7 +89,7 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
     /// pin; nil otherwise. Reads the manifest: the extension access owner
     /// preloads it once on the files lane
     /// (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``), never
-    /// from a static initializer on whichever thread asks first (p02-threads-122).
+    /// from a static initializer on whichever thread asks first.
     static func trustedAdBlockerFolder(resources: URL?) -> String? {
         guard let resources else { return nil }
         let folder = resources.appendingPathComponent(adBlockerFolder).resolvingSymlinksInPath().standardizedFileURL
