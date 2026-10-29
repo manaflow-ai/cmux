@@ -4447,6 +4447,23 @@
       "reason": "cmux's memory pressure vote (p07-memory-051): the host's shim votes it into its own Chromium's aggregator, in call order; CEFMemoryPressureVote discards the result."
     },
     {
+      "name": "cmux_shim_tab_flush_back_forward_cache",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "BackForwardCache::Flush of a hidden tab (p07-memory-101): the host's shim flushes its own Chromium's tab, in call order; CEFTab.flushBackForwardCache discards the result."
+    },
+    {
       "name": "cmux_shim_set_cursor_events",
       "class": "local",
       "args": [

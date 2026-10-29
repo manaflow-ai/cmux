@@ -2512,9 +2512,10 @@ mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;
 use connection_frame::{
-    auth_token, connection_caller, constant_time_eq, debug_assert_off_reader,
-    handle_connection_frame_at, handle_request_with_cancellation, lock_caller_scope,
-    pairing_request, zeroize_string,
+    FramedBodyMismatch, FramedMethod, FramedRequest, auth_token, connection_caller,
+    constant_time_eq, debug_assert_off_reader, decode_framed_request, handle_connection_frame_at,
+    handle_framed_request_at, handle_request_with_cancellation, lock_caller_scope, pairing_request,
+    zeroize_string,
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};

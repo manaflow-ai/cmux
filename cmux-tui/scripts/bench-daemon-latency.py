@@ -18,8 +18,7 @@ Keys of result["scenarios"][SCENARIO]:
   ops.OP       LATENCY + wire (v12|v2), kind (read|write|create), per op of
                --ops: base (ping, identify, list-workspaces, send, new-tab),
                create (the ops of kind create: v12 and v2 creates, split,
-               browser tab, create-tab-group), all (every op, which covers
-               ipc5_ops of plans/cmux-next/ipc-targets.json), or a comma list.
+               browser tab, create-tab-group), all (every op), or a comma list.
                `skipped`: capability not advertised, or the daemon does not
                know the command (v12 `unknown variant `OP``) or operation (v2,
                once the bench's envelope parses on a served operation). Setup
@@ -32,6 +31,13 @@ Keys of result["scenarios"][SCENARIO]:
                bucket - daemon bucket, for p50, p95, p99, max) and
                within_one_bucket; or `skipped` when the method also ran
                untimed (the histograms cannot be split) or is not served.
+  ops_frames.OP  (--wire frames) the ops section again, each request a REQUEST
+               frame on a connection granted ipc-frames-v2 (the daemon starts
+               with CMUX_ENABLE_FEATURES=ipcFrames); the reply is the frame's
+               JSON, the same body as the line's. `skipped`: the daemon does not
+               advertise ipc-frames-v2, or the op's method has no method id in
+               the schema yet (v2 operations until resource-operations-v2.json
+               has families).
   concurrent   c10-ping, c10-identify, c10-list-workspaces: LATENCY of 10
                clients at once; errors (when any).
   cli          cli-ping, cli-workspace-list, cli-terminal-write: LATENCY + argv
@@ -115,17 +121,8 @@ Keys of result["scenarios"][SCENARIO]:
 Top level: host (hostname, os, os_version, macos, arch, cpu, cores, load,
 python), source (sha, dirty: the script checkout), daemon (version, protocol,
 build_commit, pid, capabilities, bin, binary {path, sha256, mtime}), args,
-scenarios, q16 (the scale scenario's ops with p95 > 2 ms), error (the run
-stopped), q16_write_error.
-
---write-q16 writes runtime.Q16 of ipc-targets.json (p05-ipc queue Q16: items
-{file, line, key, p95_ms, wire} for ops with p95 > 2 ms in --ops all --scenario
-scale; scripts/cmux-next/ipc-census.py reads it) and runtime.Q16_run (command,
-scenario, threshold_ms, sha, sha_source, host, daemon_version, skipped,
-failed, and binary when sha_source is `script checkout`). sha is the daemon's
-build_commit; a daemon without one is named by the script checkout's HEAD and
-the binary's hash; a build_commit other than HEAD is refused. It needs a passed
-run on a macOS host: VM timing is not perf evidence.
+scenarios, q16 (the scale scenario's ops with p95 > 2 ms: items {file, line,
+key, p95_ms, wire}), error (the run stopped).
 
 --out FILE.json writes the report alone. --out DIR (the perf lab's story
 runner) writes it to DIR/daemon-latency.json and every latency row's raw
@@ -141,7 +138,7 @@ storm's window) records none of its rows.
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
   bench-daemon-latency.py --bin ... --ops all --scenario scale \\
-      --bulk-interference --streams 8 --automation-storm 8 --out r.json [--write-q16]
+      --bulk-interference --streams 8 --automation-storm 8 --out r.json
   bench-daemon-latency.py --bin ... --sha SHA --build-config release --out DIR
 """
 
@@ -170,12 +167,21 @@ import traceback
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 SDK_SCHEMA = os.path.join(SCRIPT_DIR, "..", "spec", "sdk-schema.json")
-TARGETS = os.path.join(REPO_ROOT, "plans", "cmux-next", "ipc-targets.json")
 SCRIPT_REL = "cmux-tui/scripts/bench-daemon-latency.py"
 Q16_THRESHOLD_MS = 2.0
 V2_PROTOCOL = "cmux.protocol/2"
 V2_PROBE_OPERATION = "machine.list"  # a read every v2 daemon serves
 SCENARIOS = {"small": (1, 1, 0.0), "scale": (50, 200, 0.05)}
+V2_SCHEMA = os.path.join(SCRIPT_DIR, "..", "spec", "resource-operations-v2.json")
+# Framed IPC (p05-ipc.md section 3.2, cmux-ipc frame.rs): a 16-byte header, MAGIC, kind, stream (u16 LE),
+# payload length (u32 LE), then for a call the request id (u32 LE), method id (u16 LE), priority, flags.
+FRAMES_CAPABILITY = "ipc-frames-v2"
+FRAMES_FEATURE = "ipcFrames"  # schemas/features/features.d/ipcFrames.json, default off
+FRAME_MAGIC = 0xFF
+FRAME_HEADER_LEN = 16
+FRAME_REQUEST, FRAME_REPLY, FRAME_ERROR = 16, 17, 18
+FRAME_PRIORITIES = {"input": 0, "control": 1, "bulk": 2, "background": 3}
+WIRES = ("lines", "frames")
 STORY = "daemon-latency"
 METRIC_PREFIX = "daemon.latency"
 REPORT_NAME = "daemon-latency.json"
@@ -206,10 +212,37 @@ class DaemonError(RuntimeError):
 # Connection
 
 
-class Conn:
-    """One JSON-lines connection. Events go to `on_event`; replies are matched by id.
+class Unframed(Exception):
+    """A request the frame wire cannot carry yet: its method has no method id in the schema."""
 
-    The line reader keeps one buffer and an offset, so a flood of large output lines
+
+def frame_methods():
+    """{name: (method_id, priority)} of every v12 command and v2 operation the schema gives an id."""
+    methods = {}
+    for path, key in ((SDK_SCHEMA, "commands"), (V2_SCHEMA, "operations")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                entries = json.load(f).get(key) or {}
+        except (OSError, ValueError):
+            continue
+        if isinstance(entries, list):
+            entries = {entry.get("name"): entry for entry in entries}
+        for name, entry in entries.items():
+            if isinstance(entry, dict) and isinstance(entry.get("method_id"), int):
+                methods[name] = (entry["method_id"], FRAME_PRIORITIES[entry.get("priority") or "control"])
+    return methods
+
+
+def frame_header(kind, length, request_id, method_id, priority):
+    return (bytes([FRAME_MAGIC, kind]) + (0).to_bytes(2, "little") + length.to_bytes(4, "little")
+            + request_id.to_bytes(4, "little") + method_id.to_bytes(2, "little") + bytes([priority, 0]))
+
+
+class Conn:
+    """One JSON-lines connection, or a frames one after `use_frames`. Events go to `on_event`;
+    replies are matched by id.
+
+    The reader keeps one buffer and an offset, so a flood of large output lines
     costs one copy per byte, not one per line."""
 
     def __init__(self, path, timeout=60, on_event=None):
@@ -221,6 +254,26 @@ class Conn:
         self.next_id = 1
         self.on_event = on_event
         self.replies = {}
+        self.methods = None  # set by use_frames: requests leave as REQUEST frames
+
+    def use_frames(self):
+        """Asks for the frames grant at the daemon's own API revision (set-client-info, as the app does)
+        and sends every later request whose method has an id as a REQUEST frame. A reply line or frame
+        carries the JSON its line would."""
+        revision = must(self.call("identify", revisions=True), "identify").get("api_revision")
+        must(self.call("set-client-info", name="bench-frames", capabilities=[FRAMES_CAPABILITY],
+                       api_revision=revision), "set-client-info")
+        self.methods = frame_methods()
+
+    def _send_request(self, name, body, rid):
+        data = json.dumps(body).encode()
+        if self.methods is None:
+            self.sock.sendall(data + b"\n")
+            return
+        method = self.methods.get(name)
+        if method is None:
+            raise Unframed(f"{name} has no method id in the schema")
+        self.sock.sendall(frame_header(FRAME_REQUEST, len(data), rid, *method) + data)
 
     def close(self):
         try:
@@ -238,21 +291,36 @@ class Conn:
         self.buf += chunk
 
     def _next_line(self):
+        """The next line, or a REPLY or ERROR frame's JSON payload."""
         while True:
-            i = self.buf.find(b"\n", self.pos)
-            if i >= 0:
-                line = bytes(self.buf[self.pos : i])
-                self.pos = i + 1
+            line = self._buffered_line()
+            if line is not None:
                 return line
             self._fill()
 
     def _buffered_line(self):
+        if self.pos < len(self.buf) and self.buf[self.pos] == FRAME_MAGIC:
+            return self._buffered_frame()
         i = self.buf.find(b"\n", self.pos)
         if i < 0:
             return None
         line = bytes(self.buf[self.pos : i])
         self.pos = i + 1
         return line
+
+    def _buffered_frame(self):
+        start = self.pos
+        if len(self.buf) - start < FRAME_HEADER_LEN:
+            return None
+        kind = self.buf[start + 1]
+        length = int.from_bytes(self.buf[start + 4 : start + 8], "little")
+        end = start + FRAME_HEADER_LEN + length
+        if len(self.buf) < end:
+            return None
+        if kind not in (FRAME_REPLY, FRAME_ERROR):
+            raise ConnectionError(f"unexpected frame kind {kind}")
+        self.pos = end
+        return bytes(self.buf[start + FRAME_HEADER_LEN : end])
 
     def _dispatch(self, line):
         """Routes one line; returns the message when it is a reply."""
@@ -287,7 +355,7 @@ class Conn:
     def send(self, cmd, **params):
         rid = self.next_id
         self.next_id += 1
-        self.sock.sendall((json.dumps({"id": rid, "cmd": cmd, **params}) + "\n").encode())
+        self._send_request(cmd, {"id": rid, "cmd": cmd, **params}, rid)
         return rid
 
     def call(self, cmd, **params):
@@ -305,7 +373,7 @@ class Conn:
                "params": {"machine": "current", "session": "current", **params}}
         if key is not None:
             env["idempotency_key"] = key
-        self.sock.sendall((json.dumps(env) + "\n").encode())
+        self._send_request(operation, env, self.next_id - 1)
         return self.wait_reply(rid)
 
     def timed_v2(self, operation, params, key=None):
@@ -481,14 +549,6 @@ def binary_info(path):
             "mtime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))}
 
 
-def measured_commit(result):
-    """(sha, sha_source) of the measured daemon: its stamped build_commit, else the script checkout's HEAD."""
-    build_commit = (result.get("daemon") or {}).get("build_commit")
-    if build_commit:
-        return build_commit, "daemon build_commit"
-    return (result.get("source") or {}).get("sha"), "script checkout"
-
-
 # ---------------------------------------------------------------------------------------------
 # Daemon process counters (syscalls, context switches, threads)
 
@@ -577,15 +637,6 @@ def select_ops(spec):
     if unknown:
         raise SystemExit(f"--ops: unknown op(s) {', '.join(unknown)}; known: {', '.join(OPS)}")
     return names
-
-
-def ipc5_ops():
-    """The IPC-5 op list of ipc-targets.json; `--ops all` must cover it."""
-    try:
-        with open(TARGETS, encoding="utf-8") as f:
-            return json.load(f).get("ipc5_ops") or []
-    except (OSError, ValueError):
-        return []
 
 
 def schema_capabilities():
@@ -994,7 +1045,9 @@ class Bench:
     def __init__(self, args, env_extra=None):
         """`env_extra`: daemon environment on top of the isolated one (a bulk sweep's frame cut)."""
         self.args = args
-        self.env_extra = dict(env_extra or {})
+        # --wire frames turns on the daemon's frame route (default off) in its spawn environment.
+        frames = "frames" in (getattr(args, "wire", None) or ())
+        self.env_extra = {**({"CMUX_ENABLE_FEATURES": FRAMES_FEATURE} if frames else {}), **dict(env_extra or {})}
         self.root = tempfile.mkdtemp(prefix="pd.", dir="/private/tmp" if sys.platform == "darwin" else None)
         self.sock_path = os.path.join(self.root, "s.sock")
         self.session = f"perfd{os.getpid()}n{next(Bench._serial)}"
@@ -1187,19 +1240,30 @@ class Bench:
 
     # -- ops
 
-    def ops(self, names, n, create_n, out):
-        """Fills `out` row by row, so the rows measured before an exception stay in the result."""
+    def ops(self, names, n, create_n, out, transport="lines"):
+        """Fills `out` row by row, so the rows measured before an exception stay in the result.
+        `transport` frames: the same ops, each request a REQUEST frame (setup stays on lines)."""
         c = Conn(self.sock_path)
         fixture = OpsFixture(self, c)
         caps_of = schema_capabilities()
         try:
             fixture.setup()
+            if transport == "frames":
+                if not self.has(FRAMES_CAPABILITY):
+                    for name in names:
+                        out[name] = {"wire": OPS[name]["wire"], "kind": OPS[name]["kind"], "n": 0,
+                                     "skipped": f"capability {FRAMES_CAPABILITY} not advertised"}
+                    return
+                c.use_frames()
             for name in names:
                 plan = OPS[name]
                 row = {"wire": plan["wire"], "kind": plan["kind"]}
                 capability = plan["capability"] or (caps_of.get(name) if plan["wire"] == "v12" else None)
                 if capability and not self.has(capability):
                     out[name] = {**row, "n": 0, "skipped": f"capability {capability} not advertised"}
+                    continue
+                if c.methods is not None and name not in c.methods:
+                    out[name] = {**row, "n": 0, "skipped": "no method id in the schema: not framed yet"}
                     continue
                 count = create_n if plan["kind"] == "create" else n
                 vals = []
@@ -1228,7 +1292,10 @@ class Bench:
         """server-stats' `ipc_methods` rows by method name, or None when the daemon has no such section."""
         if not self.has("server-stats-v1"):
             return None
-        section = must(c.call("server-stats", include=["ipc_methods"]), "server-stats").get("ipc_methods")
+        try:
+            section = must(c.call("server-stats", include=["ipc_methods"]), "server-stats").get("ipc_methods")
+        except Unframed:
+            return None  # a frames connection whose schema gives server-stats no method id
         if not isinstance(section, list):
             return None
         return {row["method"]: row for row in section if isinstance(row, dict) and "method" in row}
@@ -1699,8 +1766,11 @@ class Bench:
         time.sleep(self.args.settle)
         a = self.args
         create_n = a.create_n or max(10, a.n // 10)
-        res["ops"] = {}
-        self.section(res, "ops", lambda: self.ops(select_ops(a.ops), a.n, create_n, res["ops"]))
+        for transport in a.wire:
+            key = "ops" if transport == "lines" else "ops_frames"
+            res[key] = {}
+            self.section(res, key, lambda key=key, transport=transport: self.ops(
+                select_ops(a.ops), a.n, create_n, res[key], transport))
         self.section(res, "concurrent", lambda: self.concurrent(10, max(20, a.n // 5)))
         self.section(res, "cli", lambda: self.cli(a.cli_n))
         self.section(res, "syscalls", lambda: self.syscalls(max(100, a.n)))
@@ -1892,49 +1962,6 @@ def slow_ops(result, scenario="scale", threshold_ms=Q16_THRESHOLD_MS):
     return items
 
 
-def same_commit(a, b):
-    """True when two (possibly abbreviated) commit ids name the same commit."""
-    return bool(a and b) and (a.startswith(b) or b.startswith(a))
-
-
-def write_q16(targets_path, result, scenario="scale", threshold_ms=Q16_THRESHOLD_MS):
-    """Writes runtime.Q16 (and its run record) into ipc-targets.json; returns the items.
-
-    The record's sha is the measured daemon's build_commit. A daemon with none is named by the
-    script checkout's HEAD (`sha_source: script checkout`) plus the binary's sha256 and mtime; a
-    build_commit that is not HEAD is refused, since Q16 would credit HEAD with another commit's timings."""
-    if scenario not in (result.get("scenarios") or {}):
-        raise ValueError(f"Q16 needs the {scenario} scenario in the result")
-    ops = result["scenarios"][scenario].get("ops") or {}
-    missing = [name for name in OPS if not isinstance(ops.get(name), dict)]
-    if missing:
-        raise ValueError(f"Q16 needs --ops all; not measured: {', '.join(missing)}")
-    sha, sha_source = measured_commit(result)
-    head = (result.get("source") or {}).get("sha")
-    if sha_source == "daemon build_commit" and not same_commit(sha, head):
-        raise ValueError(f"the measured daemon is build_commit {sha}, not this checkout's HEAD {head}: "
-                         "Q16 would credit the wrong commit; run from a checkout of the binary's commit")
-    items = slow_ops(result, scenario, threshold_ms)
-    with open(targets_path, encoding="utf-8") as f:
-        targets = json.load(f)
-    runtime = targets.setdefault("runtime", {})
-    runtime["Q16"] = items
-    run = {
-        "command": "bench-daemon-latency.py --ops all --scenario scale --write-q16",
-        "scenario": scenario, "threshold_ms": threshold_ms,
-        "sha": sha, "sha_source": sha_source, "host": result.get("host"),
-        "daemon_version": (result.get("daemon") or {}).get("version"),
-        "skipped": sorted(name for name, row in ops.items() if isinstance(row, dict) and "skipped" in row),
-        "failed": sorted(name for name, row in ops.items() if isinstance(row, dict) and "error" in row),
-    }
-    if sha_source == "script checkout":
-        run["binary"] = (result.get("daemon") or {}).get("binary")
-    runtime["Q16_run"] = run
-    with open(targets_path, "w", encoding="utf-8") as f:
-        f.write(json.dumps(targets, indent=2, ensure_ascii=False) + "\n")
-    return items
-
-
 def parse_kib(value):
     sizes = [int(v) for v in value.split(",") if v]
     if not sizes or any(v <= 0 for v in sizes):
@@ -1952,6 +1979,8 @@ def parse_args(argv=None):
     ap.add_argument("--cli-n", type=int, default=40)
     ap.add_argument("--settle", type=float, default=3.0)
     ap.add_argument("--ops", default="base", help="base, create, all, or a comma list of op names")
+    ap.add_argument("--wire", default="lines",
+                    help="lines, frames or lines,frames: the transport of the ops section (frames: ops_frames)")
     ap.add_argument("--scenario", "--scenarios", dest="scenarios", action="append",
                     help="small, scale (repeatable or comma list; default small,scale)")
     ap.add_argument("--bulk-interference", nargs="?", const=[16, 32, 64], type=parse_kib, default=None,
@@ -1963,8 +1992,6 @@ def parse_args(argv=None):
     ap.add_argument("--streams", type=int, default=0, metavar="N", help="attach N printing terminals")
     ap.add_argument("--automation-storm", type=int, default=0, metavar="N", help="N automation clients")
     ap.add_argument("--storm-seconds", type=float, default=8.0)
-    ap.add_argument("--write-q16", nargs="?", const=TARGETS, default=None, metavar="TARGETS",
-                    help=f"write runtime.Q16 into ipc-targets.json (default {os.path.relpath(TARGETS, REPO_ROOT)})")
     ap.add_argument("--app", help=lab.APP_HELP)
     ap.add_argument("--tag", help=lab.TAG_HELP)
     lab.add_arguments(ap, STORY)
@@ -1974,17 +2001,12 @@ def parse_args(argv=None):
     if unknown:
         ap.error(f"unknown scenario(s) {', '.join(unknown)}; known: {', '.join(SCENARIOS)}")
     args.scenarios = wanted
+    args.wire = [w for w in args.wire.split(",") if w]
+    if not args.wire or any(w not in WIRES for w in args.wire):
+        ap.error(f"--wire takes {', '.join(WIRES)} or a comma list of them")
     if args.flood_write_kib <= 0:
         ap.error("--flood-write-kib must be positive")
     select_ops(args.ops)
-    unmeasured = [name for name in ipc5_ops() if name not in OPS]
-    if unmeasured:
-        ap.error(f"ipc5_ops of {os.path.relpath(TARGETS, REPO_ROOT)} names ops this bench has no plan for: "
-                 f"{', '.join(unmeasured)} (add an @op)")
-    if args.write_q16 and (args.ops != "all" or "scale" not in wanted):
-        ap.error("--write-q16 needs --ops all and --scenario scale (Q16's definition)")
-    if args.write_q16 and sys.platform != "darwin":
-        ap.error("--write-q16 runs on a macOS fleet host only: VM and Linux timing is not perf evidence")
     args.bin, out, measured = lab.prepare(ap, args, REPORT_NAME)
     return args, out, measured
 
@@ -1995,8 +2017,7 @@ def write_out(path, result):
 
 
 def main(argv=None):
-    """Writes --out whatever happens (a failed section, a failed start, Ctrl-C), then --write-q16
-    only when the whole run passed."""
+    """Writes --out whatever happens (a failed section, a failed start, Ctrl-C)."""
     args, out, measured = parse_args(argv)
     b = Bench(args)
     b.result.update(host=host_info(), source=source_info(),
@@ -2030,15 +2051,6 @@ def main(argv=None):
             write_out(out.report, b.result)
     if b.failed:
         status = 1
-    if args.write_q16 and status == 0:
-        try:
-            write_q16(args.write_q16, b.result)
-            log("wrote runtime.Q16 to", args.write_q16)
-        except (OSError, ValueError) as e:
-            log("--write-q16 failed:", e)
-            b.result["q16_write_error"] = str(e)
-            write_out(out.report, b.result)
-            status = 1
     return status
 
 

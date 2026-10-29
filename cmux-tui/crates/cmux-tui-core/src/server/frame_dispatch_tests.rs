@@ -162,7 +162,11 @@ impl Client {
                 Some(Message::Json(line)) if line.trim().is_empty() => {}
                 Some(Message::Json(line)) => {
                     let value: Value = serde_json::from_str(line).unwrap();
-                    if value.get("event").is_none() {
+                    let v2_item = value
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .is_some_and(|kind| kind != "response");
+                    if value.get("event").is_none() && !v2_item {
                         return Some(Got::Line(value));
                     }
                 }
@@ -350,8 +354,18 @@ fn frame_dispatch_a_body_that_names_another_method_closes_with_bad_message() {
     for (label, body) in [
         ("other-cmd", json!({"cmd": "identify"}).to_string()),
         ("no-cmd", json!({"id": 1}).to_string()),
-        ("v2-envelope", json!({"cmd": "ping", "protocol": null}).to_string()),
         ("not-json", "ping".to_string()),
+        (
+            "v2-envelope",
+            json!({
+                "protocol": "cmux.protocol/2",
+                "type": "request",
+                "id": "x",
+                "operation": "workspace.create",
+                "params": {},
+            })
+            .to_string(),
+        ),
     ] {
         let mut client = Client::granted(label);
         client.send(&call_frame(
@@ -387,30 +401,462 @@ fn wait_for(client: &Client, timeout_ms: u64) -> Value {
     })
 }
 
+/// Waits runs that started (`wait-for` counts one in the watchdog's
+/// `expected_waits` once it leaves the queue and runs).
+fn waits_started(client: &Client) -> u64 {
+    client.mux.request_watchdog.snapshot().expected_waits
+}
+
+/// Returns once `count` waits are running. From then on a CANCEL reaches the
+/// handler: `wait_for` checks its cancellation before and while it waits.
+fn wait_until_running(client: &Client, count: u64) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while waits_started(client) < count {
+        assert!(Instant::now() < deadline, "the wait never started");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn expect_error(client: &mut Client, request_id: u32, name: &str) -> Value {
+    match client.next() {
+        Some(Got::Frame(header, reply)) => {
+            assert_answers(&header, FrameKind::Error, request_id, name);
+            reply
+        }
+        other => panic!("expected the ERROR frame of request {request_id}: {other:?}"),
+    }
+}
+
 #[test]
 fn frame_dispatch_cancel_ends_wait_for() {
     let mut client = Client::granted("cancel");
     let wait = wait_for(&client, 60_000);
     let started = Instant::now();
     client.send(&request(3, &wait));
+    wait_until_running(&client, 1);
     // A CANCEL of an id not in flight lost a race with its reply: dropped.
     client.send(&cancel(4, "wait-for"));
     client.send(&cancel(3, "wait-for"));
-    match client.next() {
-        Some(Got::Frame(header, reply)) => {
-            assert_answers(&header, FrameKind::Error, 3, "wait-for");
-            let error = reply["error"].as_str().unwrap();
-            assert!(
-                ["cancelled while waiting for pattern", "request cancelled"].contains(&error),
-                "{reply}"
-            );
-        }
-        other => panic!("expected the wait's ERROR frame: {other:?}"),
-    }
+    let reply = expect_error(&mut client, 3, "wait-for");
+    assert_eq!(reply["error"], json!("cancelled while waiting for pattern"), "{reply}");
     assert!(started.elapsed() < Duration::from_secs(30), "the wait ran to its timeout");
     // The connection's dispatcher is free again.
     let (header, _) = client.frame_reply(5, &json!({"cmd": "ping"}));
     assert_answers(&header, FrameKind::Reply, 5, "ping");
+    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
+}
+
+#[test]
+fn frame_dispatch_cancel_answers_a_queued_request_without_running_it() {
+    let mut client = Client::granted("cancel-queued");
+    let running = wait_for(&client, 60_000);
+    client.send(&request(3, &running));
+    wait_until_running(&client, 1);
+    // Both queue behind the running wait on the connection's dispatcher.
+    let queued = wait_for(&client, 60_000);
+    client.send(&request(4, &queued));
+    let surface = client.mux.new_workspace(None, Some((80, 24))).unwrap();
+    client.send(&request(5, &json!({"cmd": "clear-history", "surface": surface.id})));
+    client.send(&cancel(4, "wait-for"));
+    client.send(&cancel(5, "clear-history"));
+    client.send(&cancel(3, "wait-for"));
+    let reply = expect_error(&mut client, 3, "wait-for");
+    assert_eq!(reply["error"], json!("cancelled while waiting for pattern"), "{reply}");
+    let reply = expect_error(&mut client, 4, "wait-for");
+    assert_eq!(reply["error"], json!("request cancelled"), "{reply}");
+    assert_eq!(reply.get("error_delivery"), None, "{reply}");
+    // A clear that never ran is known not delivered, as every other refusal
+    // of a clear-history says.
+    let reply = expect_error(&mut client, 5, "clear-history");
+    assert_eq!(reply["error"], json!("request cancelled"), "{reply}");
+    assert_eq!(reply["error_delivery"], json!("known-not-delivered"), "{reply}");
+    // The queued wait never ran: only the first one started.
+    assert_eq!(waits_started(&client), 1);
+    assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
+}
+
+/// The IPC-5 bench fixture (bench-daemon-latency.py `OpsFixture`): a
+/// workspace with one pane, tabs T0..T5 and tab group G holding T1.
+struct BenchFixture {
+    workspace: Value,
+    workspace_rid: Value,
+    pane: Value,
+    pane_rid: Value,
+    tabs: Vec<Value>,
+    group: Value,
+    keys: u32,
+}
+
+fn ok_data(reply: Value, what: &str) -> Value {
+    assert_eq!(reply["ok"], json!(true), "{what}: {reply}");
+    reply.get("data").or_else(|| reply.get("result")).cloned().unwrap_or(Value::Null)
+}
+
+/// Every `surface` member of a `list-workspaces` subtree.
+fn holds_surface(node: &Value, surface: &Value) -> bool {
+    match node {
+        Value::Object(map) => map.iter().any(|(key, value)| {
+            (key == "surface" && value == surface) || holds_surface(value, surface)
+        }),
+        Value::Array(items) => items.iter().any(|item| holds_surface(item, surface)),
+        _ => false,
+    }
+}
+
+impl BenchFixture {
+    fn new(client: &mut Client) -> BenchFixture {
+        let mut call = |body: Value| ok_data(client.line_reply(&body), &body.to_string());
+        let first =
+            call(json!({"cmd": "new-workspace", "name": "bench-ops", "cols": 80, "rows": 24}));
+        let tree = call(json!({"cmd": "list-workspaces"}));
+        let (workspace, pane) = tree["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|workspace| {
+                workspace["screens"].as_array().into_iter().flatten().flat_map(move |screen| {
+                    screen["panes"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(move |pane| (workspace, pane))
+                })
+            })
+            .find(|(_, pane)| holds_surface(pane, &first["surface"]))
+            .map(|(workspace, pane)| (workspace.clone(), pane.clone()))
+            .expect("the new workspace's pane");
+        let mut tabs = vec![first["surface"].clone()];
+        for _ in 0..5 {
+            let tab = call(json!({"cmd": "new-tab", "pane": pane["id"], "cols": 80, "rows": 24}));
+            tabs.push(tab["surface"].clone());
+        }
+        let group =
+            call(json!({"cmd": "create-tab-group", "surfaces": [tabs[1]], "name": "bench-g"}));
+        BenchFixture {
+            workspace: workspace["id"].clone(),
+            workspace_rid: workspace["resource_id"].clone(),
+            pane: pane["id"].clone(),
+            pane_rid: pane["resource_id"].clone(),
+            tabs,
+            group: group["group"]["id"].clone(),
+            keys: 0,
+        }
+    }
+
+    fn key(&mut self) -> String {
+        self.keys += 1;
+        format!("frame-dispatch-bench-{}", self.keys)
+    }
+
+    fn call(client: &mut Client, body: Value) -> Value {
+        ok_data(client.line_reply(&body), &body.to_string())
+    }
+
+    fn v2(&mut self, client: &mut Client, operation: &str, params: Value) -> Value {
+        let body = v2_envelope("cleanup", operation, params, Some(self.key()));
+        ok_data(client.line_reply(&body), operation)
+    }
+
+    fn new_tab(&self, client: &mut Client) -> Value {
+        let body = json!({"cmd": "new-tab", "pane": self.pane, "cols": 80, "rows": 24});
+        Self::call(client, body)["surface"].clone()
+    }
+
+    /// The request of bench op `name`, after the state it needs.
+    fn before(&mut self, client: &mut Client, name: &str, round: usize) -> Value {
+        let odd = round % 2 == 1;
+        let id = json!(format!("bench-{name}"));
+        let v12 = |cmd: &str, params: Value| {
+            let mut body = params;
+            body["id"] = id.clone();
+            body["cmd"] = json!(cmd);
+            body
+        };
+        let (ws, ws_rid, pane, pane_rid) =
+            (&self.workspace, &self.workspace_rid, &self.pane, &self.pane_rid);
+        match name {
+            "ping" | "identify" | "list-workspaces" => v12(name, json!({})),
+            "send" => v12(name, json!({"surface": self.tabs[0], "text": ":\r"})),
+            "new-tab" => v12(name, json!({"pane": pane, "cols": 80, "rows": 24})),
+            "create-terminal" => {
+                v12(name, json!({"workspace": ws, "argv": ["/bin/sh"], "cols": 80, "rows": 24}))
+            }
+            "split" => v12(name, json!({"pane": pane, "dir": "right", "cols": 80, "rows": 24})),
+            "close-surface" => {
+                let tab = self.new_tab(client);
+                v12(name, json!({"surface": tab}))
+            }
+            "close-tabs" => {
+                let tab = self.new_tab(client);
+                v12(name, json!({"surfaces": [tab], "end_terminals": true}))
+            }
+            "rename-workspace" => {
+                v12(name, json!({"workspace": ws, "name": format!("bench-ops-{}", round % 2)}))
+            }
+            "select-tab" => v12(name, json!({"pane": pane, "index": round % 2})),
+            "select-workspace" => v12(name, json!({"index": round % 2})),
+            "move-tab" => {
+                let index = if odd { 0 } else { 99 };
+                v12(name, json!({"surface": self.tabs[5], "pane": pane, "index": index}))
+            }
+            "new-frontend-browser-tab" => {
+                v12(name, json!({"url": "about:blank", "engine": "webkit", "pane": pane}))
+            }
+            "create-tab-group" => {
+                v12(name, json!({"surfaces": [self.tabs[3], self.tabs[4]], "name": "bench-new"}))
+            }
+            "update-tab-group" => {
+                v12(name, json!({"group": self.group, "name": format!("bench-g{}", round % 2)}))
+            }
+            "add-tabs-to-tab-group" => {
+                v12(name, json!({"group": self.group, "surfaces": [self.tabs[2]]}))
+            }
+            "remove-tabs-from-tab-group" => {
+                let add = json!({"cmd": "add-tabs-to-tab-group", "group": self.group, "surfaces": [self.tabs[2]]});
+                Self::call(client, add);
+                v12(name, json!({"surfaces": [self.tabs[2]]}))
+            }
+            "move-tab-group" => {
+                v12(name, json!({"group": self.group, "index": if odd { 99 } else { 0 }}))
+            }
+            "ungroup-tab-group" | "close-tab-group" => {
+                let surfaces = if name == "close-tab-group" {
+                    vec![self.new_tab(client), self.new_tab(client)]
+                } else {
+                    vec![self.tabs[3].clone(), self.tabs[4].clone()]
+                };
+                let create =
+                    json!({"cmd": "create-tab-group", "surfaces": surfaces, "name": "bench-new"});
+                let group = Self::call(client, create)["group"]["id"].clone();
+                let mut params = json!({"group": group});
+                if name == "close-tab-group" {
+                    params["end_terminals"] = json!(true);
+                }
+                v12(name, params)
+            }
+            "workspace.create" => {
+                let params = json!({"initial_content": "terminal", "name": "bench-v2"});
+                v2_envelope("bench", name, params, Some(self.key()))
+            }
+            "tab.create_terminal" => {
+                let params = json!({"workspace": ws_rid, "pane": pane_rid, "cols": 80, "rows": 24});
+                v2_envelope("bench", name, params, Some(self.key()))
+            }
+            "pane.split" => {
+                let params = json!({
+                    "workspace": ws_rid, "pane": pane_rid, "direction": "right",
+                    "cols": 80, "rows": 24,
+                });
+                v2_envelope("bench", name, params, Some(self.key()))
+            }
+            "pane.create" => {
+                let params = json!({"workspace": ws_rid, "cols": 80, "rows": 24});
+                v2_envelope("bench", name, params, Some(self.key()))
+            }
+            "workspace.ensure_home" => v2_envelope("bench", name, json!({}), Some(self.key())),
+            other => panic!("no fixture for bench op {other}: add it with the bench's op"),
+        }
+    }
+
+    /// Undoes what bench op `name` made, as the bench does.
+    fn after(&mut self, client: &mut Client, name: &str, reply: &Value) {
+        if reply["ok"] != json!(true) {
+            return;
+        }
+        let data = reply.get("data").or_else(|| reply.get("result")).unwrap_or(&Value::Null);
+        match name {
+            "new-tab" | "create-terminal" | "split" | "new-frontend-browser-tab" => {
+                Self::call(client, json!({"cmd": "close-surface", "surface": data["surface"]}));
+            }
+            "create-tab-group" => {
+                let group = &data["group"]["id"];
+                Self::call(client, json!({"cmd": "ungroup-tab-group", "group": group}));
+            }
+            "add-tabs-to-tab-group" => {
+                let remove =
+                    json!({"cmd": "remove-tabs-from-tab-group", "surfaces": [self.tabs[2]]});
+                Self::call(client, remove);
+            }
+            "workspace.create" => {
+                let workspace = data["value"]["workspace_id"].clone();
+                self.v2(client, "workspace.close", json!({"workspace": workspace}));
+            }
+            "tab.create_terminal" => {
+                let tab = data["value"]["tab_id"].clone();
+                self.v2(client, "tab.close", json!({"tab": tab}));
+            }
+            "pane.split" | "pane.create" => {
+                let pane = data["value"]["pane_id"].clone();
+                self.v2(client, "pane.close", json!({"pane": pane}));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn v2_envelope(id: &str, operation: &str, params: Value, key: Option<String>) -> Value {
+    let mut params = params;
+    params["machine"] = json!("current");
+    params["session"] = json!("current");
+    let mut envelope = json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": id,
+        "operation": operation,
+        "params": params,
+    });
+    if let Some(key) = key {
+        envelope["idempotency_key"] = json!(key);
+    }
+    envelope
+}
+
+/// The method of `body` in this build's table: a v12 line's `cmd`, or a v2
+/// envelope's `operation`. None for a v2 operation while
+/// spec/resource-operations-v2.json has no method families.
+fn table_method(body: &Value) -> Option<&'static MethodAttrs> {
+    let tables = MethodTables::schema();
+    let id = match body["operation"].as_str() {
+        Some(operation) => tables.v2_id(operation),
+        None => tables.v12_id(body["cmd"].as_str().unwrap()),
+    };
+    id.and_then(|id| tables.method(id))
+}
+
+/// The reply to `body` sent as a REQUEST frame over the socket.
+fn socket_frame_reply(
+    client: &mut Client,
+    request_id: u32,
+    method: &MethodAttrs,
+    body: &Value,
+) -> (FrameHeader, Value) {
+    let bytes = body.to_string();
+    let frame = call_frame(
+        FrameKind::Request,
+        request_id,
+        method.id.raw(),
+        method.priority,
+        bytes.as_bytes(),
+    );
+    client.send(&frame);
+    match client.next() {
+        Some(Got::Frame(header, reply)) => (header, reply),
+        other => panic!("expected a frame reply to {body}: {other:?}"),
+    }
+}
+
+/// The reply `handle_framed_request_at` gives `body` as a REQUEST of v2
+/// `operation`, on the connection's client, through a writer of its own:
+/// the route a frame of the operation takes once the schema gives it an id.
+fn routed_frame_reply(
+    client: &Client,
+    request_id: u32,
+    operation: ResourceOperation,
+    body: &Value,
+) -> (FrameHeader, Value) {
+    let (socket, _peer) = UnixStream::pair().unwrap();
+    let outbound = Arc::new(BoundedOutbound::default());
+    let sink = QueuedSink {
+        outbound: outbound.clone(),
+        control: Some(SinkControl::Unix(Box::new(socket))),
+    };
+    let call = CallAux {
+        request_id,
+        method_id: 0x6000,
+        priority: PriorityHint::Control,
+        flags: CallFlags::empty(),
+    };
+    let writer = MessageWriter::new(sink).replying_to(Arc::new(super::FrameCall::new(0, call)));
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(client.mux.surface_operation_admission.clone()));
+    let text = body.to_string();
+    let request = decode_framed_request(&text, FramedMethod::Resource(operation))
+        .unwrap_or_else(|FramedBodyMismatch| panic!("{body} is not a {operation:?} request"));
+    let keep_open = handle_framed_request_at(
+        &client.mux,
+        client.client_id(),
+        ClientTransport::Unix,
+        &text,
+        request,
+        &writer,
+        &scheduler,
+        Instant::now(),
+    );
+    assert!(keep_open, "{body}");
+    loop {
+        match outbound.recv() {
+            // A long reply leaves in chunks; each holds the whole payload.
+            Some(OutboundItem::Frame(header, text) | OutboundItem::Chunk { header, text, .. }) => {
+                return (header, serde_json::from_str(&text).unwrap());
+            }
+            Some(OutboundItem::Text(_)) => {}
+            Some(OutboundItem::Flush(_)) | None => panic!("no frame reply to {body}"),
+        }
+    }
+}
+
+/// A reply with every id, name and count it made replaced by its type: two
+/// runs of a create make different ids, never a different reply.
+fn shape(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            Value::Object(map.iter().map(|(key, value)| (key.clone(), shape(value))).collect())
+        }
+        Value::Array(items) => Value::Array(items.iter().take(1).map(shape).collect()),
+        Value::String(_) => json!("string"),
+        Value::Number(_) => json!("number"),
+        other => other.clone(),
+    }
+}
+
+/// IPC-5's acceptance: every bench op answers a REQUEST frame with the reply
+/// its line gets (ipc-targets.json `ipc5_ops`, bench-daemon-latency.py). A
+/// v2 operation the schema has no method id for yet takes the frame route
+/// in process, past the header check only a method id can pass.
+#[test]
+fn frame_dispatch_bench_ops_equal_as_lines_and_frames() {
+    let targets = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../plans/cmux-next/ipc-targets.json");
+    let targets: Value = serde_json::from_str(&std::fs::read_to_string(targets).unwrap()).unwrap();
+    let ops: Vec<String> = serde_json::from_value(targets["ipc5_ops"].clone()).unwrap();
+    assert!(ops.len() >= 26, "{ops:?}");
+    let mut client = Client::granted("bench-ops");
+    let mut fixture = BenchFixture::new(&mut client);
+    for (index, name) in ops.iter().enumerate() {
+        // Round 0 sets the state rounds 1 (a line) and 2 (a frame) both
+        // change, as the bench alternates its writes.
+        let body = fixture.before(&mut client, name, 0);
+        let primed = client.line_reply(&body);
+        fixture.after(&mut client, name, &primed);
+        let body = fixture.before(&mut client, name, 1);
+        let line = client.line_reply(&body);
+        fixture.after(&mut client, name, &line);
+        let body = fixture.before(&mut client, name, 2);
+        let request_id = 1000 + u32::try_from(index).unwrap();
+        let (header, framed) = match table_method(&body) {
+            Some(method) => socket_frame_reply(&mut client, request_id, method, &body),
+            None => {
+                let operation = ResourceOperation::ALL
+                    .iter()
+                    .copied()
+                    .find(|operation| operation.wire_name() == name)
+                    .unwrap_or_else(|| panic!("{name} is in no method table"));
+                routed_frame_reply(&client, request_id, operation, &body)
+            }
+        };
+        let kind = if framed["ok"] == json!(false) { FrameKind::Error } else { FrameKind::Reply };
+        assert_eq!(header.kind(), kind, "{name}: {framed}");
+        assert_eq!(header.call().map(|call| call.request_id), Some(request_id), "{name}");
+        fixture.after(&mut client, name, &framed);
+        assert_ne!(framed["error_code"], json!(METHOD_NOT_FRAMED), "{name} is not framed");
+        assert_eq!(line["ok"], json!(true), "{name} fails as a line: {line}");
+        assert_eq!(framed["ok"], line["ok"], "{name}: line {line}, frame {framed}");
+        assert_eq!(framed["id"], line["id"], "{name}");
+        assert_eq!(framed["error"], line["error"], "{name}: line {line}, frame {framed}");
+        assert_eq!(shape(&framed), shape(&line), "{name}: line {line}, frame {framed}");
+        if matches!(name.as_str(), "ping" | "list-workspaces") {
+            assert_eq!(framed, line, "{name}");
+        }
+    }
     assert_eq!(client.finish(), ConnectionEnd::PeerClosed);
 }
 
@@ -480,10 +926,12 @@ fn frame_dispatch_pending_handoff_refuses_with_the_line_error() {
     assert_answers(&header, FrameKind::Error, 9, "read-screen");
     assert_eq!(framed, line);
 
-    // The header check's body parse and the refusal's `Request` parse, per
-    // frame (no resource-envelope probe), and the bad request's `id` read.
+    // The body's one decode as its method's request and the refusal's
+    // `Request` parse, per frame (no resource-envelope probe); the bad
+    // request's failed decode also reads its head (to check it names the
+    // header's method) and its `id`.
     let parses = mux.ipc_stats().snapshot().parses.frames;
-    assert_eq!((parses.requests, parses.json_parses), (4, 9), "{parses:?}");
+    assert_eq!((parses.requests, parses.json_parses), (4, 10), "{parses:?}");
 
     // A failed handoff leaves the connection serving frames.
     mux.cancel_daemon_handoff(client.client_id());
@@ -551,9 +999,10 @@ fn frame_dispatch_ipc_counts_frames_their_parses_and_bad_frames() {
     assert!(sent["bytes"].as_u64().unwrap() > 2 * 16, "header and payload: {ipc}");
     let frames = &ipc["parses"]["frames"];
     assert_eq!(frames["requests"], json!(2), "{ipc}");
-    assert!(
-        frames["json_parses"].as_u64().unwrap() >= 2 * 2,
-        "the header check's body parse and the line path's: {ipc}"
+    assert_eq!(
+        frames["json_parses"],
+        json!(2),
+        "a framed request's body is decoded once, as its method's request: {ipc}"
     );
     assert_eq!(ipc["bad_message"], json!(0), "{ipc}");
 
