@@ -398,9 +398,13 @@ pub(super) struct ConnectionSurfaceScheduler {
     /// The connection's client class, set by its registry record; its
     /// request tasks rest at it (connection_qos.rs).
     pub(super) class: Arc<ConnectionClassCell>,
-    /// Where the connection's pumps run (`Mux::post_connection_request`):
-    /// one pump at a time orders the requests; the sequence's drain keeps a
-    /// connection on one lane worker.
+    /// Where the connection's pumps run (`Mux::post_connection_request`).
+    /// Do not delete it as "it orders nothing": one pump at a time orders
+    /// the requests, but a finished pump posts the next one from inside its
+    /// own running `work` item, and a plain post makes the lane start a new
+    /// worker while the first is still busy, so every busy connection would
+    /// hold two workers (tests/attach_threads.rs went 19 -> 22 threads). The
+    /// sequence's drain runs the next pump in the same item.
     pub(super) pumps: Arc<crate::mux::mux_work::Sequence>,
 }
 
