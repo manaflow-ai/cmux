@@ -29,6 +29,7 @@ pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
 mod server_ensure;
+mod settings;
 mod sidebar_doc;
 mod state;
 mod workspace;
@@ -176,6 +177,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "screen" => {
             parse_screen(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
         }
+        "settings" | "config" => settings::parse(&tokens.words[1..], &mut tokens.flags)?,
         "pane" => parse_pane(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
         "tab" => parse_tab(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
         "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -3274,6 +3276,25 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn settings_crud_routes_to_daemon_operations() {
+        let get = protocol(&["settings", "get", "appearance.theme"]);
+        assert_eq!(operation(&get), "settings.get");
+        assert_eq!(get.params, serde_json::json!({"key": "appearance.theme"}));
+
+        let set = protocol(&["settings", "set", "appearance.theme", "dark"]);
+        assert_eq!(operation(&set), "settings.set");
+        assert_eq!(set.params, serde_json::json!({"key": "appearance.theme", "value": "dark"}));
+
+        let reset = protocol(&["settings", "reset", "appearance.theme"]);
+        assert_eq!(operation(&reset), "settings.reset");
+        assert_eq!(reset.params, serde_json::json!({"key": "appearance.theme"}));
+
+        let unset = protocol(&["settings", "unset", "appearance.theme"]);
+        assert_eq!(operation(&unset), "settings.reset");
+        assert_eq!(unset.params, serde_json::json!({"key": "appearance.theme"}));
     }
 
     fn strings(values: &[&str]) -> Vec<String> {

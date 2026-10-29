@@ -124,6 +124,8 @@ const PUBLIC_SCOPES: &[&str] = &[
     "pairing",
     "projection",
     "provider",
+    "settings",
+    "config",
     "raw",
 ];
 
@@ -496,6 +498,17 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
 #[cfg(unix)]
 fn run_app_scope(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_globals(args).ok()?;
+    // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
+    // local-only helpers (`list`, `schema`, `validate`) until those have daemon
+    // equivalents on this surface.
+    if matches!(command_args.first().map(String::as_str), Some("settings" | "config"))
+        && matches!(
+            command_args.get(1).map(String::as_str),
+            Some("get" | "set" | "reset" | "unset")
+        )
+    {
+        return None;
+    }
     if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
         return extra_help::print(&command_args);
     }
