@@ -2,20 +2,22 @@ import Foundation
 
 /// Text acknowledgments are scoped to this presentation and bounded by its live fields.
 struct NativePopupInputState {
-    private var pending: [String: (sequence: Int, value: String)] = [:]
+    private var pending: [String: (sequence: Int, value: String, identity: [String])] = [:]
     private var sequence = 0
     private(set) var lastSequence: Int?
 
     mutating func record(id: String, value: String, model: NativePopupModel?) {
-        guard let model, let acknowledged = fields(in: model)[id] else { lastSequence = nil; return }
-        sequence = max(sequence, acknowledged) + 1
-        pending[id] = (sequence, value)
+        guard let model, let field = fields(in: model)[id] else { lastSequence = nil; return }
+        sequence = max(sequence, field.acknowledgment) + 1
+        pending[id] = (sequence, value, field.identity)
         lastSequence = sequence
     }
 
     mutating func preservingLocalEdits(in incoming: NativePopupModel) -> NativePopupModel {
         let active = fields(in: incoming)
-        pending = pending.filter { id, local in active[id].map { $0 < local.sequence } ?? false }
+        pending = pending.filter { id, local in
+            active[id].map { $0.identity == local.identity && $0.acknowledgment < local.sequence } ?? false
+        }
         var next = incoming
         if var field = next.search, let local = pending[field.id] {
             field.value = local.value
@@ -35,15 +37,17 @@ struct NativePopupInputState {
         return next
     }
 
-    private func fields(in model: NativePopupModel) -> [String: Int] {
-        var result: [String: Int] = [:]
+    private func fields(in model: NativePopupModel) -> [String: (acknowledgment: Int, identity: [String])] {
+        var result: [String: (acknowledgment: Int, identity: [String])] = [:]
         if let search = model.search, search.disabled != true, let acknowledgment = search.editSequence {
-            result[search.id] = acknowledgment
+            result[search.id] = (acknowledgment, ["search"])
         }
-        func visit(_ rows: [NativePopupRow]) {
+        func visit(_ rows: [NativePopupRow], ancestors: [String] = []) {
             for row in rows where row.disabled != true {
-                if row.kind == .textField, let acknowledgment = row.editSequence { result[row.id] = acknowledgment }
-                if let children = row.children { visit(children) }
+                if row.kind == .textField, let acknowledgment = row.editSequence {
+                    result[row.id] = (acknowledgment, ["row"] + ancestors)
+                }
+                if let children = row.children { visit(children, ancestors: ancestors + [row.id]) }
             }
         }
         visit((model.rail ?? []) + model.rows + (model.footer ?? []))
