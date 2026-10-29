@@ -275,11 +275,17 @@ def run_lease(specs, build, out, frame_interval):
                            f"( [ -x {ocr} ] || {{ swiftc -O kit/ocr.swift -o {ocr}.$$ && mv -f {ocr}.$$ {ocr}; }} ) >ocr.log 2>&1 & "
                            f"cmux-ci artifact {q(build['id'])} app.zip >&2; ditto -x -k app.zip build; rm -f app.zip; wait || true; "
                            f"[ -x {ocr} ] || {{ cat ocr.log >&2; exit 3; }}; "
-                           f"find \"$PWD/build\" -maxdepth 2 -name '*.app' -type d | head -1",
+                           f"app=$(find \"$PWD/build\" -maxdepth 2 -name '*.app' -type d | head -1); "
+                           # The build's commit beside the bundle (capture-host launch --commit checks it there when the
+                           # Info.plist names none): this zip is the fleet job's own artifact of that commit.
+                           + (f"[ -z \"$app\" ] || printf '%s\\n' {q(build['launch_commit'].lower())} > \"$(dirname \"$app\")/capture-commit\"; "
+                              if len(build["launch_commit"]) == 40 else "")
+                           + "printf '%s\\n' \"$app\"",
                      timeout=left(420)).stdout.decode().strip()
         if not app.endswith(".app"):
             raise RuntimeError(f"build {build['id']} has no app bundle")
-        launched = run([ch, "launch", lease, app, build.get("tag") or "journeys", "--"], timeout=left(180), check=False)
+        launched = run([ch, "launch", "--commit", build["launch_commit"], lease, app, build.get("tag") or "journeys", "--"],
+                       timeout=left(180), check=False)
         facts = launch_facts(launched.stdout.decode())
         if facts.get("socket", "none") == "none":
             raise RuntimeError(f"the app did not answer on its control socket: "
@@ -463,6 +469,10 @@ def main(argv=None):
     status = wait_build(job, opts.build_wait_minutes * 60)
     build = {"id": status.get("id", job), "commit": status.get("ref") or status.get("commit"), "tag": status.get("tag"),
              "state": status.get("state")}
+    # capture-host launch takes only the build it is told (hq #27092, 2026-10-29): the build's commit SHA, from the
+    # job's ref (a fleet build names its exact SHA there; `commit` is often empty), else its commit field.
+    build["launch_commit"] = next((str(v) for v in (status.get("ref"), status.get("commit"))
+                                   if re.fullmatch(r"[0-9a-fA-F]{7,40}", str(v or ""))), None)
     out = Path(opts.out) if opts.out else out_root / f"{build['id'][:12]}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
     out.mkdir(parents=True, exist_ok=True)
     log(f"build {build['id']} ({build['state']}) of {str(build['commit'])[:12]} tag {build['tag']}; results in {out}")
@@ -470,6 +480,10 @@ def main(argv=None):
     results = {}
     if build["state"] != "done":
         why = f"build {build['id']} is {build['state']}" + ("" if build["state"] in ("failed", "cancelled") else " (still building)")
+        results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
+    elif not build["launch_commit"]:
+        why = (f"build {build['id']} names no commit SHA (ref {status.get('ref')!r}, commit {status.get('commit')!r}): "
+               f"capture-host launch needs the build's commit")
         results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
     else:
         for group in batches(chosen):
