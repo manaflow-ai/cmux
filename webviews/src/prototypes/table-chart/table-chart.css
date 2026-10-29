@@ -2,9 +2,9 @@
 .tc-shell {
   --tc-border: color-mix(in srgb, currentColor 18%, transparent);
   color: var(--cmux-text, CanvasText);
-  font:
-    14px/1.45 system-ui,
-    sans-serif;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
   min-height: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -93,7 +93,7 @@
 .tc-label {
   fill: currentColor;
   opacity: 0.7;
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .tc-chart-empty,
 .tc-empty {
@@ -285,4 +285,12 @@
   --agent-text: var(--cmux-text);
   --agent-muted: var(--cmux-text-secondary);
   --agent-soft: var(--cmux-text-tertiary);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .proto-picker {
+    background: rgb(10, 10, 10);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
