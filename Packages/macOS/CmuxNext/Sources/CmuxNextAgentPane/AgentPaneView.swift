@@ -275,6 +275,7 @@ public final class AgentPaneView: NSView {
         observeUIScale()
         observeIconFamily()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
+        installSessionInfo()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -359,6 +360,7 @@ public final class AgentPaneView: NSView {
         super.layout()
         if let page { page.frame = topBar.contentFrame(in: bounds) } else { webView.frame = topBar.contentFrame(in: bounds) }
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
+        layoutSessionInfo()
         redraw.laidOut(self)
     }
 
@@ -497,6 +499,7 @@ public final class AgentPaneView: NSView {
         let surface = surfaceKind
         webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
+        themeSessionInfo(tokens)
         otherInstallNotice?.textColor = tokens.textSecondary.nsColor
         themeLoadingState(tokens)
         page?.themeSurface = surface

@@ -166,6 +166,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
     case tabRowTools(width: Double)
+    /// `pane.sessionInfo {info}`: what Session Info lists and whether it shows, for the App to draw
+    /// (``AgentPaneSessionInfo``); `info` null withdraws it (the page draws its own, or none).
+    case sessionInfo(AgentPaneSessionInfoModel?)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,

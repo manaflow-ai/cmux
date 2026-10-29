@@ -345,6 +345,11 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.sessionInfo":
+            let info = params?["info"]
+            if info == nil || info is NSNull { self = .sessionInfo(nil) }
+            else if let model = AgentPaneSessionInfoModel.decode(info) { self = .sessionInfo(model) }
+            else { self = .unsupported(method) }
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
