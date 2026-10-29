@@ -90,7 +90,8 @@ impl InputStageRing {
         entry.flow.store(flow, Ordering::Release);
     }
 
-    /// The press `flow`'s bytes reached the PTY at `written_ns`.
+    /// The press `flow`'s bytes reached the PTY at `written_ns`; a stamp
+    /// after the echo was read keeps the echo's bound ([`Self::echoed`]).
     pub(crate) fn written(&self, flow: u64, written_ns: u64) {
         if let Some(entry) = self.find(flow) {
             let _ =
@@ -99,7 +100,8 @@ impl InputStageRing {
     }
 
     /// The read at `read_ns` echoes the press `flow`. The first echo counts;
-    /// one later than [`NO_ECHO_NS`] after the receive drops the entry.
+    /// one later than [`NO_ECHO_NS`] after the receive drops the entry. A
+    /// press whose write is not stamped yet is written by `read_ns`.
     // perf-hot: 0.05us terminal-key
     pub(crate) fn echoed(&self, flow: u64, read_ns: u64) {
         self.stamp_echo(flow, None, read_ns);
@@ -120,8 +122,19 @@ impl InputStageRing {
             }
             return;
         }
-        if let Some(written) = written_ns {
-            entry.written.store(written, Ordering::Relaxed);
+        match written_ns {
+            Some(written) => entry.written.store(written, Ordering::Relaxed),
+            // The echo shows the bytes reached the PTY by `read_ns`. A writer
+            // that has not stamped yet (preempted after its write returned)
+            // gets the read as its bound, and its later stamp is dropped.
+            None => {
+                let _ = entry.written.compare_exchange(
+                    0,
+                    read_ns,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                );
+            }
         }
         let _ = entry.read.compare_exchange(0, read_ns, Ordering::Release, Ordering::Relaxed);
     }
@@ -256,6 +269,28 @@ mod tests {
             ring.stages(43).map(|stages| stages.written_ns),
             Some(420),
             "an older host sent none"
+        );
+    }
+
+    /// The read that echoes a press proves its bytes reached the PTY by
+    /// then. A writer stamps its write after the write returned, so its
+    /// thread can be preempted there while the reader reads the echo: the
+    /// echo then carries the read as the write's bound, never no write, and
+    /// the late stamp never puts the write after the read.
+    #[test]
+    fn input_stages_an_echo_read_before_its_write_stamp_bounds_the_write() {
+        let ring = InputStageRing::default();
+        ring.received(42, 100);
+        ring.echoed(42, 400);
+        assert_eq!(
+            ring.stages(42).map(|stages| stages.written_ns),
+            Some(400),
+            "the echo is sent with a write stamp"
+        );
+        ring.written(42, 450);
+        assert_eq!(
+            ring.stages(42),
+            Some(KeyStages { received_ns: 100, written_ns: 400, read_ns: 400, lost: 0 })
         );
     }
 

@@ -297,6 +297,11 @@ struct RecentEntry {
     request: SlowRequest,
 }
 
+/// Tests: a hook the recording thread runs just before it takes the
+/// `slow_requests` ring.
+#[cfg(test)]
+type BeforeRingHook = Box<dyn Fn(&Shared) + Send + Sync>;
+
 struct Shared {
     epoch: Instant,
     /// The epoch as milliseconds since the Unix epoch, for hang records.
@@ -329,10 +334,15 @@ struct Shared {
     unwatched: AtomicU64,
     expected_waits: AtomicU64,
     spawn_failures: AtomicU64,
+    /// Requests recorded, counted under `recent`'s lock with their entry, so
+    /// a snapshot that counts one holds its entry too.
     total: AtomicU64,
     /// Lock carve-out: a short copy, taken by the watchdog thread when it
     /// records and by `server-stats`; never by a watched run.
     recent: Mutex<VecDeque<RecentEntry>>,
+    /// Tests: runs on the recording thread just before it takes `recent`.
+    #[cfg(test)]
+    before_ring_for_test: Option<BeforeRingHook>,
     /// Tests: held to keep the watchdog thread from scanning.
     #[cfg(test)]
     scan_hold: Mutex<()>,
@@ -726,7 +736,6 @@ impl Shared {
     }
 
     fn record(&self, slot: usize, word: u64, request: SlowRequest) {
-        self.total.fetch_add(1, Ordering::Relaxed);
         // The daemon's first slow run of each method goes to the app's hang
         // reports (`server-diagnostic-site`; the forwarder keeps the first).
         cmux_threads::blocking::note_hang_site(REQUEST_SITE_SCOPE, request.method);
@@ -736,11 +745,35 @@ impl Shared {
             crate::debug_spans::mark_with(|| Cow::Borrowed(request.method));
             crate::debug_spans::finish(crate::debug_spans::take());
         }
+        #[cfg(test)]
+        if let Some(hook) = &self.before_ring_for_test {
+            hook(self);
+        }
+        // Counted with its entry: `server-stats` never shows a total its ring
+        // lacks the entry of.
         let mut recent = self.recent.lock().recover_poison();
+        self.total.fetch_add(1, Ordering::Relaxed);
         if recent.len() == SLOW_REQUEST_RING {
             recent.pop_front();
         }
         recent.push_back(RecentEntry { slot, word, request });
+    }
+
+    /// The `slow_requests` section of `server-stats`: `total` and `recent`
+    /// read under one hold of `recent`'s lock.
+    fn snapshot(&self) -> SlowRequestsSnapshot {
+        let recent = self.recent.lock().recover_poison();
+        SlowRequestsSnapshot {
+            threshold_ms: u64::try_from(self.threshold.as_millis()).unwrap_or(u64::MAX),
+            total: self.total.load(Ordering::Relaxed),
+            unwatched: self.unwatched.load(Ordering::Relaxed),
+            expected_waits: self.expected_waits.load(Ordering::Relaxed),
+            spawn_failures: self.spawn_failures.load(Ordering::Relaxed),
+            watchdog_wakeups: self.wakeups.load(Ordering::Relaxed),
+            hang_ms: self.hang_us(WatchKind::MuxConn) / 1000,
+            hangs: self.hangs.load(Ordering::Relaxed),
+            recent: recent.iter().map(|entry| entry.request.clone()).collect(),
+        }
     }
 }
 
@@ -852,6 +885,8 @@ impl RequestWatchdog {
                 total: AtomicU64::new(0),
                 recent: Mutex::new(VecDeque::with_capacity(SLOW_REQUEST_RING)),
                 #[cfg(test)]
+                before_ring_for_test: None,
+                #[cfg(test)]
                 scan_hold: Mutex::new(()),
                 #[cfg(test)]
                 clock_for_test: None,
@@ -902,24 +937,7 @@ impl RequestWatchdog {
 
     /// The `slow_requests` section of `server-stats`.
     pub(crate) fn snapshot(&self) -> SlowRequestsSnapshot {
-        let shared = &self.shared;
-        SlowRequestsSnapshot {
-            threshold_ms: u64::try_from(shared.threshold.as_millis()).unwrap_or(u64::MAX),
-            total: shared.total.load(Ordering::Relaxed),
-            unwatched: shared.unwatched.load(Ordering::Relaxed),
-            expected_waits: shared.expected_waits.load(Ordering::Relaxed),
-            spawn_failures: shared.spawn_failures.load(Ordering::Relaxed),
-            watchdog_wakeups: shared.wakeups.load(Ordering::Relaxed),
-            hang_ms: shared.hang_us(WatchKind::MuxConn) / 1000,
-            hangs: shared.hangs.load(Ordering::Relaxed),
-            recent: shared
-                .recent
-                .lock()
-                .recover_poison()
-                .iter()
-                .map(|entry| entry.request.clone())
-                .collect(),
-        }
+        self.shared.snapshot()
     }
 
     /// The `hangs` section of `server-stats`: runs of every kind busy past

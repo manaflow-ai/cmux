@@ -375,11 +375,20 @@ fn the_last_waiter_above_keep_alive_waits_with_no_timeout() {
         started_gates(&work, 3, Priority::UserBlocking, Lane::Files, Shutdown::SkipOnShutdown);
     assert_eq!(lane_stats(&work, Lane::Files).workers, 3);
     drop(releases);
-    until("the workers above keep_alive to exit", || lane_stats(&work, Lane::Files).workers == 1);
+    // Each worker that went idle while three were live waits with its exit deadline and wakes
+    // once at it; the kept one may wake after the other two exited. Settled: one worker, in no
+    // timed wait.
+    until("the workers above keep_alive to exit and the kept one to leave its timed wait", || {
+        let stats = lane_stats(&work, Lane::Files);
+        stats.workers == 1 && stats.timed_waiters == 0
+    });
     let wakeups = lane_stats(&work, Lane::Files).wakeups;
     std::thread::sleep(timeout * 5);
     let stats = lane_stats(&work, Lane::Files);
-    assert_eq!((stats.workers, stats.idle_workers, stats.wakeups), (1, 1, wakeups));
+    assert_eq!(
+        (stats.workers, stats.idle_workers, stats.timed_waiters, stats.wakeups),
+        (1, 1, 0, wakeups)
+    );
     // The kept worker still takes new work.
     assert_eq!(
         work.run(Priority::UserVisible, Lane::Files, Shutdown::SkipOnShutdown, || 1).wait(),
