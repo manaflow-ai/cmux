@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveAppContext)
 @MainActor
 struct SidebarNotificationPreviewStoreTests {
     /// https://github.com/manaflow-ai/cmux/issues/26639: viewing the workspace
