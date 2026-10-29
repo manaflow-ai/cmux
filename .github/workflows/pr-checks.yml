@@ -276,7 +276,8 @@ jobs:
   # The checker comes from the base branch so a PR cannot weaken its own policy.
   ui-review:
     name: UI review advisory
-    if: ${{ !cancelled() && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
+    needs: base-only
+    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","edited","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -316,7 +317,13 @@ jobs:
         env:
           FILES_JSON: ${{ runner.temp }}/ui-review-files.json
           BODY_FILE: ${{ runner.temp }}/ui-review-body.md
-        run: python3 scripts/ci/ui_review_advisory.py --body-file "$BODY_FILE" --files-json "$FILES_JSON"
+        run: |
+          if [ ! -f scripts/ci/ui_review_advisory.py ]; then
+            echo "::warning title=UI review::the advisory script is not present on the base; review the UI section manually"
+            exit 0
+          fi
+          python3 scripts/ci/ui_review_advisory.py --body-file "$BODY_FILE" --files-json "$FILES_JSON" \
+            || echo "::warning title=UI review::the advisory script could not run; review the UI section manually"
 
       - name: Warn when changed files could not be read
         if: steps.read.outcome != 'success'
