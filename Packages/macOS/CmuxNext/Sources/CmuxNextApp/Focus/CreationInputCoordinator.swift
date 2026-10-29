@@ -261,7 +261,8 @@ final class CreationInputCoordinator {
         }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
-        guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
+        let movedOn = controller.map { Self.modelMovedOn(buffer, controller: $0) } ?? false
+        guard kind == .content, controller != nil, !movedOn, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
             flush(in: shell, force: true)
             guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
             next.capture(event)
@@ -413,8 +414,10 @@ final class CreationInputCoordinator {
     ///
     /// A pending creation whose early view got the keyboard takes the held keys now: the hold stays (later keys go
     /// straight to that view through ``capture(_:in:)``) until the creation resolves.
-    private func flush(in window: NSWindow, force: Bool = false) {
+    private func flush(in window: NSWindow, force requested: Bool = false) {
         guard let buffer = buffers[window.windowNumber] else { return }
+        // The person moved the window's focus on since the hold's newest creation: the model's target is theirs now.
+        let force = requested || router?.focus(for: window).0.map { Self.modelMovedOn(buffer, controller: $0) } == true
         if !force, !buffer.isResolved {
             if !buffer.isEmpty, let router, let controller = router.focus(for: window).0,
                takesKeysEarly(buffer, controller: controller, window: window) {
@@ -459,6 +462,14 @@ final class CreationInputCoordinator {
 }
 
 extension CreationInputCoordinator {
+    /// Whether a newer user intent than the hold's newest creation moved `controller`'s focus (the person focused another
+    /// pane, clicked, ran an action): the focus that creation asked for was replaced, so the hold stops waiting for its
+    /// reply or its focus, and its keys go to the target the model names now, when it can take them.
+    static func modelMovedOn(_ buffer: CreationInputBuffer, controller: WindowController) -> Bool {
+        guard let generation = buffer.newestGeneration else { return false }
+        return controller.focus.state.generation > generation
+    }
+
     /// False while focus names a terminal whose view does not have the keyboard (another terminal, the window itself
     /// while its view is remounted, or another view: an agent's composer, Home's message box), or names the pane's
     /// selected terminal before its surface is shown: a key now would land in the wrong view or nowhere. Terminal keys
