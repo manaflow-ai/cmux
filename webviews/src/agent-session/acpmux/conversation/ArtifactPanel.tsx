@@ -7,13 +7,13 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
-import { ARTIFACT_FRAME_URL, artifactGallery, artifactNeedsRun, galleryArtifactDocument } from "./artifactSandbox";
+import { artifactFrameURL, artifactGallery, galleryArtifactDocument } from "./artifactSandbox";
+import { ArtifactPreview, ArtifactRunningFrame } from "./SharedArtifactPreview";
 import { renderFrameCSS } from "./renderBase";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
-import { canRender, ranRenders, useRenderFrame } from "./RenderCard";
 
 export { OpenPreview } from "./OpenPreview";
 
@@ -63,7 +63,7 @@ export function ArtifactPanel({
   const index = Math.max(0, found);
   const artifact = list[index]!;
   const jsx = /^(jsx|tsx)$/i.test(artifact.lang);
-  const previews = artifact.kind === "markdown" || canRender() || artifactGallery();
+  const previews = artifact.kind === "markdown" || artifactFrameURL() !== undefined || artifactGallery();
   const [tab, setTab] = useState<"preview" | "code">(previews ? "preview" : "code");
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -208,45 +208,12 @@ export function ArtifactPanel({
         ) : (
           // Each version is its own frame: a frame draws the first document it is sent, and a
           // version with script waits for Run again.
-          <ArtifactFrame key={artifact.code} html={previewHtml(artifact)} title={title} jsx={jsx} />
+          <ArtifactPreview html={previewHtml(artifact)} title={title} runLabel={t("render.run")} requiresRun={jsx}>
+            {jsx ? <JsxFrame code={artifact.code} title={title} /> : undefined}
+          </ArtifactPreview>
         )}
       </div>
     </aside>
-  );
-}
-
-function ArtifactFrame({ html, title, jsx }: { html: string; title: string; jsx: boolean }) {
-  const t = useT();
-  const requiresRun = jsx || artifactNeedsRun(html);
-  const [allowed, setAllowed] = useState(() => ranRenders.has(html));
-  if (!requiresRun) return <PassiveFrame html={html} title={title} />;
-  if (!allowed)
-    return (
-      <div className="acpmux-artifact-run">
-        <button
-          type="button"
-          className="acpmux-review-changes"
-          onClick={() => {
-            ranRenders.add(html);
-            setAllowed(true);
-          }}
-        >
-          {t("render.run")}
-        </button>
-      </div>
-    );
-  return jsx ? <JsxFrame code={html} title={title} /> : <RunningFrame html={html} title={title} />;
-}
-
-function PassiveFrame({ html, title }: { html: string; title: string }) {
-  return (
-    <iframe
-      className="acpmux-artifact-frame"
-      srcDoc={galleryArtifactDocument(html, renderFrameCSS())}
-      title={title}
-      sandbox=""
-      referrerPolicy="no-referrer"
-    />
   );
 }
 
@@ -267,20 +234,5 @@ function JsxFrame({ code, title }: { code: string; title: string }) {
     };
   }, [code]);
   if (failed) return <CodeBlock code={code} lang="jsx" />;
-  return html === undefined ? null : <RunningFrame html={html} title={title} />;
-}
-
-function RunningFrame({ html, title }: { html: string; title: string }) {
-  const { frame } = useRenderFrame(html);
-  return (
-    <iframe
-      ref={frame}
-      className="acpmux-artifact-frame"
-      src={artifactGallery() ? undefined : ARTIFACT_FRAME_URL}
-      srcDoc={artifactGallery() ? galleryArtifactDocument(html, renderFrameCSS()) : undefined}
-      title={title}
-      sandbox="allow-scripts"
-      referrerPolicy="no-referrer"
-    />
-  );
+  return html === undefined ? null : <ArtifactRunningFrame html={html} title={title} />;
 }

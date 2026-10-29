@@ -1,6 +1,24 @@
 // Passive previews run public-safe markup in srcdoc. Explicit Run uses the native /artifact endpoint,
 // whose response CSP and navigation delegate also deny self-navigation (CSP cannot).
 export const ARTIFACT_FRAME_URL = "cmux-agent://render/artifact";
+export const PAGE_ARTIFACT_FRAME_URL = "cmux-page://cmux.agent/__artifact";
+
+/** Exact bundled parent origins only. An arbitrary page or another custom-scheme host cannot
+ * opt into script execution by importing the shared preview. Keep the legacy agent route intact. */
+export function artifactFrameURL(): string | undefined {
+  if (typeof location === "undefined") return undefined;
+  try {
+    const url = new URL(location.href);
+    if (url.username || url.password || url.port) return undefined;
+    const host = url.hostname.toLowerCase();
+    if (url.protocol === "cmux-agent:" && host === "pane") return ARTIFACT_FRAME_URL;
+    if (url.protocol === "cmux-page:" && (host === "cmux.agent" || host === "cmux.artifacts"))
+      return PAGE_ARTIFACT_FRAME_URL;
+  } catch {
+    // An absent or malformed location grants no native capability.
+  }
+  return undefined;
+}
 export const artifactGallery = () =>
   typeof location !== "undefined" &&
   location.pathname.endsWith("/frame.html") &&

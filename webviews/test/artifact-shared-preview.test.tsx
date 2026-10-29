@@ -87,17 +87,18 @@ async function draw(code: string) {
 }
 
 test("exact agent and artifacts page origins have native rendering; other origins do not", async () => {
-  const { canRender } = await import("../src/agent-session/acpmux/conversation/RenderCard");
   for (const url of trusted) {
     locate(url);
-    expect([url, canRender()]).toEqual([url, true]);
+    await draw("<p>trusted preview</p>");
+    expect(button("Preview")).toBeDefined();
+    expect(host.querySelector("iframe")?.getAttribute("sandbox")).toBe("");
   }
   // Keep the existing bundled agent host while refusing other hosts on that scheme.
   locate("cmux-agent://pane/index.html");
-  expect(canRender()).toBe(true);
+  await draw("<p>legacy preview</p>");
+  expect(button("Preview")).toBeDefined();
   for (const url of rejected) {
     locate(url);
-    expect([url, canRender()]).toEqual([url, false]);
     await draw("<p>untrusted preview</p>");
     expect(button("Preview")).toBeUndefined();
     expect(host.querySelector("iframe")).toBeNull();
@@ -143,3 +144,68 @@ for (const url of trusted) {
     expect(host.querySelector("iframe")).toBeNull();
   });
 }
+
+test("the shared preview independently enforces host capability and resets Run on replacement", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPreview } = await import("../src/agent-session/acpmux/conversation/SharedArtifactPreview");
+  const { ranRenders } = await import("../src/agent-session/acpmux/conversation/renderFrame");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  ranRenders.clear();
+  const drawPreview = (html: string) =>
+    act(() => root!.render(<ArtifactPreview html={html} title="Preview" runLabel="Run" />));
+  for (const url of rejected) {
+    locate(url);
+    drawPreview("<p>no preview capability</p>");
+    expect(host.querySelector("iframe")).toBeNull();
+    expect(button("Run")).toBeUndefined();
+  }
+  locate("cmux-page://cmux.artifacts/");
+  drawPreview("<p>static preview</p>");
+  expect(host.querySelector("iframe")?.getAttribute("sandbox")).toBe("");
+  const code = "<script>document.title='shared'</script>";
+  drawPreview(code);
+  expect(host.querySelector("iframe")).toBeNull();
+  act(() => button("Run")!.click());
+  const frame = host.querySelector("iframe")!;
+  expect(frame.getAttribute("src")).toBe("cmux-page://cmux.agent/__artifact");
+  expect(frame.getAttribute("srcdoc")).toBeNull();
+
+  const sent: unknown[] = [];
+  const child = frame.contentWindow!;
+  child.postMessage = ((message: unknown) => sent.push(message)) as never;
+  const ready = (source: unknown) => {
+    const event = new dom.window.MessageEvent("message", { data: { type: "cmux-render-ready" } });
+    Object.defineProperty(event, "source", { value: source });
+    act(() => dom.window.dispatchEvent(event));
+  };
+  ready(dom.window);
+  expect(sent).toEqual([]);
+  ready(child);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({ type: "cmux-render", html: code });
+
+  drawPreview("<script>document.title='replacement'</script>");
+  expect(button("Run")).toBeDefined();
+  expect(host.querySelector("iframe")).toBeNull();
+  // The removed frame cannot solicit another copy through the old message listener.
+  ready(child);
+  expect(sent).toHaveLength(1);
+});
+
+test("trusted native origins use the native endpoint even with a gallery-looking URL", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPreview } = await import("../src/agent-session/acpmux/conversation/SharedArtifactPreview");
+  const { ranRenders } = await import("../src/agent-session/acpmux/conversation/renderFrame");
+  for (const origin of trusted) {
+    locate(`${origin}frame.html?entry=agent-pane.artifact-panel`);
+    ranRenders.clear();
+    act(() => root?.unmount());
+    root = createRoot(host);
+    act(() => root!.render(<ArtifactPreview html="<script>void 0</script>" title="Preview" runLabel="Run" />));
+    act(() => button("Run")!.click());
+    const frame = host.querySelector("iframe")!;
+    expect(frame.getAttribute("src")).toBe("cmux-page://cmux.agent/__artifact");
+    expect(frame.getAttribute("srcdoc")).toBeNull();
+  }
+});

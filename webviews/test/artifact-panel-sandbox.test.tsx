@@ -12,7 +12,7 @@ const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
-  location: { protocol: "cmux-agent:", pathname: "/index.html", search: "" },
+  location: dom.window.location,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,

@@ -1,4 +1,4 @@
-// Offline artifact documents for the shared CEF agent page. No CEF dependency;
+// Offline artifact documents for the shared CEF agent and artifacts pages. No CEF dependency;
 // exercised by test-cmux-page-path-cpp.sh alongside the scheme's path policy.
 #ifndef CMUX_SHIM_ARTIFACT_PAGE_H_
 #define CMUX_SHIM_ARTIFACT_PAGE_H_
@@ -11,32 +11,38 @@ inline constexpr char kArtifactCSP[] =
     "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
     "img-src data: blob:; media-src data: blob:; font-src data:; connect-src 'none'; "
     "frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'; "
-    "frame-ancestors cmux-page://cmux.agent";
+    "frame-ancestors cmux-page://cmux.agent cmux-page://cmux.artifacts";
 
 inline bool IsArtifactFrameURL(const std::string& url) {
   return url.substr(0, url.find_first_of("?#")) == kArtifactFrameURL;
 }
 
-inline bool IsAgentPageURL(const std::string& url) {
-  const std::string origin = "cmux-page://cmux.agent";
-  return url.compare(0, origin.size(), origin) == 0 &&
-         (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' ||
-          url[origin.size()] == '#');
+// The canonical artifact route is shared by exactly these parent origins. A prefix
+// match alone would also trust lookalike hosts, credentials or ports.
+inline bool IsArtifactParentPageURL(const std::string& url) {
+  if (IsArtifactFrameURL(url)) return false;
+  for (const auto* origin : {"cmux-page://cmux.agent", "cmux-page://cmux.artifacts"}) {
+    const std::string parent(origin);
+    if (url.compare(0, parent.size(), parent) == 0 &&
+        (url.size() == parent.size() || url[parent.size()] == '/' || url[parent.size()] == '?' ||
+         url[parent.size()] == '#')) return true;
+  }
+  return false;
 }
 
 inline bool ArtifactContextRestricted(const std::string& frame, const std::string& parent) {
   return IsArtifactFrameURL(frame) || IsArtifactFrameURL(parent) ||
-         (frame == "about:srcdoc" && IsAgentPageURL(parent));
+         (frame == "about:srcdoc" && IsArtifactParentPageURL(parent));
 }
 
-// Only an empty, direct child of the agent page may load the bootstrap once.
+// Only an empty, direct child of an allowed page may load the bootstrap once.
 // After commit, self navigation (including refresh), children and srcdoc
 // replacement are denied, regardless of the destination's scheme.
 inline bool ArtifactNavigationRefused(bool main, const std::string& frame, const std::string& parent,
                                       const std::string& target) {
   if (ArtifactContextRestricted(frame, parent)) return true;
   if (IsArtifactFrameURL(target)) {
-    return main || target != kArtifactFrameURL || !IsAgentPageURL(parent) ||
+    return main || target != kArtifactFrameURL || !IsArtifactParentPageURL(parent) ||
            (!frame.empty() && frame != "about:blank");
   }
   return false;
