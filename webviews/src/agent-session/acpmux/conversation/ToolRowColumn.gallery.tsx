@@ -94,7 +94,7 @@ export default componentEntry<Props>({
   title: "Tool rows: verb column and output fade",
   area: "Agent pane",
   pane: true,
-  height: 560,
+  height: 700,
   widths: { narrow: 420, normal: 640, wide: 900 },
   anchors: [{ selector: "[data-tool-row-column] .cv-tools > :first-child" }],
   covers: ["agent-session/acpmux/conversation/ToolVerb.tsx", "agent-session/acpmux/conversation/McpCallRows.tsx"],
