@@ -43,8 +43,9 @@ use tokio::time::Instant;
 /// Pacing gain over the measured rate (the usual slow-start pacing ratio).
 const GAIN: f64 = 2.0;
 /// The flight a connection is assumed to have at least, so a nearly idle
-/// connection is never slowed: ten full-size segments.
-const MIN_FLIGHT: u32 = 10 * 1200;
+/// connection is never slowed while the userspace stack is waking in millisecond
+/// quanta. Keep enough data in flight to fill the measured loopback window.
+const MIN_FLIGHT: u32 = 128 * 1200;
 /// Departure credit a late connection may catch up on. Timers wake at
 /// about 1 ms resolution; without credit a connection would send one packet
 /// per wake, and the pace would be the timer's, not the network's.
