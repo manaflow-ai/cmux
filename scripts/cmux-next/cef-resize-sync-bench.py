@@ -68,7 +68,8 @@ def parse(argv=None):
     parser.add_argument("--tag", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--label", default="", help="names this build's run in summary.json (api26, api27)")
-    parser.add_argument("--modes", default="off,on,on0")
+    # on and on0 need a fork with every Track A call (API 34): on the API 30 pin their check fails `valid`.
+    parser.add_argument("--modes", default="off")
     parser.add_argument("--benches", default="light,stress")
     parser.add_argument("--actions", default="split,close,column,drag")
     parser.add_argument("--rounds", type=int, default=3)

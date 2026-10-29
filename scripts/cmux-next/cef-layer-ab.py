@@ -41,8 +41,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
-parser.add_argument("--modes", default="off,on",
-                    help="off = page child windows, on = feature cefLayerHosting (pane pages with every Track A call)")
+parser.add_argument("--modes", default="off",
+                    help="off = page child windows, on = feature cefLayerHosting (pane pages with every Track A call: "
+                         "fork API 34; on the API 30 pin its check fails `valid`)")
 parser.add_argument("--benches", default="switch,tabs,light,stress")
 parser.add_argument("--workspaces", type=int, default=60)
 parser.add_argument("--rounds", type=int, default=3)

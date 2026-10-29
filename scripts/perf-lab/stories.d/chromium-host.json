@@ -1,7 +1,7 @@
 {
   "id": "chromium-host",
   "tier": "T1",
-  "description": "Chromium in process vs in its own host app (chromium-host-bench.py, browserHost.helper through the bench tunables file): per mode, each key and click from cmux's send to the frame that paints it and from the page's handler to its next animation frame, the frame intervals and long frames of a 3 s animation, and the share of cmux's main thread inside Chromium's pump idle and while the page scrolls, light session.",
+  "description": "Chromium in process vs in its own host app (chromium-host-bench.py, browserHost.helper through the bench tunables file): per mode, each key and click from cmux's send to the frame that paints it and from the page's handler to its next animation frame, the frame intervals and long frames of a 3 s animation, and the share of cmux's main thread inside Chromium's pump idle and while the page scrolls, light session. Series break 2026-10-29 (cefLayerHostingEveryPage removed): inproc pages host only with every Track A call (fork API 34), so on the API 30 pin the inproc rows measure child-window pages (row hosted_pages 0).",
   "command": ["scripts/cmux-next/chromium-host-bench.py", "--count", "60"],
   "session": "light",
   "engine": "chromium",

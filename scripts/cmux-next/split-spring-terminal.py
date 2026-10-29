@@ -305,8 +305,8 @@ if "--suite=perf-gate" in sys.argv:
           f"{'' if os.path.exists(report_path) else ' (missing)'}", flush=True)
     sys.exit(0 if os.path.exists(report_path) else (code or 1))
 # `--suite=cef-resize-sync`: Chromium layer hosting and its resize wait (plans/cmux-next/cef-layer-hosting-DESIGN.md) on
-# the step's app: cef-layer-verify.py --mode on and --mode off (debug input; hosted.fork, show.again, pixels, input),
-# then cef-resize-sync-bench.py (off, on, on0; light and STRESS). `--label=NAME` names the bench run (api26, api27),
+# the step's app: cef-layer-verify.py --mode off (debug input; hosted.fork, show.again, pixels, input), then
+# cef-resize-sync-bench.py (off; light and STRESS). Mode on needs a fork with every Track A call (API 34), not the pin. `--label=NAME` names the bench run (api26, api27),
 # `--no-bench` runs only the verify. Every part runs; <out>/cef-resize-sync.json records each part's exit, and the
 # step fails when a part failed.
 if "--suite=cef-resize-sync" in sys.argv:
@@ -315,7 +315,7 @@ if "--suite=cef-resize-sync" in sys.argv:
     value = lambda name: next((argv[i + 1] for i, a in enumerate(argv[:-1]) if a == name), None)
     app, tag, out = value("--app"), value("--tag"), value("--out") or "/tmp/cmux-next-cef-resize-sync"
     label = next((a.split("=", 1)[1] for a in argv if a.startswith("--label=")), "")
-    parts = [("verify-on", ["cef-layer-verify.py", "--mode", "on"]), ("verify-off", ["cef-layer-verify.py", "--mode", "off"])]
+    parts = [("verify-off", ["cef-layer-verify.py", "--mode", "off"])]
     if "--no-bench" not in argv:
         parts.append(("bench", ["cef-resize-sync-bench.py", "--label", label]))
     results = {}

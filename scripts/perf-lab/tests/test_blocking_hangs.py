@@ -63,35 +63,12 @@ def hangs(count250=0, count=0, records=(), thread_hangs=(), thread_hang_count=No
     return reply
 
 
-def stats(over_250ms=None, records=()):
-    data = {"schema": 1, "uptime_ms": 10}
-    if over_250ms is not None:
-        data["hangs"] = {"over_250ms": over_250ms, "records": list(records)}
-    return {"id": 1, "ok": True, "data": data}
-
-
-class FakeDaemon:
-    """DaemonProbe's seams: one socket for pid 77 answering identify and server-stats from a list."""
-
-    def __init__(self, replies, pid=77):
-        self.replies, self.pid, self.requests = list(replies), pid, []
-
-    def sockets_of(self, pid):
-        return ["/tmp/other.sock", "/tmp/daemon.sock"] if pid == self.pid else []
-
-    def request(self, path, command):
-        self.requests.append((path, command))
-        if command["cmd"] == "identify":
-            return {"id": 1, "ok": True, "data": {"pid": self.pid if path == "/tmp/daemon.sock" else 1}}
-        return self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]
-
-
 class FakeRpc:
-    """The app socket: debug.blocking and debug.hangs answer from lists (the last one repeats), debug.daemon names
-    pid 77. `None` in a list is a build without that method."""
+    """The app socket: debug.blocking and debug.hangs answer from lists (the last one repeats). `None` in a list is a
+    build without that method."""
 
-    def __init__(self, blocking_replies, hangs_replies, daemon_pid=77):
-        self.blocking, self.hangs, self.daemon_pid = list(blocking_replies), list(hangs_replies), daemon_pid
+    def __init__(self, blocking_replies, hangs_replies):
+        self.blocking, self.hangs = list(blocking_replies), list(hangs_replies)
         self.calls = []
 
     @staticmethod
@@ -106,8 +83,6 @@ class FakeRpc:
             return self.next(self.blocking)
         if method == "debug.hangs":
             return self.next(self.hangs)
-        if method == "debug.daemon":
-            return {"startup": "connected", "pid": self.daemon_pid}
         raise AssertionError(method)
 
 
@@ -145,7 +120,7 @@ STRESS_META = {"stress": {"workspaces": 40}, "storm_targets": {"workspaces": 39,
                "storm_ops": {"move": 75}, "cef": {"valid": True, "problems": []}, "scenario_label": "stress-storm"}
 
 
-def fake_trace(rpc, daemon):
+def fake_trace(rpc):
     """A stand-in for trace.py: Recording runs build_stress then run_window; a stage's exception goes into the
     meta's errors and stops the run, as trace.py's Stages does."""
     module = types.ModuleType("cmux_next_trace")
@@ -182,30 +157,22 @@ def fake_trace(rpc, daemon):
             self.meta.update(STRESS_META)
             return 3 if self.meta["errors"] else 0
 
-    original = bh.Window.__init__
-
-    def window_init(self, rpc_, daemon_=None):  # the probe's lsof and socket seams, faked
-        original(self, rpc_, daemon_ or bh.DaemonProbe(rpc_, daemon.sockets_of, daemon.request))
-
     module.Stages, module.Recording = Stages, Recording
-    return module, window_init
+    return module
 
 
-def run_story(test, rpc, daemon, argv=("--legs", "storm"), config_problem=lambda app: None):
+def run_story(test, rpc, argv=("--legs", "storm"), config_problem=lambda app: None):
     """main() over the fakes; returns (exit, out folder, blobs)."""
     out = tempfile.mkdtemp(prefix="blocking-hangs-test-")
     test.addCleanup(lambda: __import__("shutil").rmtree(out, ignore_errors=True))
-    module, window_init = fake_trace(rpc, daemon)
+    module = fake_trace(rpc)
     saved_trace = sys.modules.get("cmux_next_trace")
     sys.modules["cmux_next_trace"] = module
-    original = bh.Window.__init__
-    bh.Window.__init__ = window_init
     blobs = FakeBlobs()
     try:
         code = bh.main(["--app", "/tmp/cmux DEV t.app", "--out", out, *argv], blobs=blobs,
                        config_problem=config_problem)
     finally:
-        bh.Window.__init__ = original
         if saved_trace is None:
             sys.modules.pop("cmux_next_trace", None)
         else:
@@ -294,39 +261,14 @@ class Hangs(unittest.TestCase):
         leg = bh.Leg("storm", "stress", "")
         metrics = bh.leg_metrics(leg, {"blocking": bh.blocking_window(bh.parse_blocking(blocking()),
                                                                       bh.parse_blocking(blocking())),
-                                       "hangs": window, "daemon": {"unseen": "no section"}})
+                                       "hangs": window})
         self.assertEqual(metrics["hangs.over_250ms.main"], 1)
         self.assertFalse([m for m in metrics if m.startswith("hang_watch.")])
-        self.assertNotIn("hangs.over_250ms.daemon", metrics)
-        self.assertEqual(set(leg.unseen), {"hang_watch", "daemon"})
+        self.assertEqual(set(leg.unseen), {"hang_watch"})
 
     def test_cleared_counts_are_refused(self):
         with self.assertRaises(bh.LegError):
             bh.hangs_window(bh.parse_hangs(hangs(count250=4)), bh.parse_hangs(hangs(count250=0)))
-
-
-class Daemon(unittest.TestCase):
-    def test_without_the_232_section_the_daemon_is_unseen(self):
-        reading = bh.parse_daemon_stats(stats())
-        self.assertIsNone(reading.over_250ms)
-        self.assertIn("232", reading.reason)
-        self.assertIn("unseen", bh.daemon_window(reading, reading))
-
-    def test_probe_finds_the_socket_by_pid_and_reads_a_delta(self):
-        fake = FakeDaemon([stats(2, [{"sequence": 2}]), stats(5, [{"sequence": 2}, {"sequence": 3, "span": "x"}])])
-        probe = bh.DaemonProbe(FakeRpc([blocking()], [hangs()]), fake.sockets_of, fake.request)
-        window = bh.daemon_window(probe.read(), probe.read())
-        self.assertEqual(window, {"over_250ms": 3, "records": [{"sequence": 3, "span": "x"}]})
-        self.assertEqual(probe.path, "/tmp/daemon.sock")
-        stats_requests = [c for _, c in fake.requests if c["cmd"] == "server-stats"]
-        self.assertEqual(stats_requests[0]["include"], ["hangs"])
-
-    def test_no_daemon_pid_is_unseen(self):
-        rpc = FakeRpc([blocking()], [hangs()], daemon_pid=None)
-        fake = FakeDaemon([stats(0)])
-        reading = bh.DaemonProbe(rpc, fake.sockets_of, fake.request).read()
-        self.assertIsNone(reading.over_250ms)
-        self.assertIn("pid", reading.reason)
 
 
 class StoryRuns(unittest.TestCase):
@@ -335,17 +277,14 @@ class StoryRuns(unittest.TestCase):
                        blocking([site("A.swift:1", 2), site("Store.swift:9", 1)])],
                       [hangs(thread_hang_count=0), hangs(count250=1, count=1, records=[stall(1, 400)],
                                                          thread_hangs=[thread_hang(1, "lane")], thread_hang_count=1)])
-        daemon = FakeDaemon([stats(0), stats(1, [{"sequence": 1, "span": "workspace.create"}])])
-        code, out, blobs = run_story(self, rpc, daemon)
+        code, out, blobs = run_story(self, rpc)
         self.assertEqual(code, bh.EXIT_OK, summary_of(out))
         by_metric = {r.metric: r for r in results_in(out)}
         self.assertEqual(by_metric["main_blocking.sites"].samples, [2])
         self.assertEqual(by_metric["main_blocking.sites"].target_ref.target, "main-blocking-sites")
         self.assertEqual(by_metric["hangs.over_250ms.main"].samples, [1])
         self.assertEqual(by_metric["hangs.over_250ms.main"].target_ref.target, "hangs.app")
-        self.assertEqual(by_metric["daemon.hangs_over_250ms"].samples, [1])
-        self.assertEqual(by_metric["daemon.hangs_over_250ms"].target_ref.target, "hangs.daemon")
-        self.assertNotIn("hangs.over_250ms.daemon", by_metric)
+        self.assertFalse([m for m in by_metric if "daemon" in m])
         self.assertEqual(by_metric["hang_watch.past_deadline.lane"].samples, [1])
         self.assertNotIn("hang_watch.past_deadline.io", by_metric)
         self.assertEqual(summary_of(out)["legs"][0]["unseen"]["hang_watch.io"], bh.UNREGISTERED)
@@ -369,7 +308,7 @@ class StoryRuns(unittest.TestCase):
 
     def test_build_without_detector_fails_before_the_stress_build_and_stores_nothing(self):
         rpc = FakeRpc([blocking(compiled_in=False)], [hangs()])
-        code, out, blobs = run_story(self, rpc, FakeDaemon([stats()]))
+        code, out, blobs = run_story(self, rpc)
         self.assertEqual(code, bh.EXIT_FAILED)
         summary = summary_of(out)
         self.assertEqual(summary["refusal"]["kind"], "failed")
@@ -380,7 +319,7 @@ class StoryRuns(unittest.TestCase):
 
     def test_stamped_bench_build_fails_without_a_launch(self):
         rpc = FakeRpc([blocking()], [hangs()])
-        code, out, _ = run_story(self, rpc, FakeDaemon([stats()]),
+        code, out, _ = run_story(self, rpc,
                                  config_problem=lambda app: "built with --config bench")
         self.assertEqual(code, bh.EXIT_FAILED)
         self.assertEqual(rpc.calls, [])
@@ -400,7 +339,7 @@ class StoryRuns(unittest.TestCase):
             self.assertEqual(problem is not None, expected, (stamp, problem))
 
     def test_build_without_debug_blocking_is_not_measurable(self):
-        code, out, _ = run_story(self, FakeRpc([None], [hangs()]), FakeDaemon([stats()]))
+        code, out, _ = run_story(self, FakeRpc([None], [hangs()]))
         self.assertEqual(code, bh.EXIT_NOT_MEASURABLE)
         self.assertEqual(summary_of(out)["refusal"]["kind"], "not-measurable")
         self.assertEqual(results_in(out), [])
@@ -410,7 +349,7 @@ class StoryRuns(unittest.TestCase):
         saved = bh.ROOT
         bh.ROOT = tempfile.mkdtemp(prefix="blocking-hangs-root-")
         try:
-            code, out, _ = run_story(self, rpc, FakeDaemon([stats()]), argv=("--legs", "storm,corpus"))
+            code, out, _ = run_story(self, rpc, argv=("--legs", "storm,corpus"))
         finally:
             bh.ROOT = saved
         self.assertEqual(code, bh.EXIT_OK)
@@ -418,7 +357,6 @@ class StoryRuns(unittest.TestCase):
         self.assertFalse(summary["corpus"]["measured"])
         self.assertIn("perf-corpus", summary["corpus"]["reason"])
         self.assertTrue(summary["legs"][0]["ok"])
-        self.assertIn("daemon", summary["legs"][0]["unseen"])
         self.assertTrue(any(r.metric == "main_blocking.sites" for r in results_in(out)))
 
 
@@ -428,13 +366,11 @@ class RolesSeen(unittest.TestCase):
         after = bh.parse_hangs(hangs(thread_hangs=[thread_hang(1, "lane")], thread_hang_count=1))
         leg = bh.Leg("storm", "stress", "")
         empty = bh.blocking_window(bh.parse_blocking(blocking()), bh.parse_blocking(blocking()))
-        metrics = bh.leg_metrics(leg, {"blocking": empty, "hangs": bh.hangs_window(before, after),
-                                       "daemon": {"over_250ms": 0, "records": []}})
+        metrics = bh.leg_metrics(leg, {"blocking": empty, "hangs": bh.hangs_window(before, after)})
         self.assertEqual({m: v for m, v in metrics.items() if m.startswith("hang_watch.")},
                          {"hang_watch.past_deadline.lane": 1})
         for role in ("main", "io", "renderer", "pool", "control"):
             self.assertEqual(leg.unseen[f"hang_watch.{role}"], bh.UNREGISTERED)
-        self.assertEqual(metrics["daemon.hangs_over_250ms"], 0)
         self.assertFalse([m for m in metrics if m.startswith("hangs.over_250ms.") and m != "hangs.over_250ms.main"])
 
 
@@ -482,13 +418,12 @@ class CorpusLegs(unittest.TestCase):
                 json.dump({"ok": True}, f)
 
         fake_player(self, replay)
-        code, out, blobs = run_story(self, None, FakeDaemon([stats(0), stats(0)]), argv=("--legs", "corpus"))
+        code, out, blobs = run_story(self, None, argv=("--legs", "corpus"))
         self.assertEqual(code, bh.EXIT_OK, summary_of(out))
         self.assertEqual(len(played), 1)
         by_metric = {r.metric: r for r in results_in(out)}
         self.assertEqual(by_metric["corpus.chat-burst.main_blocking.sites"].samples, [1])
         self.assertEqual(by_metric["corpus.chat-burst.hangs.over_250ms.main"].samples, [1])
-        self.assertEqual(by_metric["corpus.chat-burst.daemon.hangs_over_250ms"].samples, [0])
         for result in by_metric.values():
             self.assertTrue(result.metric.startswith("corpus.chat-burst."))
             self.assertIsNone(result.target_ref)  # only the storm leg claims targets
@@ -504,7 +439,7 @@ class CorpusLegs(unittest.TestCase):
     def test_replay_without_the_hook_fails_its_leg_with_a_reason(self):
         corpus_checkout(self, ["chat-burst"])
         fake_player(self, lambda manifest, *, app, out: None)
-        code, out, _ = run_story(self, None, FakeDaemon([stats(0)]), argv=("--legs", "corpus"))
+        code, out, _ = run_story(self, None, argv=("--legs", "corpus"))
         self.assertEqual(code, bh.EXIT_FAILED)
         leg, = summary_of(out)["legs"]
         self.assertFalse(leg["ok"])
@@ -522,7 +457,7 @@ class CorpusLegs(unittest.TestCase):
                 pass
 
         fake_player(self, replay)
-        code, out, _ = run_story(self, None, FakeDaemon([stats(0)]), argv=("--legs", "corpus"))
+        code, out, _ = run_story(self, None, argv=("--legs", "corpus"))
         self.assertEqual(code, bh.EXIT_FAILED)
         summary = summary_of(out)
         self.assertEqual(summary["exit"], bh.EXIT_FAILED)
@@ -540,20 +475,19 @@ class Catalog(unittest.TestCase):
         self.assertEqual((doc["id"], doc["config"], doc["command"][0]),
                          ("blocking-hangs", "bench-checks", "scripts/perf-lab/stories/blocking_hangs.py"))
         claimed = {m["target_ref"]["target"] for m in doc["metrics"] if "target" in m.get("target_ref", {})}
-        self.assertEqual(claimed, {"main-blocking-sites", "hangs.app", "hangs.daemon"})
+        self.assertEqual(claimed, {"main-blocking-sites", "hangs.app"})
         loaded = catalog.load_catalog(REPO_ROOT)
         self.assertEqual([p for p in loaded.problems if "blocking-hangs" in p], [])
         self.assertIn("blocking-hangs", {s.id for s in loaded.stories})
         claims = catalog.claimed_checks(loaded)
         self.assertIn("blocking-hangs", claims[("main-blocking-sites", "main_blocking\\.sites")])
         self.assertIn("blocking-hangs", claims[("hangs.app", "hangs\\.over_250ms\\.[a-z_]+")])
-        self.assertIn("blocking-hangs", claims[("hangs.daemon", "daemon\\.hangs_over_250ms")])
 
     def test_every_written_metric_name_matches_a_story_metric(self):
         import re
         patterns = [re.compile(m["name"]) for m in json.loads(STORY_FILE.read_text())["metrics"]]
         names = ["main_blocking.sites", "blocking.sites.pool", "blocking.sites.cpu_lane", "hangs.over_250ms.main",
-                 "daemon.hangs_over_250ms", *[f"hang_watch.past_deadline.{r}" for r in (*bh.THREAD_ROLES, "unattributed")]]
+                 *[f"hang_watch.past_deadline.{r}" for r in (*bh.THREAD_ROLES, "unattributed")]]
         for name in names + [f"corpus.chat-burst.{n}" for n in names]:
             self.assertTrue(any(p.fullmatch(name) for p in patterns), name)
 

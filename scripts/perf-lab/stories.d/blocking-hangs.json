@@ -1,7 +1,7 @@
 {
   "id": "blocking-hangs",
   "tier": "T1",
-  "description": "Blocking-call sites per context (debug.blocking, main/pool/cpu-lane) and hang counts per thread role (debug.hangs count250, thread_hangs of the registered hang-watch roles, the daemon's hang watcher) during trace.py's STRESS storm and each corpus story, read when each window opens and closes; sites and stacks are attached. Fails on a build without CMUX_BLOCKING_CHECKS; a source or role it cannot see is never stored as 0.",
+  "description": "Blocking-call sites per context (debug.blocking, main/pool/cpu-lane) and hang counts per thread role (debug.hangs count250, thread_hangs of the registered hang-watch roles) during trace.py's STRESS storm and each corpus story, read when each window opens and closes; sites and stacks are attached. Fails on a build without CMUX_BLOCKING_CHECKS; a source or role it cannot see is never stored as 0.",
   "command": ["scripts/perf-lab/stories/blocking_hangs.py", "--legs", "storm,corpus"],
   "session": "stress",
   "engine": "none",
@@ -11,11 +11,9 @@
      "target_ref": {"target": "main-blocking-sites"}},
     {"name": "hangs\\.over_250ms\\.[a-z_]+", "unit": "count", "better": "lower",
      "target_ref": {"target": "hangs.app"}},
-    {"name": "daemon\\.hangs_over_250ms", "unit": "count", "better": "lower",
-     "target_ref": {"target": "hangs.daemon"}},
     {"name": "blocking\\.sites\\.(pool|cpu_lane)", "unit": "count", "better": "lower"},
     {"name": "hang_watch\\.past_deadline\\.[a-z_]+", "unit": "count", "better": "lower"},
-    {"name": "corpus\\.[a-z0-9-]+\\.(main_blocking\\.sites|blocking\\.sites\\.(pool|cpu_lane)|hangs\\.over_250ms\\.[a-z_]+|daemon\\.hangs_over_250ms|hang_watch\\.past_deadline\\.[a-z_]+)",
+    {"name": "corpus\\.[a-z0-9-]+\\.(main_blocking\\.sites|blocking\\.sites\\.(pool|cpu_lane)|hangs\\.over_250ms\\.[a-z_]+|hang_watch\\.past_deadline\\.[a-z_]+)",
      "unit": "count", "better": "lower"}
   ],
   "repeats": 1,

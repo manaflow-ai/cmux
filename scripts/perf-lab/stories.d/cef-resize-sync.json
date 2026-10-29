@@ -1,18 +1,18 @@
 {
   "id": "cef-resize-sync",
   "tier": "T2",
-  "description": "Chromium page resize sync (cef-resize-sync-bench.py, light bench): layer hosting off, on and on with no sync deadline, each checked first with cef-layer-verify.py; per mode, layout and action (split, close, column, drag) each round's Core Animation commit p95 and max (the page's resize wait), frame interval p95 and p99 and missed frames, and the modes that were not valid, light session.",
-  "command": ["scripts/cmux-next/cef-resize-sync-bench.py", "--benches", "light"],
+  "description": "Chromium page resize sync (cef-resize-sync-bench.py, light bench): layer hosting off (the child-window baseline), checked first with cef-layer-verify.py; modes on and on0 are not run, because they need a fork with every Track A call (API 34) and the pin is API 30; per mode, layout and action (split, close, column, drag) each round's Core Animation commit p95 and max (the page's resize wait), frame interval p95 and p99 and missed frames, and the modes that were not valid, light session.",
+  "command": ["scripts/cmux-next/cef-resize-sync-bench.py", "--benches", "light", "--modes", "off"],
   "session": "light",
   "engine": "chromium",
   "config": "bench",
   "metrics": [
-    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.[^.]+\\.[^.]+\\.(commit_p95|commit_max|frame_p95|frame_p99)", "unit": "ms",
+    {"name": "cef_resize_sync\\.off\\.[^.]+\\.[^.]+\\.(commit_p95|commit_max|frame_p95|frame_p99)", "unit": "ms",
      "better": "lower"},
-    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.[^.]+\\.[^.]+\\.missed", "unit": "count", "better": "lower"},
-    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.[^.]+\\.[^.]+\\.[a-z0-9_]+\\.missed_runs", "unit": "count",
+    {"name": "cef_resize_sync\\.off\\.[^.]+\\.[^.]+\\.missed", "unit": "count", "better": "lower"},
+    {"name": "cef_resize_sync\\.off\\.[^.]+\\.[^.]+\\.[a-z0-9_]+\\.missed_runs", "unit": "count",
      "better": "lower"},
-    {"name": "cef_resize_sync\\.(off|on|on0|host|hostfence)\\.failed", "unit": "count", "better": "lower"}
+    {"name": "cef_resize_sync\\.off\\.failed", "unit": "count", "better": "lower"}
   ],
   "repeats": 1,
   "seconds": 1200,

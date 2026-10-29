@@ -2,7 +2,9 @@
 """Chromium in process vs Chromium in its own host app (prototype; plans/cmux-next/cef-helper-app-DESIGN.md).
 
 Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHosting` (the feature
-`cefLayerHosting`'s local override) on, and measures the same probe page twice. Chromium tabs
+`cefLayerHosting`'s local override) on, and measures the same probe page twice (in-process pages host only with
+every Track A call, fork API 34: on the API 30 pin the inproc rows are child-window pages, a series break at
+2026-10-29 when the every-page arm went; `hosted_pages` says which). Chromium tabs
 stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, `--modes tcc`, `--modes agentcdp` and
 `--kill-host`, which need them in the host: profiles, tcc and agentcdp run in a launch without the in-process rows
 (inproc, --baseline, --stress), and

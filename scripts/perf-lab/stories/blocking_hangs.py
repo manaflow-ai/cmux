@@ -9,8 +9,6 @@ nothing is cleared:
                    threshold is set to 250 ms for the storm, so each such stall carries its main-thread stack) and
                    `thread_hangs` (hang-watch scopes on other threads past their deadline: background lanes, IO,
                    renderers, pool workers, control handlers), each with its stack.
-  server-stats     the daemon's hang watcher (p12-perf-process-232, section `hangs`: `over_250ms` and `records`),
-                   asked on the daemon's own socket (the socket of the pid `debug.daemon` names).
 
 Chrome does the same split: `base/threading/scoped_blocking_call.h` and `thread_restrictions.h` find blocking calls
 on threads that must not block (a DCHECK build, here bench-checks), and `base/threading/hang_watcher.h` counts hangs
@@ -22,8 +20,6 @@ Metrics of a leg (a corpus leg's names start with `corpus.<id>.`; each is a coun
                                    table does not hold, so the value is the known sites plus one, a lower bound.
   blocking.sites.pool, blocking.sites.cpu_lane   the same for the shared pool and `.cpu` lane items.
   hangs.over_250ms.main            main-thread work gaps of 250 ms or more (target hangs.app).
-  daemon.hangs_over_250ms          the daemon's hangs over 250 ms, when its diagnostics have them (232; target
-                                   hangs.daemon).
   hang_watch.past_deadline.<role>  hang-watch scopes past their deadline per thread role, for the roles the app
                                    registers (REGISTERED_ROLES: lane) and any role a record shows; `unattributed` for
                                    records the 128-record ring dropped. Every other role is unseen. HangMonitor writes
@@ -33,12 +29,11 @@ Metrics of a leg (a corpus leg's names start with `corpus.<id>.`; each is a coun
 A source the leg cannot read is never stored as 0. A build without the detector (`debug.blocking` `compiled_in` is
 not true, or the bundle says another `CMUXBuildConfiguration`) fails the story with that reason before any leg is
 measured (exit 1). A build without `debug.blocking` or `debug.hangs` is not-measurable (exit 4). A leg whose
-watchdog is not running fails. A daemon without the 232 section is reported as unseen in the summary, and the
-leg writes no daemon metric.
+watchdog is not running fails.
 
 Results: one result-v1 file per leg in --out (BenchApp.record fills build, host and features), each result with the
 leg's attachment (kind `blocking-hangs`: the window's sites with their counts and times, each main stall and thread
-hang with its frames, the daemon's records). The blob is uploaded to the lab's R2 bucket at
+hang with its frames). The blob is uploaded to the lab's R2 bucket at
 `perf-lab/attachments/sha256/<hex>.json` (configured as for trace_quest.py, CMUX_PERF_LAB_R2_*; without it the
 story measures nothing, exit 1); a copy stays at --out/attachments/. Each launched app's full host validation
 (`host-env-full-<pid>.json`) is copied under --out for the runner. blocking-hangs-summary.json says what each leg saw.
@@ -95,9 +90,8 @@ THREAD_ROLES = ("main", "io", "lane", "renderer", "pool", "control")
 # measured only when a record of it shows its registration, else it is unseen, never 0.
 REGISTERED_ROLES = ("lane",)
 UNREGISTERED = "no thread of this kind is registered with HangWatch"
-DAEMON_METRIC = "daemon.hangs_over_250ms"  # task 232's lab metric (targets.json row hangs.daemon)
-TARGETS = {"main_blocking.sites": "main-blocking-sites", "hangs.over_250ms.main": "hangs.app",
-           DAEMON_METRIC: "hangs.daemon"}  # targets.json row ids; only the storm leg claims them
+TARGETS = {"main_blocking.sites": "main-blocking-sites",
+           "hangs.over_250ms.main": "hangs.app"}  # targets.json row ids; only the storm leg claims them
 HANG_MS = 250  # the watchdog's stall threshold for the storm: each stall the count250 counter counts has a stack
 ATTACHMENT_KIND = "blocking-hangs"
 ATTACHMENT_SCHEMA = "cmux-blocking-hangs/v1"
@@ -110,7 +104,6 @@ TRACE_KEEP = ("SUMMARY.txt", "summary.json", "meta.json", "hangs.json")
 # An `*_after` sequence past every record, so the reply leaves that list out. Below 1e15: JSONValue.intValue
 # (CmuxNextSettings/JSONValue.swift) reads a larger number as nil, and debug.hangs then sends the whole list.
 SKIP_RECORDS = 10 ** 15 - 1
-DAEMON_SECTION = "hangs"
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_MEASURABLE = 0, 1, 2, 4
 
@@ -314,82 +307,7 @@ def hangs_window(before: HangsReading, after: HangsReading) -> dict:
     return window
 
 
-@dataclasses.dataclass(frozen=True)
-class DaemonReading:
-    over_250ms: Optional[int]  # None: unseen (`reason` says why)
-    records: Tuple[dict, ...] = ()
-    reason: Optional[str] = None
-
-
-def parse_daemon_stats(reply) -> DaemonReading:
-    """The daemon's `server-stats` reply with the 232 section asked for: {"ok", "data": {"hangs": {"over_250ms",
-    "records"}}}. Without the section the daemon role is unseen."""
-    if not isinstance(reply, dict) or reply.get("ok") is not True:
-        return DaemonReading(None, reason=f"server-stats failed: {json.dumps(reply)[:200]}")
-    section = (reply.get("data") or {}).get(DAEMON_SECTION)
-    if not isinstance(section, dict) or not isinstance(section.get("over_250ms"), int):
-        return DaemonReading(None, reason=f"the daemon's server-stats has no `{DAEMON_SECTION}` section with "
-                                          "over_250ms (p12-perf-process-232 is not in this build)")
-    records = section.get("records")
-    return DaemonReading(section["over_250ms"], tuple(r for r in records or [] if isinstance(r, dict)))
-
-
-def daemon_window(before: DaemonReading, after: DaemonReading) -> dict:
-    """{"over_250ms", "records"} of the window, or {"unseen": reason}."""
-    if before.over_250ms is None or after.over_250ms is None:
-        return {"unseen": before.reason or after.reason}
-    delta = after.over_250ms - before.over_250ms
-    if delta < 0:
-        return {"unseen": "the daemon's hang count went back inside the window (it restarted)"}
-    last = _last_sequence(before.records)
-    return {"over_250ms": delta, "records": [r for r in after.records if _sequence(r) > last]}
-
-
-class DaemonProbe:
-    """The app's daemon on its own socket: the pid `debug.daemon` names, the unix socket that pid listens on and
-    answers `identify` with that pid, then `server-stats` with the 232 section."""
-
-    def __init__(self, rpc: Callable, sockets_of: Optional[Callable] = None, request: Optional[Callable] = None):
-        self.rpc = rpc
-        self.sockets_of = sockets_of or listening_sockets
-        self.request = request or daemon_request
-        self.path: Optional[str] = None
-        self.reason: Optional[str] = None
-
-    def locate(self) -> Optional[str]:
-        if self.path or self.reason:
-            return self.path
-        report = self.rpc("debug.daemon", None, timeout=10)
-        pid = report.get("pid") if isinstance(report, dict) else None
-        if not isinstance(pid, (int, float)) or isinstance(pid, bool):
-            self.reason = f"debug.daemon names no daemon pid ({json.dumps(report)[:200]})"
-            return None
-        for path in self.sockets_of(int(pid)):
-            reply = self.request(path, {"cmd": "identify"})
-            if isinstance(reply, dict) and ((reply.get("data") or {}).get("pid")) == int(pid):
-                self.path = path
-                return path
-        self.reason = f"no socket of daemon pid {int(pid)} answered identify with its pid"
-        return None
-
-    def read(self) -> DaemonReading:
-        path = self.locate()
-        if path is None:
-            return DaemonReading(None, reason=self.reason)
-        return parse_daemon_stats(self.request(path, {"cmd": "server-stats", "include": [DAEMON_SECTION]}))
-
-
-def listening_sockets(pid: int) -> List[str]:
-    """The unix socket paths `pid` has open (`lsof -a -p PID -U -F n`), `.sock` names first."""
-    try:
-        done = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-F", "n"], capture_output=True, text=True,
-                              timeout=20, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    paths = [line[1:] for line in done.stdout.splitlines() if line.startswith("n/")]
-    return sorted(set(paths), key=lambda p: (not p.endswith(".sock"), p))
-
-
+# readiness-soak.py loads this file by path for this request (its daemon socket reads).
 def daemon_request(path: str, command: dict, timeout: float = 10) -> Optional[dict]:
     """One newline-JSON request on the daemon socket; its reply, or None when the socket does not answer."""
     try:
@@ -419,7 +337,6 @@ def daemon_request(path: str, command: dict, timeout: float = 10) -> Optional[di
 class Reading:
     blocking: BlockingReading
     hangs: HangsReading
-    daemon: DaemonReading
 
 
 class Window:
@@ -427,9 +344,8 @@ class Window:
     window ended normally). A failure is kept on `error` and raised, so the caller still sees it after a harness
     that catches its stage's exceptions."""
 
-    def __init__(self, rpc: Callable, daemon: Optional[DaemonProbe] = None):
+    def __init__(self, rpc: Callable):
         self.rpc = rpc
-        self.daemon = daemon or DaemonProbe(rpc)
         self.before: Optional[Reading] = None
         self.after: Optional[Reading] = None
         self.error: Optional[Exception] = None
@@ -454,7 +370,7 @@ class Window:
                       {"after": before.hangs.last_stall, "thread_hangs_after": before.hangs.last_thread_hang,
                        "over_budget_after": SKIP_RECORDS})
             hangs = parse_hangs(self.rpc("debug.hangs", params, timeout=30))
-            return Reading(blocking, hangs, self.daemon.read())
+            return Reading(blocking, hangs)
         return self._keep(read)
 
     def __enter__(self) -> "Window":
@@ -467,14 +383,13 @@ class Window:
         return False
 
     def measured(self) -> dict:
-        """The window's blocking, hangs and daemon parts."""
+        """The window's blocking and hangs parts."""
         if self.error is not None:
             raise self.error
         if self.before is None or self.after is None:
             raise LegError("the measured window did not finish: no reading at its end")
         return {"blocking": blocking_window(self.before.blocking, self.after.blocking),
-                "hangs": hangs_window(self.before.hangs, self.after.hangs),
-                "daemon": daemon_window(self.before.daemon, self.after.daemon)}
+                "hangs": hangs_window(self.before.hangs, self.after.hangs)}
 
 
 # ---------------------------------------------------------------- results
@@ -521,11 +436,6 @@ def leg_metrics(leg: Leg, measured: dict) -> Dict[str, int]:
         for role in THREAD_ROLES:
             if role not in hangs["roles"]:
                 leg.unseen[f"hang_watch.{role}"] = UNREGISTERED
-    daemon = measured["daemon"]
-    if "unseen" in daemon:
-        leg.unseen["daemon"] = daemon["unseen"]
-    else:
-        metrics[f"{leg.metric_prefix}{DAEMON_METRIC}"] = daemon["over_250ms"]
     return metrics
 
 
@@ -548,8 +458,7 @@ def write_attachment(out: str, blobs, leg: Leg, measured: dict, metrics: Dict[st
            "metrics": dict(sorted(metrics.items())), "unseen": dict(sorted(leg.unseen.items())),
            "blocking": measured["blocking"],
            "hangs": {"main_stalls": measured["hangs"]["stalls"], "thread_hangs": measured["hangs"]["thread_hangs"],
-                     "threshold_ms": measured["hangs"]["threshold_ms"]},
-           "daemon": measured["daemon"]}
+                     "threshold_ms": measured["hangs"]["threshold_ms"]}}
     data = (json.dumps(doc, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
     digest = f"sha256:{hashlib.sha256(data).hexdigest()}"
     blobs.put(attachment_key(digest), data, "application/json")
@@ -602,7 +511,7 @@ def storm_recording(trace):
             return super().build_stress()
 
         def run_window(self):
-            self.window = Window(self.rpc, self.window.daemon if self.window else None)
+            self.window = Window(self.rpc)
             with self.window:
                 super().run_window()
 
