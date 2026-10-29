@@ -11,6 +11,7 @@ tests that build a git environment from scratch pass it through
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import MutableMapping
 
 _KEY = "maintenance.auto"
@@ -29,6 +30,21 @@ def without_auto_maintenance(env: MutableMapping[str, str]) -> MutableMapping[st
     env[f"GIT_CONFIG_KEY_{count}"] = _KEY
     env[f"GIT_CONFIG_VALUE_{count}"] = "false"
     env["GIT_CONFIG_COUNT"] = str(count + 1)
+    return env
+
+
+# The pinned lint tools (ast-grep is 54 MB) of this machine, as prepush-gate.tools_dir() finds them, read before a
+# fixture sets HOME: a fixture's hook then finds them instead of downloading them again in every setUp.
+_LINT_TOOLS = os.environ.get("CMUX_LINT_TOOLS_DIR") or str(
+    os.path.join(os.path.expanduser("~"), "Library", "Caches", "cmux-lint-tools") if sys.platform == "darwin"
+    else os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache"),
+                      "cmux-lint-tools"))
+
+
+def with_lint_tools(env: MutableMapping[str, str]) -> MutableMapping[str, str]:
+    """Point env's pinned-tool cache (CMUX_LINT_TOOLS_DIR) at this machine's, so an installed fixture hook copies
+    or uses the cached, sha256-checked tools and never downloads them."""
+    env["CMUX_LINT_TOOLS_DIR"] = _LINT_TOOLS
     return env
 
 

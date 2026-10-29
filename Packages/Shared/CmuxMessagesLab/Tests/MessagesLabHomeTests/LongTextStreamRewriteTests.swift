@@ -15,10 +15,12 @@ import Testing
         let first = try #require(store.lineage(text))
         // The style closes: the markers go, the text gets shorter.
         let rewritten = String(text.dropLast("**bol".count)) + "bold"
-        let builds = LongTextStats.indexBuilds
+        // This store's own count: LongTextStats is process-wide, and a suite that runs at the same time
+        // (CatalystCachesSendableTests builds indexes on many threads) moves it.
+        let builds = store.lineagesIssued
         _ = store.size(rewritten, width: 760)
         #expect(store.lineage(rewritten) == first)
-        #expect(LongTextStats.indexBuilds == builds, "no index from the start")
+        #expect(store.lineagesIssued == builds, "no index from the start")
         // A different text with the same start but no shared block still gets its own lineage.
         let other = String(text.prefix(300)) + "different"
         _ = store.size(other, width: 760)
