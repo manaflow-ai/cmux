@@ -80,6 +80,9 @@ UNGATED_BLACKSMITH_ALLOWED = {
     ("ci-repo-variables.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
         "report text that prints the lane's effective label, not a runs-on value"
     ),
+    ("ci-queue-janitor.yml", "MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}"): (
+        "raw inventory data used to evaluate a rerun's route, not a runner selection"
+    ),
 }
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
 # read before the fork branch.

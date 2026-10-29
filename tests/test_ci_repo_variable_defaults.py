@@ -89,6 +89,8 @@ GATE_EXEMPT_REPORTING_READS = {
         "validates each runner variable's value; gating would validate empty",
     ("ci-repo-variables.yml", "CMUX_CI_RUNS_ON_VARIABLES"):
         "checks each runs-on variable's value for one machine; gating would check empty",
+    ("ci-queue-janitor.yml", "CMUX_CI_RUNS_ON_VARIABLES"):
+        "evaluates where a queued run would reroute; gating would hide the current route",
     ("ci-cloud-overflow-probe.yml", "CMUX_CI_RUNNER_VARIABLES"):
         "the overflow switch records each value to put back; gating would record empty",
 }
