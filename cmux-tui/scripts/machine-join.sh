@@ -22,6 +22,9 @@
 #
 # Source: cmux-tui/scripts/machine-join.sh in manaflow-ai/cmux; the
 # platform serves a copy with its own origin written in.
+# No tracing and no automatic export, even when bash inherits them through
+# SHELLOPTS: either would put the token on stderr or in children's env.
+set +ax
 set -eu
 umask 077
 

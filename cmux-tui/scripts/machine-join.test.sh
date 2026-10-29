@@ -239,6 +239,16 @@ suite() {
   run_join arg t=caller-value
   check "exported t, arg form: no env leak" no_env_leak
 
+  # bash takes allexport and xtrace from an inherited SHELLOPTS.
+  for opts in allexport xtrace allexport:xtrace; do
+    new_case "shellopts-$opts"
+    run_join env SHELLOPTS="$opts"
+    check "SHELLOPTS=$opts: exit 0 (got $rc): $(tail -3 "$d/out")" rc_is 0
+    check "SHELLOPTS=$opts: no env leak: $(cat "$d/log/env-leak" 2>/dev/null)" no_env_leak
+    check "SHELLOPTS=$opts: no token in output" no_token_in_output
+    check "SHELLOPTS=$opts: token on stdin" token_on_stdin_once
+  done
+
   new_case arg-form
   run_join arg
   check "exit 0 (got $rc): $(cat "$d/out")" rc_is 0
