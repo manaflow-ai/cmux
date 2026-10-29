@@ -239,7 +239,8 @@ import Testing
         func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
         func controls() throws -> (NativePopupContent, NSSearchField) {
             let panel = try #require(window.childWindows?.compactMap { $0 as? NativePopupPanel }.first)
-            let content = try #require(descendants(try #require(panel.contentView)).compactMap { $0 as? NativePopupContent }.first)
+            let root = try #require(panel.contentView)
+            let content = try #require(descendants(root).compactMap { $0 as? NativePopupContent }.first)
             return (content, try #require(content.subviews.compactMap { $0 as? NSSearchField }.first))
         }
         #expect(host.show(model)["shown"] as? Bool == true)
