@@ -435,11 +435,12 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "running" } },
       });
+      await page.locator('.cv-compaction[data-state="running"]').last().waitFor();
       recordInbound("compaction", {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "completed" } },
       });
-      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(1);
+      await page.locator('.cv-compaction[data-state="completed"]').waitFor();
       await page.close();
     });
 
