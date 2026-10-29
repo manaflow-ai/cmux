@@ -129,6 +129,23 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect([malformed.status, malformed.body.error?.code, gh.mints().length]).toEqual([400, "request.invalid", 2])
 
     expect((await op(a.session, "integration.revoke", { connection: original })).body.value.status).toBe("revoked")
+    // Broker tokens from the disconnected link are marked synchronously, and
+    // GitHub DELETE is retried by the existing alarm without touching link B.
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const rows = instance.ctx.storage.sql.exec(
+        "SELECT token_id, connection_id, revoking FROM github_tokens WHERE token_id IN (?, ?)",
+        selected.body.token_id, second.body.token_id,
+      ).toArray() as Array<{ token_id: string; connection_id: string; revoking: number }>
+      const firstRow = rows.find((row) => row.token_id === selected.body.token_id)
+      const secondRow = rows.find((row) => row.token_id === second.body.token_id)
+      expect(firstRow === undefined || firstRow.revoking === 1).toBe(true)
+      expect(secondRow).toMatchObject({ connection_id: another, revoking: 0 })
+    })
+    for (let i = 0; i < 5 && !gh.deletes().some((call) => call.auth === `Bearer ${selected.body.token}`); i++) {
+      await fireAlarm(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)))
+    }
+    expect(gh.deletes().map((call) => call.auth)).toContain(`Bearer ${selected.body.token}`)
+    expect(gh.deletes().map((call) => call.auth)).not.toContain(`Bearer ${second.body.token}`)
     const revoked = await token(a.session, { ...ask, connection: original })
     expect([revoked.status, revoked.body.error?.code, gh.mints().length]).toEqual([404, "integration.not_found", 2])
     const stillLive = await token(a.session, { ...ask, connection: another })
