@@ -234,6 +234,8 @@ pub enum Command {
         #[arg(long, value_name = "FILE")]
         attach: Vec<PathBuf>,
     },
+    /// Team-scoped durable messages. Requires Labs `meshRelay.teamMessaging`.
+    Inbox(InboxArgs),
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
     /// ACP session (or `--from` when the daemon can bind that session).
@@ -531,6 +533,10 @@ pub enum Command {
     Config {
         #[arg(long)]
         show_token: bool,
+        /// Set a daemon host-wide setting as KEY=VALUE (for example,
+        /// `session.memory_mb=6144` or `session.swap_mb=2048`).
+        #[arg(long, value_name = "KEY=VALUE")]
+        set: Option<String>,
     },
     #[command(hide = true)]
     DaemonRun {
@@ -789,7 +795,13 @@ pub enum SessionCmd {
         force_admit: bool,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
-    Set { session: String, assignment: String },
+    Set {
+        session: String,
+        assignment: Option<String>,
+        /// Claim a team-scoped address (for example `coordinator`).
+        #[arg(long, conflicts_with = "assignment")]
+        team_address: Option<String>,
+    },
     /// Answer a pending permission request. The daemon accepts an allow
     /// only from the cmux app (approve it on the Mac app); a deny option
     /// works from here.
@@ -880,6 +892,25 @@ pub enum SessionCmd {
     },
 }
 
+#[derive(Args)]
+pub struct InboxArgs {
+    /// Continue browsing from the previous JSON response's `next` cursor.
+    #[arg(long)]
+    pub before: Option<u64>,
+    #[command(subcommand)]
+    pub command: Option<InboxCmd>,
+}
+
+#[derive(Subcommand)]
+pub enum InboxCmd {
+    /// List team messages currently held by the hub.
+    List,
+    /// Read one message by id (the message remains acknowledged only when `ack` is used).
+    Read { id: String },
+    /// Acknowledge one team message.
+    Ack { id: String },
+}
+
 #[derive(Subcommand)]
 pub enum DaemonCmd {
     /// Run the daemon in the foreground.
@@ -957,6 +988,9 @@ pub enum DaemonCmd {
         /// Print the bearer tokens too (`--json` always has them).
         #[arg(long)]
         show_token: bool,
+        /// Set a host-wide session resource setting as KEY=VALUE.
+        #[arg(long, value_name = "KEY=VALUE")]
+        set: Option<String>,
     },
     /// Show configured harnesses with their family and defaults.
     Harnesses,
@@ -1106,7 +1140,12 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Fork { session, name, cwd, force_admit } => {
                 Command::Fork { session, name, cwd, force_admit }
             }
-            SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
+            SessionCmd::Set { session, assignment, team_address } => Command::Set {
+                session,
+                assignment: assignment
+                    .or_else(|| team_address.map(|address| format!("team-address={address}")))
+                    .unwrap_or_default(),
+            },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
@@ -1157,7 +1196,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
-            DaemonCmd::Config { show_token } => Command::Config { show_token },
+            DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Retention(args) => Command::Retention(args),
@@ -1472,5 +1511,23 @@ mod help_contract_tests {
         let shapes = command_shapes();
         let words = ["acpmux", "host", "statuz"].into_iter().map(str::to_owned).collect::<Vec<_>>();
         assert!(documented_shape(&words, &shapes).is_none());
+    }
+}
+
+#[cfg(test)]
+mod config_set_tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn config_set_accepts_session_resource_assignment() {
+        let cli =
+            Cli::try_parse_from(["acpmux", "config", "--set", "session.memory_mb=6144"]).unwrap();
+        match cli.command {
+            Some(Command::Config { set: Some(value), .. }) => {
+                assert_eq!(value, "session.memory_mb=6144")
+            }
+            _ => panic!("unexpected command"),
+        }
     }
 }

@@ -322,13 +322,13 @@ async fn dispatch_brief(
             );
         }
         let original = params.clone();
-        params["forwarded"] = json!(true);
-        params["host"] = json!(peer_name);
-        params["briefId"] = json!(id);
-        params["_meta"]["acpmux"]["dispatchSource"] = json!({
+        params.set("forwarded", json!(true));
+        params.set("host", json!(peer_name));
+        params.set("briefId", json!(id));
+        params.set_path(&["_meta", "acpmux", "dispatchSource"], json!({
             "from": conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label()),
             "host": crate::host_pressure::host_name(),
-        });
+        }));
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, &original, &mut params);
         let result = match peer.request(method::MUX_DISPATCH, params).await {
             Ok(result) => result,
@@ -398,7 +398,7 @@ async fn dispatch_brief(
         }
     }
     if let Some(cwd) = pick("cwd") {
-        new_params["cwd"] = json!(cwd);
+        new_params.set("cwd", json!(cwd));
     }
     let requested_approve_all = new_params
         .pointer("/_meta/acpmux/policy")
@@ -472,15 +472,15 @@ async fn dispatch_brief(
     let session = hub.resolve(&sid)?;
     let mut record = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":match params.get("host").and_then(Value::as_str) { None => json!("local"), Some("auto") if !forwarded => json!("local"), Some(h) => json!(h) },"stopCondition":stop,"status":"running","sessionId":sid,"harness":session.meta().harness,"model":session.meta().model_request});
     if let Some(key) = idempotency {
-        record["idempotencyKey"] = json!(key);
+        record.set("idempotencyKey", json!(key));
     }
     if let Some(caller) = conn.caller() {
-        record["fromSession"] = json!(caller); // its result card's chat (`hub/tasks.rs`)
+        record.set("fromSession", json!(caller)); // its result card's chat (`hub/tasks.rs`)
     }
     let row = hub.briefs.put(record);
     let mut prompt = json!({"sessionId":session.id,"text":row.get("brief"),"_meta":{"acpmux":{"briefId":id,"fromAgent":row.get("from")}}});
     if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
-        prompt["_meta"]["acpmux"]["via"] = via;
+        prompt.set_path(&["_meta", "acpmux", "via"], via);
     }
     let task_hub = hub.clone();
     let task_conn = conn.clone();
@@ -700,7 +700,7 @@ async fn dispatch_request(
             let extensions: &[&str] = &[
                 method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
-                method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
+                method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
             ];
@@ -1882,6 +1882,10 @@ async fn dispatch_request(
         | method::MUX_MAIL_READ
         | method::MUX_MAIL_WAIT
         | method::MUX_MAIL_ACK => mailbox::handle(hub, conn, m, &params).await,
+        method::MUX_TEAM_SEND
+        | method::MUX_TEAM_INBOX
+        | method::MUX_TEAM_READ
+        | method::MUX_TEAM_ACK => super::team::handle(hub, conn, m, &params).await,
         method::MUX_RENAME => {
             let s = hub.resolve(session_key(&params)?)?;
             let name = str_param(&params, "newName")

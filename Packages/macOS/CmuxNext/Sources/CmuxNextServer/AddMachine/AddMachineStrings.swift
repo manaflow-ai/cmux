@@ -65,6 +65,7 @@ nonisolated enum AddMachineStrings {
         case "platform": s("addMachine.step.platform", "Reach the machines service")
         case "listed": s("addMachine.step.listed", "Listed in your machines")
         case "mesh": s("addMachine.step.mesh", "Reach it through the mesh")
+        case "check": s("addMachine.step.check", "Check it")
         default: nil
         }
     }
