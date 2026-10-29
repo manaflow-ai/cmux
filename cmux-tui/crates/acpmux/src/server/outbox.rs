@@ -379,6 +379,11 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
     {
         return super::mesh_send::status(hub, conn, mesh, id).await;
     }
+    outbox_status(hub, id, params).await
+}
+
+/// `_acpmux/send_status` of an outbox delivery `id`, waiting up to `waitMs` for it to settle.
+async fn outbox_status(hub: &Arc<Hub>, id: &str, params: &Value) -> Result<Value, RpcError> {
     let wait = params.get("waitMs").and_then(Value::as_u64).unwrap_or(0).min(MAX_STATUS_WAIT_MS);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(wait);
     loop {
@@ -764,8 +769,7 @@ mod forward_projection_tests {
         resume(&restarted, pending);
         let loading = restarted.clone();
         tokio::spawn(async move { loading.load_store_async().await });
-        let done =
-            status(&restarted, &json!({"deliveryId": intent_id, "waitMs": 10_000})).await.unwrap();
+        let done = outbox_status(&restarted, &intent_id, &json!({"waitMs": 10_000})).await.unwrap();
         assert_eq!(done["status"], "delivered", "{done}");
         let page = restarted
             .events_page(&sender.id, 0, None, 500, None, false, &EventFilter::parse(None).unwrap())
