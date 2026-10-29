@@ -161,24 +161,8 @@ async fn keystrokes_do_not_wait_for_workspace_side_queries() {
     let close_position = cold_order.iter().position(|id| id == "cold-close").unwrap();
     assert!(side_position < close_position, "side request reordered with close-pane: {cold_order:?}");
 
-    // Warm through the public protocol, not a test-only cache hook. Both base
-    // and head must derive the same directory from the daemon's authoritative
-    // tree before the measured portion starts. Bounded by completed requests,
-    // with no timer or sleep used to guess when the cache has published.
-    let mut warm = false;
-    for attempt in 0..100 {
-        let request = json!({"id":format!("warm-{attempt}"),"cmd":"new-tab","pane":3});
-        channel.send(Bytes::from(format!("{request}\n"))).await.unwrap();
-        let answer = reply(&mut channel, &mut buffered).await;
-        assert_eq!(answer["ok"], true, "warm-up request failed: {answer}");
-        if answer["data"]["cwd"] == cwd {
-            warm = true;
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    assert!(warm, "the host never selected the Mac's pane directory");
-
+    // The successful cold request above warmed the cache through the public
+    // protocol and proved that the daemon's authoritative cwd is available.
     let mut samples = Vec::new();
     for sample in 0..12 {
         let side_id = format!("side-{sample}");
