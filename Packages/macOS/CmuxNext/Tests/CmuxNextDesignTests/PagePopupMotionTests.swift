@@ -15,13 +15,13 @@ import Testing
         let (window, page) = try Self.page()
         defer { window.orderOut(nil) }
         let host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
-        // The open and the close start with movement on; synchronous inside: the override is process-wide.
+        // Opening is synchronous; the close may animate. The override is process-wide.
         let (reply, panel, opened) = try { () throws -> ([String: Any], WebPopupPanel, Bool) in
             Motion.reduceMotionOverride = false
             defer { Motion.reduceMotionOverride = nil }
             let reply = host.show(try Self.menu(["a", "b"]))
             let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
-            return (reply, panel, panel.contentView?.layer?.animation(forKey: "sublayerTransform") != nil)
+            return (reply, panel, panel.contentView?.layer?.animationKeys()?.isEmpty ?? true)
         }()
         #expect(!panel.hasShadow, "the system window shadow")
         let card = try #require(panel.contentView as? PopupHostView, "no popup shadow").card
@@ -29,7 +29,7 @@ import Testing
         let frame = try #require(reply["frame"] as? [CGFloat])
         #expect(host.shownFrame == CGRect(x: frame[0], y: frame[1], width: frame[2], height: frame[3]))
         #expect(host.shownFrame?.size == card.frame.size)
-        #expect(opened, "opened in one frame")
+        #expect(opened, "the menu animated in")
 
         host.hide()
         #expect(panel.isVisible, "closed in one frame")
@@ -78,8 +78,7 @@ import Testing
         #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
     }
 
-    /// Native menus and popovers use the host's default: no entrance motion. The explicit
-    /// `entrance` opt-in remains available for the command palette's own presentation.
+    /// Native menus and popovers use the host's default: no entrance motion.
     @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func aNativePopupDefaultsToAnInstantOpenAndFadesOnClose() async throws {
         let (window, _) = try Self.page()

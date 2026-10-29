@@ -7,8 +7,8 @@ public import AppKit
 /// and moves with the window. The host owns what every popup shares:
 ///
 /// - placement: below the anchor or above it on the screen (``PopupPlacement``);
-/// - motion: opens in one frame by default; an explicit entrance grows out of the anchor and
-///   shrinks back toward it on the card's layer (``NSWindow/openPopup(pivot:entrance:)``);
+/// - motion: opens in one frame and shrinks back toward the anchor on close
+///   (``NSWindow/openPopup(pivot:)``);
 /// - dismiss rules: a click outside the popup (``keepsOpen`` lists the clicks that do not count),
 ///   Escape in the popup, the app going inactive, the window moving, resizing, closing or
 ///   minimizing, and for a ``NativePopupPanel`` the popup losing the keys.
@@ -22,7 +22,7 @@ public final class NativePopupHost {
     public var keepsOpen: (NSEvent) -> Bool = { _ in false }
     /// The popup closed by a dismiss rule; ``hide()`` does not call it.
     public var onDismiss: (() -> Void)?
-    /// The control the popup opened from (screen), which it grows from and shrinks toward.
+    /// The control the popup opened from (screen), which it closes toward.
     public private(set) var anchor: CGRect = .zero
     /// Fading out after a hide: gone for the owner and for tests.
     public private(set) var isClosing = false
@@ -62,12 +62,11 @@ public final class NativePopupHost {
     /// Shows (or moves) the popup with a card of `size` at `anchor` (screen) over `window`.
     /// `trailing` and `centered` align it on the anchor (``PopupPlacement/frame(anchor:size:preferred:trailing:centered:screen:gap:margin:)``).
     /// `makeKey` gives it the keys (a ``NativePopupPanel`` takes them only while the app is
-    /// active). `entrance` false shows it in one frame, with no grow or fade in (its close still
-    /// fades). Returns the card frame and the side it took, or nil when it cannot show.
+    /// active). The popup shows in one frame, with no grow or fade in; its close still fades.
+    /// Returns the card frame and the side it took, or nil when it cannot show.
     @discardableResult
     public func show(size: CGSize, anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
-                     trailing: Bool = false, centered: Bool = false, makeKey: Bool = false,
-                     entrance: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
+                     trailing: Bool = false, centered: Bool = false, makeKey: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
         guard window.isVisible, let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return nil }
         let (frame, side) = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
                                                  centered: centered, screen: screen.visibleFrame)
@@ -85,9 +84,7 @@ public final class NativePopupHost {
         // Opens like every native popup (no flash); a popup already open stays put.
         if opening, !panel.isVisible { panel.alphaValue = 0 }
         if makeKey { panel.makeKeyAndOrderFront(nil) } else { panel.orderFront(nil) }
-        if opening {
-            if entrance { panel.openPopup(pivot: panel.popupPivot(toward: anchor), entrance: true) } else { panel.showPopupAtOnce() }
-        }
+        if opening { panel.openPopup(pivot: panel.popupPivot(toward: anchor)) }
         watch(window)
         return (frame, side)
     }

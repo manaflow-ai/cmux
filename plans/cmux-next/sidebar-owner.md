@@ -28,6 +28,10 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## Group editor opens in one frame (2026-10-29)
+
+- Leo 2026-10-24: "why the fuck would you fade in opening up a fucking menu? Just open the menu... Every single fucking instance." The group editor opens at final opacity and size without entrance motion; its placement, contents, colors and closing fade/shrink stay unchanged. This intentionally takes back #26400's opening animation. Native motion coverage: `PopupGrowMotionTests`, `PagePopupMotionTests`. Real light/dark app captures remain pending the coordinator's Swift HOLD #26809.
+
 ## Target look (Lawrence's words win)
 
 | Part | Target | Source |
