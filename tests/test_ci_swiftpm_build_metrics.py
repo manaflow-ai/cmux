@@ -69,6 +69,9 @@ runs.write_text(runs.read_text() + 'run\\n' if runs.exists() else 'run\\n')
 print('[1/2] Compiling CmuxNextAgentPane AcpmuxStatusClient.swift', flush=True)
 if os.environ.get('FAKE_STALE_ALWAYS') or pathlib.Path(os.environ['FAKE_STALE']).exists():
     sys.stdout.write(os.environ['FAKE_LINK_OUTPUT'])
+    sys.stdout.flush()
+    if os.environ.get('FAKE_LINK_SIGNAL'):
+        os.kill(os.getpid(), int(os.environ['FAKE_LINK_SIGNAL']))
     sys.exit(1)
 print('Build complete! (0.1s)')
 """
@@ -238,6 +241,9 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
             (debug / f"{module}.build").mkdir(parents=True)
             for name in objects:
                 (debug / f"{module}.build" / name).write_text("object")
+                (debug / f"{module}.build" / name.replace(".o", ".swiftdeps")).write_text("deps")
+            (debug / f"{module}.build/primary.priors").write_text("graph")
+            (debug / f"{module}.build/output-file-map.json").write_text("{}")
         (target / "build.db").write_text("warm")
         (self.package / ".build").symlink_to(target, target_is_directory=True)
         swift = self.bin / "swift"
@@ -265,13 +271,14 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
         self.assertEqual(receipt["attempts"], 2)
         self.assertEqual(receipt["exit_code"], 0)
         self.assertEqual(receipt["stale_link_retry"], {
-            "detected": True, "first_exit_code": 1,
+            "detected": True, "first_exit_code": 1, "crashed": False,
             "cleared": ["arm64-apple-macosx/debug/CmuxNextAgentPane.build", "arm64-apple-macosx/debug/CmuxNextAppUI.build"],
         })
-        self.assertFalse((debug / "CmuxNextAgentPane.build").exists())
-        self.assertFalse((debug / "CmuxNextAppUI.build").exists())
+        for module in ("CmuxNextAgentPane", "CmuxNextAppUI"):
+            # Objects and incremental state go; the planning files SwiftPM wrote stay.
+            self.assertEqual(sorted(path.name for path in (debug / f"{module}.build").iterdir()), ["output-file-map.json"])
         self.assertTrue((debug / "CmuxNextSidebar.build/Sidebar.swift.o").is_file())
-        self.assertEqual(list(debug.glob("*.stale-*")), [])
+        self.assertTrue((debug / "CmuxNextSidebar.build/primary.priors").is_file())
         self.assertIn(b"Stale SwiftPM objects", result.stderr)
         self.assertIn(b"Undefined symbols for architecture arm64", (self.output / "swift-test.log").read_bytes())
 
@@ -289,7 +296,7 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
         result, receipt = self.run_build(**self.link_env(debug, FAKE_LINK_OUTPUT=foreign))
         self.assertEqual(result.returncode, 1)
         self.assertEqual(self.runs.read_text().count("run"), 1)
-        self.assertEqual(receipt["stale_link_retry"], {"detected": True, "first_exit_code": 1, "cleared": []})
+        self.assertEqual(receipt["stale_link_retry"], {"detected": True, "first_exit_code": 1, "cleared": [], "crashed": False})
         self.assertTrue((debug / "CmuxNextAgentPane.build").is_dir())
         self.runs.unlink()
         result, receipt = self.run_build(**self.link_env(debug, FAKE_LINK_OUTPUT="error: no such module 'Foo'\n"))
@@ -297,6 +304,43 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
         self.assertEqual(self.runs.read_text().count("run"), 1)
         self.assertFalse(receipt["stale_link_retry"]["detected"])
         self.assertEqual(receipt["attempts"], 1)
+
+
+    def test_a_c_symbol_referenced_from_an_object_of_the_build_is_not_a_stale_object(self):
+        debug = self.stale_build()
+        c_symbol = ('Undefined symbols for architecture arm64:\n  "_inflateEnd", referenced from:\n'
+                    '      _close in AcpmuxHarnessList.swift.o\nld: symbol(s) not found for architecture arm64\n')
+        self.assertEqual(METRICS.stale_link_modules(self.package / ".build", c_symbol.splitlines()), [])
+        result, receipt = self.run_build(**self.link_env(debug, FAKE_LINK_OUTPUT=c_symbol))
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.runs.read_text().count("run"), 1)
+        self.assertEqual(receipt["stale_link_retry"]["cleared"], [])
+        self.assertTrue((debug / "CmuxNextAgentPane.build/AcpmuxHarnessList.swift.o").is_file())
+
+    def test_a_signalled_or_crashed_build_is_never_retried_even_after_undefined_symbols(self):
+        for environment, code in (({"FAKE_LINK_SIGNAL": str(int(signal.SIGABRT))}, 128 + signal.SIGABRT),
+                                  ({"FAKE_LINK_OUTPUT": STALE_LINK + "Stack dump:\n0. Program arguments: swift-frontend\n"}, 1),
+                                  ({"FAKE_LINK_OUTPUT": "\x1b[1mUndefined symbols\x1b[0m" + STALE_LINK.split("Undefined symbols", 1)[1]
+                                    + "error: compile command failed due to signal 6\n"}, 1)):
+            with self.subTest(environment=sorted(environment)):
+                if self.package.joinpath(".build").is_symlink():
+                    self.package.joinpath(".build").unlink()
+                    shutil.rmtree(Path(self.temporary.name) / "spm-scratch")
+                debug = self.stale_build()
+                result, receipt = self.run_build(**self.link_env(debug, **environment))
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertEqual(self.runs.read_text().count("run"), 1)
+                self.runs.unlink()
+                self.assertEqual(receipt["attempts"], 1)
+                self.assertFalse(receipt["stale_link_retry"]["detected"])
+                self.assertTrue((debug / "CmuxNextAgentPane.build/AcpmuxHarnessList.swift.o").is_file())
+
+    def test_ansi_coloured_link_output_is_still_read(self):
+        debug = self.stale_build()
+        coloured = "\n".join(f"\x1b[0;1m{line}\x1b[0m" for line in STALE_LINK.splitlines()) + "\n"
+        result, receipt = self.run_build(**self.link_env(debug, FAKE_LINK_OUTPUT=coloured))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(receipt["attempts"], 2)
 
 
 if __name__ == "__main__":
