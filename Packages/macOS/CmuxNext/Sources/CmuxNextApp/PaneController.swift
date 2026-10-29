@@ -490,7 +490,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // The content may have brought its tab's node with it (an adopted stand-in, `TabContentCache.moveNode`): the pane
         // selects the node the cache has for the key now, so what it shows hangs under the node it shows (a no-op when
         // that node is already the selected one).
-        if let key, key == stripModel.selectedID?.rawValue { selectTabNode(key) }
         if buildsAtLaunch, content != nil { services.launchPanes.noteBuilt() }
         DebugTabSwitch.mark(self, "content")
         if let content, let key { DebugTabSwitch.content(self, content, key: key) }
