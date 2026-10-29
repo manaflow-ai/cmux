@@ -129,7 +129,7 @@ impl Hub {
         let hub = self.clone();
         tokio::task::spawn_blocking(move || {
             let _running = running;
-            hub.retain_logs(keep, &req, only)
+            crate::qos::background(|| hub.retain_logs(keep, &req, only))
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?

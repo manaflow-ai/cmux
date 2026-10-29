@@ -145,7 +145,11 @@ impl super::Hub {
                 every.tick().await;
                 let Some(max_age) = hub.config.read().await.uploads_max_age() else { continue };
                 let now = crate::store::now_ms();
-                match tokio::task::spawn_blocking(move || sweep(&root(), now, max_age)).await {
+                match tokio::task::spawn_blocking(move || {
+                    crate::qos::background(|| sweep(&root(), now, max_age))
+                })
+                .await
+                {
                     Ok(0) => {}
                     Ok(n) => tracing::info!(uploads = n, "deleted uploads past the age cap"),
                     Err(e) => tracing::warn!("the upload sweep failed: {e}"),

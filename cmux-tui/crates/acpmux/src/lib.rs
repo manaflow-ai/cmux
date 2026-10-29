@@ -97,6 +97,7 @@ pub mod prompt_provenance;
 pub mod prompt_uploads;
 pub mod protected_folders;
 pub mod protocol;
+pub mod qos;
 pub mod question_answer;
 pub mod recovery;
 pub mod registry;

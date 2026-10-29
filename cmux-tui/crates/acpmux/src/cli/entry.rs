@@ -47,11 +47,15 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     crate::daemon::set_daemon_prefix(invocation.daemon_prefix.clone());
     // An agent host serves one harness for its controller; it has no CLI.
+    // Agent work yields CPU and disk to the app (`qos.rs`): before any thread
+    // starts, since on macOS this re-executes the host in place under a clamp.
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
+        crate::qos::enter(crate::qos::Role::AgentHost);
         return crate::agent_host::host::main();
     }
     // A background task's runner (`bg_run.rs`): one task, no CLI.
     if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
+        crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
     }
     #[cfg(target_os = "linux")]
@@ -167,6 +171,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 )
                 .with_target(false)
                 .init();
+            crate::qos::enter(crate::qos::Role::Daemon);
             let result = crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
