@@ -12,6 +12,7 @@ What runs, per area touched by the change:
   its package.json (the exact step CI runs: Oxfmt, Oxlint with the type check,
   and webviews' source checks such as check:browser-lanes). The `&&` pieces of
   that script run at once, so the hook costs the slowest piece, not the sum.
+  Set WEB_LINT_JOBS=1 on memory-constrained hosts to run every check serially.
 * cmux-tui/frontends/web/ imports `cmux` from cmux-tui/bindings/typescript, whose exports
   point at a tsc-built dist/. That package is installed and built first, as CI does (npm ci,
   npm run build; bun when npm is missing), and only when its inputs changed since the last
@@ -417,6 +418,20 @@ def eslint_command(repo: Path, directory: str, files: list[str], fix: bool, cach
     return command + relative
 
 
+def lint_workers(job_count: int) -> int:
+    """Bound check concurrency without dropping checks; preserve the default eight-worker cap."""
+    value = os.environ.get("WEB_LINT_JOBS")
+    if value is None:
+        return max(1, min(8, job_count))
+    try:
+        requested = int(value)
+    except ValueError:
+        raise SystemExit("web-lint: WEB_LINT_JOBS must be a positive integer") from None
+    if requested < 1:
+        raise SystemExit("web-lint: WEB_LINT_JOBS must be a positive integer")
+    return max(1, min(requested, job_count))
+
+
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True) -> list[Result]:
     stale, failures = prepare_builds(repo, plan.script_packages)
     if failures:
@@ -440,7 +455,7 @@ def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True) -> list[Resu
     for directory, files in plan.eslint_files.items():
         jobs.append((directory, eslint_command(repo, directory, files, False, cache), repo / directory,
                      package_env(repo, directory)))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(8, len(jobs)))) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=lint_workers(len(jobs))) as pool:
         return list(pool.map(lambda job: run(*job), jobs))
 
 

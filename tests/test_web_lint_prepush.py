@@ -14,13 +14,14 @@ import subprocess
 import tempfile
 import sys
 import unittest
+from unittest.mock import patch
 import git_fixture_env  # disables git auto maintenance
 
 
 SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
-              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON")
+              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "WEB_LINT_JOBS")
 
 # Two `&&` pieces, as webviews' real check script has many; each fails on BAD.
 WEBVIEWS_PACKAGE = """{
@@ -66,6 +67,22 @@ def load_lint(repo):
     sys.modules[spec.name] = module  # dataclasses look their module up
     spec.loader.exec_module(module)
     return module
+
+
+class WebLintWorkersTests(unittest.TestCase):
+    def test_default_and_explicit_limits(self):
+        lint = load_lint(SOURCE)
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(lint.lint_workers(20), 8)
+            self.assertEqual(lint.lint_workers(2), 2)
+            self.assertEqual(lint.lint_workers(0), 1)
+        for configured, expected in [("1", 1), ("3", 3), ("40", 20)]:
+            with self.subTest(configured=configured), patch.dict(os.environ, WEB_LINT_JOBS=configured):
+                self.assertEqual(lint.lint_workers(20), expected)
+        for invalid in ["0", "-1", "abc", "1.5", ""]:
+            with self.subTest(invalid=invalid), patch.dict(os.environ, WEB_LINT_JOBS=invalid):
+                with self.assertRaisesRegex(SystemExit, "WEB_LINT_JOBS must be a positive integer"):
+                    lint.lint_workers(20)
 
 
 class WebLintPrePushTests(unittest.TestCase):
@@ -364,6 +381,14 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("app/page.tsx: error no-bad", result.stderr)
+
+    def test_serial_checks_all_run_and_report_each_failure(self):
+        self.write("webviews/src/app.ts", "BAD_LANE BAD_FORMAT\n")
+        result = subprocess.run(["scripts/web-lint.sh"], cwd=self.repo,
+                                env={**self.env, "WEB_LINT_JOBS": "1"}, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("browser lane import outside a lane file", result.stderr)
+        self.assertIn("Format issues found", result.stderr)
 
     def test_fix_option_repairs_what_the_tools_can_fix(self):
         self.write("webviews/src/app.ts", "export const app = BAD_FORMAT;\n")
