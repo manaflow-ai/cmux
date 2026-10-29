@@ -49,6 +49,12 @@
 //! - a prompt's cancelled decision after `session/cancel` sent as a request, or `_acpmux/kill`
 //!   (`cancel_pending_permissions`);
 //! - a secret's answer (`submit_secret`, `secrets.rs`): the waiting task records it.
+//! Known gaps where the work is another task's, past the answer:
+//! - an agent message held between a paused pair on the `send_message` path: the hold is
+//!   recorded on the spawned prompt task (`subsessions.rs`), after the request answered;
+//! - forum posts' urgent pushes (`forum.rs`), run in a JoinSet after the post is answered;
+//! - `_acpmux/dispatch` and the task request (`requests.rs`, `requests/briefs.rs`): the brief
+//!   ledger answers before the prompt is accepted.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -196,6 +202,11 @@ impl Hub {
 
     /// Waits until record `seq` of session `id`'s log is written; false when its log failed.
     async fn log_written(&self, id: &str, seq: u64) -> bool {
+        // Deleted already: nothing of it is kept, and asking the writer for its progress would
+        // make a new entry for a log it forgot.
+        if self.deleted(id) {
+            return true;
+        }
         let Some(mut progress) = self.store.progress(id) else { return true };
         loop {
             let p = *progress.borrow_and_update();

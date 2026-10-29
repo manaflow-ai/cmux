@@ -609,10 +609,16 @@ impl Hub {
                 async move { hub.prompt_with(&session, blocks, "handoff", false, opts).await },
             );
         match rx.await {
-            Ok(accepted) => match accepted.get("turnId").and_then(Value::as_str) {
-                Some(t) => Ok(Some(t.to_owned())),
-                None => Ok(self.handoff_turn_lookup(target, prompt_id).await),
-            },
+            // Accepted on the spawned prompt task: the request waits for the target's records up
+            // to the acceptance (`request_writes.rs`), and a retry would hand off twice.
+            Ok(accepted) => {
+                crate::hub::request_writes::note_session(target);
+                crate::hub::request_writes::note_kept();
+                match accepted.get("turnId").and_then(Value::as_str) {
+                    Some(t) => Ok(Some(t.to_owned())),
+                    None => Ok(self.handoff_turn_lookup(target, prompt_id).await),
+                }
+            }
             // Refused before it was recorded: the prompt's own error.
             Err(_) => match run.await {
                 Ok(Ok(v)) => {

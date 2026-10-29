@@ -52,10 +52,9 @@ pub(super) fn spawn(
             });
             let (result, writes) = crate::hub::request_writes::scope(request).await;
             let kept = writes.kept();
-            let saved = match &result {
-                Ok(_) => hub.wait_written(writes).await,
-                Err(_) => true,
-            };
+            // An error that committed records (a held agent message: "held, do not send it
+            // again") waits for them too; its answer stays the error.
+            let saved = hub.wait_written(writes).await;
             crate::hub::request_writes::answer(result, saved, kept)
         })
     };
