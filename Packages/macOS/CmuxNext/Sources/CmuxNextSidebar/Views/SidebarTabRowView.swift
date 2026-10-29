@@ -142,7 +142,7 @@ final class SidebarTabRowView: SidebarRowView {
         let iconX = columns.lead + (columns.iconBox - iconSide) / 2
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
         // Without a favicon the title takes the icon's place (Lawrence 2026-10-23: "as left as possible").
-        let textX = columns.text - SidebarStyle.labelCellPadding
+        let textX = columns.text(hasLeadingMark: !icon.isHidden) - SidebarStyle.labelCellPadding
         var trailing = b.width
         // The tab's status, else its dot, centers on the trailing column, as a workspace row's does (Leo 2026-10-28:
         // "do we seriously not have these fucking things aligned? ... because it's the inner tab thing"); a dot

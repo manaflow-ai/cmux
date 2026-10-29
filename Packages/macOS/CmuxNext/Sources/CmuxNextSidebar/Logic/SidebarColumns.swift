@@ -12,6 +12,10 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     var iconBox: CGFloat { comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
     var lead: CGFloat { LayoutGrid.sidebarLead - LayoutGrid.sidebarHighlightInset + CGFloat(max(0, depth)) * LayoutGrid.sidebarDepthIndent + leadingOffset }
     var text: CGFloat { lead + iconBox + LayoutGrid.gap }
+    /// Only a visible leading icon or pin reserves the icon column. Text-only rows start
+    /// at lead, including a group name aligned with its iconless members.
+    func text(hasLeadingMark: Bool) -> CGFloat { hasLeadingMark ? text : lead }
+
     var trailingEdge: CGFloat { trailingCenter() + LayoutGrid.iconBox / 2 }
 
     func mid(height: CGFloat) -> CGFloat { height / 2 }

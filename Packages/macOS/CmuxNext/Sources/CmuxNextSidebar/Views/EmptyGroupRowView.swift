@@ -57,7 +57,7 @@ final class EmptyGroupRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         let h = ceil(label.intrinsicContentSize.height)
-        let x = SidebarStyle.columns(rowWidth: b.width).text - SidebarStyle.labelCellPadding
+        let x = SidebarStyle.columns(rowWidth: b.width).text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
         label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: max(0, b.width - x - Metrics.space2), height: h)
     }
 

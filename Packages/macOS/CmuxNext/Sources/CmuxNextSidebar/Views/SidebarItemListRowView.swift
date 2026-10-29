@@ -77,7 +77,7 @@ final class SidebarItemListRowView: SidebarRowView {
         let leading = columns.lead
         let side: CGFloat = hasIcon ? columns.iconBox : 0
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
-        let textX = columns.text - WorkspaceRowView.labelInset
+        let textX = columns.text(hasLeadingMark: hasIcon) - WorkspaceRowView.labelInset
         let height = ceil(title.intrinsicContentSize.height)
         title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY), width: max(0, b.width - textX - SidebarStyle.horizontalInset), height: height)
     }

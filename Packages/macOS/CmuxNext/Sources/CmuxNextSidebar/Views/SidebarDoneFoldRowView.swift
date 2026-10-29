@@ -39,7 +39,7 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         let icon = chevron.image?.size ?? .zero
         // Done and Show N more use the shared trailing fold column; their label uses the common text line.
         chevron.frame = columns.trailingFrame(centerY: b.midY, side: max(icon.width, LayoutGrid.glyph))
-        let x = columns.text - SidebarStyle.labelCellPadding
+        let x = columns.text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
         name.frame = NSRect(x: x, y: columns.textOriginY(centerY: b.midY, baseline: name.firstBaselineOffsetFromTop,
                                                            capHeight: name.font?.capHeight ?? SidebarStyle.headerFont.capHeight),
                              width: max(0, columns.textEnd(trailingMarks: 1) - x), height: h)

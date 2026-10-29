@@ -304,7 +304,7 @@ class SidebarItemRowView: NSView {
         }
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
-        let textX = (style == .chip ? iconFrame.maxX + Metrics.space2 : columns.text) - SidebarStyle.labelCellPadding
+        let textX = (style == .chip ? iconFrame.maxX + Metrics.space2 : columns.text(hasLeadingMark: !bare || showsSwatchDot || info.leadingPin)) - SidebarStyle.labelCellPadding
         title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY), width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
     }
 
