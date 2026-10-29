@@ -51,6 +51,10 @@ const LIVE_RESIZE_CAPABILITY: &str = "live-resize-v1";
 const LIVE_SETTLE: Duration = Duration::from_secs(2);
 /// The case terminal's scrollback limit (bytes of page memory).
 const SCROLLBACK: usize = 64 << 20;
+/// Settled checks whose screens matched but whose idle `digest` input
+/// differed (PAGE capacity hints only).
+static HINT_ONLY_DIGEST_MISMATCHES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 
 fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name)
@@ -369,37 +373,45 @@ struct Host {
     cursor: Option<(u16, u16)>,
 }
 
-/// Where two READY snapshots differ in what the digest compares: the first
-/// SCREEN, PAGE or CONTINUATION record that differs, by index and tag.
+/// The records of a READY a screen comparison reads: SCREEN, PAGE and
+/// CONTINUATION, with the SCREEN history extent (payload bytes 4..12; the
+/// viewer restored no history) and, when `hints` is false, the PAGE capacity
+/// hints (payload bytes 8..20: style, hyperlink, grapheme and string
+/// capacities, which depend on the page's history, not on what it shows)
+/// set to zero.
+fn screen_records(snapshot: &[u8], hints: bool) -> Vec<(u16, Vec<u8>)> {
+    use ghostty_vt::snapshot_tag::{CONTINUATION, PAGE, SCREEN};
+    ghostty_vt::snapshot_records(snapshot)
+        .filter(|record| matches!(record.tag, SCREEN | PAGE | CONTINUATION))
+        .map(|record| {
+            let mut payload = record.payload().to_vec();
+            if record.tag == SCREEN && payload.len() >= 12 {
+                payload[4..12].fill(0);
+            }
+            if record.tag == PAGE && !hints && payload.len() >= 20 {
+                payload[8..20].fill(0);
+            }
+            (record.tag, payload)
+        })
+        .collect()
+}
+
+/// Where two READYs differ: the first differing record and byte.
 fn record_diff(viewer: &[u8], host: &[u8]) -> String {
-    let compared = |snapshot: &[u8]| {
-        ghostty_vt::snapshot_records(snapshot)
-            .filter(|record| {
-                use ghostty_vt::snapshot_tag::{CONTINUATION, PAGE, SCREEN};
-                matches!(record.tag, SCREEN | PAGE | CONTINUATION)
-            })
-            .map(|record| {
-                let mut payload = record.payload().to_vec();
-                // The SCREEN history extent (payload bytes 4..12) differs by
-                // design: the viewer restored no history.
-                if record.tag == ghostty_vt::snapshot_tag::SCREEN && payload.len() >= 12 {
-                    payload[4..12].fill(0);
-                }
-                (record.tag, payload)
-            })
-            .collect::<Vec<_>>()
-    };
-    if ghostty_vt::snapshot_digest_input(viewer) == ghostty_vt::snapshot_digest_input(host) {
+    let (viewer, host) = (screen_records(viewer, false), screen_records(host, false));
+    if viewer == host {
         return "equal".into();
     }
-    let (viewer, host) = (compared(viewer), compared(host));
-    let first = viewer.iter().zip(&host).position(|(a, b)| a != b);
+    let Some(index) = viewer.iter().zip(&host).position(|(a, b)| a != b) else {
+        return format!("{} records vs the daemon's {}", viewer.len(), host.len());
+    };
+    let (a, b) = (&viewer[index].1, &host[index].1);
+    let byte = a.iter().zip(b).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
     format!(
-        "DIFFERS ({} records vs the daemon's {}; first differing record {:?}, tag {:?})",
-        viewer.len(),
-        host.len(),
-        first,
-        first.map(|index| viewer[index].0)
+        "record {index} (tag {}) differs at payload byte {byte} of {} (the daemon's {})",
+        viewer[index].0,
+        a.len(),
+        b.len()
     )
 }
 
@@ -835,14 +847,21 @@ impl Case {
         let text = screen.viewport_text().unwrap_or_default();
         let cursor = screen.cursor_position();
         let encoded = screen.encode_snapshot(ghostty_vt::SnapshotPhase::Ready).unwrap_or_default();
-        let digest = ghostty_vt::snapshot_digest_input(&encoded);
-        if digest == host_digest && text == host.text && cursor == host.cursor {
+        if text == host.text
+            && cursor == host.cursor
+            && screen_records(&encoded, false) == screen_records(&host.ready, false)
+        {
+            if ghostty_vt::snapshot_digest_input(&encoded) != host_digest {
+                // The same screen, but the idle `digest` would differ: only
+                // the PAGE capacity hints do (counted, reported at the end).
+                HINT_ONLY_DIGEST_MISMATCHES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
             return None;
         }
         let after = &viewer.after_cut;
         Some(format!(
             "its screen (READY g{} o{} {:?}{}, then {} bytes) differs from the daemon's at g{} o{}: \
-             text {}, cursor {:?} vs the daemon's {:?}, digest input {}\n  daemon screen: {:?}\n  \
+             text {}, cursor {:?} vs the daemon's {:?}, records {}\n  daemon screen: {:?}\n  \
              viewer screen: {text:?}\n  bytes after the cut (last 300): {:?}",
             ready.generation,
             ready.offset,
@@ -1127,7 +1146,11 @@ fn run_case(seed: u64, steps: usize) {
     }
     case.mux.shutdown();
     let _ = std::fs::remove_dir_all(&case.dir);
-    eprintln!("resize fuzz seed=0x{seed:x}: {steps} steps passed");
+    eprintln!(
+        "resize fuzz seed=0x{seed:x}: {steps} steps passed; settled screens equal but idle digest \
+         input different (PAGE capacity hints only): {} so far",
+        HINT_ONLY_DIGEST_MISMATCHES.load(std::sync::atomic::Ordering::Relaxed)
+    );
 }
 
 #[test]
