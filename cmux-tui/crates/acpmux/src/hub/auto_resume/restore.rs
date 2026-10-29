@@ -272,6 +272,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn replaced_retry_cannot_be_admitted_as_a_new_turn() {
+        let (hub, session) = idle_chat();
+        session.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
+        let turn =
+            TurnInfo::prompted("acpmux", "continue", "retry-turn", "retry~1", Control::Local);
+        let error = hub
+            .start_turn(&session, Some("cut-turn"), false, false, turn)
+            .expect_err("a replaced retry must not start");
+        assert_eq!(
+            error.data.as_ref().and_then(|v| v["reason"].as_str()),
+            Some("auto_resume.superseded")
+        );
+        assert!(session.turn().is_none());
+    }
+
+    #[tokio::test]
     async fn retry_restore_does_not_apply_an_earlier_idle_cancel_to_a_later_failed_turn() {
         let (hub, session) = idle_chat();
         // No child is expected, but cancel still records the person's Stop.

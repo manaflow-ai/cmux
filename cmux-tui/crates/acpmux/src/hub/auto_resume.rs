@@ -530,6 +530,11 @@ impl Hub {
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
         let mut pending = session.auto_resume.lock();
+        // Transfer replacement seals the old instance before staging its store. Reject before
+        // installing a TurnInfo so a fired retry cannot start against the incoming journal.
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(superseded());
+        }
         let continuation = matches!(
             pending.as_ref(),
             Some(Mark::Waiting { .. } | Mark::Firing(_) | Mark::Ending(_))
