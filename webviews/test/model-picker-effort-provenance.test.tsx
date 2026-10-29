@@ -143,7 +143,11 @@ test.each(["absent", "empty", "unmarked-empty"] as const)(
       ),
     );
     await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
-    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    // Wait for the menu to open (a bounded poll, not a fixed sleep).
+    const deadline = Date.now() + 5000;
+    while (!document.querySelector(".acpmux-quick-menu") && Date.now() < deadline) {
+      await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    }
     expect(document.querySelector(".acpmux-quick-menu")).not.toBeNull();
     const segments = document.querySelectorAll(".acpmux-quick-effort-segment");
     const fallback = [...document.querySelectorAll(".acpmux-quick-sub")].some((row) =>

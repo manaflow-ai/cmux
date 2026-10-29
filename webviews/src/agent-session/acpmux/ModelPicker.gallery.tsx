@@ -134,12 +134,34 @@ const manyHarnessesVisible: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Model" });
   await ctx.waitFor(() => {
     const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
-    return Boolean(
-      menu &&
-      menu.style.visibility === "visible" &&
-      menu.getBoundingClientRect().height > 300 &&
+    const view = ctx.document.defaultView;
+    if (!menu || !view || menu.style.visibility !== "visible") return false;
+    const box = menu.getBoundingClientRect();
+    // The whole picker sits inside the window: nothing clipped off an edge.
+    const inWindow =
+      box.top >= -1 && box.left >= -1 && box.bottom <= view.innerHeight + 1 && box.right <= view.innerWidth + 1;
+    return (
+      inWindow &&
+      box.height > 300 &&
       menu.querySelectorAll(".acpmux-mp-harness").length >= 20 &&
-      menu.querySelector(".acpmux-mp-content"),
+      menu.querySelector(".acpmux-mp-content") !== null
+    );
+  });
+  // Every harness stays reachable: scrolling the rail to its end brings the last harness fully
+  // into the rail's view, and the rail itself ends inside the picker.
+  await ctx.waitFor(() => {
+    const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+    const rail = menu?.querySelector<HTMLElement>(".acpmux-mp-rail-viewport");
+    const last = [...(menu?.querySelectorAll<HTMLElement>(".acpmux-mp-harness") ?? [])].at(-1);
+    if (!menu || !rail || !last) return false;
+    rail.scrollTop = rail.scrollHeight;
+    const railBox = rail.getBoundingClientRect();
+    const lastBox = last.getBoundingClientRect();
+    return (
+      lastBox.height > 0 &&
+      lastBox.top >= railBox.top - 1 &&
+      lastBox.bottom <= railBox.bottom + 1 &&
+      railBox.bottom <= menu.getBoundingClientRect().bottom + 1
     );
   });
 };
