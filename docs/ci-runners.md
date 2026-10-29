@@ -970,6 +970,60 @@ caller.
 Hosted/isolated fallback remains available when the shared host refuses local
 admission or is draining, pressured, or unavailable.
 
+## Runner pools
+
+Leo, 2026-10-28: "I hate pins. Like, just pin the set of the shit that isn't
+hilariously slow. Like most of what GitHub has is hilariously slow. We can't
+be using them."
+
+One routing source. `.github/runners.json` declares each pool once under
+`pools`: a class of work and its members, in order. The `RUNNER_POOLS`
+repository variable holds each pool's live member as one JSON object, and a job
+reads it instead of naming a label:
+
+```yaml
+runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+```
+
+A picker's output still comes first where a run needs its own choice (an owned
+Mac, warm affinity); the pool is what follows it, never a literal label.
+`fromJSON()` of an unset `RUNNER_POOLS` fails the workflow at once, which is
+the point: a missing route is a red run, not a job queued forever on a label
+nobody serves.
+
+| Pool | Members (first is preferred) |
+| --- | --- |
+| `linux` | Blacksmith 32 vCPU, Blacksmith 16 vCPU |
+| `linux_arm64` | Blacksmith 4 vCPU ARM64 |
+| `windows` | Blacksmith 4 vCPU Windows |
+| `macos_15` | Blacksmith macOS 15, then the lane's owned std pool |
+| `macos_26` | Blacksmith macOS 26 (6, then 12 vCPU), then the lane's owned std pool |
+| `macos_26_large` | Blacksmith macOS 26 12 vCPU, then 6 vCPU |
+| `macos_gui` | Blacksmith macOS 15, then the lane's owned gui pool |
+| `macos_ios` | Blacksmith macOS 26, then `glaeda-ios-sim` |
+| `macos_signing` | Blacksmith macOS 26 (6, then 12 vCPU); ephemeral only |
+| `provenance` | GitHub-hosted `ubuntu-24.04`: npm and PyPI provenance and artifact attestations accept only GitHub's OIDC |
+
+The macOS pools are what follows a picker: owned Macs come first through the
+picker job's output (`simple_pool_picker.py`, `side_lane_placement.py`, the
+nightly pickers), and a pool's own owned member only takes over while every
+Blacksmith member is dead, as the overflow switch's `MACOS_RUNNER_*` failover
+did. `macos_signing` never names an owned Mac (`signing_runner_variables.py`);
+an owned signing Mac comes only through a signing picker.
+
+`scripts/ci/runner_pools.py` is the one writer. The overflow probe's `watch`
+job runs it every 10 minutes, after the switch, with the token the switch
+already uses (the `manaflow-glaeda-route` App; no new credential). It marks a
+label dead when the probe waited on it with no runner or the queue janitor's
+snapshot lists it (`dead_labels`, `starved`), points each pool at its first
+member with no mark, and writes `RUNNER_POOLS` only when that changes. A mark
+expires after 30 minutes unless seen again, and a probe that starts on the label
+clears it at once. When every member is marked, the pool keeps its first one.
+The queue janitor's dead-label re-dispatch then moves jobs already queued on a
+dead member: a re-run evaluates `runs-on` again and lands on the pool's new
+member. `tests/test_ci_runner_pools.py` checks the declared pools and the
+reconciler.
+
 ## Blacksmith outage: the overflow switch
 
 This is the only Blacksmith-outage lever. The 2026-09-29 manual variable

@@ -52,5 +52,91 @@
     "manaflow-ai": "blacksmith"
   },
 
-  "default_fleet": "hosted"
+  "default_fleet": "hosted",
+
+  "pools": {
+    "$comment": [
+      "The one routing source (scripts/ci/runner_pools.py, docs/ci-runners.md \"Runner pools\").",
+      "Each pool is a class of work and its members in order. The RUNNER_POOLS repository variable",
+      "holds each pool's live member; a job reads fromJSON(vars.RUNNER_POOLS).<pool> and names no",
+      "label itself (tests/test_ci_runner_set.py). runner_pools.py moves a pool to its next member",
+      "when the queue janitor or the overflow probe sees the current one start nothing.",
+      "{std}, {gui} and {ios} are the lane's owned Mac pools for its Xcode pin (pr_runner_pool.py).",
+      "Only a pool marked owned may name one; only a pool marked hosted may name a GitHub-hosted label."
+    ],
+    "linux": {
+      "why": "Every Linux job: the runner set's Blacksmith sizes (Leo, 2026-10-28: \"just pin the set of the shit that isn't hilariously slow\")",
+      "members": [
+        "blacksmith-32vcpu-ubuntu-2404",
+        "blacksmith-16vcpu-ubuntu-2404"
+      ]
+    },
+    "linux_arm64": {
+      "why": "Native ARM64 Linux package checks",
+      "members": [
+        "blacksmith-4vcpu-ubuntu-2404-arm"
+      ]
+    },
+    "windows": {
+      "why": "Windows builds and tests",
+      "members": [
+        "blacksmith-4vcpu-windows-2025"
+      ]
+    },
+    "macos_15": {
+      "why": "macOS 15 image work (its default SDK); the owned pool takes it while Blacksmith macOS starts nothing, as the overflow switch did for MACOS_RUNNER_15",
+      "owned": true,
+      "members": [
+        "blacksmith-6vcpu-macos-15",
+        "{std}"
+      ]
+    },
+    "macos_26": {
+      "why": "macOS 26 image work",
+      "owned": true,
+      "members": [
+        "blacksmith-6vcpu-macos-26",
+        "blacksmith-12vcpu-macos-26",
+        "{std}"
+      ]
+    },
+    "macos_26_large": {
+      "why": "macOS 26 work that needs the 12 vCPU, 48 GB SKU (Release compiles and signing builds)",
+      "members": [
+        "blacksmith-12vcpu-macos-26",
+        "blacksmith-6vcpu-macos-26"
+      ]
+    },
+    "macos_gui": {
+      "why": "A foreground Aqua session (XCUITest, virtual display)",
+      "owned": true,
+      "members": [
+        "blacksmith-6vcpu-macos-15",
+        "{gui}"
+      ]
+    },
+    "macos_ios": {
+      "why": "Installed iOS runtimes and a working simctl",
+      "owned": true,
+      "members": [
+        "blacksmith-6vcpu-macos-26",
+        "{ios}"
+      ]
+    },
+    "macos_signing": {
+      "why": "Jobs holding signing or notarization secrets: ephemeral runners only, never a reused machine (signing_runner_variables.py); owned signing Macs come only through a signing picker's output",
+      "members": [
+        "blacksmith-6vcpu-macos-26",
+        "blacksmith-12vcpu-macos-26"
+      ]
+    },
+    "provenance": {
+      "why": "npm and PyPI provenance publishing and artifact attestations",
+      "hosted": true,
+      "hosted_why": "npm provenance, PyPI trusted publishing and artifact attestations accept only GitHub's OIDC from a GitHub-hosted runner",
+      "members": [
+        "ubuntu-24.04"
+      ]
+    }
+  }
 }

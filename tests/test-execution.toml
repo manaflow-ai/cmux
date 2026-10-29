@@ -1758,6 +1758,10 @@ path = "tests/test_ci_cloud_overflow_switch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_runner_pools.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
