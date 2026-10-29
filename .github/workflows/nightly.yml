@@ -1769,7 +1769,7 @@ jobs:
     # A dispatch mints the routing token too, so the key is read in the routing environment, as
     # the other dispatchable pickers do (iroh-release-gate.yml, test-ios.yml).
     environment: ci-routing-agent
-    # Checkout, the two token mints (1 + 1) and the pick (8: up to 5 min waiting for a busy
+    # Checkout, the two token mints (1 + 1) and the pick (8: up to 1 min waiting for a busy
     # dedicated builder, then the owned and Blacksmith reads).
     timeout-minutes: 12
     permissions:
