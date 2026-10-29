@@ -117,7 +117,7 @@ EOF
 chmod 755 "$shims/curl"
 
 # The fake acpmux, "downloaded" from the channel. Behaviour from env:
-# JT_CAPS (capability lines), JT_JOIN_EXIT, JT_STATE (a file; present = joined),
+# JT_CAPS (capability lines), JT_JOIN_EXIT (with JT_JOIN_ERR, its message), JT_STATE (a file; present = joined),
 # JT_DOCTOR=1 (it has `host doctor --here`), JT_SERVICE=1 (`daemon service`).
 # Recovery, as acpmux's cloud_join/recovery.rs does it: JT_PENDING (a file;
 # present = joinIncomplete, a pending proposal on disk; it holds the
@@ -162,6 +162,7 @@ case "\$*" in
       fi
       case "\${JT_PROBE:-unknown}" in
         live) ;;
+        down) refuse 4 "join incomplete; hub unavailable or returned an invalid response; rerun join" ;;
         revoked) [ "\$rep" = 1 ] && [ -n "\$got" ] || refuse 3 "revoked: run machine add again" ;;
         *) [ -n "\$got" ] || refuse 2 "join incomplete; original join token required on stdin" ;;
       esac
@@ -179,7 +180,9 @@ case "\$*" in
       exit 0
     fi
     code="\${JT_JOIN_EXIT:-0}"
-    [ "\$code" = 0 ] || { echo "acpmux: join failed (cmj_LeakedInError)" >&2; exit "\$code"; }
+    # The error echoes a token-shaped value and the token read from stdin:
+    # the script's redaction is what keeps both off disk and out of output.
+    [ "\$code" = 0 ] || { echo "\${JT_JOIN_ERR:-acpmux: join failed} (cmj_LeakedInError \$got)" >&2; exit "\$code"; }
     : >"\$JT_STATE"
     printf '{"joined": true, "alreadyJoined": false}\n' ;;
   *) ;;
@@ -216,7 +219,7 @@ new_case() {
   serve_dir "$d/serve"
   JT_OS=Linux JT_ARCH=x86_64
   JT_CAPS="acpmux-v1 machine.join.stdin.v1"
-  JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1 JT_PROBE=unknown
+  JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1 JT_PROBE=unknown JT_JOIN_ERR=""
   : >"$d/log/argv"
 }
 
@@ -227,7 +230,7 @@ run_join() {
   set -- env -i HOME="$d/home" PATH="$shims" TMPDIR="$d/tmp" SHELL=/bin/bash \
     JT_LOG="$d/log" JT_SERVE="$d/serve" JT_STATE="$d/home/joined" \
     JT_OS="$JT_OS" JT_ARCH="$JT_ARCH" JT_CAPS="$JT_CAPS" JT_JOIN_EXIT="$JT_JOIN_EXIT" \
-    JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" JT_PROBE="$JT_PROBE" \
+    JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" JT_PROBE="$JT_PROBE" JT_JOIN_ERR="$JT_JOIN_ERR" \
     JT_PENDING="$d/home/pending" JT_REVOKED="$d/home/revoked" \
     CMUX_PLATFORM_URL="$origin" "$@"
   rc=0
@@ -324,10 +327,39 @@ suite() {
     check "no token on disk" no_token_on_disk
     case "$code" in
       2) check "2 line" out_has "the line was damaged; copy it again from cmux" ;;
-      3) check "3 line" out_has "this line was used or expired; make a new one: cmux machine add (or Add Machine in the app)" ;;
+      3)
+        check "3 line" out_has "this line was used or expired; make a new one: cmux machine add (or Add Machine in the app)"
+        check "3 shows acpmux's own error, redacted" out_has "acpmux: join failed ([redacted token] [redacted token])"
+        ;;
       4) check "4 line" out_has "cannot reach $origin: check this machine's outbound HTTPS, then paste a new line" ;;
       5) check "5 line" out_has "could not store the machine credential in /h/.acpmux/machine-credential.json: free disk / fix permissions, then paste a new line" ;;
     esac
+  done
+
+  # An exit 3 that is not a revocation shows acpmux's reason, never a token.
+  new_case exit-3-replacement-refused
+  JT_JOIN_EXIT=3
+  JT_JOIN_ERR="existing enrollment cannot authorize replacement"
+  run_join env CMUX_JOIN_REPLACE=1
+  check "replacement refused: exit 3 (got $rc)" rc_is 3
+  check "replacement refused: acpmux's reason is shown" out_has "existing enrollment cannot authorize replacement"
+  check "replacement refused: the token on stdin was redacted from it" out_has "([redacted token] [redacted token])"
+  check "replacement refused: no token in output" no_token_in_output
+  check "replacement refused: no token on disk" no_token_on_disk
+
+  # A resume whose hub cannot be reached: rerun the same line (a new one
+  # carries another token, and recovery needs the original), naming no origin.
+  for form in env none; do
+    new_case "incomplete-hub-down-$form"
+    : >"$d/home/pending"
+    JT_PROBE=down
+    run_join "$form"
+    check "resume, hub down ($form): exit 4 (got $rc)" rc_is 4
+    check "resume, hub down ($form): rerun the same line" out_has "the hub could not be reached; rerun the same line once this machine's outbound HTTPS works"
+    check "resume, hub down ($form): never asks for a new line" eval '! out_has "paste a new line"'
+    check "resume, hub down ($form): names no origin" eval '! out_has "$origin"'
+    check "resume, hub down ($form): pending kept" test -e "$d/home/pending"
+    check "resume, hub down ($form): no token in output" no_token_in_output
   done
 
   # Any other failure shows acpmux's own error, with anything token-shaped cut.
