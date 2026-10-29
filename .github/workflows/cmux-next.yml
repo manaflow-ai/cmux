@@ -213,6 +213,8 @@ on:
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
       - scripts/cmux-next/dev-cas-holder.sh
+      - scripts/cmux-next/dev_cas_seed.py
+      - tests/test_cmux_next_dev_cas_seed.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -470,6 +472,8 @@ on:
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
       - scripts/cmux-next/dev-cas-holder.sh
+      - scripts/cmux-next/dev_cas_seed.py
+      - tests/test_cmux_next_dev_cas_seed.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -1842,6 +1846,7 @@ jobs:
           python3 tests/test_xcode_build_timeline.py
           python3 tests/test_cmux_next_dev_landing_workflow.py
           python3 tests/test_dev_landing_place.py
+          python3 tests/test_cmux_next_dev_cas_seed.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
       # The tier routing on the committed target graph: a UI change selects its
@@ -5520,6 +5525,11 @@ jobs:
       cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runs_on != '' && fromJSON(needs.dev-landing-place.outputs.runs_on) || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 60
+    # The fleet-shared compile cache (scripts/cmux-next/dev_cas_seed.py) is on once
+    # vars.CMUX_NEXT_DEV_CAS_URL names its store. Its token lives in next-dev-cas, an
+    # environment whose deployment branch is feat-cmux-next only; this job runs only on a
+    # feat-cmux-next push.
+    environment: ${{ vars.CMUX_NEXT_DEV_CAS_URL != '' && 'next-dev-cas' || '' }}
     permissions:
       actions: read
       contents: read
@@ -5631,6 +5641,12 @@ jobs:
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-landing/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/dev-landing/summary.md
           REUSED_ARCHIVE: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.archive || '' }}
+          # The shared compile cache: compile-dev-release.sh hands the tokens to the seed restore
+          # alone and unsets them before the build.
+          CMUX_NEXT_DEV_CAS_URL: ${{ vars.CMUX_NEXT_DEV_CAS_URL }}
+          CMUX_NEXT_DEV_CAS_TOKEN: ${{ vars.CMUX_NEXT_DEV_CAS_URL != '' && secrets.NEXT_DEV_CAS_TOKEN || '' }}
+          CMUX_NEXT_DEV_CAS_GH_TOKEN: ${{ vars.CMUX_NEXT_DEV_CAS_URL != '' && github.token || '' }}
+          CMUX_NEXT_DEV_CAS_PACK_DIR: ${{ vars.CMUX_NEXT_DEV_CAS_URL != '' && format('{0}/cmux-next-dev-cas-pack', runner.temp) || '' }}
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${GITHUB_SHA}.app.zip"
@@ -5640,6 +5656,31 @@ jobs:
             scripts/cmux-next/compile-dev-release.sh "$archive"
           fi
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
+      # A host build packed its compile cache: put it in the shared store and record its digest
+      # for the next landings' seed restore (dev_cas_seed.py). Never fails the landing.
+      - name: Publish the compile cache seed
+        id: cas-seed
+        if: ${{ steps.compile.outcome == 'success' && vars.CMUX_NEXT_DEV_CAS_URL != '' && steps.dev-product.outputs.hit != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          CMUX_NEXT_DEV_CAS_URL: ${{ vars.CMUX_NEXT_DEV_CAS_URL }}
+          CMUX_NEXT_DEV_CAS_TOKEN: ${{ secrets.NEXT_DEV_CAS_TOKEN }}
+        run: |
+          set -uo pipefail
+          pack="$RUNNER_TEMP/cmux-next-dev-cas-pack"
+          [[ -f "$pack/pack.json" ]] || { echo "no compile cache seed packed (not a host build)"; exit 0; }
+          python3 -I scripts/cmux-next/dev_cas_seed.py publish --pack "$pack" --out "$RUNNER_TEMP/cmux-next-dev-cas-record" >> "$GITHUB_OUTPUT"
+          rm -rf -- "$pack"
+      - name: Record the compile cache seed
+        if: steps.cas-seed.outputs.record != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.cas-seed.outputs.record }}
+          path: ${{ runner.temp }}/cmux-next-dev-cas-record/manifest.json
+          if-no-files-found: error
+          retention-days: 3
       - name: Upload DEV landing compile timing
         if: ${{ always() && steps.compile.outcome != 'skipped' }}
         continue-on-error: true
