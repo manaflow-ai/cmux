@@ -172,13 +172,7 @@ export function Chart({
       {rows
         .filter((_, i) => i % tickStride === 0)
         .map((row, i) => (
-          <text
-            key={row.day + "-" + i}
-            x={x(i * tickStride)}
-            y={height - 16}
-            className="tc-label"
-            textAnchor="middle"
-          >
+          <text key={row.day + "-" + i} x={x(i * tickStride)} y={height - 16} className="tc-label" textAnchor="middle">
             {row.day}
           </text>
         ))}
