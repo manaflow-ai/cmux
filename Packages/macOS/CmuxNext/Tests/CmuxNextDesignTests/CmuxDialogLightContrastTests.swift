@@ -40,7 +40,7 @@ import CmuxNextDesignTokens
         CmuxDialogView(spec: CmuxDialogSpec(
             title: "Export Your Passwords",
             lines: ["Open the Passwords app.", "Choose File > Export All Passwords and save the CSV file."], origin: "cmux",
-            buttons: [.cancel(), .ok("Choose File")]))
+            buttons: [CmuxDialogButton(id: "delete", title: "Delete", role: .destructive, key: "d"), .cancel(), .ok("Choose File")]))
     }
 
     private static func show(_ dialog: CmuxDialogView, in window: NSWindow) throws {
@@ -124,13 +124,24 @@ import CmuxNextDesignTokens
             let ink = try #require(label.textColor)
             #expect(contrast(ink, surface) >= 4.5, "\(label.stringValue): \(contrast(ink, surface)):1")
         }
-        // Button titles over their fill, itself over the surface.
+        // Button titles and their key hints over their fill, itself over the surface: the destructive
+        // title too (the theme's danger is fit only to 3:1; over the dialog glass it measured 2.1:1).
         for button in dialog.buttonViews {
             let fill = try #require(button.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
-            let ink = try #require(button.attributedTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
+            let title = button.attributedTitle
+            let ink = try #require(title.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor)
             let under = composite(fill, over: surface)
             #expect(contrast(ink, under) >= 4.5, "\(button.button.title): \(contrast(ink, under)):1")
+            let hint = try #require(title.attribute(.foregroundColor, at: title.length - 1, effectiveRange: nil) as? NSColor)
+            #expect(contrast(hint, under) >= 4.5, "\(button.button.title)'s key hint: \(contrast(hint, under)):1")
         }
+        // The default button (Return) stands out from Cancel: its fill and Cancel's differ at least 3:1
+        // (WCAG's non-text contrast), not by the 3 to 4% of gray they did.
+        let fills = try dialog.buttonViews.reduce(into: [CmuxDialogButton.Role: NSColor]()) { fills, button in
+            fills[button.button.role] = composite(try #require(button.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))), over: surface)
+        }
+        let primary = try #require(fills[.default]), cancel = try #require(fills[.cancel])
+        #expect(contrast(primary, cancel) >= 3, "default vs cancel fill: \(contrast(primary, cancel)):1")
     }
 
     private static func composite(_ top: NSColor, over bottom: NSColor) -> NSColor {

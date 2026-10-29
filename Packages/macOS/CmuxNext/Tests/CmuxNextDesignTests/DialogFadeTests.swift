@@ -3,7 +3,8 @@ import AppKit
 import Testing
 
 /// POLISH (no flash): a window dialog and its scrim appeared in one frame, so the whole window
-/// darkened at once. Both fade in with the fade-in token, which Reduce Motion keeps.
+/// darkened at once. Both fade in (the card on the fade-in token, the scrim on the scrim token),
+/// which Reduce Motion keeps; the card also grows in on the `appear` spring, which it drops.
 @MainActor @Suite(.serialized) struct DialogFadeTests {
     /// The close fades need an awake display with animations enabled: in a window with no screen
     /// or with motion off a change applies at once (`Motion.canAnimate`), so these tests run only
@@ -27,6 +28,48 @@ import Testing
             #expect((fade?.fromValue as? NSNumber)?.floatValue == 0, "\(name) appeared in one frame")
             #expect(view.layer?.opacity == 1, "\(name)")
         }
+    }
+
+    /// Alert polish (2026-10-28, debug.dialog_strip): the card only faded, flat, while the palette
+    /// grows in. It now grows from `Motion.panelOpenScale` about its center on the `appear` spring;
+    /// under Reduce Motion it only fades (the scale applies at once).
+    @Test func aDialogCardGrowsInFromThePanelScaleUnlessReduceMotion() throws {
+        for reduce in [false, true] {
+            Motion.reduceMotionOverride = reduce
+            defer { Motion.reduceMotionOverride = nil }
+            let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 300), styleMask: [.titled],
+                                  backing: .buffered, defer: false)
+            defer { window.orderOut(nil) }
+            let host = WindowOverlayHost.host(for: window)
+            let dialog = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 90))
+            let handle = host.present(dialog, options: OverlayOptions(kind: .dialog, isModal: true, dimsContent: true,
+                                                                      passesThroughClicks: false))
+            defer { handle.dismiss() }
+            let layer = try #require(dialog.layer)
+            #expect(CATransform3DIsIdentity(layer.sublayerTransform), "the card ends at its full size")
+            let grow = layer.animation(forKey: "sublayerTransform") as? CASpringAnimation
+            if reduce {
+                #expect(grow == nil, "Reduce Motion: the card fades, it does not grow")
+            } else {
+                let from = try #require((grow?.fromValue as? NSValue)?.caTransform3DValue)
+                let center = CGPoint(x: layer.bounds.midX, y: layer.bounds.midY)
+                #expect(CATransform3DEqualToTransform(from, Motion.scale(Motion.panelOpenScale, about: center, in: layer)))
+            }
+            #expect((layer.animation(forKey: "opacity") as? CABasicAnimation)?.fromValue as? NSNumber == 0)
+        }
+    }
+
+    /// Alert polish: the card's overlay panel gives key back as the close starts, and the glass took
+    /// its inactive grey frost: the card lit up a lighter grey for the whole fade (the close's first
+    /// frame was further from both the open and the closed dialog than they are from each other).
+    /// The card's glass keeps the key-window look.
+    @Test func aDialogCardKeepsTheKeyWindowGlass() throws {
+        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Close Workspace?", buttons: [.cancel(), .ok()]))
+        func glass(in view: NSView) -> [GlassPanelView] {
+            (view as? GlassPanelView).map { [$0] } ?? view.subviews.flatMap(glass(in:))
+        }
+        let surface = try #require(dialog.surface)
+        for panel in glass(in: surface) { #expect(panel.keepsActiveLook, "the dialog's glass frosts grey when its panel gives key back") }
     }
 
     /// Batch 2 (cx-2grmt): the close was still one frame. The dialog and its scrim stay where they
@@ -55,6 +98,7 @@ import Testing
         #expect(dialog.superview == nil)
         #expect(scrim.superview == nil)
         #expect(dialog.alphaValue == 1, "a dialog shown again starts whole")
+        #expect(CATransform3DIsIdentity(try #require(dialog.layer).sublayerTransform), "a dialog shown again starts at its full size")
     }
 
     /// Review of #19938: a tab's dialog follows its tab to another window (the old window's host
