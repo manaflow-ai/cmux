@@ -8,12 +8,14 @@ public struct NativePopupAction: Codable, Equatable, Sendable {
     public var `icon`: String?
     public var `disabled`: Bool?
     public var `keepOpen`: Bool?
+    public var `completion`: String?
 
-    public init(id: String, label: String, icon: String? = nil, disabled: Bool? = nil, keepOpen: Bool? = nil) {
+    public init(id: String, label: String, icon: String? = nil, disabled: Bool? = nil, keepOpen: Bool? = nil, completion: String? = nil) {
         self.id = id
         self.label = label
         self.icon = icon
         self.disabled = disabled
         self.keepOpen = keepOpen
+        self.completion = completion
     }
 }

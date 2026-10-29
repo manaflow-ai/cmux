@@ -8,5 +8,6 @@ public enum NativePopupEventType: String, Codable, Equatable, Sendable {
     case `search`
     case `highlight`
     case `submit`
+    case `complete`
     case `dismiss`
 }

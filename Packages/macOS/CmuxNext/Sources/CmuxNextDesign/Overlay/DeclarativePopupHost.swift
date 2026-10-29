@@ -185,6 +185,10 @@ final class DeclarativePopupHost {
         case .submit:
             guard let search = model.search, search.submitOnReturn == true, search.disabled != true,
                   value != nil, id == nil || row != nil else { return }
+        case .complete:
+            guard let search = model.search, search.completeOnTab == true, search.disabled != true,
+                  let id, let value, let row, row.kind == .action, row.disabled != true,
+                  row.completion == value else { return }
         case .pick:
             guard (row?.kind == .action && row?.disabled != true) ||
                   (action != nil && action?.disabled != true && actionParent?.disabled != true) else { return }

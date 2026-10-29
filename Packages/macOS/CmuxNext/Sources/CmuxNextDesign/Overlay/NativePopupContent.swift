@@ -383,6 +383,14 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         switch commandSelector {
         case #selector(NSResponder.moveDown(_:)): return handleKey(125)
         case #selector(NSResponder.moveUp(_:)): return handleKey(126)
+        case #selector(NSResponder.insertTab(_:)):
+            guard control === search, let search, search.isEnabled,
+                  model?.search?.completeOnTab == true else { return false }
+            guard let row = enabledRows.first(where: { $0.0.id == selected && $0.0.completion != nil })
+                    ?? enabledRows.first(where: { $0.0.completion != nil }),
+                  let completion = row.0.completion, completion != search.stringValue else { return false }
+            emit(.complete, row.0.id, completion)
+            return true
         case #selector(NSResponder.insertNewline(_:)):
             guard control === search, let search, search.isEnabled else { return false }
             if model?.search?.submitOnReturn == true {
