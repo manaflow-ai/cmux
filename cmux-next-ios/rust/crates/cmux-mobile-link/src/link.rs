@@ -205,8 +205,6 @@ enum Next {
     Shutdown,
 }
 
-/// One stream's outgoing frames, by priority.
-#[derive(Default)]
 /// What became of a data frame [`Outbox::push_data`] was given.
 enum Pushed {
     Queued,
@@ -216,6 +214,8 @@ enum Pushed {
     ChannelClosed,
 }
 
+/// One stream's outgoing frames, by priority.
+#[derive(Default)]
 struct Outbox {
     queues: Mutex<Queues>,
     /// Wakes the writer.
