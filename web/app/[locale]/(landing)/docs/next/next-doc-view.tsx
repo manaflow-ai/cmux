@@ -3,9 +3,10 @@ import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import cliReference from "@/data/next-docs/cli-reference.generated.json";
+import paletteReference from "@/data/next-docs/palette-reference.generated.json";
 import settingsReference from "@/data/next-docs/settings-reference.generated.json";
-import type { CliReference, SettingsReference } from "@/scripts/export-next-docs";
-import { headingId, type DocBlock, type NextDocPage } from "@/data/next-docs/pages";
+import type { CliReference, PaletteReference, SettingsReference } from "@/scripts/export-next-docs";
+import { headingId, nextDocHref, nextDocPage, type DocBlock, type NextDocPage } from "@/data/next-docs/pages";
 
 function Block({ block }: { block: DocBlock }) {
   if ("h2" in block) return <DocsHeading level={2} id={headingId(block.h2)}>{block.h2}</DocsHeading>;
@@ -25,21 +26,57 @@ function CliTables() {
   return (
     <>
       <p>
-        {reference.counts.verbs} commands, {reference.counts.mcp} of them also MCP tools.
+        {reference.counts.verbs} commands, {reference.counts.mcp} of them also MCP tools. The MCP column
+        gives the tool name that <code>cmux mcp serve --all-tools</code> offers.
       </p>
       {reference.nouns.map((entry) => (
         <section key={entry.noun}>
           <DocsHeading level={2} id={`cmux-${entry.noun}`}>{`cmux ${entry.noun}`}</DocsHeading>
           <table>
             <thead>
-              <tr><th>Command</th><th>What it does</th><th>MCP</th></tr>
+              <tr><th>Command</th><th>What it does</th><th>MCP tool</th></tr>
             </thead>
             <tbody>
               {entry.verbs.map((verb) => (
                 <tr key={verb.id}>
                   <td><code>{verb.command}</code></td>
                   <td>{verb.title}</td>
-                  <td>{verb.mcp ? "yes" : "no"}</td>
+                  <td>{verb.mcpTool ? <code>{verb.mcpTool}</code> : "no"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ))}
+    </>
+  );
+}
+
+function PaletteTables({ shortcutsOnly }: { shortcutsOnly: boolean }) {
+  const reference = paletteReference as PaletteReference;
+  const sections = reference.sections
+    .map((section) => ({ ...section, entries: shortcutsOnly ? section.entries.filter((entry) => entry.shortcut) : section.entries }))
+    .filter((section) => section.entries.length > 0);
+  return (
+    <>
+      <p>
+        {shortcutsOnly
+          ? `${reference.counts.shortcuts} default shortcuts.`
+          : `${reference.counts.entries} commands in the palette, ${reference.counts.shortcuts} with a default shortcut.`}
+      </p>
+      {sections.map((section) => (
+        <section key={section.id}>
+          <DocsHeading level={2} id={section.id.replace(/^category\./, "")}>{section.title}</DocsHeading>
+          <table>
+            <thead>
+              <tr><th>Command</th><th>Shortcut</th>{shortcutsOnly ? null : <th>CLI</th>}</tr>
+            </thead>
+            <tbody>
+              {section.entries.map((entry) => (
+                <tr key={entry.id}>
+                  <td>{entry.title}</td>
+                  <td>{entry.shortcut ? <kbd>{entry.shortcut}</kbd> : null}</td>
+                  {shortcutsOnly ? null : <td>{entry.command ? <code>{entry.command}</code> : null}</td>}
                 </tr>
               ))}
             </tbody>
@@ -89,9 +126,18 @@ export function NextDocView({ page }: { page: NextDocPage }) {
       <DocsHeading level={1} id="title">{page.title}</DocsHeading>
       {page.slug === "getting-started" ? null : <p><em>{page.description}</em></p>}
       {page.body.map((block, index) => <Block key={index} block={block} />)}
-      {page.slug === "keyboard-shortcuts" ? <p><Link href="/docs/keyboard-shortcuts">Open the keyboard shortcuts list</Link></p> : null}
+      {page.links ? (
+        <ul>
+          {page.links.map((slug) => {
+            const target = nextDocPage(slug);
+            return target ? <li key={slug}><Link href={nextDocHref(slug)}>{target.title}</Link></li> : null;
+          })}
+        </ul>
+      ) : null}
       {page.generated === "cli" ? <CliTables /> : null}
       {page.generated === "settings" ? <SettingsTables /> : null}
+      {page.generated === "palette" ? <PaletteTables shortcutsOnly={false} /> : null}
+      {page.generated === "shortcuts" ? <PaletteTables shortcutsOnly /> : null}
     </>
   );
 }

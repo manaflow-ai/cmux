@@ -41,6 +41,7 @@ import {
   devboxMachineHealthResumeProblems,
   devboxSourceDigest,
   devboxSourceManifest,
+  devboxTeamKindDefaultCommand,
   normalizedBakeScript,
   normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
@@ -77,7 +78,9 @@ const ownerAgentConfig = path.join(agentConfigFixtureRoot, "agent-config.sh");
 writeFileSync(agentConfigFixtureKind, "owner\n");
 writeFileSync(
   ownerAgentConfig,
-  read("agent-config.sh").replaceAll("/etc/cmux/vm-kind", agentConfigFixtureKind),
+  read("agent-config.sh")
+    .replaceAll("/etc/cmux/vm-kind", agentConfigFixtureKind)
+    .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py")),
 );
 afterAll(() => rmSync(agentConfigFixtureRoot, { recursive: true, force: true }));
 
@@ -162,6 +165,7 @@ describe("devbox image template", () => {
       "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
+      "claude-onboarding.py",
       "cmux-bashrc",
       "cmux-claude",
       "cmux-codex",
@@ -186,6 +190,7 @@ describe("devbox image template", () => {
       "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
+      "claude-onboarding.py",
       "cmux-bashrc",
       "cmux-claude",
       "cmux-codex",
@@ -1084,6 +1089,46 @@ test "$daemon_pid" = fixture
       rmSync(bin, { recursive: true, force: true });
     }
   }, 120_000);
+
+  test("the bake keeps caller model env through both owner checks, then verifies the team default", () => {
+    const bake = readScript("build-devbox-freestyle.ts");
+    const steps = [...bake.matchAll(/await step\(\s*"([^"]+)"/g)].map((match) => match[1]);
+    const ordered = ["vm-kind-bake-owner", "agent-config", "agent-hooks", "vm-kind-default", "model-plane-env", "settle-before-snapshot"];
+    for (const name of ordered) expect(steps.filter((step) => step === name)).toHaveLength(1);
+    for (let i = 1; i < ordered.length; i++) {
+      expect(steps.indexOf(ordered[i - 1])).toBeLessThan(steps.indexOf(ordered[i]));
+    }
+  });
+
+  test("the bake team-default command resets owner and rejects any persisted caller model env", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-bake-team-default-"));
+    const kind = path.join(root, "kind");
+    const home = path.join(root, "home");
+    const config = path.join(root, "agent-config.sh");
+    try {
+      writeFileSync(kind, "owner\n");
+      writeFileSync(config, read("agent-config.sh")
+        .replaceAll("/etc/cmux/vm-kind", kind)
+        .replaceAll("/etc/cmux/model-plane.env", path.join(root, "no-baked-model-env"))
+        .replaceAll("/etc/cmux/claude-onboarding.py", path.join(templateDir, "claude-onboarding.py")));
+      const command = devboxTeamKindDefaultCommand(kind, home, config);
+      const result = await runChild("/bin/bash", ["-c", command], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("team-kind-keeps-no-caller-env");
+      expect(readFileSync(kind, "utf8")).toBe("team\n");
+      expect(existsSync(home)).toBe(false);
+      // Prove the assertion rejects a generator that retains the caller key
+      // or endpoint, rather than merely checking that the reset ran.
+      for (const variable of ["OPENAI_API_KEY", "OPENAI_BASE_URL"]) {
+        writeFileSync(config, `mkdir -p "$HOME"; printf '%s' "$${variable}" > "$HOME/leak"\n`);
+        const leaked = await runChild("/bin/bash", ["-c", command], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
+        expect(leaked.status).not.toBe(0);
+        expect(leaked.stdout).not.toContain("team-kind-keeps-no-caller-env");
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   test("agent config generator adds the codex provider around hook trust state another writer left first", async () => {
     // The bake runs `cmux-tui agent hook install codex` before any shell has

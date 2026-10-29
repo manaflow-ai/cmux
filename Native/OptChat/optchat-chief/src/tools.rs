@@ -4,6 +4,11 @@
 //! call here, so the answers always come from the one process that owns the
 //! chat. Wire: one JSON line per request and per answer.
 
+// The tool limits the schemas name are the kernel's (chief-kernel tools.rs).
+pub use chief_kernel::tools::{
+    AUTH_KINDS, CONTROL_ACTIONS, EFFORTS, MAX_SEND_ATTACHMENTS, PLACES, SLEEP_MAX_SECONDS,
+    SLEEP_MIN_SECONDS,
+};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
@@ -260,14 +265,6 @@ impl SendCall {
     }
 }
 
-/// Most attachments one `send` takes.
-pub const MAX_SEND_ATTACHMENTS: usize = 10;
-
-/// Shortest `sleep` (a turn costs more than a shorter wait saves).
-pub const SLEEP_MIN_SECONDS: u64 = 30;
-/// Longest `sleep`: a day.
-pub const SLEEP_MAX_SECONDS: u64 = 86_400;
-
 impl SleepCall {
     fn parse(args: &Value) -> Result<SleepCall, String> {
         let seconds = args
@@ -337,9 +334,6 @@ pub struct AuthEscalation {
     /// One of [`AUTH_KINDS`].
     pub kind: String,
 }
-
-/// The kinds of sign-in `escalate_auth` takes.
-pub const AUTH_KINDS: [&str; 4] = ["password", "passkey", "2fa", "oauth"];
 
 impl AuthEscalation {
     /// The note the Chief reads: who, where, what, and the skill to follow.
@@ -535,33 +529,6 @@ pub fn usage(tool: &str) -> String {
 pub fn agent_id(id: &str) -> bool {
     id.trim().starts_with(|c: char| c.is_ascii_alphabetic())
 }
-
-/// The efforts `spawn` takes (acpmux maps them onto the harness's own).
-pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-
-/// Where `spawn` runs its subagents (`place`).
-/// `cloud:SIZE` also picks the VM size with one VM per subagent.
-pub const PLACES: [&str; 5] = [
-    "cloud",
-    "local",
-    "cloud:small",
-    "cloud:medium",
-    "cloud:large",
-];
-
-/// The `control` tool's actions.
-pub const CONTROL_ACTIONS: [&str; 10] = [
-    "status",
-    "interrupt",
-    "answer",
-    "pause",
-    "resume",
-    "cancel",
-    "restart",
-    "priority",
-    "cap",
-    "cloud",
-];
 
 /// One `control` call.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

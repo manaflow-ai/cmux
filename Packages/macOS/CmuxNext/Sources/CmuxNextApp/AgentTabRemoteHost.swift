@@ -22,6 +22,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// The machine's daemon says whether a keyed acpmux restart loses nothing
     /// (`agent-session-start-keyed-reason-v1`, cx-0w0jj).
     var servesKeyedReason = false
+    /// A Cloud machine's link owner answer (`CloudMachineLink.ownerLink`), read at each trust call
+    /// and never kept. Nil for a machine that is not a Cloud machine.
+    var ownerLink: AgentSessionAttachClient.OwnerLink?
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
     var approvals: AgentPaneRemoteApprovals?
@@ -50,10 +53,10 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         }
         let route: AgentPaneRemoteRoute
         // The folder trust question of this machine (cx-1bhjj), on the tab as its store lists it.
-        let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint] (cwd: String, level: String?, home: Bool) async throws -> Data in
+        let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint, ownerLink] (cwd: String, level: String?, home: Bool) async throws -> Data in
             let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, endpoint: endpoint)
             let answer: Result<Data, any Error>
-            do { answer = .success(try await AgentTabRemoteClient(client: client, mode: .attach).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home) }) } catch { answer = .failure(error) }
+            do { answer = .success(try await AgentTabRemoteClient(client: client, mode: .attach).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home, ownerLink: ownerLink) }) } catch { answer = .failure(error) }
             await client.close()
             return try answer.get()
         }

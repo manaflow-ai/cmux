@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextPages
+import Foundation
 
 /// The look of what stands on the composer card's top edge (the location strip of a new chat, the
 /// queued prompts of a started one), for comparing designs: `agentPane.debug.topStripStyle`.
@@ -89,6 +90,24 @@ public nonisolated enum AgentPaneReasoningSliderStyle: String, Sendable, CaseIte
     }
 }
 
+/// Alternative harness placements for the model picker (DEV/NIGHTLY).
+public nonisolated enum AgentPaneHarnessPlacement: String, Sendable, CaseIterable, TunableChoice {
+    case left
+    case top
+    case compact
+
+    public var tunableTitle: String {
+        switch self {
+        case .left:
+            String(localized: "agentPane.harnessPlacement.left", defaultValue: "Left rail with names", bundle: .module)
+        case .top:
+            String(localized: "agentPane.harnessPlacement.top", defaultValue: "Top strip with names", bundle: .module)
+        case .compact:
+            String(localized: "agentPane.harnessPlacement.compact", defaultValue: "Compact left rail", bundle: .module)
+        }
+    }
+}
+
 /// What a click on the composer's model chip opens. `compact` is the short Claude Code style menu
 /// (numbered models, Effort, Account, More models); `full` opens the harness rail and search at once.
 public nonisolated enum AgentPaneModelMenuStyle: String, Sendable, CaseIterable, TunableChoice {
@@ -142,12 +161,12 @@ public nonisolated struct AgentPaneTunables {
         default: true, code: "AgentPaneTunables.chromium")
     /// The Inspector at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
     /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,
-    /// with a header toggle that shows and hides it. On by default; off brings back the summary card.
+    /// with a header toggle that shows and hides it. Off by default; on replaces the summary card.
     /// Listed in TunableCatalog on its own line, outside `all`, so it does not churn with that list.
     public static let inspector = Tunable<Bool>.toggle(
         "agent.inspector", PageTunables.section, "Session Info",
         help: "A header toggle opens Session Info at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
-        default: true, code: "AgentPaneTunables.inspector")
+        default: false, code: "AgentPaneTunables.inspector")
 
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
     /// terminal on the right each time." On, the chat header's Terminal opens a split on every
@@ -281,6 +300,13 @@ public nonisolated struct AgentPaneTunables {
         "agent.composerPlainFooter", PageTunables.section, "Agent composer: plain footer",
         help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
         default: true, code: "AgentPaneTunables.composerPlainFooter")
+
+    public static let harnessPlacement = Tunable<AgentPaneHarnessPlacement>.choice(
+        "agent.harnessPlacement", PageTunables.section,
+        String(localized: "agentPane.harnessPlacement.title", defaultValue: "Model picker harness placement", bundle: .module),
+        help: String(localized: "agentPane.harnessPlacement.help",
+                     defaultValue: "Compare a named left rail, a wrapping top strip and a compact left rail.", bundle: .module),
+        default: .left, code: "AgentPaneTunables.harnessPlacement")
 
     /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
     /// `codexRuns`, cx-ncc.108): each finished run is one summary line between the paragraphs
@@ -436,6 +462,7 @@ public nonisolated struct AgentPaneTunables {
             liveThoughtViewport.descriptor,
             lostPromptReplay.descriptor,
             modelMenu.descriptor,
+            harnessPlacement.descriptor,
             needsYou.descriptor,
             needsYouPill.descriptor,
             newTabPicksFollowLinks.descriptor,

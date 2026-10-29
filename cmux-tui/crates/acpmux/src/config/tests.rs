@@ -245,6 +245,25 @@ fn a_state_home_below_an_acl_writable_ancestor_is_refused() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[test]
+fn claude_falls_back_to_the_cmux_router_on_deepseek_without_a_coderouter_route() {
+    let mut cfg = Config::default();
+    cfg.harnesses.insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["claude"]));
+    cfg.join_discovered(BTreeMap::from([(
+        "cmux".to_owned(),
+        prof(HarnessKind::ClaudeStdio, &["claude"]),
+    )]));
+    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("cmux"));
+    assert_eq!(cfg.auto_fallback, Some(("claude".into(), "cmux".into())));
+}
+
+#[test]
+fn the_cmux_router_profile_defaults_to_deepseek_v4_flash() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router(&mut found, &|_| Some("/usr/bin/claude".into()));
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4-flash"));
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///
