@@ -31,7 +31,7 @@
   "turns": [
     {
       "text": "where are we?",
-      "tail": "Subagents at work now: a910, a912.",
+      "tail": "Subagents at work now: a910, a912. Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.",
       "checks": [
         {
           "type": "no_raw_ids"

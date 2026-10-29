@@ -4,9 +4,34 @@ use super::*;
 
 pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Retention(args) => {
+            let client = connect(true).await?;
+            let archive = args.archive.map(std::path::absolute).transpose()?;
+            let v = client
+                .request(
+                    method::MUX_RETENTION,
+                    json!({"dryRun": args.dry_run, "archive": archive, "olderThanDays": args.older_than_days, "only": args.only}),
+                )
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
+                println!(
+                    "{} closed chats older than {} days: {:.1} MB of {:.1} MB {}",
+                    v["chats"],
+                    v["olderThanDays"],
+                    mb("freedBytes"),
+                    mb("bytesBefore"),
+                    if args.dry_run { "would be freed (dry run)" } else { "freed" }
+                );
+                println!("skipped: {}", v["skipped"]);
+            }
+            Ok(())
+        }
         Command::Cancel { session } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             // As a request, the reply says the daemon handled the cancel.
             client.request(method::SESSION_CANCEL, json!({"sessionId": id})).await?;
             if json_out {
@@ -18,7 +43,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::Kill { session, purge } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             let v =
                 client.request(method::MUX_KILL, json!({"sessionId": id, "purge": purge})).await?;
             if json_out {
@@ -53,7 +78,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::ResumeQueue { session } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
             let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
             // `_acpmux/queue_edit` `resume` names the queue by any of its prompts: a held one.
             let held = info["queue"]
@@ -98,7 +123,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Fork { session, name, cwd } => {
+        Command::Fork { session, name, cwd, force_admit } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
             let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": {}}});
@@ -107,6 +132,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             if let Some(n) = name {
                 p["_meta"]["acpmux"]["name"] = json!(n);
+            }
+            if force_admit {
+                p["_meta"]["acpmux"]["forceAdmit"] = json!(true);
             }
             let v = client.request(method::SESSION_FORK, p).await?;
             if json_out {
@@ -163,9 +191,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Allow { session, option } => answer_permission(&session, option, true).await,
-        Command::Deny { session } => answer_permission(&session, None, false).await,
-        Command::Answer { session, answer } => answer_question(&session, &answer).await,
+        Command::Allow { session, option } => {
+            answer_permission(&session, option, true, json_out).await
+        }
+        Command::Deny { session } => answer_permission(&session, None, false, json_out).await,
+        Command::Answer { session, answer } => answer_question(&session, &answer, json_out).await,
         Command::Export { session, dest } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -331,6 +361,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         v.get("pid").and_then(Value::as_u64).unwrap_or(0),
                         age(v.get("startedAt").and_then(Value::as_u64).unwrap_or(0))
                     );
+                    for stuck in v["stuckSessions"].as_array().into_iter().flatten() {
+                        println!(
+                            "stuck: {} ({}) since {}: {}",
+                            stuck["name"].as_str().unwrap_or(""),
+                            stuck["stuckReason"].as_str().unwrap_or(""),
+                            stuck["stuckSince"],
+                            stuck["stuckError"].as_str().unwrap_or("")
+                        );
+                    }
                     println!("socket:   {}", v.get("socket").and_then(Value::as_str).unwrap_or(""));
                     println!("home:     {}", v.get("home").and_then(Value::as_str).unwrap_or(""));
                     println!(
@@ -388,7 +427,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Shutdown { end_agents, .. } => {
             crate::cli::shutdown::run(end_agents, json_out).await
         }
-        Command::Config => {
+        Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        Command::Config { show_token } => {
             let path = Config::path();
             if json_out {
                 let (written, config) = match std::fs::read_to_string(&path) {
@@ -402,17 +442,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             println!("# {}", path.display());
             match std::fs::read_to_string(&path) {
-                Ok(s) => println!("{s}"),
+                Ok(s) if show_token => println!("{s}"),
+                Ok(s) => println!("{}", config_text_without_tokens(&s)),
                 Err(_) => {
                     let cfg = Config::load()?;
                     println!("# (not written yet; effective defaults below)");
-                    println!("{}", serde_json::to_string_pretty(&cfg)?);
+                    let s = serde_json::to_string_pretty(&cfg)?;
+                    println!("{}", if show_token { s } else { config_text_without_tokens(&s) });
                 }
             }
             println!("# home: {}", home().display());
             Ok(())
         }
-        Command::Web { no_open, rotate_token } => {
+        Command::Web { no_open, show_token, rotate_token } => {
             let client = connect(true).await?;
             let m = if rotate_token { method::MUX_WEB_TOKEN_ROTATE } else { method::MUX_STATUS };
             let v = client.request(m, json!({})).await?;
@@ -426,21 +468,45 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 print_json(&json!({"url": url}));
                 return Ok(());
             }
-            println!("{url}");
+            println!("{}", web_line(Some(&url), show_token));
+            // The browser gets the whole link: without its token the page cannot connect.
+            // The opener's own output stays out of the terminal: `xdg-open` with no
+            // browser prints the link it was given, token and all.
             if !no_open {
-                let _ = std::process::Command::new(if cfg!(target_os = "macos") {
-                    "open"
-                } else {
-                    "xdg-open"
-                })
-                .arg(&url)
-                .spawn();
+                let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+                if let Err(e) = std::process::Command::new(opener)
+                    .arg(&url)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                {
+                    eprintln!(
+                        "acpmux: could not run {opener} ({e}); `acpmux web --no-open --show-token` prints the link"
+                    );
+                }
             }
             Ok(())
         }
         // No daemon connection: the update must work while the daemon does not.
         Command::Host(PeerCmd::SelfUpdate { channel }) => {
             crate::cli::hosts::self_update(&channel, json_out).await
+        }
+        // A file of this machine's; the daemon, when it runs, only reloads it.
+        Command::Host(PeerCmd::Approvals { cmd }) => {
+            crate::cli::host_approvals::run(cmd, json_out).await
+        }
+        // A file of this person's: no daemon needed.
+        Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
+            crate::cli::hosts::hold(name, reason, until, release, json_out)
+        }
+        // The ticket is read (stdin, or argv with a warning) and checked
+        // before a daemon is reached or started.
+        Command::Host(PeerCmd::Join { ticket, name, peer_name, advertise }) => {
+            let ticket = crate::cli::pairing::join_ticket(ticket)?;
+            let client = connect(true).await?;
+            let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
+            crate::cli::pairing::join(client, args, json_out).await
         }
         Command::Host(cmd) => {
             let client = connect(true).await?;
@@ -540,6 +606,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
+                PeerCmd::VmHost { name, state } => {
+                    // `vm-host on` names no peer: the state alone.
+                    let (name, state) = match (name, state) {
+                        (Some(n), None) if n == "on" || n == "off" => (None, Some(n)),
+                        other => other,
+                    };
+                    let mut p = json!({"on": state.as_deref().map(|s| s == "on")});
+                    if let Some(name) = &name {
+                        p["name"] = json!(name);
+                    }
+                    let v = client.request("_acpmux/vm_host", p).await?;
+                    if json_out {
+                        print_json(&v);
+                    } else {
+                        println!("{}", crate::cli::peer_status::vm_host_line(name.as_deref(), &v));
+                    }
+                    return Ok(());
+                }
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
@@ -552,6 +636,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 // match stays total without a panic.
                 PeerCmd::SelfUpdate { channel } => {
                     return crate::cli::hosts::self_update(&channel, json_out).await;
+                }
+                PeerCmd::Hold { name, reason, until, release } => {
+                    return crate::cli::hosts::hold(name, reason, until, release, json_out);
+                }
+                PeerCmd::Approvals { cmd } => {
+                    return crate::cli::host_approvals::run(cmd, json_out).await;
                 }
                 PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
@@ -594,6 +684,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         harnesses,
                         remote_binary,
                         reverse,
+                        lends_github: false,
                     };
                     return crate::cli::host_enroll::run(client, plan, fix, json_out).await;
                 }
@@ -603,9 +694,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
-                PeerCmd::Join { ticket, name, peer_name, advertise } => {
-                    let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
-                    return crate::cli::pairing::join(client, args, json_out).await;
+                PeerCmd::Join { .. } => {
+                    return Err(anyhow!("host join reads its ticket before connecting"));
                 }
             };
             if json_out {
@@ -619,7 +709,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             for p in peers {
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
-                let outdated = p.get("outdated").and_then(Value::as_bool).unwrap_or(false);
                 println!(
                     "{:<16} {:<10} {:>3} sessions  {}  {:<24} {}{}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
@@ -628,11 +717,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     crate::cli::peer_status::resources(&p),
                     p.get("url").and_then(Value::as_str).unwrap_or(""),
                     if build.is_empty() { String::new() } else { format!("build {build}") },
-                    if outdated {
-                        "  (differs from this build: acpmux host update NAME)"
-                    } else {
-                        ""
-                    },
+                    crate::cli::peer_status::outdated_hint(
+                        p.get("name").and_then(Value::as_str).unwrap_or(""),
+                        &p,
+                    )
+                    .unwrap_or_default(),
                     p.get("error")
                         .and_then(Value::as_str)
                         .map(|e| format!("  ({e})"))
@@ -660,9 +749,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
     }
 }
 
-/// The `web:` line of `daemon status` and `daemon start`: the Web UI link
-/// without its bearer token unless `show_token` (ergo-walk2, 2026-10-25: a
-/// terminal, a screen share or a pasted log is no place for it).
+/// The `web:` line of `daemon status` and `daemon start`, and what `acpmux web`
+/// prints: the Web UI link without its bearer token unless `show_token`
+/// (ergo-walk2, 2026-10-25: a terminal, a screen share or a pasted log is no
+/// place for it; ergo-walk4, 2026-10-26, for `web --no-open`).
 fn web_line(url: Option<&str>, show_token: bool) -> String {
     let Some(url) = url else { return "-".into() };
     if show_token {
@@ -672,4 +762,49 @@ fn web_line(url: Option<&str>, show_token: bool) -> String {
         Some((bare, _)) => format!("{bare} (token hidden: add --show-token)"),
         None => url.to_owned(),
     }
+}
+
+/// What a hidden token reads as in `daemon config`.
+const HIDDEN_TOKEN: &str = "(token hidden: add --show-token)";
+
+/// config.json as `daemon config` prints it: its JSON printed anew (keys
+/// sorted) with the bearer tokens in it replaced by [`HIDDEN_TOKEN`]: the
+/// listener's `websocket.token`, a peer's `token` and `peerToken`, and the
+/// userinfo, query and fragment of a peer's `url` (ergo-walk4, 2026-10-26:
+/// "`acpmux daemon config` human output prints websocket.token in full").
+/// Never the file's own text: a duplicate key or an escaped spelling keeps a
+/// token there that the parsed config no longer shows. A file that is not
+/// JSON is named, not printed: it may hold a token all the same.
+fn config_text_without_tokens(text: &str) -> String {
+    let mut value = match serde_json::from_str::<Value>(text) {
+        Ok(value) => value,
+        Err(e) => {
+            return format!(
+                "# (not valid JSON: {e}; it may hold tokens: add --show-token to print it)"
+            );
+        }
+    };
+    let hide = |slot: Option<&mut Value>| {
+        if let Some(slot) = slot
+            && slot.as_str().is_some_and(|s| !s.is_empty())
+        {
+            *slot = Value::String(HIDDEN_TOKEN.into());
+        }
+    };
+    hide(value.pointer_mut("/websocket/token"));
+    if let Some(peers) = value.get_mut("peers").and_then(Value::as_object_mut) {
+        for peer in peers.values_mut() {
+            hide(peer.get_mut("token"));
+            hide(peer.get_mut("peerToken"));
+            if let Some(url) = peer.get_mut("url")
+                && let Some(text) = url.as_str()
+            {
+                let bare = crate::server::url_without_secrets(text);
+                if bare != text {
+                    *url = Value::String(format!("{bare} {HIDDEN_TOKEN}"));
+                }
+            }
+        }
+    }
+    serde_json::to_string_pretty(&value).unwrap_or_else(|_| HIDDEN_TOKEN.into())
 }

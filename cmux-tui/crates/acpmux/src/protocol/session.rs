@@ -24,6 +24,21 @@ pub struct SessionSummary {
     /// `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
     /// a peer's session also `unreachable`.
     pub status: String,
+    /// Effective liveness: `stuck` after three classified harness failures, else `status`.
+    #[serde(default)]
+    #[schemars(default)]
+    pub state: String,
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_reason: Option<crate::session_liveness::StuckReason>,
+    /// Unix milliseconds when the third failure established stuck. Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_since: Option<u64>,
+    /// Last classified error, redacted and bounded. Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_error: Option<String>,
     pub agent_session_id: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
@@ -33,9 +48,26 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     /// Where a fork branched off its parent.
     pub fork_seq: Option<u64>,
-    /// The session whose agent started this one (its `spawnedBy` tag), kept
-    /// only while that parent is listed; one level.
+    /// The session whose agent started this one, kept only while that parent
+    /// is listed and is a root itself: one level, for lists that fold one level.
+    /// `parent` without those rules, else an older client's `spawnedBy` tag.
     pub spawned_by: Option<String>,
+    /// The session whose agent started this one (`acpmux new` in its shell, or its
+    /// `start_session` tool), recorded at creation from the proven caller; null for a
+    /// session a person or the app started. Not the fork parent (`parentId`). Absent
+    /// from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub parent: Option<String>,
+    /// The root of its lineage tree: the first ancestor no agent started; its own
+    /// id for a root. Absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub root: String,
+    /// The parent's tool call that started it, when acpmux could tell.
+    #[serde(default)]
+    #[schemars(default)]
+    pub spawn_tool_call_id: Option<String>,
     /// The pull request URLs its `gh pr create` calls printed, oldest first;
     /// absent from a peer on an older acpmux.
     #[serde(default)]
@@ -48,7 +80,8 @@ pub struct SessionSummary {
     pub started_by: Option<String>,
     /// Its name among its parent's sub-sessions; null for a root.
     pub short_name: Option<String>,
-    /// 0 for a root session, 1 for its sub-sessions, and so on.
+    /// Its lineage depth (`parent`): 0 for a root session, 1 for the sessions
+    /// its agent started, and so on.
     pub depth: u32,
     /// Its sub-sessions that are not closed.
     pub children: u32,
@@ -95,6 +128,9 @@ pub struct SessionSummary {
     #[schemars(with = "Option<String>")]
     pub current_mode_id: Value,
     pub model: Option<String>,
+    /// The harness's current reasoning effort, when it reports one.
+    /// Additive for older clients and peers.
+    pub effort: Option<String>,
     pub policy: Option<String>,
     #[schemars(with = "Enforcement")]
     pub enforcement: Value,
@@ -379,9 +415,10 @@ pub struct LastTurn {
     /// Why a turn ended without an answer, e.g. `outcome_unknown`.
     pub detail: Option<String>,
     /// What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
-    /// `peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client
-    /// treats a kind it does not know as a plain error. The same key is on a request's error
-    /// `data` and on the `turn_error` and `turn_result` records.
+    /// `peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,
+    /// `auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain
+    /// error. The same key is on a request's error `data` and on the `turn_error` and
+    /// `turn_result` records.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
     /// One sentence saying what to do about the failure.

@@ -11,10 +11,13 @@
 //! started or resumed as for any prompt (Claude `--resume`, Codex `thread/resume`, else the
 //! restored transcript) and the turn's rules (`control`, trust gate) are checked again.
 //!
-//! - `autoResumeDelaysMs` in the config sets the wait before each attempt; the default
-//!   [`DEFAULT_DELAYS_MS`] spans about 26 minutes. `[]` turns it off. At most
-//!   [`MAX_ATTEMPTS`] entries, each between 1 s and 1 h; an entry that is not a whole number
-//!   of milliseconds of 0 or more is refused with a warning and the default waits apply.
+//! - `autoResumeDelaysMs` in the config is the whole loop: one entry per attempt, each the wait
+//!   before it, so its length says how many attempts run ([`configured_attempts`]) on every path
+//!   that continues a cut turn, a chain of daemon restarts included (`restart_resume.rs`). The
+//!   default [`DEFAULT_DELAYS_MS`] is four attempts spanning about 26 minutes; `[]` turns it off.
+//!   At most [`MAX_CONFIGURED_ATTEMPTS`] entries, each between 1 s and 1 h; an entry that is not
+//!   a whole number of milliseconds of 0 or more is refused with a warning and the default
+//!   waits apply.
 //! - Attempt `n` of the prompt `P` has the prompt id `P~resume-n`, so it runs once, across
 //!   restarts too, and a continuation that fails the same way schedules attempt `n + 1`.
 //! - It is skipped when anything else ran or waits in the chat meanwhile (a person's prompt,
@@ -74,8 +77,18 @@ pub(crate) mod retry_turn;
 /// Waits before attempts 1, 2, 3 and 4, in milliseconds.
 pub const DEFAULT_DELAYS_MS: [u64; 4] = [10_000, 60_000, 300_000, 1_200_000];
 
-/// Most attempts `autoResumeDelaysMs` may set.
-pub const MAX_ATTEMPTS: usize = DEFAULT_DELAYS_MS.len();
+/// Most attempts `autoResumeDelaysMs` may set. The default's four span about 26 minutes, which a
+/// capacity outage outlives; twelve entries of up to an hour each let a configured loop ride one
+/// out, and still bound the attempt a prompt id's suffix carries and what one cut turn writes to
+/// the log. Never a floor on the default, which stays four.
+pub const MAX_CONFIGURED_ATTEMPTS: usize = 12;
+
+/// How many attempts the configured waits allow, for a chain of daemon restarts as for a turn a
+/// transport cut: one per wait, or the default's four when the config says nothing. 0 (`[]`)
+/// turns it off.
+pub(in crate::hub) fn configured_attempts(delays: Option<&Vec<u64>>) -> usize {
+    delays.map_or(DEFAULT_DELAYS_MS.len(), Vec::len)
+}
 
 /// Shortest and longest configured wait, in milliseconds.
 const MIN_DELAY_MS: u64 = 1_000;
@@ -152,6 +165,9 @@ fn settled_retry_row(
 
 /// What a failed turn needs to be continued.
 pub(super) struct CutTurn<'a> {
+    /// The family sender its prompt spoke for (`subsession_guard::is_family`); its
+    /// continuation speaks for it too, and is checked as its message.
+    pub from: Option<&'a str>,
     pub prompt_id: &'a str,
     pub turn_id: &'a str,
     pub control: Control,
@@ -263,11 +279,12 @@ fn checked_delays(v: &Value) -> Option<Vec<u64>> {
         };
         delays.push(ms.clamp(MIN_DELAY_MS, MAX_DELAY_MS));
     }
-    if delays.len() > MAX_ATTEMPTS || delays.iter().zip(items).any(|(d, i)| i.as_u64() != Some(*d))
+    if delays.len() > MAX_CONFIGURED_ATTEMPTS
+        || delays.iter().zip(items).any(|(d, i)| i.as_u64() != Some(*d))
     {
-        delays.truncate(MAX_ATTEMPTS);
+        delays.truncate(MAX_CONFIGURED_ATTEMPTS);
         tracing::warn!(
-            "autoResumeDelaysMs: kept to {MAX_ATTEMPTS} attempts of 1 s to 1 h each: {delays:?}"
+            "autoResumeDelaysMs: kept to {MAX_CONFIGURED_ATTEMPTS} attempts of 1 s to 1 h each: {delays:?}"
         );
     }
     Some(delays)
@@ -346,6 +363,7 @@ impl Hub {
         let (root, turn_id, error) =
             (root.to_owned(), cut.turn_id.to_owned(), cut.error.to_owned());
         let (control, trust_gate) = (cut.control, cut.trust_gate);
+        let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
@@ -383,8 +401,14 @@ impl Hub {
                     () = wake.notified() => {}
                 }
             }
-            let cut =
-                CutTurn { prompt_id: &root, turn_id: &turn_id, control, trust_gate, error: &error };
+            let cut = CutTurn {
+                from: from.as_deref(),
+                prompt_id: &root,
+                turn_id: &turn_id,
+                control,
+                trust_gate,
+                error: &error,
+            };
             hub.auto_resume(&session, cut, attempt).await;
         });
     }
@@ -462,6 +486,7 @@ impl Hub {
         session: &Session,
         after: Option<&str>,
         exclusive: bool,
+        subagent_retry: bool,
         turn: super::TurnInfo,
     ) -> Result<(), RpcError> {
         let mut pending = self.auto_resumes.lock();
@@ -489,9 +514,10 @@ impl Hub {
                 return Err(stopped());
             }
         }
-        // A subagent retry skipped since its prompt went out does not start (`subagent_retry.rs`).
+        // A subagent retry skipped since its prompt went out, or that no attempt of this daemon
+        // sent (one a restart or a move restored), does not start (`subagent_retry.rs`).
         let prompt_id = turn.prompt_id.clone();
-        self.subagent_retries.start(&session.id, &prompt_id, || {
+        self.subagent_retries.start(&session.id, &prompt_id, subagent_retry, || {
             *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = Some(turn);
         })
     }
@@ -613,7 +639,10 @@ impl Hub {
             return;
         }
         let held = self.held_by(session, root, cut_turn);
-        let provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
+        let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
+        if let Some(from) = cut.from {
+            provenance["from"] = json!(from);
+        }
         // Whether the attempt reached the chat (its turn started): one refused before that
         // (its folder gone, a dispatch check) leaves no record a watcher hears but this skip.
         let accepted = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -760,6 +789,20 @@ mod tests {
     }
 
     #[test]
+    fn the_configured_waits_say_how_many_attempts_run() {
+        assert_eq!(configured_attempts(None), DEFAULT_DELAYS_MS.len());
+        assert_eq!(configured_attempts(Some(&vec![])), 0);
+        assert_eq!(configured_attempts(Some(&vec![1_000])), 1);
+        assert_eq!(configured_attempts(Some(&vec![1_000; 9])), 9);
+        // The ceiling bounds what a configured loop may set, never the default.
+        assert!(DEFAULT_DELAYS_MS.len() <= MAX_CONFIGURED_ATTEMPTS);
+        assert_eq!(
+            checked_delays(&json!(vec![1000; MAX_CONFIGURED_ATTEMPTS + 1])).unwrap().len(),
+            MAX_CONFIGURED_ATTEMPTS
+        );
+    }
+
+    #[test]
     fn attempts_are_counted_from_the_prompt_id() {
         assert_eq!(split_attempt("p1"), ("p1", 0));
         assert_eq!(split_attempt("p1~resume-1"), ("p1", 1));
@@ -773,7 +816,9 @@ mod tests {
         assert_eq!(checked_delays(&json!([])), Some(vec![]));
         assert_eq!(checked_delays(&json!([5000, 60000])), Some(vec![5000, 60000]));
         assert_eq!(checked_delays(&json!([0, 99_999_999])), Some(vec![1_000, 3_600_000]));
-        assert_eq!(checked_delays(&json!([1000, 1000, 1000, 1000, 1000])).unwrap().len(), 4);
+        // A loop longer than the default's four is kept: the key configures the whole loop.
+        assert_eq!(checked_delays(&json!(vec![1000; 5])).unwrap().len(), 5);
+        assert_eq!(checked_delays(&json!(vec![1000; 12])).unwrap().len(), 12);
         assert_eq!(checked_delays(&json!([1000, -5])), None);
         assert_eq!(checked_delays(&json!([1.5])), None);
         assert_eq!(checked_delays(&json!("10s")), None);

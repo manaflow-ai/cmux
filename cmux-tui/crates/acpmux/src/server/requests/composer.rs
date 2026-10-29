@@ -68,7 +68,10 @@ pub(super) async fn handle(
         let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
         return Ok(json!({"sessionId": s.id, "draft": draft}));
     }
-    hub.ask_aside(&s, text, &conn.label(), opts()).await
+    // The aside is a fork: a new session, so it needs room (`hub/admission.rs`).
+    let who = super::who(conn);
+    let admitted = hub.admit_new(super::ask(conn, params, &who)).await?;
+    admitted.run(hub.ask_aside(&s, text, &conn.label(), opts())).await
 }
 
 /// What `session/prompt` does once the hub took the prompt: tell the connection

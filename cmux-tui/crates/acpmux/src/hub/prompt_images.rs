@@ -186,6 +186,10 @@ pub(super) fn inline_parts(
     let kept_images: HashSet<&str> =
         images.iter().filter_map(|image| image.get("id").and_then(Value::as_str)).collect();
     let display = validated_display_parts(display_parts, blocks);
+    let companion_images: HashSet<u64> = display
+        .values()
+        .filter_map(|part| part.get("companionOf").and_then(Value::as_u64))
+        .collect();
     blocks
         .iter()
         .enumerate()
@@ -222,6 +226,9 @@ pub(super) fn inline_parts(
                     let persisted = kept_images.contains(id);
                     let mut part = named;
                     part["kind"] = Value::String("image".into());
+                    if companion_images.contains(&(block_index as u64)) {
+                        part["blockIndex"] = json!(block_index);
+                    }
                     if !persisted {
                         part["persisted"] = Value::Bool(false);
                     }
@@ -317,6 +324,20 @@ pub(crate) fn validated_display_parts(
         }
         let mut out =
             serde_json::Map::from_iter([(String::from("kind"), Value::String(kind.into()))]);
+        if let Some(raw) = object.get("companionOf") {
+            let Some(index) = raw.as_u64().and_then(|n| usize::try_from(n).ok()) else { continue };
+            if kind != "file"
+                || block_type != "resource_link"
+                || index.checked_add(1) != Some(block_index)
+                || !blocks.get(index).is_some_and(|target| {
+                    target.get("type").and_then(Value::as_str) == Some("image")
+                        && decode(target).is_some()
+                })
+            {
+                continue;
+            }
+            out.insert("companionOf".into(), json!(index));
+        }
         if let Some(name) = object.get("name").and_then(Value::as_str) {
             if name.is_empty() || name.chars().count() > MAX_DISPLAY_NAME {
                 continue;
@@ -362,7 +383,7 @@ pub(crate) fn validated_display_parts(
 
 fn copy_display_fields(part: &mut Value, display: &Value) {
     let Some(object) = display.as_object() else { return };
-    for key in ["name", "mimeType", "size", "pageCount", "start", "end"] {
+    for key in ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf"] {
         if let Some(value) = object.get(key) {
             part[key] = value.clone();
         }
@@ -658,5 +679,34 @@ mod tests {
         let resource_block =
             vec![json!({"type": "resource_link", "uri": "", "name": "archive.zip"})];
         assert!(validated_display_parts(Some(&empty_resource), &resource_block).is_empty());
+    }
+    #[test]
+    fn inline_parts_validate_companion_relation() {
+        let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});
+        let file =
+            json!({"type": "resource_link", "name": "one.png", "uri": "file:///tmp/one.png"});
+        let blocks = vec![
+            image.clone(),
+            file.clone(),
+            json!({"type": "text", "text": "between"}),
+            image,
+            file,
+        ];
+        let display = json!([
+            {"kind": "file", "blockIndex": 1, "companionOf": 0},
+            {"kind": "file", "blockIndex": 4, "companionOf": 3}
+        ]);
+        let parts = inline_parts(&blocks, &[], Some(&display));
+        assert_eq!(parts[0]["id"], parts[3]["id"], "same bytes, distinct block identities");
+        assert_eq!(parts[0]["blockIndex"], 0);
+        assert_eq!(parts[1]["companionOf"], 0);
+        assert_eq!(parts[3]["blockIndex"], 3);
+        assert_eq!(parts[4]["companionOf"], 3);
+        assert_eq!(parts[1]["uri"], "file:///tmp/one.png", "the file is still delivered");
+        for (block, target) in [(1, 2), (1, 99), (1, -1), (0, 3), (4, 0)] {
+            let invalid = json!([{"kind": if block == 0 { "image" } else { "file" }, "blockIndex": block, "companionOf": target}]);
+            let parts = inline_parts(&blocks, &[], Some(&invalid));
+            assert!(parts.iter().all(|part| part.get("companionOf").is_none()));
+        }
     }
 }

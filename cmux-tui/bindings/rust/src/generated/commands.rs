@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ab9b63f6ea5a42684b2e68a16f00c86609765793d0fafdccdc139656f146deef.
+// cmux-tui mux protocol 12, IR 7ab19e2949e8f0b31d2f38035d4d9e3f646770fad5164b47a17153493d2e12a1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2564,6 +2564,8 @@ pub struct NewPaneRightRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub side: Optional<T::ColumnSide>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub tab_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
@@ -5033,6 +5035,10 @@ impl CmuxClient {
         if !request.shell_args.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-shell-args-v1")?;
+        }
+        if !request.side.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "column-left-v1")?;
         }
         if !request.tab_id.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;

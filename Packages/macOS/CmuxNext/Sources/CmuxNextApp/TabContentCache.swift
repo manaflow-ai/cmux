@@ -8,6 +8,9 @@ import CmuxNextRemote
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
+import os
+
+private let fallbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser.engine")
 
 /// Owns every terminal surface and browser page in the process
 /// (architecture.md 4). Surfaces are keyed by tab, not by pane: a tab moved
@@ -87,10 +90,12 @@ final class TabContentCache {
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
     /// Runs work after the current pass's frame committed (`AfterFrameCommit`); tests pass their own.
     private let afterFrame: (@escaping @MainActor () -> Void) -> Void
-    /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
-    /// until the user reloads one: set after cmux quit unexpectedly twice in
-    /// a row (`LaunchRecovery.restartedSafely`).
-    var defersRestoredPages = false
+    /// Restored tabs whose page waits for Reload (`DeferredBrowserTab`, one notice on that tab):
+    /// the pages a run that ended early in a restart loop had started (`LaunchRecovery.crashedPages`).
+    /// Every other restored tab loads when it shows.
+    var crashedPages: Set<String> = []
+    /// A restored tab (not opened in this run) started its page (`AppRunMarker.notePageStarted`).
+    var onRestoredPageStart: ((String) -> Void)?
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
@@ -259,11 +264,12 @@ final class TabContentCache {
             return nil
         }
         if let page = appPage(for: tab, url: url) { return page }
-        if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
-            return deferred(tab, url: url)
+        if !browserTabs.wasOpenedHere(tab) {
+            if crashedPages.contains(key), !startedDeferred.contains(key) { return deferred(tab, url: url) }
+            onRestoredPageStart?(key)
         }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
-        if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
+        if let reason = browserTabs.cefUnavailable() { return chromiumUnavailable(tab, url: url, reason: reason) }
         if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
         guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
         Task {
@@ -273,7 +279,7 @@ final class TabContentCache {
                 page = try await makeCEFTab(cef.noted("history", await browserTabs.historyStarts.chromium(tab, cef.noted("configured", await chromiumConfiguration(for: tab, key: key, url: url)), cache: self)))
             } catch {
                 guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
-                _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
+                _ = chromiumUnavailable(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
                 onBrowserReady?(key)
                 return
             }
@@ -354,7 +360,11 @@ final class TabContentCache {
 
     /// A WebKit page for a Chromium record, with the fallback recorded and
     /// the one-time notice shown when this is the first.
-    private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
+    func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
+        // The page loads again in WebKit, without Chromium's cookies (a second copy of the app,
+        // whose Chromium cannot start while the first holds its profile, shows signed-out pages).
+        let tabID = tab.id, code = reason.code
+        fallbackLogger.notice("tab \(tabID, privacy: .public) loads in WebKit: Chromium unavailable (\(code, privacy: .public)); its page reloads without Chromium's cookies")
         let fallbacks = browserTabs.fallbacks
         fallbacks.record(reason, source: .recordedTab, machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface)
         return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: tab.id, url: url), tab)

@@ -208,7 +208,7 @@ extension SettingDescriptor {
         case .sound: return .string("default")
         case .url: return .string("")
         case .hostList, .folderList, .numberList, .stringList, .orderedChoices, .choiceSet: return .array([])
-        case .stringMap: return .object([:])
+        case .stringMap, .soundRules: return .object([:])
         case .timeRange: return .object(["start": .string("22:00"), "end": .string("07:00")])
         case .theme: return .string("Dracula")
         case .fontFamily: return .string("Menlo")

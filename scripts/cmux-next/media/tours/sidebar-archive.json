@@ -1,0 +1,17 @@
+{
+  "title": "Archive sidebar items (plans/cmux-next/archiving-DESIGN.md)",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Two ungrouped workspaces", "cmux": ["workspace", "new", "--name", "Notes"], "shot": false},
+    {"title": "Second ungrouped workspace", "cmux": ["workspace", "new", "--name", "Inbox"], "shot": false},
+    {"title": "A group Design with its first workspace", "cmux": ["action", "run", "workspace.newInNewGroup", "--name", "Design"], "wait": 2},
+    {"title": "Second member", "cmux": ["action", "run", "workspaceGroup.newWorkspace"], "shot": false, "wait": 1},
+    {"title": "Third member", "cmux": ["action", "run", "workspaceGroup.newWorkspace"], "wait": 2},
+    {"title": "Before: the group and the ungrouped rows, nothing dimmed", "wait": 2},
+    {"title": "Archive the focused grouped workspace: it moves to the end of its group, dimmed", "cmux": ["action", "run", "workspace.toggleArchive"], "wait": 3},
+    {"title": "Archive the group itself: it moves to the end of the list, header and members dimmed", "cmux": ["action", "run", "workspaceGroup.toggleArchive"], "wait": 3},
+    {"title": "Unarchive the group: it comes back where it was", "cmux": ["action", "run", "workspaceGroup.toggleArchive"], "wait": 3},
+    {"title": "Unarchive the workspace: back in its old place in the group", "cmux": ["action", "run", "workspace.toggleArchive"], "wait": 3},
+    {"title": "Archive it again for the stills: last in its group, dimmed", "cmux": ["action", "run", "workspace.toggleArchive"], "wait": 3}
+  ]
+}

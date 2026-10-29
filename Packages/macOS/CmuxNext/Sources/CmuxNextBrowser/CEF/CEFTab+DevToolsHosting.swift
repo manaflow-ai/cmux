@@ -40,6 +40,10 @@ extension CEFTab {
             if !frames.grab.isEmpty { rects.append(frames.grab) }
             if let header = sidePanel.headerFrame { rects.append(header) }
             host.hostView.occlusionRects = CEFHostView.outermost(Self.local(rects, in: pageFrame))
+            host.hostView.roundedOcclusions = roundedOcclusions.compactMap { hole in
+                guard hole.rect.intersects(pageFrame) else { return nil }
+                return CEFClipShape.RoundedRect(rect: hole.rect.offsetBy(dx: -pageFrame.minX, dy: -pageFrame.minY), radius: hole.radius)
+            }
         }
         if let views = devToolsController.views {
             if devToolsController.deviceModeActive {
@@ -55,11 +59,12 @@ extension CEFTab {
     /// the chrome's rects, the divider's grab area, the side panel header,
     /// and the web contents before the first real page. A window snapshot
     /// cuts the same holes, so it shows the page as the screen does
-    /// (`debug.window_snapshot`).
+    /// (`debug.window_snapshot`); a rounded bar's hole is its whole rect there.
     public var pageWindowHoles: [CGRect] {
-        guard host.visibleTab === self, host.hostView.superview === container else { return CEFHostView.outermost(occlusionRects) }
+        let bars = roundedOcclusions.map(\.rect)
+        guard host.visibleTab === self, host.hostView.superview === container else { return CEFHostView.outermost(occlusionRects + bars) }
         let frame = host.hostView.frame
-        return host.hostView.occlusionRects.map { $0.offsetBy(dx: frame.minX, dy: frame.minY) }
+        return CEFHostView.outermost(host.hostView.occlusionRects.map { $0.offsetBy(dx: frame.minX, dy: frame.minY) } + bars)
     }
 
     /// `rects` (content view coordinates) in a subview at `frame`.
@@ -71,3 +76,6 @@ extension CEFTab {
         }
     }
 }
+
+/// The prompt and find bars leave the page as rounded holes (`roundedOcclusions`).
+extension CEFTab: BrowserRoundedOcclusionHosting {}

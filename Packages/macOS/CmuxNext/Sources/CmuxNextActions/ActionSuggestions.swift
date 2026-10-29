@@ -40,4 +40,8 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let chiefMoveTargets = "chiefMoveTargets"
     /// The archived workspaces Restore Archived Workspace… offers (by document item), last used first.
     public static let archivedWorkspaces = "archivedWorkspaces"
+    /// Every notification sound installed (`~/Library/Sounds`, `/Library/Sounds`, the system's), by name.
+    public static let notificationSounds = "notificationSounds"
+    /// The agent kinds this Mac has seen (its agent chats' harnesses), for per-agent notification sounds.
+    public static let notificationAgents = "notificationAgents"
 }

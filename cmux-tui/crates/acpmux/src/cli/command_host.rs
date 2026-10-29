@@ -34,6 +34,18 @@ pub enum PeerCmd {
         #[arg(long)]
         build: bool,
     },
+    /// Whether a machine takes its owner's VM boundary (vmHost): Claude runs
+    /// there without the sandbox only for a session whose caller asked, once
+    /// the Cloud API said the caller owns that VM. `off` refuses that on the
+    /// machine; `on` (the default off a Mac) stops refusing. Nothing on the
+    /// machine turns the boundary on. Shows whether cmux created the VM.
+    VmHost {
+        /// A peer; omit for this machine.
+        name: Option<String>,
+        /// on or off; omit to show it.
+        #[arg(value_parser = ["on", "off"])]
+        state: Option<String>,
+    },
     /// Remove a peer.
     Rm { name: String },
     /// Pairing tickets for adding a machine with one pasted line: `new`
@@ -41,9 +53,12 @@ pub enum PeerCmd {
     #[command(subcommand)]
     Ticket(TicketCmd),
     /// Redeem a pairing ticket from another machine and pair in its role
-    /// (the install script runs this with the pasted ticket).
+    /// (the install script runs this with the pasted ticket). The ticket
+    /// comes on stdin, one line: `printf '%s\n' TICKET | acpmux host join`.
     Join {
-        ticket: String,
+        /// Deprecated: other users of this machine read argv (ps). Omit it
+        /// and pass the ticket on stdin; given here, it warns.
+        ticket: Option<String>,
         /// This machine's name on the other one (default: the host name's first label).
         #[arg(long)]
         name: Option<String>,
@@ -96,6 +111,23 @@ pub enum PeerCmd {
         #[arg(long)]
         keep_newer: bool,
     },
+    /// Hold a machine (a peer name or its ssh host) off `host update`: the
+    /// update, `--all` and the app's own update queue leave it alone (`held`)
+    /// and never reach it, so its daemon is never restarted. For a machine
+    /// that is not yours to update now, such as one reserved for someone
+    /// else. With no NAME, list the holds (~/.acpmux/update-holds.json).
+    Hold {
+        name: Option<String>,
+        /// Why, shown in the update's row.
+        #[arg(long, requires = "name")]
+        reason: Option<String>,
+        /// When the hold ends by itself (RFC 3339, 2026-10-28T23:59:59Z).
+        #[arg(long, requires = "name")]
+        until: Option<String>,
+        /// End the hold.
+        #[arg(long, requires = "name", conflicts_with_all = ["reason", "until"])]
+        release: bool,
+    },
     /// On a Linux host, bring this machine's own daemon to the newest build
     /// of a channel (what acpmux-update.timer runs every 15 minutes): when
     /// the installed ~/.local/bin/acpmux differs from the channel's, download
@@ -129,6 +161,13 @@ pub enum PeerCmd {
         #[arg(long)]
         reverse: bool,
     },
+    /// The Macs whose cmux app may allow this machine's prompts in a chat it
+    /// reaches through its own daemon (`acpmux host enroll` from the Mac adds
+    /// it), and this machine's own app key. `rm` stops a Mac's Allows at once.
+    Approvals {
+        #[command(subcommand)]
+        cmd: Option<ApprovalsCmd>,
+    },
     /// Check a machine (a peer name or an ssh host) step by step; --fix
     /// repairs what fails. Without --fix nothing changes.
     Doctor {
@@ -150,6 +189,29 @@ pub enum PeerCmd {
         #[arg(long)]
         probe: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ApprovalsCmd {
+    /// Let a Mac's cmux app allow this machine's prompts.
+    Add {
+        /// The Mac's approver id (its app gives it; `host approvals` on the Mac shows it).
+        #[arg(long)]
+        id: String,
+        /// Its public key: a 65-byte uncompressed P-256 point as hex.
+        #[arg(long)]
+        key: String,
+        /// A name to show.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Stop a Mac's Allows here, at once.
+    Rm { id: String },
+    /// From this Mac: let its cmux app allow the prompts of PEER (a peer name
+    /// or ssh host), over ssh. The approvals step of `host enroll`, alone.
+    Enroll { peer: String },
+    /// From this Mac: stop its cmux app's Allows on PEER, at once.
+    Unenroll { peer: String },
 }
 
 #[derive(Subcommand)]

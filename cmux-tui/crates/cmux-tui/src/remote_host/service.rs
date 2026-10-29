@@ -99,14 +99,20 @@ pub(crate) fn running_pid() -> Option<u32> {
 }
 
 /// Stops the running `serve` (the pid that holds the lock) and returns when
-/// its lock is released.
-pub(crate) fn stop_running() {
-    let Some(pid) = running_pid() else { return };
+/// its lock is released. An error when it still holds the lock after a kill:
+/// its open connections are then still open, so no caller may report them closed.
+pub(crate) fn stop_running() -> anyhow::Result<()> {
+    let Some(pid) = running_pid() else { return Ok(()) };
     signal(pid, false);
     if !lock_released_within(STOP_BOUND) {
         signal(pid, true);
-        let _ = lock_released_within(STOP_BOUND);
+        if !lock_released_within(STOP_BOUND) {
+            bail!(
+                "the running `cmux host serve` (pid {pid}) did not stop; its connections stay open until it does"
+            );
+        }
     }
+    Ok(())
 }
 
 fn lock_released_within(bound: Duration) -> bool {
@@ -291,7 +297,7 @@ pub(crate) fn restart(exe: &Path, with_service: bool) -> anyhow::Result<String> 
     if installed() {
         imp::stop();
     }
-    stop_running();
+    stop_running()?;
     let mut why = String::new();
     if service {
         match imp::start() {

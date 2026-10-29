@@ -14,6 +14,8 @@ export type AutomationHost = {
   snapshot(): AcpmuxSnapshot;
   /// The page's action path (callNative): chat.send, chat.new, chat.permission, ...
   call(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  /// Settles once `call(method)` can run (the chat connected: pageAction), or rejects when it never does.
+  ready?(method: string): Promise<void>;
   /// The sidebar row's selection path.
   selectSession(sessionId: string): void;
   /// The edited-files card's "View changes" path.
@@ -23,6 +25,33 @@ export type AutomationHost = {
   /// The location row's folder pick (startFolder.tsx: the host takes it or asks first).
   pickFolder?(cwd: string): void;
 };
+
+/// How long an automation verb waits for the chat's own action (pageAction).
+export const PAGE_ACTION_WAIT_MS = 20_000;
+
+type PageAction = (params: Record<string, unknown>) => Promise<unknown>;
+
+/// The chat's own action `method` (cmuxAcpmuxActions, which the page installs once its chat
+/// connects to acpmux), waiting up to `waitMs` for it. Every automation verb is such an action:
+/// called before the chat connects, the page's callNative would send it to the native host,
+/// which has no chat verbs and refuses it with only the op's name (`cmux.agent.chat.new`). So a
+/// verb sent right after the pane opens (a capture's new_chat) waits for the chat instead, and
+/// one that never connects says so.
+export async function pageAction(
+  actions: () => Record<string, PageAction> | undefined,
+  method: string,
+  waitMs = PAGE_ACTION_WAIT_MS,
+  pause: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<PageAction> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const action = actions()?.[method];
+    if (action) return action;
+    if (Date.now() >= deadline)
+      throw new Error(`${method}: the chat did not connect to acpmux within ${Math.round(waitMs / 1000)} s`);
+    await pause(100);
+  }
+}
 
 const TRANSCRIPT_ROWS = 30;
 const TRANSCRIPT_CHARS = 500;
@@ -93,12 +122,25 @@ function changedFiles(rows: readonly AcpmuxRow[]): string[] {
   return [...byKey.values()];
 }
 
+/// `{error}` when the chat never made `method` ready (host.ready), else undefined. A verb that reports
+/// itself accepted after a window (sendPrompt, newChat) waits for this first, so a chat that never
+/// connected is an error, never an accepted send.
+async function notReady(host: AutomationHost, method: string): Promise<{ error: string } | undefined> {
+  if (!host.ready) return undefined;
+  return host.ready(method).then(
+    () => undefined,
+    (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+  );
+}
+
 /// How long sendPrompt waits for chat.send to fail before it reports the prompt as sent.
 /// chat.send settles only when the turn ends, which can be minutes or wait on an ask.
 export const SEND_ACCEPT_WINDOW_MS = 1_500;
 
 export async function sendPrompt(host: AutomationHost, text: string, acceptWindowMs = SEND_ACCEPT_WINDOW_MS) {
   if (!text.trim()) return { error: "empty prompt" };
+  const refused = await notReady(host, "chat.send");
+  if (refused) return refused;
   const turn = host.call("chat.send", { text }).then(
     () => ({ ended: true as const }),
     (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
@@ -119,6 +161,8 @@ export async function newChat(
   cwd?: string,
   acceptWindowMs = SEND_ACCEPT_WINDOW_MS,
 ) {
+  const refused = await notReady(host, "chat.new");
+  if (refused) return refused;
   const started = host.call("chat.new", { ...(harness ? { harness } : {}), ...(cwd ? { cwd } : {}) }).then(
     () => ({ started: true as const }),
     (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),

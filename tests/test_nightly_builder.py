@@ -202,5 +202,26 @@ class PruneTest(unittest.TestCase):
             self.assertEqual(len(removed), 2)
 
 
+
+class GlaedaFloor(unittest.TestCase):
+    """glaeda passes the runner's own floor (GLAEDA_MIN_FREE_GIB): the builder admits by that one number."""
+
+    def test_the_glaeda_floor_is_used_when_valid(self) -> None:
+        self.assertEqual(nb.min_free_bytes({"GLAEDA_MIN_FREE_GIB": "40"}), 40 * GIB)
+        self.assertEqual(nb.min_free_bytes({"GLAEDA_MIN_FREE_GIB": "25.5"}), int(25.5 * GIB))
+        for bad in ("", "0", "-1", "nan", "inf", "x", "20000"):
+            with self.subTest(bad=bad):
+                self.assertEqual(nb.min_free_bytes({"GLAEDA_MIN_FREE_GIB": bad}), nb.MIN_FREE_BYTES)
+        self.assertEqual(nb.min_free_bytes({}), nb.MIN_FREE_BYTES)
+
+    def test_admission_follows_the_glaeda_floor(self) -> None:
+        floor = nb.min_free_bytes({"GLAEDA_MIN_FREE_GIB": "30"})
+        ok, _ = nb.admit(job_env(), free_bytes=35 * GIB, min_free=floor)
+        self.assertTrue(ok)
+        ok, reason = nb.admit(job_env(), free_bytes=25 * GIB, min_free=floor)
+        self.assertFalse(ok)
+        self.assertIn("below 30 GiB", reason)
+
+
 if __name__ == "__main__":
     unittest.main()

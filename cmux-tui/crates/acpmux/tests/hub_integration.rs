@@ -17,6 +17,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[cfg(unix)]
+#[path = "hub_integration/idle_census.rs"]
+mod idle_census;
+
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
 #[path = "hub_integration/agent_pairs.rs"]
@@ -29,8 +33,14 @@ mod cursor_requests;
 mod drafts;
 #[path = "hub_integration/full_access_guards.rs"]
 mod full_access_guards;
+#[path = "hub_integration/held_queue.rs"]
+mod held_queue;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
+#[path = "hub_integration/log_retention.rs"]
+mod log_retention;
+#[path = "hub_integration/permission_display.rs"]
+mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
 #[path = "hub_integration/presence.rs"]
@@ -73,6 +83,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stuck_liveness.rs"]
+mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]
 mod subagent_retry;
 #[path = "hub_integration/surfaces.rs"]
@@ -1566,12 +1578,16 @@ mod adopt;
 #[cfg(unix)]
 mod preset_args;
 
+#[path = "hub_integration/bg_tasks.rs"]
+mod bg_tasks;
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
 #[path = "hub_integration/quit_spawn.rs"]
 mod quit_spawn;
+#[path = "hub_integration/session_hibernate.rs"]
+mod session_hibernate;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;

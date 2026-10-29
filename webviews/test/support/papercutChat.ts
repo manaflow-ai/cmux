@@ -128,6 +128,24 @@ export async function papercutPane(
         return null;
     }
   };
+  /// Every `session/prompt` the page sent, with its params (`_meta.acpmux.promptId`).
+  const prompts: Record<string, any>[] = [];
+  let socket: { send(data: string): void; close(): void } | undefined;
+  /// An acpmux record, appended to the log (a later attach replays it) and sent to the attached page.
+  const record = (kind: string, msg: Record<string, unknown>, dir = "mux") => {
+    const event = { sessionId: PAPERCUT_CHAT, seq: events.length + 1, at: Date.now(), dir, kind, msg };
+    events.push(event);
+    (session as { lastSeq: number }).lastSeq = event.seq;
+    socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+  };
+  /// The connection drops (acpmux restarted): the page connects again and reads the log again.
+  const drop = () => socket?.close();
+  /// Waiters for a method's next send: `sent(method, after)` settles once the pages have sent `method`
+  /// more than `after` times (an event, not a poll).
+  const waiters: { method: string; after: number; done: () => void }[] = [];
+  const count = (method: string) => methods.filter((sent) => sent === method).length;
+  const sent = (method: string, after: number) =>
+    count(method) > after ? Promise.resolve() : new Promise<void>((done) => void waiters.push({ method, after, done }));
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -136,8 +154,14 @@ export async function papercutPane(
     },
     websocket: {
       message(ws, raw) {
-        const message = JSON.parse(String(raw)) as { id?: number; method: string };
+        const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
         methods.push(message.method);
+        for (const waiter of waiters.filter((one) => one.method === message.method && count(one.method) > one.after)) {
+          waiters.splice(waiters.indexOf(waiter), 1);
+          waiter.done();
+        }
+        socket = ws;
+        if (message.method === "session/prompt") prompts.push(message.params ?? {});
         if (message.id !== undefined)
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
       },
@@ -191,7 +215,7 @@ export async function papercutPane(
     await vite.close();
     await daemon.stop(true);
   };
-  return { open, close, methods };
+  return { open, close, methods, prompts, record, drop, sent };
 }
 
 /// Settings > Agent Chat > Inspector: Push always (or back to the default), as the host's `display`

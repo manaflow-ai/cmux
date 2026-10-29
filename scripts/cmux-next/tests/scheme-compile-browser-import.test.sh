@@ -14,7 +14,7 @@ repo="$TMP/repo"
 sources="$repo/Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
 mkdir -p "$repo/scripts/cmux-next/lib" "$repo/scripts/ci" "$(dirname "$sources")" "$TMP/bin" "$TMP/steptmp"
 cp "$ROOT/scripts/cmux-next/check-cmux-scheme-compile.sh" "$repo/scripts/cmux-next/"
-cp "$ROOT/scripts/cmux-next/lib/fleet-only.sh" "$ROOT/scripts/cmux-next/lib/workspace-resolved.sh" "$ROOT/scripts/cmux-next/lib/compilation-cache.sh" "$repo/scripts/cmux-next/lib/"
+cp "$ROOT/scripts/cmux-next/lib/fleet-only.sh" "$ROOT/scripts/cmux-next/lib/workspace-resolved.sh" "$ROOT/scripts/cmux-next/lib/compilation-cache.sh" "$ROOT/scripts/cmux-next/lib/browser-sources-compiled-out.json" "$repo/scripts/cmux-next/lib/"
 cat > "$repo/scripts/ci/run-xcodebuild-with-diagnostics.sh" <<'EOF'
 #!/bin/bash
 shift

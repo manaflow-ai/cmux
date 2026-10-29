@@ -5,6 +5,7 @@
 //! the same command again gives the same session and worktree: a named
 //! session that already runs is reused (its first prompt is not sent again).
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -181,6 +182,16 @@ const MAX_PROMPT_FILE: u64 = 1 << 20;
 
 /// The prompt file's text, read at call time; a missing or empty file fails.
 fn read_prompt_file(path: &Path) -> Result<String> {
+    read_prompt_file_with(path, std::io::stdin().lock())
+}
+
+/// Read a prompt file, using `stdin` when `path` names the already-open fd 0.
+/// Keeping the reader injectable lets tests cover the fd-0 paths without replacing the process stdin.
+fn read_prompt_file_with<R: Read>(path: &Path, stdin: R) -> Result<String> {
+    if is_stdin_path(path) {
+        return read_prompt_reader(path, stdin);
+    }
+
     let abs =
         if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir()?.join(path) };
     let len = std::fs::metadata(&abs)
@@ -189,10 +200,31 @@ fn read_prompt_file(path: &Path) -> Result<String> {
     if len > MAX_PROMPT_FILE {
         bail!("--prompt-file {} is {len} bytes, more than 1 MiB", abs.display());
     }
-    let text = std::fs::read_to_string(&abs)
+    let file = std::fs::File::open(&abs)
         .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", abs.display()))?;
+    read_prompt_reader(&abs, file)
+}
+
+fn is_stdin_path(path: &Path) -> bool {
+    matches!(
+        path.to_str(),
+        Some("-") | Some("/dev/stdin") | Some("/proc/self/fd/0") | Some("/dev/fd/0")
+    )
+}
+
+fn read_prompt_reader<R: Read>(path: &Path, reader: R) -> Result<String> {
+    let mut bytes = Vec::with_capacity((MAX_PROMPT_FILE + 1) as usize);
+    reader
+        .take(MAX_PROMPT_FILE + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", path.display()))?;
+    if bytes.len() as u64 > MAX_PROMPT_FILE {
+        bail!("--prompt-file {} is more than 1 MiB", path.display());
+    }
+    let text = String::from_utf8(bytes)
+        .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", path.display()))?;
     if text.trim().is_empty() {
-        bail!("--prompt-file {} is empty", abs.display());
+        bail!("--prompt-file {} is empty", path.display());
     }
     Ok(text)
 }
@@ -216,7 +248,10 @@ pub(super) async fn existing(client: &Client, key: &str) -> Result<Option<Value>
         Ok(_) => Ok(None),
         Err(e) => {
             let m = e.to_string().to_lowercase();
-            let none = m.contains("no session") || m.contains("not found") || m.contains("matches");
+            let none = m.contains("no session")
+                || m.contains("no local session")
+                || m.contains("not found")
+                || m.contains("matches");
             if none { Ok(None) } else { Err(e) }
         }
     }
@@ -286,8 +321,8 @@ fn workspace_key(id: &str) -> String {
 /// app's `agent open` action (`cmux agent open`), optionally named `title`.
 /// Unnamed launches omit the title so a peer's generated session name cannot
 /// accidentally match another session's workspace in the same group.
-/// A remote create returns the ID mirrored by the local daemon. Open that
-/// ID here, without `--host`: the workspace belongs to this Mac and its
+/// A remote create's ID stays qualified with its owning peer. Open that
+/// qualified ID here, without `--host`: the workspace belongs to this Mac and its
 /// acpmux forwards the chat to the peer. This also avoids a name lookup in
 /// the app's peer inventory, which may not have seen the new session yet.
 pub(super) fn show_in_group(id: &str, title: Option<&str>, group: &str) -> Result<()> {
@@ -466,6 +501,20 @@ mod tests {
         let brief = dir.join("brief.md");
         std::fs::write(&brief, "do it\n").unwrap();
         assert_eq!(read_prompt_file(&brief).unwrap(), "do it\n");
+        let oversized = dir.join("oversized.md");
+        std::fs::write(&oversized, vec![b'x'; (MAX_PROMPT_FILE + 1) as usize]).unwrap();
+        assert!(read_prompt_file(&oversized).unwrap_err().to_string().contains("more than 1 MiB"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stdin_prompt_paths_read_from_the_already_open_stdin() {
+        for path in ["-", "/dev/stdin", "/proc/self/fd/0", "/dev/fd/0"] {
+            assert_eq!(
+                read_prompt_file_with(Path::new(path), std::io::Cursor::new("do it\n")).unwrap(),
+                "do it\n",
+                "{path}"
+            );
+        }
     }
 }

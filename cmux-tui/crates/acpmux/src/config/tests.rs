@@ -245,6 +245,62 @@ fn a_state_home_below_an_acl_writable_ancestor_is_refused() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[test]
+fn claude_falls_back_to_the_cmux_router_on_deepseek_without_a_coderouter_route() {
+    let mut cfg = Config::default();
+    cfg.harnesses.insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["claude"]));
+    cfg.join_discovered(BTreeMap::from([(
+        "cmux".to_owned(),
+        prof(HarnessKind::ClaudeStdio, &["claude"]),
+    )]));
+    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("cmux"));
+    assert_eq!(cfg.auto_fallback, Some(("claude".into(), "cmux".into())));
+}
+
+#[test]
+fn the_cmux_router_profile_defaults_to_deepseek_v4_1_flash_1017() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(&mut found, &|_| Some("/usr/bin/claude".into()), None);
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash-1017"));
+    // Claude Code's background calls run on the same model.
+    assert_eq!(
+        found["cmux"].env.get("ANTHROPIC_SMALL_FAST_MODEL").map(String::as_str),
+        Some("deepseek/deepseek-v4.1-flash-1017")
+    );
+}
+
+#[test]
+fn the_cmux_router_profile_starts_on_the_model_router_setting() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(
+        &mut found,
+        &|_| Some("/usr/bin/claude".into()),
+        Some("deepseek/deepseek-v4.1-flash"),
+    );
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash"));
+}
+
+#[test]
+fn a_model_router_setting_the_router_does_not_serve_keeps_the_default() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(
+        &mut found,
+        &|_| Some("/usr/bin/claude".into()),
+        Some("anthropic/claude-opus-5-5"),
+    );
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash-1017"));
+}
+
+#[test]
+fn the_model_router_setting_is_read_from_the_settings_document() {
+    let doc = serde_json::json!({"agents": {"modelRouter": {"model": "deepseek/deepseek-v4-pro"}}});
+    assert_eq!(
+        super::discover::cmux_router_model_in(&doc).as_deref(),
+        Some("deepseek/deepseek-v4-pro")
+    );
+    assert_eq!(super::discover::cmux_router_model_in(&serde_json::json!({})), None);
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///

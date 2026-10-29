@@ -76,7 +76,11 @@ extension AppServices {
         browserTabs.localhostRoute = { [weak localhost] daemon, pane, engine in
             localhost?.route(daemon: daemon, workspace: daemon.store.workspace(containing: pane.handle)?.id, engine: engine)
         }
-        machines.onDaemonRemoved = { [weak localhost] daemon in localhost?.closeClient(of: daemon) }
+        // A forgotten Cloud machine's Dedicated agent machine state goes too (read again if it comes back).
+        machines.onDaemonRemoved = { [weak localhost, weak self] daemon in
+            localhost?.closeClient(of: daemon)
+            self?.cloudVmHost.forget(daemon.machineID)
+        }
         browserTabs.isIncognitoPane = { [weak self] pane in
             guard let self, let workspace = machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.id else { return false }
             return windows.isIncognito(workspace: workspace)

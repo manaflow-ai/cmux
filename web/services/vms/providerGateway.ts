@@ -52,7 +52,7 @@ import { ProviderReadDeadlineError, type ProviderReadOptions } from "./drivers/t
 
 export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
-  readonly destroy: (provider: ProviderId, vmId: string, credential?: ProviderCredential) => Effect.Effect<void, VmProviderOperationError>;
+  readonly destroy: (provider: ProviderId, vmId: string, credential?: ProviderCredential, options?: { readonly strict?: boolean }) => Effect.Effect<void, VmProviderOperationError>;
   /** Optional: delete a machine-owned persistent home volume after its machine is destroyed. */
   readonly deleteHomeVolume?: (
     provider: ProviderId,
@@ -179,6 +179,8 @@ export type VmProviderGatewayShape = {
    * treat an absent member the same as a provider without the capability.
    */
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
+  /** VPC provisioning can be available before a provider has tunnel enrollment. */
+  readonly supportsNetworkProvisioning?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
     options: EnsureProviderNetworkOptions,
@@ -307,8 +309,8 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
         }),
       }),
     ),
-  destroy: (provider, vmId, credential) =>
-    providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId, credential)),
+  destroy: (provider, vmId, credential, options) =>
+    providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId, credential, options)),
   deleteHomeVolume: (provider, volumeName) =>
     providerEffect(provider, "deleteHomeVolume", async () => {
       const impl = getProvider(provider);
@@ -392,8 +394,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return await driver.fork(vmId);
     }),
-  exec: (provider, vmId, command, options) =>
-    providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
+  exec: (provider, vmId, command, options) => options?.cancelOnInterrupt
+    ? Effect.tryPromise({
+      // Effect aborts this signal when the fiber is interrupted.
+      try: (signal) => getProvider(provider).exec(vmId, command, { ...options, signal }),
+      catch: (cause) => new VmProviderOperationError({ provider, operation: "exec", cause }),
+    })
+    : providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   listFiles: (provider, vmId, path) => boundedProviderRead(provider, "listFiles", async (options) => {
     const impl = getProvider(provider);
     if (!impl.listFiles) throw new VmOperationUnsupportedError({ provider, operation: "listFiles" });
@@ -519,7 +526,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     if (!driver.revokeEndpointLeases) return Effect.void;
     return providerEffect(provider, "revokeEndpointLeases", () => driver.revokeEndpointLeases!(vmId));
   },
-  supportsPrivateNetworking: (provider) => !!getProvider(provider).privateNetworking,
+  supportsPrivateNetworking: (provider) => {
+    const driver = getProvider(provider);
+    return !!driver.privateNetworking && driver.privateNetworkingTunnels !== false;
+  },
+  supportsNetworkProvisioning: (provider) => !!getProvider(provider).privateNetworking,
   ensureNetwork: (provider, options) =>
     providerEffect(provider, "ensureNetwork", () =>
       privateNetworking(provider).ensureNetwork(options)
