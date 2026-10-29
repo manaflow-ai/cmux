@@ -1033,6 +1033,7 @@ describe("resize activity fences", () => {
         ...provider,
         getStatus: () => enforceVmIdlePause({ now: () => now }).pipe(
           Effect.provide(cronLayer),
+          Effect.orDie,
           Effect.tap((summary) => Effect.sync(() => {
             preflightChecks += 1;
             expect(summary).toMatchObject({ paused: 0, claim_refused: 1 });
