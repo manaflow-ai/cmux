@@ -94,7 +94,7 @@ gh variable list --repo manaflow-ai/cmux
 
 | Variable | Used by | Intended steady state | Fallback baked into the workflow |
 | --- | --- | --- | --- |
-| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
+| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) A job that holds a GitHub App key reads it only through a bounded selector: `LINUX_RUNNER` when it names `blacksmith-4vcpu-ubuntu-2404`, `blacksmith-16vcpu-ubuntu-2404` or `blacksmith-32vcpu-ubuntu-2404`, else `blacksmith-4vcpu-ubuntu-2404`, so a 4 vCPU stall can move it and no value reaches a reused machine (`tests/test_ci_fork_runner_routing.py` tries every value) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
 | `CI_TRUSTED_RUNNER` | jobs holding trusted tokens that must run on an ephemeral VM: the required `backend migrations applied` check and `web-complexity-trusted.yml` (`validate-cla-policy.rb` accepts this exact selector for the CLA checks too, with a runner guard step that admits only GitHub-hosted runners and Blacksmith VMs; `cla.yml` and `cla-policy-guard.yml` pin `ubuntu-24.04` until they move to it). Only `ubuntu-24.04`, `blacksmith-2vcpu-ubuntu-2404` or `blacksmith-4vcpu-ubuntu-2404` is accepted; any other value, owned label included, falls back. Set it to `ubuntu-24.04` when Blacksmith stalls, or leave it unset when GitHub-hosted runners stall | unset | `blacksmith-4vcpu-ubuntu-2404` (forks: `ubuntu-24.04`) |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
@@ -1056,8 +1056,14 @@ minutes its `probe` jobs ask for each Blacksmith Linux size compiles run on
 its `watch` job waits for them. Never one label: on 2026-10-28 the 4 vCPU
 label alone stalled four times while the other sizes started jobs, and each
 stall flipped the whole fleet. The watch never runs on GitHub-hosted Ubuntu
-or on a size the probes ask for: it takes `blacksmith-6vcpu-macos-26` (or
-`CI_CONTROL_RUNNER` when set), so it can always put overflow back. On
+or on a size the probes ask for: it takes `blacksmith-6vcpu-macos-26`, so it
+can put overflow back while Blacksmith macOS serves. That label is literal:
+the watch holds the `GLAEDA_ROUTE_APP_KEY` token that writes repository
+variables, so no variable (not `CI_CONTROL_RUNNER`) may move it to a reused
+machine, where the key could outlive the job, and it may not write its own
+runner. GitHub-hosted runners are refused, so when all of Blacksmith stops the
+watch waits, and an operator points the variables at their failovers by hand,
+as on 2026-09-29. On
 2026-10-27 a watch on hosted Ubuntu queued 94 minutes behind the switch's own
 failover and held the workflow's concurrency group, so every later run was
 evicted with nothing decided.
@@ -1072,12 +1078,15 @@ every Blacksmith Linux size stopped at once, and those two jobs, pinned to
 `blacksmith-2vcpu-ubuntu-2404`, had nowhere else to run. Set it to a label
 that starts while Blacksmith Linux does not, for example
 `blacksmith-6vcpu-macos-26`; delete it to put them back on
-`blacksmith-2vcpu-ubuntu-2404`. The overflow watch has run on that macOS
+`blacksmith-2vcpu-ubuntu-2404`. The overflow watch runs on that macOS
 label; the tick and feed watch are plain bash, Python and gh (the tick hashes
 with `shasum` where `sha256sum` is missing) but had not run on macOS when this
 was added, so read the first run after setting it. `promote-nightly-next`
-stays on its literal Blacksmith Linux label: it holds the release App
-credentials, which only a literal ephemeral label may carry. This moves only
+stays on its literal Blacksmith Linux label, and the overflow watch on its
+literal macOS label: they hold App credentials, so `CI_CONTROL_RUNNER`, which
+may name a reused machine, must not move them
+(`tests/test_ci_cloud_overflow_switch.py` refuses a secret in any job it
+moves). This moves only
 control jobs: a nightly's Linux cross-builds still wait for Blacksmith Linux
 (or the break-glass `LINUX_RUNNER` change below).
 
