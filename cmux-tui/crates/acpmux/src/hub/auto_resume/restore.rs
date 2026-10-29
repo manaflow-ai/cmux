@@ -67,6 +67,10 @@ impl Hub {
             let is_cut = e.msg["turnId"].as_str() == Some(turn_id.as_str());
             match e.kind.as_str() {
                 "turn_started" if is_cut => {
+                    // A stop record has no turn id. It belongs to the turn that was
+                    // active when it was written; an earlier stop must not suppress
+                    // recovery for this failed turn.
+                    has_retry_marker = false;
                     control = Control::from_recorded(e.msg["control"].as_str());
                     trust_gate = e.msg["trustGate"].as_bool().unwrap_or(true);
                     ended = false;
@@ -87,7 +91,7 @@ impl Hub {
                     // daemon_restart records are queued continuations, not waiting retries.
                     retry = serde_json::from_value(e.msg).ok();
                 }
-                "auto_resume_stopped" => {
+                "auto_resume_stopped" if is_cut => {
                     has_retry_marker = true;
                     retry = None
                 }
@@ -257,6 +261,34 @@ mod tests {
         assert_eq!(retry["promptId"], "window-prompt");
         assert_eq!(retry["turnId"], "window-turn");
         assert_eq!(retry["attempt"], 1);
+    }
+
+    #[tokio::test]
+    async fn an_earlier_stop_does_not_suppress_a_later_crash_window_retry() {
+        let (hub, session) = idle_chat();
+        hub.append(
+            &session,
+            "mux",
+            "turn_started",
+            json!({"turnId": "old-turn", "promptId": "old-prompt", "control": "local", "trustGate": false}),
+        );
+        hub.append_unknown_outcome(
+            &session,
+            json!({"turnId": "old-turn", "promptId": "old-prompt", "status": "failed", "errorText": "stream disconnected"}),
+        );
+        hub.append(&session, "mux", "auto_resume_stopped", json!({}));
+        hub.append(
+            &session,
+            "mux",
+            "turn_started",
+            json!({"turnId": "new-turn", "promptId": "new-prompt", "control": "local", "trustGate": false}),
+        );
+        hub.append_unknown_outcome(
+            &session,
+            json!({"turnId": "new-turn", "promptId": "new-prompt", "status": "failed", "errorText": "stream disconnected"}),
+        );
+        hub.restore_auto_resume(&session);
+        assert_eq!(hub.session_summary(&session)["retry"]["promptId"], "new-prompt");
     }
 
     #[tokio::test]
