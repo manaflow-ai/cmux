@@ -35,7 +35,7 @@ export interface Run {
   readonly step_count: number
   readonly last_step_seq: number
   readonly model: string
-  readonly harness: "pi-durable"
+  readonly harness: "pi-durable" | "pi-durable-d"
   readonly session: { readonly kind: "pi"; readonly id: string; readonly host: string }
   readonly error?: string
   /** A subagent's run (brain-spawn.ts): the run that spawned it. */

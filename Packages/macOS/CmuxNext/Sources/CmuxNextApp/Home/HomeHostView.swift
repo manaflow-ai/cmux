@@ -279,18 +279,23 @@ final class HomeHostView: NSView {
                 self?.transcript.setFirstRunStarters(state.1)
             }
         }
-        // Onboarding: the Chief's first-open message, once per install (ChiefIntroStore). It shows on the
-        // Chief's front page (no messages yet) and is marked shown the moment it does, so it never returns.
+        // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore): the only Chief welcomes once per
+        // install; a Chief made beside others asks what to focus on, once per Chief. It shows on the Chief's front
+        // page (no messages yet) and is marked shown the moment it does, so it never returns.
         chiefIntroWatch = Task { [weak self] in
             let intro = ChiefIntroStore(defaults: .standard)
-            guard intro.shouldShow else { return }
-            for await front in ObservationStream({ () -> Bool in
-                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary else { return false }
-                return summary.lastSeq == 0 && summary.participants.contains(where: { $0.agentClass == .chief })
-            }) where front {
-                guard let self, intro.shouldShow else { return }
-                intro.markShown()
-                self.transcript.showFirstRunIntro()
+            for await kind in ObservationStream({ () -> ChiefIntroKind? in
+                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
+                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
+                let me = store.me?.id
+                let others = TopHomePageView.visible(store.rows, archivedChiefs: service.directory.archivedChiefs, me: me)
+                    .filter { $0.kind == .chief && $0.id != id }.count
+                return intro.intro(for: id, otherChiefs: others)
+            }) {
+                guard let kind else { continue }
+                guard let self else { return }
+                intro.markShown(kind, for: id)
+                self.transcript.showFirstRunIntro(kind)
                 return
             }
         }
