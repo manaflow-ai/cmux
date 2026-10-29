@@ -12,10 +12,8 @@ use crate::{Result, SNAPSHOT_CONTINUATION_MAX_BYTES, Terminal, check, sys};
 /// What a viewer shows after it restores a READY prefix (no history page:
 /// a local-history READY never has one) and parses the stream bytes after
 /// the READY's cut.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct ReadyScreen {
-    pub cols: u16,
-    pub rows: u16,
     /// The viewport as plain text ([`Terminal::viewport_text`]).
     pub text: String,
     pub cursor: Option<(u16, u16)>,
@@ -32,18 +30,19 @@ impl ReadyScreen {
     /// parser resumes inside the source's unfinished sequence, the
     /// CONTINUATION record) and reads its screen.
     pub fn read(snapshot: &[u8], output: &[u8]) -> Result<Self> {
-        let raw = decode_ready(snapshot)?;
+        // The reader configures the terminal (Kitty graphics) before its
+        // first stream byte, as the product does.
+        let mut reader = Terminal::reader_over(decode_ready(snapshot)?)?;
         if !output.is_empty() {
-            // SAFETY: `raw` is the live terminal decode_ready returned, owned
-            // here, and `output` is readable for `output.len()` bytes.
-            unsafe { sys::ghostty_terminal_vt_write(raw, output.as_ptr(), output.len()) };
+            // SAFETY: `reader.raw()` is the live terminal the reader owns,
+            // and `output` is readable for `output.len()` bytes. The bytes go
+            // to libghostty raw, as a viewer's parser takes them; the
+            // reader's own trackers never see them and nothing reads them.
+            unsafe { sys::ghostty_terminal_vt_write(reader.raw(), output.as_ptr(), output.len()) };
         }
-        let mut reader = Terminal::reader_over(raw)?;
         let mut render = RenderState::new()?;
         render.update(&mut reader)?;
         Ok(Self {
-            cols: reader.cols(),
-            rows: reader.rows(),
             text: reader.viewport_text()?,
             cursor: reader.cursor_position(),
             cells: render.build_frame()?.styled_rows().to_vec(),

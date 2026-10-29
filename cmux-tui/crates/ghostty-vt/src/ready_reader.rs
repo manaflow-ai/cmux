@@ -12,8 +12,10 @@ impl Terminal {
     /// A wrapper that owns `raw` only to read it: the read methods take the
     /// libghostty state, which is `raw`'s. Its parser-side trackers (C1
     /// normalizer, VT boundary, mouse modes) start fresh and do not match
-    /// `raw`, so nothing may write through it; [`crate::ReadyScreen::read`] drops it
-    /// before it returns. Frees `raw` on error.
+    /// `raw`, so nothing may write through its `vt_write` methods:
+    /// [`crate::ReadyScreen::read`] writes stream bytes to the raw handle
+    /// directly, after this configures it, and drops the wrapper before it
+    /// returns. Frees `raw` on error.
     pub(crate) fn reader_over(raw: sys::GhosttyTerminal) -> Result<Self> {
         let size = |data| {
             let mut out = 0u16;
