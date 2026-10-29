@@ -212,7 +212,7 @@ pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
         .and_then(Value::as_str)
         .filter(|p| !p.is_empty())
 }
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -1482,6 +1482,40 @@ impl Hub {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.store.scan(id, after, visit)
+    }
+
+    /// Takes durable team information that arrived while a session was between turns.
+    /// Consumption is recorded in the same session log, so a daemon restart cannot replay it.
+    /// Callers hold the session turn lock while taking messages, which makes the scan-and-mark
+    /// operation single-consumer for a session.
+    pub(crate) fn take_team_messages(&self, session: &Arc<Session>) -> Vec<String> {
+        let mut messages = Vec::<(String, String)>::new();
+        let mut consumed = HashSet::new();
+        let _ = self.scan_events(&session.id, 0, &mut |event| {
+            match event.kind.as_str() {
+                "team_message" => {
+                    if let (Some(id), Some(text)) = (
+                        event.msg.get("messageId").and_then(Value::as_str),
+                        event.msg.get("text").and_then(Value::as_str),
+                    ) {
+                        messages.push((id.to_owned(), text.to_owned()));
+                    }
+                }
+                "team_message_consumed" => {
+                    if let Some(id) = event.msg.get("messageId").and_then(Value::as_str) {
+                        consumed.insert(id.to_owned());
+                    }
+                }
+                _ => {}
+            }
+            true
+        });
+        let pending: Vec<_> =
+            messages.into_iter().filter(|(id, _)| !consumed.contains(id)).collect();
+        for (id, _) in &pending {
+            self.append(session, "mux", "team_message_consumed", json!({"messageId": id}));
+        }
+        pending.into_iter().map(|(_, text)| text).collect()
     }
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {

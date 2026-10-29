@@ -26,8 +26,8 @@ pub(super) async fn handle(
     match method {
         crate::rpc::method::MUX_TEAM_SEND => send(hub, conn, mesh, params).await,
         crate::rpc::method::MUX_TEAM_INBOX => inbox(hub, conn, mesh, params).await,
-        crate::rpc::method::MUX_TEAM_READ => read(mesh, params).await,
-        crate::rpc::method::MUX_TEAM_ACK => ack(mesh, params).await,
+        crate::rpc::method::MUX_TEAM_READ => read(hub, conn, mesh, params).await,
+        crate::rpc::method::MUX_TEAM_ACK => ack(hub, conn, mesh, params).await,
         _ => Err(RpcError::method_not_found(method)),
     }
 }
@@ -84,14 +84,9 @@ async fn inbox(
     params: &Value,
 ) -> Result<Value, RpcError> {
     let unread_only = params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
-    let team_address = conn
-        .caller()
-        .and_then(|id| hub.resolve(id).ok())
-        .and_then(|session| session.meta().tags.get("teamAddress").map(|tag| tag.value.clone()));
-    let team_address = team_address
-        .or_else(|| params.get("teamAddress").and_then(Value::as_str).map(str::to_owned));
+    let team_address = claimed_address(hub, conn)?;
     let rows = mesh
-        .team_inbox_for(unread_only, team_address.as_deref())
+        .team_inbox_for(unread_only, Some(&team_address))
         .await
         .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?
         .into_iter()
@@ -100,20 +95,63 @@ async fn inbox(
     Ok(json!({"messages": rows}))
 }
 
-async fn read(mesh: &Arc<dyn MeshHub>, params: &Value) -> Result<Value, RpcError> {
+async fn read(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    mesh: &Arc<dyn MeshHub>,
+    params: &Value,
+) -> Result<Value, RpcError> {
     let id = required(params, "id")?;
+    let message = owned_message(hub, conn, mesh, &id).await?;
     mesh.read(&id)
         .await
         .map_err(|e| RpcError::internal(format!("the mesh hub did not mark it read: {e}")))?;
-    Ok(json!({"messageId": id, "state": "read"}))
+    Ok(json!({"messageId": id, "state": "read", "message": message}))
 }
 
-async fn ack(mesh: &Arc<dyn MeshHub>, params: &Value) -> Result<Value, RpcError> {
+async fn ack(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    mesh: &Arc<dyn MeshHub>,
+    params: &Value,
+) -> Result<Value, RpcError> {
     let id = required(params, "id")?;
+    let _ = owned_message(hub, conn, mesh, &id).await?;
     mesh.ack(&id, &Ack::delivered(&id, None))
         .await
         .map_err(|e| RpcError::internal(format!("the mesh hub did not accept the ack: {e}")))?;
     Ok(json!({"id": id, "state": "acked"}))
+}
+
+fn claimed_address(hub: &Arc<Hub>, conn: &Arc<Conn>) -> Result<String, RpcError> {
+    let address = conn
+        .caller()
+        .and_then(|id| hub.resolve(id).ok())
+        .and_then(|session| session.meta().tags.get("teamAddress").map(|tag| tag.value.clone()))
+        .filter(|address| valid_address(address.trim()));
+    address.ok_or_else(|| {
+        RpcError::invalid_params("team inbox requires a claimed team address")
+            .with_data(json!({"reason": "team.forbidden"}))
+    })
+}
+
+async fn owned_message(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    mesh: &Arc<dyn MeshHub>,
+    id: &str,
+) -> Result<Value, RpcError> {
+    let address = claimed_address(hub, conn)?;
+    let messages = mesh
+        .team_inbox_for(false, Some(&address))
+        .await
+        .map_err(|e| RpcError::internal(format!("the mesh hub did not answer: {e}")))?;
+    if let Some(message) = messages.into_iter().find(|message| message.message_id == id) {
+        Ok(serde_json::to_value(message).unwrap_or(Value::Null))
+    } else {
+        Err(RpcError::invalid_params("team message is not addressed to this session")
+            .with_data(json!({"reason": "team.forbidden"})))
+    }
 }
 
 fn required(params: &Value, name: &str) -> Result<String, RpcError> {

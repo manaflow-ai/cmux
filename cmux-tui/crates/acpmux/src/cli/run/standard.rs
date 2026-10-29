@@ -837,12 +837,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     for message in messages.into_iter().flatten() {
                         let id = message.get("messageId").and_then(Value::as_str).unwrap_or("?");
                         let from = message
-                            .pointer("/from/user")
+                            .pointer("/from/teamAddress")
                             .and_then(Value::as_str)
+                            .or_else(|| message.pointer("/from/user").and_then(Value::as_str))
                             .or_else(|| message.pointer("/from/name").and_then(Value::as_str))
                             .unwrap_or("teammate");
-                        let body = message.get("body").and_then(Value::as_str).unwrap_or("");
-                        println!("{id}\t@{from}\t{}", body.lines().next().unwrap_or(""));
+                        let to = message
+                            .pointer("/to/teamAddress")
+                            .and_then(Value::as_str)
+                            .unwrap_or("?");
+                        let state =
+                            message.get("state").and_then(Value::as_str).unwrap_or("queued");
+                        let subject = message
+                            .get("subject")
+                            .and_then(Value::as_str)
+                            .or_else(|| message.get("body").and_then(Value::as_str))
+                            .unwrap_or("");
+                        println!(
+                            "{id}\t@{from}\t@{to}\t{state}\t{}",
+                            subject.lines().next().unwrap_or("")
+                        );
                     }
                 }
             } else {

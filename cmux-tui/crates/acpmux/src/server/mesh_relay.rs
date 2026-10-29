@@ -427,6 +427,14 @@ pub async fn deliver(
     control: &dyn ControlHook,
     own_daemon: Option<&str>,
 ) -> Option<Ack> {
+    let team = message.to.team_address.is_some()
+        || message.from.team_address.is_some()
+        || message.start_work.is_some();
+    if team
+        && !hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging)
+    {
+        return Some(Ack::refused("team messaging is disabled in Labs"));
+    }
     if let Err(why) = hub.mesh_for_here(&message.to, own_daemon) {
         return Some(Ack::refused(why));
     }
@@ -446,7 +454,7 @@ pub async fn deliver(
     // Team messages are information by default. Record them in the target
     // session's event stream and acknowledge delivery without starting a
     // model turn; a later inbox read/ack records the durable user action.
-    if message.start_work.is_some() && !start_work_allowed(message) {
+    if team && !start_work_allowed(message) {
         let stored = hub.append_stored(
             &session,
             "in",
@@ -472,7 +480,7 @@ pub async fn deliver(
         "sessionId": session.id,
         "prompt": [{"type": "text", "text": message.body}],
         "_meta": {"acpmux": {
-            "steer": message.mode == Mode::Now || start_work_allowed(message),
+            "steer": !team && message.mode == Mode::Now,
             "promptId": prompt_id,
             "resend": true,
             "fromAgent": sender_name(message),
