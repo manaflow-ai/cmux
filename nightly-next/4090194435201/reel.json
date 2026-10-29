@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4090194435201",
+  "notes": "notes/4090194435201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27348,
+      "title": "fix(ios): respect haptics setting in agent chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27436,
+      "title": "test(cmux-next): fix the KillSwitchesTests hang that cuts Swift shards short",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27089,
+      "title": "ui(chat): remove borders from transcript message surfaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26503,
+      "title": "Picker: keep Add harness in the harness strip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25281,
+      "title": "cmux NEXT composer: choose a Goldilocks height cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24218,
+      "title": "fix(agent-pane): show Stopping until the daemon ends the turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27009,
+      "title": "fix(new-tab): keep page through chat start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27192,
+      "title": "Add thread minimap inset gallery variants",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27447,
+      "title": "acpmux: the sandbox proxy's unreachable-target test holds a bound, non-listening port",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
