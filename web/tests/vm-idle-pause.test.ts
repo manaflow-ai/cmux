@@ -13,6 +13,7 @@ import {
   parseVmIdleProbe,
   vmIdleObservationFromRow,
   vmIdlePauseMinutesFromRow,
+  vmIdlePrivateAddressesFromRow,
   vmIdleProbeCommand,
   vmLastApiActivityFromRow,
   vmPauseReasonFromRow,
@@ -206,12 +207,14 @@ describe("idle probe output", () => {
   });
 
   test("the probe command runs acpmux as the daemon user only when its daemon runs, and passes only IP literals", () => {
-    const command = vmIdleProbeCommand(["10.192.0.5", "fd00:7::5", "10.0.0.1; rm -rf /"]);
+    const command = vmIdleProbeCommand(["10.192.0.5", "fd00:7::5", "10.0.0.1; rm -rf /", "10.192.0.999", "deadbeef"]);
     expect(command).toContain(`CMUX_IDLE_PRIVATE_ADDRESSES='10.192.0.5,fd00:7::5'`);
     expect(command).toContain(`acp --json daemon status`);
     expect(command).toContain(`*'"running":false'*`);
     expect(command).toContain("setpriv");
     expect(command).not.toContain("rm -rf");
+    expect(command).not.toContain("10.192.0.999");
+    expect(command).not.toContain("deadbeef");
   });
 });
 
@@ -401,6 +404,25 @@ describe("idle probe guest script", () => {
         + tcpRow(`${mapped}:0BB8`, "0000000000000000FFFF00000900C00A:C001", "01"),
     }, "NONE");
     expect(out.inbound_connections).toBe(3);
+  });
+
+  test("a missing IPv4 TCP table is unknown, while a kernel without tcp6 can be idle", async () => {
+    const missingIpv4 = await runProbeScript({ "net/tcp6": TCP_HEADER }, "NONE");
+    expect(missingIpv4.inbound_connections).toBeNull();
+    expect(parseVmIdleProbe(JSON.stringify(missingIpv4))).toBeNull();
+    const noIpv6 = await runProbeScript({ "net/tcp": TCP_HEADER }, "NONE");
+    expect(noIpv6.inbound_connections).toBe(0);
+  });
+
+  test("malformed TCP rows fail closed instead of hiding an established connection", async () => {
+    for (const broken of [
+      { "net/tcp": TCP_HEADER + "0: truncated\n", "net/tcp6": TCP_HEADER },
+      { "net/tcp": TCP_HEADER, "net/tcp6": TCP_HEADER + tcpRow("invalid:0BB8", "00000000:0000", "01") },
+    ]) {
+      const out = await runProbeScript(broken, "NONE");
+      expect(out.inbound_connections).toBeNull();
+      expect(parseVmIdleProbe(JSON.stringify(out))).toBeNull();
+    }
   });
 });
 
@@ -869,6 +891,24 @@ describe("no private address", () => {
     expect(recorded.execs).toEqual([]);
     expect(recorded.paused).toEqual([]);
     expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
+  });
+});
+
+describe("invalid private addresses", () => {
+  test("invalid stored VPC addresses prevent idle pause instead of silently disabling connection checks", async () => {
+    const observation = { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN };
+    const row = machineRow({ providerMetadata: {
+      networkIpv4: "10.192.0.999", networkIpv6: "fd00::ggg", cmuxIdleObservation: observation,
+    } });
+    expect(vmIdlePrivateAddressesFromRow(row)).toEqual([]);
+    const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine() }));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, unknown: 1, paused: 0 });
+    expect(recorded.execs).toEqual([]);
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.observations).toEqual([{ id: "row-1", observation: null }]);
+    expect(vmIdlePrivateAddressesFromRow({ providerMetadata: { networkIpv4: "10.192.0.5", networkIpv6: "fd00:7::5" } }))
+      .toEqual(["10.192.0.5", "fd00:7::5"]);
   });
 });
 
