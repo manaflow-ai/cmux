@@ -82,15 +82,10 @@ async fn inbox(
     params: &Value,
 ) -> Result<Value, RpcError> {
     let unread_only = params.get("unreadOnly").and_then(Value::as_bool).unwrap_or(true);
-    let team_address = conn.caller().and_then(|id| hub.resolve(id).ok()).and_then(|session| {
-        session
-            .meta
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .tags
-            .get("teamAddress")
-            .map(|tag| tag.value.clone())
-    });
+    let team_address = conn
+        .caller()
+        .and_then(|id| hub.resolve(id).ok())
+        .and_then(|session| session.meta().tags.get("teamAddress").map(|tag| tag.value.clone()));
     let rows = mesh
         .team_inbox_for(unread_only, team_address.as_deref())
         .await
