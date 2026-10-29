@@ -458,18 +458,20 @@ fn in_the_users_session_a_subagent_workspace_joins_a_personal_group() {
     assert_eq!(placed[0]["params"]["group"], "grp_new");
 }
 
-/// a622-a627 (Oct 23) and 25 more: create-workspace succeeded, create-terminal
-/// failed ("failed to spawn PTY command ... os error 2"), and the workspace stayed:
-/// an empty sidebar row with no chat, never cleaned up. A failed open closes the
-/// workspace it made.
+/// a622-a627 (Oct 23) and 25 more: create-workspace succeeded, the next step
+/// (then create-terminal: "failed to spawn PTY command ... os error 2") failed, and
+/// the workspace stayed: an empty sidebar row with no chat, never cleaned up. The
+/// open makes no terminal now; its one later step is the chat tab, and a failed open
+/// closes the workspace it made.
 #[test]
-fn a_workspace_whose_terminal_fails_is_closed_not_left_empty() {
-    let (w, requests, _dir) = workspaces_refusing(GROUPED.to_vec(), vec!["create-terminal"]);
+fn a_workspace_whose_chat_tab_fails_is_closed_not_left_empty() {
+    let (w, requests, _dir) = workspaces_refusing(GROUPED.to_vec(), vec!["new-conversation-tab"]);
     let key = optchat_chief::workspaces::new_key();
     let err = w
         .open(&key, "sess-1", "a1 · x", "Chief agents", Path::new("/tmp"))
         .unwrap_err();
-    assert!(err.contains("create-terminal"), "{err}");
+    assert!(err.contains("new-conversation-tab"), "{err}");
+    assert!(commands(&requests, "create-terminal").is_empty());
     let closed = commands(&requests, "close-workspace");
     assert_eq!(
         closed.len(),
