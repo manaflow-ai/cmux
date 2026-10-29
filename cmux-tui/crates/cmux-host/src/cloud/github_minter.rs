@@ -1,6 +1,7 @@
 //! The GitHub minter: one thread beside the Cloud worker that answers
-//! GitHub token asks (`github.rs`), so a mint (an API call of up to 20 s,
-//! plus a bearer refresh) never stalls the worker's poll loop.
+//! GitHub token asks (`github.rs`) and hand-off reports (`handoff.rs`), so
+//! an API call (up to 20 s, plus a bearer refresh) never stalls the
+//! worker's poll loop.
 //!
 //! The worker hands over each asking connection; the minter answers it
 //! with one line and closes it. Asks are answered one at a time; at most
@@ -31,6 +32,7 @@ use serde_json::Value;
 
 use super::client::{CloudClient, Http};
 use super::github::{self, TokenAsk};
+use super::handoff::{self, HandoffReport};
 
 /// Asks that may wait for the minter; more are answered `busy`.
 pub const MAX_PENDING: usize = 8;
@@ -41,9 +43,28 @@ pub const MAX_QUEUE_WAIT: Duration = Duration::from_secs(60);
 /// A client that does not read its reply line within this is dropped.
 const REPLY_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// One connection's ask: a GitHub token or a hand-off report, each as
+/// checked (`Err` names what was wrong with it).
+pub enum Ask {
+    Github(Result<TokenAsk, String>),
+    Handoff(Result<HandoffReport, String>),
+}
+
+impl From<Result<TokenAsk, String>> for Ask {
+    fn from(ask: Result<TokenAsk, String>) -> Ask {
+        Ask::Github(ask)
+    }
+}
+
+impl From<Result<HandoffReport, String>> for Ask {
+    fn from(report: Result<HandoffReport, String>) -> Ask {
+        Ask::Handoff(report)
+    }
+}
+
 enum Msg<H: Http> {
     Bound(Box<CloudClient<H>>),
-    Ask(Result<TokenAsk, String>, UnixStream, Instant),
+    Ask(Ask, UnixStream, Instant),
 }
 
 /// A `busy` reply never holds the poll loop longer than this.
@@ -109,10 +130,11 @@ impl<H: Http + Send + 'static> Minter<H> {
     }
 
     /// Hands one asking connection to the minter, or answers `busy` now.
-    pub fn ask(&self, ask: Result<TokenAsk, String>, mut stream: UnixStream) {
+    pub fn ask(&self, ask: impl Into<Ask>, mut stream: UnixStream) {
+        let ask = ask.into();
         if self.pending.fetch_add(1, Ordering::SeqCst) >= MAX_PENDING {
             self.pending.fetch_sub(1, Ordering::SeqCst);
-            let busy = github::refusal("busy", "too many GitHub token asks are waiting; retry");
+            let busy = github::refusal("busy", "too many asks are waiting; retry");
             let _ = write_reply(&mut stream, &busy, BUSY_WRITE_TIMEOUT);
             return;
         }
@@ -140,12 +162,17 @@ fn run<H: Http>(
                 let mut reply = if stop.is_set() {
                     stopping()
                 } else if queued.elapsed() > MAX_QUEUE_WAIT {
-                    github::refusal("busy", "the GitHub token ask waited too long; retry")
+                    github::refusal("busy", "the ask waited too long; retry")
                 } else if !connected(&stream) {
                     pending.fetch_sub(1, Ordering::SeqCst);
                     continue;
                 } else {
-                    answer(client.as_deref_mut(), ask, now(), log)
+                    match ask {
+                        Ask::Github(ask) => answer(client.as_deref_mut(), ask, now(), log),
+                        Ask::Handoff(report) => {
+                            answer_report(client.as_deref_mut(), report, now(), log)
+                        }
+                    }
                 };
                 // A stop during the mint (a park or shutdown): the token is
                 // not handed out after it; the API keeps it in its ledger.
@@ -180,6 +207,27 @@ pub fn answer<H: Http>(
     };
     let reply = github::reply_for(&ask, &client.github_token(&ask, now_wall_ms));
     log(&github::note_for(&ask, &reply));
+    reply
+}
+
+/// The reply for one hand-off report: a refusal before a bind or for a
+/// malformed report, else the API's answer.
+pub fn answer_report<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    report: Result<HandoffReport, String>,
+    now_wall_ms: u64,
+    log: fn(&str),
+) -> Value {
+    let report = match report {
+        Ok(report) => report,
+        Err(why) => return handoff::refusal("request.invalid", &why),
+    };
+    let Some(client) = client else {
+        return handoff::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
+    };
+    let (id, answer) = client.handoff_report(&report, now_wall_ms);
+    let reply = handoff::reply_for(&answer);
+    log(&handoff::note_for(&id, &report, &reply));
     reply
 }
 

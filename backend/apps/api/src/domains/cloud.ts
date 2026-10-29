@@ -88,6 +88,8 @@ export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly vm_status?: { readonly state: string; readonly health?: unknown; readonly activity: unknown; readonly at: number }
   /** A cold boot of an environment (cloud.environment.boot): the create starts its setup on the machine. */
   readonly env_setup?: { readonly environment: string; readonly digest: string }
+  /** Booted by the platform Worker's environment setup (cloud-platform.ts): only such a machine takes its exec, snapshot and delete. */
+  readonly platform?: true
 }
 
 export interface LedgerRow {
@@ -133,6 +135,9 @@ export interface TombstoneRow {
   readonly revision: string
 }
 
+/** The identity prefix of the platform Worker's calls for a person (cloud-platform.ts); no other principal has it. */
+export const PLATFORM_IDENTITY_PREFIX = "platform:"
+
 /** The ledger row of one intent: the caller's identity and the op's idempotency key (engine keys are per identity). */
 export const ledgerKey = (identity: string, idempotencyKey: string) => `${identity}|${idempotencyKey}`
 
@@ -143,7 +148,7 @@ const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
 export const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, env_setup: _es, ...machine } = row
+  const { transport: _t, provider_name: _p, delete_failed: _f, host_id: _h, epoch: _e, bind: _b, wg_public_key: _w, daemon: _d, keyset_version: _k, vm_install: _v, vm_status: _s, creator_sso_team: _c, last_power_at: _l, from_snapshot: _fs, env_setup: _es, platform: _pf, ...machine } = row
   return machine
 }
 
@@ -300,7 +305,8 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     epoch: 1,
     bind: null,
     // The SSO team whose sign-in created the machine: its VM install is vouched by that team (SSO gate).
-    ...(p.sso_team ? { creator_sso_team: p.sso_team } : {})
+    ...(p.sso_team ? { creator_sso_team: p.sso_team } : {}),
+    ...(p.identity.startsWith(PLATFORM_IDENTITY_PREFIX) ? { platform: true as const } : {})
   }
   const key = ledgerKey(p.identity, ctx.idempotencyKey)
   const ledger: LedgerRow = { transport: machine.transport, key, op: "create", machine: id, provider_name: name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }
@@ -318,7 +324,7 @@ const update = (state: CloudState, op: string, params: unknown, ctx: ReduceConte
   const rev = state.rev + 1
   const row: MachineRow = rename
     ? { ...stored.row, name: d.value.name!, revision: String(rev) }
-    : // Ours only (coordinator, 2026-10-05): Freestyle's timer is off; cloud.idlePause applies the policy from the VM's reports.
+    : // Ours only (coordinator, 2026-10-05): the provider's timer is off; cloud.idlePause applies the policy from the VM's reports.
       { ...stored.row, idle_policy: { idle_seconds: d.value.idle_seconds! }, revision: String(rev) }
   return { ok: true, state: next(state, {}, { machine: row.id, removed: false }), value: { machine: publicMachine(row) }, writes: [upsertMachine(row, stored.n)] }
 }
@@ -416,7 +422,7 @@ const driverResult = (config: CloudConfig, state: CloudState, params: unknown, c
   // binds it (5.8). The token expires 15 minutes after the provider reported the VM running.
   if (l.op === "create" && machine && r.bind_token_sha256) {
     const bind: BindState = { token_sha256: r.bind_token_sha256, expires_at: ctx.now + BIND_TOKEN_TTL_MS, spent: false }
-    // The record takes the VM's real size (Freestyle has no size at create).
+    // The record takes the VM's real size (a provider without `sizing` takes no size at create).
     return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind, ...(r.resources ? { size: r.resources } : {}) }, machine.n)] }
   }
   if (l.op === "create" || !machine) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }

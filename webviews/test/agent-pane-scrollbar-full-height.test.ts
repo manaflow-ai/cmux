@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 240
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The transcript runs the pane's full height and scrolls under the composer, as the Claude and
 // Codex apps do (Leo 2026-10-19): its scrollbar's track reaches the pane's bottom corner instead of
