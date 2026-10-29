@@ -62,10 +62,12 @@ public final class AgentChatSurface {
         findFieldFocused = false
     }
 
-    /// Scrolls the transcript to the find bar's current match.
+    /// Scrolls the transcript to the find bar's current match: the top of the rendered block
+    /// that holds it (a prompt bubble, or one paragraph, list, code card or table of an answer).
     func revealFindMatch() {
         guard let match = find?.currentMatch, let frame = findAnchors[match.block] else { return }
-        // The match's line in a long answer: its place in the text, as a share of the block.
+        // Within a block taller than the screen (a long paragraph or code card), its place in
+        // the block's text, as a share of the block's height.
         let y = frame.top + max(0, frame.height * CGFloat(match.position) - 24)
         scroller?.scrollTranscript(toContentY: y, animated: !UIAccessibility.isReduceMotionEnabled)
     }
@@ -755,9 +757,11 @@ struct TurnView: View {
         case .message(_, let markdown):
             // A replayed message's blocks are drawn in place too, not faded in one by one
             // (one still streaming when the chat opened streams on without the block fade).
+            // Find in Chat marks and scrolls to the markdown block (paragraph, list, code) that
+            // holds a match, never a guess inside the whole message.
             StreamingMarkdown(markdown: markdown, isStreaming: turn.status == .running && isLastRow,
-                              animatesBlocks: !store.isReplayed(row.id))
-                .findBlock(row.id, surface: surface)
+                              animatesBlocks: !store.isReplayed(row.id),
+                              findMarks: surface.map { MessageFindMarks(row: row.id, surface: $0) })
         case .thought(_, let text):
             ThoughtRow(text: text, isLive: turn.status == .running && isLastRow)
         case .tool(let call):
@@ -825,11 +829,14 @@ struct StreamingMarkdown: View {
     let markdown: String
     let isStreaming: Bool
     var animatesBlocks = true
+    /// Find in Chat's marks on this message's blocks.
+    var findMarks: MessageFindMarks?
 
     var body: some View {
-        // While streaming, an emphasis or code marker that has not closed yet is hidden.
+        // While streaming, an emphasis or code marker that has not closed yet is hidden (the
+        // blocks keep their ids: only the last block's inline markers change).
         MarkdownView(MarkdownDocument(parsing: isStreaming ? MarkdownStreamTail(markdown).displayed : markdown), isStreaming: isStreaming,
-                     animatesBlocks: animatesBlocks)
+                     animatesBlocks: animatesBlocks, marks: findMarks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }

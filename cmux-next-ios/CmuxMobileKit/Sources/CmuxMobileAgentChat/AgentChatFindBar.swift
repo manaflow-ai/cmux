@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileMarkdown
 import SwiftUI
 
 /// Find in Chat's bar over the top of the transcript: the query, "N of M", previous and
@@ -70,7 +71,8 @@ struct AgentChatFindBar: View {
     }
 }
 
-/// A searchable block of the transcript (a prompt bubble, an answer's message): it reports
+/// A searchable block of the transcript (a prompt bubble; an answer's blocks use
+/// `MessageFindMarks`): it reports
 /// its top for Find in Chat and is marked while it holds the current match.
 struct FindBlockMarker: ViewModifier {
     let key: String
@@ -93,6 +95,23 @@ struct FindBlockMarker: ViewModifier {
                 surface?.findAnchors[key] = (frame.minY, frame.height)
             }
             .accessibilityAddTraits(current ? .isSelected : [])
+    }
+}
+
+/// Find in Chat's marks on one answer message's markdown blocks (keys `AgentChatFind.blockKey`):
+/// each block reports its frame, and the one holding the current match is marked.
+struct MessageFindMarks: MarkdownBlockMarks {
+    let row: String
+    let surface: AgentChatSurface
+
+    var frameSpace: String { AgentChatFindBar.contentSpace }
+
+    func isMarked(_ block: Int) -> Bool {
+        surface.find?.currentBlock == AgentChatFind.blockKey(row: row, block: block)
+    }
+
+    func laidOut(_ block: Int, frame: CGRect) {
+        surface.findAnchors[AgentChatFind.blockKey(row: row, block: block)] = (frame.minY, frame.height)
     }
 }
 

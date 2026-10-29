@@ -1,3 +1,4 @@
+import CmuxMobileMarkdown
 import Foundation
 import Observation
 
@@ -8,15 +9,17 @@ import Observation
 @Observable
 public final class AgentChatFind {
     /// One match: the transcript block it is in (`AgentChatFind.Block.key`) and where in the
-    /// block's text it starts (0 the top, 1 the end), so a long answer scrolls to it.
+    /// block's text it starts (0 the top, 1 the end), so a long block scrolls near it.
     public struct Match: Hashable, Sendable {
         public var block: String
         public var position: Double
     }
 
-    /// A searchable block of the transcript: a prompt bubble or an answer's message.
+    /// A searchable block of the transcript: a prompt bubble, or one rendered block (paragraph,
+    /// heading, list, code card, table, quote) of an answer's message, so a match scrolls to
+    /// the block that draws it.
     public struct Block: Hashable, Sendable {
-        /// The prompt's `"<turn id>|prompt"`, or the message row's id (`TurnRow.id`).
+        /// The prompt's `"<turn id>|prompt"`, or `blockKey(row:block:)` of a message's block.
         public var key: String
         public var text: String
 
@@ -55,17 +58,35 @@ public final class AgentChatFind {
     /// The prompt bubble's block key.
     public nonisolated static func promptKey(_ turnID: String) -> String { "\(turnID)|prompt" }
 
-    /// The blocks of `turns` in transcript order: each prompt, then its answer's messages
-    /// (thoughts and tool rows are folded on the phone, as the Mac's find skips them).
+    /// The key of a message row's (`TurnRow.id`) markdown block (`MarkdownBlock.id`).
+    public nonisolated static func blockKey(row: String, block: Int) -> String { "\(row)|\(block)" }
+
+    /// The blocks of `turns` in transcript order: each prompt, then its answer's messages, one
+    /// block per markdown block the transcript draws (thoughts and tool rows are folded on the
+    /// phone, as the Mac's find skips them).
     public nonisolated static func blocks(of turns: [AgentTurn]) -> [Block] {
         var out: [Block] = []
         for turn in turns {
             out.append(Block(key: promptKey(turn.id), text: turn.prompt))
             for row in turn.rows {
-                if case .message(_, let markdown) = row { out.append(Block(key: row.id, text: markdown)) }
+                guard case .message(_, let markdown) = row else { continue }
+                for block in MarkdownDocument(parsing: markdown).blocks {
+                    out.append(Block(key: blockKey(row: row.id, block: block.id), text: text(of: block.kind)))
+                }
             }
         }
         return out
+    }
+
+    /// The text a markdown block draws (its inline markers left in, as the query may name them).
+    nonisolated static func text(of kind: MarkdownBlock.Kind) -> String {
+        switch kind {
+        case .heading(_, let text), .paragraph(let text), .quote(let text), .math(let text): text
+        case .list(let list): list.items.map(\.text).joined(separator: "\n")
+        case .code(_, let code, _): code
+        case .table(let table): table.plainText
+        case .rule: ""
+        }
     }
 
     /// What the search reads, cheaply summed up: it changes when a turn arrives or goes, when

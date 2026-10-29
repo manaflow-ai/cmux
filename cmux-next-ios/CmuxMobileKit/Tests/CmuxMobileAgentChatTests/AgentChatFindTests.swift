@@ -16,10 +16,10 @@ import Testing
 
     @Test func everyOccurrenceIsCountedIgnoringCaseAndAccents() {
         let blocks = AgentChatFind.blocks(of: Self.turns())
-        #expect(blocks.map(\.key) == ["t1|prompt", "m-a", "t2|prompt", "m-b"])
+        #expect(blocks.map(\.key) == ["t1|prompt", "m-a|0", "t2|prompt", "m-b|0"])
         let build = AgentChatFind.matches(of: "BUILD", in: blocks)
         // One in the prompt, three in the answer; thoughts are not searched (they are folded).
-        #expect(build.map(\.block) == ["t1|prompt", "m-a", "m-a", "m-a"])
+        #expect(build.map(\.block) == ["t1|prompt", "m-a|0", "m-a|0", "m-a|0"])
         #expect(AgentChatFind.matches(of: "resume", in: blocks).map(\.block) == ["t2|prompt"])
         #expect(AgentChatFind.matches(of: "   ", in: blocks).isEmpty)
         #expect(AgentChatFind.matches(of: "zebra", in: blocks).isEmpty)
@@ -39,7 +39,7 @@ import Testing
         #expect(find.countText == "4 of 4")
         find.previous()
         #expect(find.countText == "3 of 4")
-        #expect(find.currentBlock == "m-a")
+        #expect(find.currentBlock == "m-a|0")
     }
 
     @Test func noResultsAndAnEmptyQuerySayWhatTheyAre() {
@@ -60,7 +60,7 @@ import Testing
         find.next()
         find.next()
         #expect(find.countText == "2 of 4")
-        #expect(find.currentBlock == "m-a")
+        #expect(find.currentBlock == "m-a|0")
         let step = find.step
         var more = Self.turns()
         more.append(AgentTurn(id: "t3", prompt: "build again", promptAt: Date(timeIntervalSince1970: 3)))
@@ -68,7 +68,7 @@ import Testing
         await find.pending?.value
         // The same occurrence (the first in m-a), the count grown, and no scroll.
         #expect(find.countText == "2 of 5")
-        #expect(find.currentBlock == "m-a")
+        #expect(find.currentBlock == "m-a|0")
         #expect(find.step == step)
     }
 
@@ -92,6 +92,36 @@ import Testing
         #expect(find.matches.last?.block.hasPrefix("m-b") == true)
     }
 
+    @Test func aMatchNamesTheRenderedBlockThatHoldsIt() {
+        // A long answer: the match in its last paragraph scrolls to that paragraph, not to a
+        // share of the whole message (a code card and a table above it draw taller than their text).
+        var turn = AgentTurn(id: "t1", prompt: "Explain", promptAt: Date(timeIntervalSince1970: 1))
+        turn.items = [.message(id: "a", markdown: """
+        # Summary
+
+        ```swift
+        let a = 1
+        let b = 2
+        ```
+
+        | col | other |
+        | --- | ----- |
+        | x   | y     |
+
+        - one
+        - two kiwi
+
+        The kiwi is here.
+        """)]
+        let blocks = AgentChatFind.blocks(of: [turn])
+        #expect(blocks.map(\.key) == ["t1|prompt", "m-a|0", "m-a|1", "m-a|2", "m-a|3", "m-a|4"])
+        #expect(blocks[2].text == "let a = 1\nlet b = 2")
+        let found = AgentChatFind.matches(of: "kiwi", in: blocks)
+        #expect(found.map(\.block) == ["m-a|3", "m-a|4"])
+        #expect(found[1].position > 0.2)
+        #expect(AgentChatFind.matches(of: "other", in: blocks).map(\.block) == ["m-a|2"])
+    }
+
     @Test func aMatchKnowsWhereInItsBlockItIs() {
         let blocks = [AgentChatFind.Block(key: "b", text: "kiwi " + String(repeating: "x", count: 90) + " kiwi")]
         let found = AgentChatFind.matches(of: "kiwi", in: blocks)
@@ -108,6 +138,6 @@ import Testing
         find.search(Self.turns())
         await find.pending?.value
         #expect(find.countText == "1 of 1")
-        #expect(find.currentBlock == "m-b")
+        #expect(find.currentBlock == "m-b|0")
     }
 }
