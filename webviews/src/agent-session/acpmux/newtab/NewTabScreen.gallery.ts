@@ -16,6 +16,7 @@ const OTHER_SITE_ICON =
 /// No chat yet, Claude Code starting on Medium: the model and reasoning chips both show.
 const reasoningChat = () =>
   noChat([], {
+    listedSessions: true,
     catalog: CATALOG.map((entry) =>
       entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
     ),
@@ -358,18 +359,26 @@ export default agentPaneEntry({
   variants: withAllChats({
     empty: {
       note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
-      ready: newTab(),
-      snapshot: noChat(),
+      ready: newTab({ pageWidgets: ["chats"] }),
+      snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-chats-empty") !== null);
         if (ctx.document.querySelector(".nt-no-agent, .acpmux-add-harness"))
           throw new Error("Add harness shows on the page with a harness installed");
+      },
+    },
+    "chats-loading": {
+      note: "The first session list is pending: recent chats use placeholders until it settles.",
+      ready: newTab({ pageWidgets: ["chats"] }),
+      snapshot: noChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-cards[aria-busy=true]") !== null);
       },
     },
     "inherited-project": {
       note: "A fresh workspace inherits its last project: the machine/project controls keep their established slots and the inherited project stays selected without requiring a new pick.",
       ready: newTab({ template: "minimal", cwd: "/Users/you", startedProject: CWD, projects: [CWD] }),
-      snapshot: noChat(),
+      snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         const location = ctx.document.querySelector<HTMLElement>(".nt-location");
@@ -393,7 +402,7 @@ export default agentPaneEntry({
     "machines-fleet": {
       note: "The machine chip with 21 machines acpmux lists (`host ls`): every one, in This Mac, My machines and Cloud and VMs; in each the ones a chat can start on first, in number order, the rest greyed with their state and no pick.",
       ready: newTab(),
-      snapshot: noChat([], fleetPeers()),
+      snapshot: noChat([], { ...fleetPeers(), listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ selector: '.nt-location .acpmux-location-picker[data-kind="computer"] button' });
@@ -403,7 +412,7 @@ export default agentPaneEntry({
     "model-picker-open": {
       note: "The New Tab model button's menu, open down: the harness rail and the models, never cut by the card; More models opens in place and ends on Add harness….",
       ready: newTab(),
-      snapshot: noChat(),
+      snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ role: "button", name: "Model" });
@@ -655,7 +664,7 @@ export default agentPaneEntry({
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
       ready: newTab(),
-      snapshot: noChat(),
+      snapshot: noChat([], { listedSessions: true }),
       native: {},
     },
     "calm-default": {
@@ -766,7 +775,7 @@ export default agentPaneEntry({
       // The mock daemon answers with no harness, as acpmux does on a Mac without an agent CLI.
       ready: { ...newTab(), transport: "mock" },
       mockHarnesses: [],
-      snapshot: { ...noChat(), catalog: [] },
+      snapshot: { ...noChat([], { listedSessions: true }), catalog: [] },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-composer .acpmux-add-harness") !== null);
         if (ctx.document.querySelector(".nt-no-agent")) throw new Error("a No agent to ask line shows under the field");
@@ -778,7 +787,7 @@ export default agentPaneEntry({
       note: "hq#1925 12: suggestions open over the New terminal / browser / chat row and cover it; no text under the popover shows through.",
       ready: { ...newTab(), transport: "mock" },
       mockHarnesses: [],
-      snapshot: { ...noChat(), catalog: [] },
+      snapshot: { ...noChat([], { listedSessions: true }), catalog: [] },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-create") !== null);
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
@@ -811,7 +820,7 @@ export default agentPaneEntry({
     "harnesses-from-menu": {
       note: "Play: Integrate a Harness… from the palette or the File menu on this page (cx-9fqw) shows the Harnesses page here, in place, not in a second tab.",
       ready: newTab(),
-      snapshot: noChat(),
+      snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
         const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
         await ctx.waitFor(() => page.cmuxAcpmuxBridge?.command !== undefined);

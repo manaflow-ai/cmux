@@ -100,10 +100,13 @@ export function ChatCards({
           {Array.from({ length: 3 }, (_, index) => (
             <div key={index} className="nt-card" aria-hidden="true">
               <span className="nt-card-meta">
+                <svg className="nt-card-placeholder nt-card-placeholder-icon" width="16" height="16" />
                 <span className="nt-card-age nt-card-placeholder">&nbsp;</span>
               </span>
               <span className="nt-card-title nt-card-placeholder">&nbsp;</span>
-              <span className="nt-card-message nt-card-placeholder">&nbsp;</span>
+              <span className="nt-card-message">
+                <span className="nt-card-placeholder">&nbsp;</span>
+              </span>
             </div>
           ))}
         </div>
