@@ -19,8 +19,8 @@ import {
   type CurrentPrincipalShape
 } from "@cmux/protocol"
 import { Effect, Layer, Redacted } from "effect"
-import { HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http"
+import { HttpApiBuilder } from "effect/http-api"
 import { authenticate, mintAccessToken, publicJwks } from "./auth.ts"
 import type { Env } from "./env.ts"
 import type { DomainReply } from "./team-domain-external.ts"

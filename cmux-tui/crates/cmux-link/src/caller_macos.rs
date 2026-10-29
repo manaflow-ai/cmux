@@ -112,6 +112,7 @@ fn status(result: OSStatus, what: &str) -> Result<(), String> {
 }
 
 /// Signature facts about one piece of code.
+#[derive(Clone)]
 struct Signing {
     team: Option<String>,
     unique: Option<Vec<u8>>,
@@ -119,7 +120,7 @@ struct Signing {
 
 pub(super) fn verify_signature(fd: RawFd) -> Result<(), String> {
     let guest = guest_code(&peer_audit_token(fd)?)?;
-    let own = signing(&own_code()?)?;
+    let own = own_signing()?;
     match own.team {
         Some(team) => {
             // A Team ID is ten upper-case letters or digits; anything else
@@ -153,8 +154,7 @@ pub(super) fn verify_signature(fd: RawFd) -> Result<(), String> {
 /// `token` (never by pid) is the signed app that contains this binary.
 pub(crate) fn verify_app_token(token: &[u32; 8]) -> Result<(), crate::app_caller::NotTheApp> {
     use crate::app_caller::NotTheApp;
-    let own =
-        signing(&own_code().map_err(NotTheApp::Unavailable)?).map_err(NotTheApp::Unavailable)?;
+    let own = own_signing().map_err(NotTheApp::Unavailable)?;
     let team =
         own.team.ok_or_else(|| NotTheApp::Unavailable("this build has no Team ID".into()))?;
     if team.len() != 10
@@ -162,13 +162,7 @@ pub(crate) fn verify_app_token(token: &[u32; 8]) -> Result<(), crate::app_caller
     {
         return Err(NotTheApp::Unavailable(format!("unexpected Team ID {team:?}")));
     }
-    // Read once per process: a later swap of the bundle on disk cannot move
-    // the identifier the daemon expects.
-    static IDENTIFIER: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
-    let identifier = IDENTIFIER
-        .get_or_init(|| containing_app_identifier(&team))
-        .clone()
-        .map_err(NotTheApp::Unavailable)?;
+    let identifier = own_app_identifier(&team).map_err(NotTheApp::Unavailable)?;
     let requirement = requirement(&format!(
         "anchor apple generic and certificate leaf[subject.OU] = \"{team}\" and identifier \"{identifier}\""
     ))
@@ -183,10 +177,37 @@ pub(crate) fn verify_app_token(token: &[u32; 8]) -> Result<(), crate::app_caller
 /// information cannot be read the binary counts as signed, so the
 /// install-key proof is refused and only prover A could pass.
 pub(crate) fn team_signed() -> bool {
-    match own_code().and_then(|code| signing(&code)) {
-        Ok(own) => own.team.is_some(),
+    match own_signing() {
+        Ok(own) => {
+            // Read the containing app's identifier now too (the daemon asks at
+            // start), while the bundle it was started from is still on disk.
+            if let Some(team) = own.team.as_deref().filter(|team| plain_team(team)) {
+                let _ = own_app_identifier(team);
+            }
+            own.team.is_some()
+        }
         Err(_) => true,
     }
+}
+
+/// This process's own signature facts, read once. A running daemon outlives
+/// its bundle: a Sparkle update replaces or deletes the app it was started
+/// from, after which its static code (`SecCodeCopyStaticCode`) is gone
+/// ("No such file or directory") and every later read failed, so no app
+/// connection was ever verified again and the app's cloud lease was refused
+/// (Home group chats "Not Delivered", 2026-10-28). The facts cannot change
+/// while the process runs. An error is kept too (fail closed).
+fn own_signing() -> Result<Signing, String> {
+    static OWN: std::sync::OnceLock<Result<Signing, String>> = std::sync::OnceLock::new();
+    OWN.get_or_init(|| own_code().and_then(|code| signing(&code))).clone()
+}
+
+/// The signed identifier of the app that contains this binary, read once per
+/// process (`team_signed` reads it at start): a later swap of the bundle on
+/// disk cannot move the identifier the daemon expects, nor make it unreadable.
+fn own_app_identifier(team: &str) -> Result<String, String> {
+    static IDENTIFIER: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
+    IDENTIFIER.get_or_init(|| containing_app_identifier(team)).clone()
 }
 
 /// Resolves `token` to running code (tests: a pid-reused token must fail).
@@ -273,7 +294,7 @@ fn plain_team(team: &str) -> bool {
 /// no team to compare. A mismatch, or a signature that does not validate, is
 /// an error.
 pub(crate) fn path_has_own_team(path: &std::path::Path) -> Result<bool, String> {
-    let own = signing(&own_code()?)?;
+    let own = own_signing()?;
     let Some(team) = own.team else {
         return Ok(false);
     };

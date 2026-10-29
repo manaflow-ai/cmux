@@ -11,6 +11,7 @@ import CmuxMobileTransport
 import CmuxMobileOnboarding
 import CmuxMobileSettings
 import CmuxMobileVoice
+import CmuxMobileSupport
 import SwiftUI
 import OSLog
 import UIKit
@@ -62,6 +63,8 @@ public struct RootView: View {
     @State private var store: AppStore
     @State private var settings = SettingsStore()
     @State private var sidebar = SidebarModel()
+    /// The app's keyboard notifications, for every keyboard-pinned composer.
+    @State private var keyboard = MobileKeyboardFrameTracker()
     @State private var launchFinished = false
     /// Live data from sign-in on (setup included); nil in mock mode.
     @State private var live: LiveCoordinator?
@@ -156,6 +159,7 @@ public struct RootView: View {
             }
         }
         .animation(theme.motion.gentle.animation, value: destination)
+        .environment(\.mobileKeyboardFrameTracker, keyboard)
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
         .task(id: auth.isResolved) {
@@ -511,6 +515,7 @@ struct ShellView: View {
         .task {
             #if DEBUG
             if CommandLine.arguments.contains("-cmux-mobile-team-transparent") { DemoDriver(shell: shell).seedTransparentTeams() }
+            KeyboardPinTrace.startIfRequested()
             #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
@@ -626,7 +631,8 @@ private struct LiveCallHost: ViewModifier {
 }
 
 /// Exactly four tabs: Home, Workspaces, Feed, Settings. The selected tab is
-/// `label` (neutral accent), never blue.
+/// `label` (neutral accent), never blue. The bar stays fully visible while
+/// content scrolls: it never minimizes to the selected tab's pill.
 struct ShellTabs: View {
     let shell: ShellModel
 
@@ -661,7 +667,7 @@ struct ShellTabs: View {
                 }
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
+        .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
     }

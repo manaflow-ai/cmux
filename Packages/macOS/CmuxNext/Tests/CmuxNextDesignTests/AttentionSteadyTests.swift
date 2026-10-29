@@ -18,6 +18,16 @@ import CmuxNextDesignTokens
     }
 
     @Test func steadyRingRestsVisibly() {
+        // The blink's own rest needs its animated look: Reduce Motion or the static look (both
+        // process-wide, set by suites that run alongside) turn it into the steady ring.
+        let design = DesignSettings.shared
+        let before = (indicator: design.statusIndicator, reduceMotion: Motion.reduceMotionOverride)
+        design.statusIndicator.animation = .animated
+        Motion.reduceMotionOverride = false
+        defer {
+            design.statusIndicator = before.indicator
+            Motion.reduceMotionOverride = before.reduceMotion
+        }
         let rest = Motion.attentionRestingOpacity(steady, look: .subtle)
         #expect(rest >= 0.65, "steady rests at \(rest): too faint to notice")
         // The blink keeps its faint rest after its flashes.

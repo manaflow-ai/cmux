@@ -75,8 +75,9 @@ final class SidebarFooterBand {
     func placeSpaces(top: CGFloat, height: CGFloat) {
         guard let host else { return }
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
-        // The Search button sits at the row's right end: the strip ends before it.
+        // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
         let searchMinX = placeSearch()
+        let trailing = placeUpdateAvailable(before: searchMinX, after: bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
             bar.leadingInset = nil
@@ -87,14 +88,14 @@ final class SidebarFooterBand {
             // The bar runs from right after the control to the Search button (the
             // strip never covers either; the slots carry the gap) and centers on
             // the sidebar's middle.
-            let lead = row.itemsMaxX, end = searchMinX ?? bounds.width
+            let lead = row.itemsMaxX, end = trailing ?? bounds.width
             bar.leadingInset = 0
             bar.frame = NSRect(x: lead, y: row.frame.minY, width: max(0, end - lead), height: row.frame.height)
             bar.centerX = bounds.midX - lead
         } else {
             if bar.superview !== footer { footer.addSubview(bar) }
-            // The strip ends before the Search button at the row's right end.
-            let end = searchMinX.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? footer.bounds.width
+            // The strip ends before the Search and update buttons at the row's right end.
+            let end = trailing.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? footer.bounds.width
             bar.leadingInset = nil
             bar.frame = NSRect(x: 0, y: 0, width: max(0, end), height: footer.bounds.height)
             bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x
@@ -152,6 +153,39 @@ final class SidebarFooterBand {
             // An empty band: the footer row, or on the bottom inset when the footer has no height.
             (x, midY) = (host.bounds.maxX - Metrics.space4 - side, footer.height > 0 ? footer.midY
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
+        }
+        let scale = host.window?.backingScaleFactor ?? 2
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
+        return button.frame.minX
+    }
+
+    // MARK: Update Available button
+
+    /// Places the quiet Update Available button (`showUpdateAvailable`) on the footer line's trailing end,
+    /// left of the Search button (`searchMinX`; at Search's own inset when Search is hidden), on its line
+    /// (Leo 2026-10-28: "the update button, don't put at the top. Put on the bottom. The bottom has room").
+    /// Returns its minX in the sidebar's coordinates, nil while it does not show. It never covers the line's
+    /// leading controls (`after`, the avatar's maxX): with no room it steps out of the line (zero frame; the
+    /// palette's Install Available Update still installs it), as it stepped out of the titlebar row before.
+    @discardableResult
+    func placeUpdateAvailable(before searchMinX: CGFloat?, after leadingMaxX: CGFloat) -> CGFloat? {
+        guard let host else { return nil }
+        let button = host.updateAvailableButton
+        guard !button.isHidden else { return nil }
+        let side = Self.searchButtonSide
+        let midY: CGFloat, end: CGFloat
+        if let row = bandFirstRow {
+            midY = row.frame.midY
+            end = searchMinX.map { $0 - Metrics.space1 } ?? host.bounds.maxX - row.frame.minX
+        } else {
+            let footer = host.footer.frame
+            midY = footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2
+            end = searchMinX.map { $0 - Metrics.space1 } ?? host.bounds.maxX - Metrics.space4
+        }
+        let x = end - side
+        guard x >= leadingMaxX + Metrics.space1 else {
+            button.frame = .zero
+            return nil
         }
         let scale = host.window?.backingScaleFactor ?? 2
         button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)

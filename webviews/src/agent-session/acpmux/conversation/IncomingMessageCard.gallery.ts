@@ -100,13 +100,25 @@ const minimalChat = chat([
   assistant("Merged cmux/grid-fix into this branch.", 4.5),
   summary(4.5, { status: "completed" }),
 ]);
+/// Three received messages in a row fold into one disclosure (waitingMessages.ts, #26980). The
+/// Minimal Mode plays draw each message's own line, so they open that fold first.
+const RECEIVED_LINE = ".cv-received__toggle:not(.cv-waiting__toggle)";
+const openFold: Play = async (ctx) => {
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector(".cv-waiting__toggle") !== null ||
+      ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length,
+  );
+  ctx.document.querySelector<HTMLButtonElement>('.cv-waiting__toggle[aria-expanded="false"]')?.click();
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length);
+};
 const ALT_ID = "incoming-minimal-alt";
 /// Draws a gallery-only line over the shipped one: its stylesheet, then `mark` on each line (its
 /// preview span, the message's text and the sender's name).
 const alternate =
   (css: string, mark: (preview: HTMLElement, text: string, name: string) => void): Play =>
   async (ctx) => {
-    await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__preview").length >= minimalTexts.length);
+    await openFold(ctx);
     ctx.document.getElementById(ALT_ID)?.remove();
     const style = ctx.document.createElement("style");
     style.id = ALT_ID;
@@ -426,9 +438,10 @@ export default agentPaneEntry({
       display: MINIMAL,
       snapshot: minimalChat,
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__toggle").length >= 3);
-        await ctx.click({ selector: '.cv-received__toggle[aria-label*="Landing report"]' });
-        await ctx.waitFor(() => ctx.document.querySelector('.cv-received__toggle[aria-expanded="true"]'));
+        await openFold(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(RECEIVED_LINE).length >= 3);
+        await ctx.click({ selector: `${RECEIVED_LINE}[aria-label*="Landing report"]` });
+        await ctx.waitFor(() => ctx.document.querySelector(`${RECEIVED_LINE}[aria-expanded="true"]`));
       },
     },
     "minimal-fade-count": {

@@ -611,7 +611,14 @@ async fn connect_peer(client: &Client, name: &str, url: Option<&str>) -> Result<
                 .request("_acpmux/peer_add", json!({"name": name, "url": url, "wait": true}))
                 .await
         }
-        None => client.request("_acpmux/peer_reconnect", json!({"name": name, "wait": true})).await,
+        None => {
+            client
+                .request(
+                    "_acpmux/peer_reconnect",
+                    json!({"name": name, "wait": true, "force": true}),
+                )
+                .await
+        }
     }
 }
 

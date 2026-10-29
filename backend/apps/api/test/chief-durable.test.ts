@@ -3,7 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, describe, expect, it } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
-import { holdTurns } from "../src/chief-brain/fake.ts"
+import { fakeCalls, holdTurns } from "../src/chief-brain/fake.ts"
 
 /**
  * Cloud Chief D (chief-durable/, plans/cmux-next/cloud-chief-durable-DESIGN.md) through the product
@@ -178,7 +178,7 @@ describe("Cloud Chief D (pi-durable)", { timeout: 120_000 }, () => {
     expect((await history(token, conv)).filter((m) => m.author === chief.id)).toHaveLength(2)
   })
 
-  it("NO_REPLY posts nothing and still moves the wake cursor", async () => {
+  it("NO_REPLY to its owner leaves the message waiting; the reply ledger's retry turn answers it", async () => {
     const { token, chief } = await ownerWithChief("durable-noreply", "durable")
     const conv = chief.main_conversation
     const brain = durable(chief.id, conv)
@@ -187,12 +187,67 @@ describe("Cloud Chief D (pi-durable)", { timeout: 120_000 }, () => {
     const convDO = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(conv))
     const runs = async () => (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${conv}`, token)).json.value?.runs as Array<any> ?? []
     for (let i = 0; i < 300 && !(await runs()).some((r) => r.status === "done"); i++) [await fireAlarm(convDO), i % 10 === 9 ? await fireAlarm(brain) : undefined, await sleep(20)]
-    await settle(conv, chief.id, brain)
     expect((await history(token, conv)).filter((m) => m.author === chief.id)).toHaveLength(0)
-    expect((await runs())[0]?.reply?.state).toBe("no_reply")
-    // The next message is answered normally (the cursor moved past the quiet one).
-    await say(token, conv, "n2", "now answer")
+    expect((await runs()).at(-1)?.reply?.state).toBe("no_reply")
+    // The kernel's reply ledger (chief-kernel ledger.rs) checks 5 s after the turn: the person's message got no
+    // words, so a retry turn starts on a "[no reply]" note and its answer is posted in the message's thread.
+    await sleep(5_200)
     const [reply] = await chiefReplies(token, conv, chief.id, 1, brain)
-    expect(textOf(reply)).toContain("now answer")
+    expect(textOf(reply)).toContain("[no reply]")
+    await settle(conv, chief.id, brain)
+    expect((await history(token, conv)).filter((m) => m.author === chief.id)).toHaveLength(1)
+  })
+
+  it("send and reply post at once, in the thread of the line they name, before the turn's final text", async () => {
+    const { token, chief } = await ownerWithChief("durable-send", "durable")
+    const conv = chief.main_conversation
+    // A fresh Chief's first message is line 0 of its view.
+    await say(token, conv, "t1", 'tool:send {"text":"first part","reply_to":0}')
+    const posted = await chiefReplies(token, conv, chief.id, 2, durable(chief.id, conv))
+    const asked = (await history(token, conv)).find((m) => m.author !== chief.id && textOf(m).includes("tool:send"))
+    expect(textOf(posted[0])).toBe("first part")
+    expect(posted[0].reply_to?.message_id).toBe(asked.id)
+    // The tool's result went back to the model, whose last text is the second post.
+    expect(textOf(posted[1])).toContain("tool said:")
+  })
+
+  it("stop ends the turn with nothing more posted", async () => {
+    const { token, chief } = await ownerWithChief("durable-stop", "durable")
+    const conv = chief.main_conversation
+    const brain = durable(chief.id, conv)
+    const convDO = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(conv))
+    const runs = async () => (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${conv}`, token)).json.value?.runs as Array<any> ?? []
+    await say(token, conv, "p1", "tool:stop {}")
+    for (let i = 0; i < 300 && !(await runs()).some((r) => r.status === "done"); i++) [await fireAlarm(convDO), i % 10 === 9 ? await fireAlarm(brain) : undefined, await sleep(20)]
+    // Read at once: 5 s later the reply ledger starts a retry turn for the unanswered message (the NO_REPLY case).
+    // No model request after stop: the run has no talk step and posted nothing.
+    expect((await history(token, conv)).filter((m) => m.author === chief.id)).toHaveLength(0)
+    const run = (await runs()).at(-1)
+    expect(run.status).toBe("done")
+    const steps = (await http("GET", `/v1/chiefs/${chief.id}/runs/${run.id}?conversation=${conv}`, token)).json.value.steps as Array<any>
+    expect(steps.some((s) => s.kind === "talk")).toBe(false)
+    expect(steps.some((s) => s.tool?.name === "stop")).toBe(true)
+  })
+
+  it("zoom answers from the kernel's pure tool", async () => {
+    const { token, chief } = await ownerWithChief("durable-zoom", "durable")
+    const conv = chief.main_conversation
+    await say(token, conv, "z0", "remember the word ORCHID")
+    await chiefReplies(token, conv, chief.id, 1, durable(chief.id, conv))
+    await say(token, conv, "z1", "zoom(0, 1)")
+    const replies = await chiefReplies(token, conv, chief.id, 2, durable(chief.id, conv))
+    expect(textOf(replies[1])).toContain("ORCHID")
+  })
+  it("runs on the kernel's cloud prompt: only the tools it offers, no shell, the owner rule", async () => {
+    const { token, chief } = await ownerWithChief("durable-prompt", "durable")
+    const conv = chief.main_conversation
+    await say(token, conv, "q1", "what can you do here?")
+    await chiefReplies(token, conv, chief.id, 1, durable(chief.id, conv))
+    const call = [...fakeCalls].reverse().find((c) => c.kind === "turn" && c.firstUser.some((b) => b.includes("what can you do here?")))
+    expect(call, "the turn's model request").toBeDefined()
+    expect(call!.system).toContain("You run in cmux Cloud")
+    expect(call!.system).toContain("owner approval required")
+    for (const absent of ["spawn(", "sleep(", "react(", "remember(", "transcript("]) expect(call!.system, absent).not.toContain(absent)
+    expect(call!.tools.map((t) => t.name).sort()).toEqual(["date", "reply", "send", "stop", "zoom"])
   })
 })

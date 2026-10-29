@@ -35,6 +35,33 @@ import SwiftUI
         return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator))
     }
 
+    /// Close Tabs to the Left / to the Right: the unpinned tabs before or after the tab in its
+    /// own pane on the Mac (`TabStripModel.closedByCloseToLeft`).
+    @Test func closeTabsToTheSideStayInThePane() {
+        func tab(_ id: String, pane: String, pinned: Bool = false) -> WorkspaceTab {
+            var tab = WorkspaceTab(id: id, kind: .terminal, title: id)
+            tab.linkIDs = WorkspaceTab.LinkIDs(pane: pane)
+            if pinned { tab.pinned = true }
+            return tab
+        }
+        let tabs = [tab("p", pane: "1", pinned: true), tab("a", pane: "1"), tab("x", pane: "2"), tab("b", pane: "1"), tab("c", pane: "1")]
+        #expect(WorkspaceTabsSource.closedBySide(of: tabs[3], left: true, in: tabs).map(\.id) == ["a"])
+        #expect(WorkspaceTabsSource.closedBySide(of: tabs[1], left: false, in: tabs).map(\.id) == ["b", "c"])
+        #expect(WorkspaceTabsSource.closedBySide(of: tabs[4], left: false, in: tabs).isEmpty)
+        #expect(WorkspaceTabsSource.closedBySide(of: tabs[2], left: true, in: tabs).isEmpty)
+    }
+
+    @Test func closeTabsToTheRightClosesThemOnTheMac() async {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let tabs = store.workspace(id: "ws-cmux")!.tabs
+        // The terminal's right: the browser tab only (nothing running there, so no question).
+        let first = tabs.first { $0.id == "t-zsh" }!
+        #expect(WorkspaceTabsSource.closedBySide(of: first, left: false, in: tabs).map(\.id) == ["t-docs"])
+        await source.closeSide(of: first.id, left: false)
+        #expect(store.workspace(id: "ws-cmux")!.tabs.map(\.id) == ["t-claude", "t-zsh"])
+    }
+
     /// N2/A1: a shell tab running `sleep` (title "zsh") asks before its close kills it.
     @Test func closingATabWithARunningProgramAsks() async throws {
         let (store, source) = make(backend: ProgramsBackend(programs: ["sleep"]))
@@ -157,9 +184,10 @@ import SwiftUI
         let backend = MockWorkspaceCreationBackend(latency: .zero)
         let (store, source) = make(backend: backend)
         let terminal = source.tabs[1]
-        // The Mac's tab menu: Rename Tab…, Pin Tab, Duplicate Tab | its group rows (TabsKit adds
-        // Close Tab and Close Other Tabs); its More's moves are in the page menu.
-        #expect(source.cardMenu(for: terminal).map { $0.map(\.title) } == [["Rename Tab…", "Pin Tab", "Duplicate Tab"], ["New Tab Group"]])
+        // The Mac's tab menu: Rename Tab…, Pin Tab, Duplicate Tab | its group rows | Close Tabs to the
+        // Left / Right (TabsKit adds Close Tab and Close Other Tabs); its More's moves are in the page menu.
+        #expect(source.cardMenu(for: terminal).map { $0.map(\.title) }
+            == [["Rename Tab…", "Pin Tab", "Duplicate Tab"], ["New Tab Group"], ["Close Tabs to the Left", "Close Tabs to the Right"]])
         let page = source.pageMenu(for: terminal).flatMap { $0 }.map(\.title)
         #expect(page.contains("Move Tab to Workspace…") && page.contains("Move Tab to New Workspace"))
         #expect(source.pageMenu(for: source.tabs[0]).flatMap { $0 }.contains { $0.title == "Rename Tab…" })
@@ -352,6 +380,74 @@ import SwiftUI
         await source.editGroup(.close, "t-zsh")
         #expect(tab("t-zsh") == nil && tab("t-docs") == nil)
         #expect(backend.groupEdits.last == .close)
+    }
+
+    /// The group's own page (the Mac's chip menu): a member's Tab Group row pushes it; color, icon
+    /// and collapse show at once and reach the Mac; a refusal puts the color back; New Tab in Group
+    /// opens the Mac's new tab in the group; a move to a new workspace leaves the page.
+    @Test func tabGroupPageActions() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        func tab(_ id: String) -> WorkspaceTab? { store.workspace(id: "ws-cmux")?.tabs.first { $0.id == id } }
+        for id in ["t-zsh", "t-docs"] {
+            store.updateTab(id, in: "ws-cmux") { $0.group = WorkspaceTab.TabGroupRef(id: "tgrp_1", name: "Jobs", color: "red") }
+        }
+        let zsh = try #require(source.tabs.first { $0.id == "t-zsh" })
+        let row = try #require(source.cardMenu(for: zsh).flatMap { $0 }.first { $0.id == "tab-group-actions" })
+        row.action()
+        #expect(source.route == .tabGroup("tgrp_1"))
+        #expect(source.members(ofGroup: "tgrp_1").map(\.id) == ["t-zsh", "t-docs"])
+        await source.editGroup(.setColor("cyan"), group: "tgrp_1")
+        #expect(tab("t-docs")?.group?.color == "cyan")
+        await source.editGroup(.setIcon("hammer"), group: "tgrp_1")
+        #expect(tab("t-zsh")?.group?.icon == "hammer")
+        await source.editGroup(.setCollapsed(true), group: "tgrp_1")
+        #expect(tab("t-zsh")?.group?.isCollapsed == true)
+        await source.editGroup(.setIcon(nil), group: "tgrp_1")
+        #expect(tab("t-zsh")?.group?.icon == nil)
+        backend.failNext = "no such group"
+        await source.editGroup(.setColor("orange"), group: "tgrp_1")
+        #expect(tab("t-zsh")?.group?.color == "cyan")
+        #expect(source.toastText == "Set Tab Group Color didn't work on Aziz's Mac Studio.")
+        #expect(backend.groupEdits == [.setColor("cyan"), .setIcon("hammer"), .setCollapsed(true), .setIcon(nil)])
+        #expect(source.canMoveGroup("tgrp_1", forward: true))
+        await source.newTabInGroup("tgrp_1")
+        #expect(source.openedTab != nil && source.route == nil)
+        source.route = .tabGroup("tgrp_1")
+        await source.editGroup(.moveToSplit(.down), group: "tgrp_1")
+        await source.editGroup(.moveToNewWorkspace, group: "tgrp_1")
+        #expect(backend.groupEdits.suffix(2) == [.moveToSplit(.down), .moveToNewWorkspace])
+        #expect(source.route == nil && source.toastText == "Moved Jobs to a new workspace.")
+    }
+
+    /// Screens: the page menu has Screens (N) when the Mac lists more than one, each tab's card
+    /// names its screen, and the Screens page's actions reach the Mac.
+    @Test func screensFromThePageMenu() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let ids = try #require(store.workspace(id: "ws-cmux")?.tabs.map(\.id))
+        let first = MacScreen(id: 1, isActive: true, activePane: 1, panes: [1], tabIDs: Array(ids.dropLast()))
+        let second = MacScreen(id: 2, name: "logs", activePane: 2, panes: [2], tabIDs: [ids.last!])
+        store.updateWorkspace("ws-cmux") { $0.screens = [first, second] }
+        let workspace = try #require(source.workspace)
+        #expect(workspace.screenLabel(ofTab: ids[0]) == "Screen 1" && workspace.screenLabel(ofTab: ids.last!) == "logs")
+        let kit = try #require(source.tabs.first)
+        let item = try #require(source.pageMenu(for: kit).flatMap { $0 }.first { $0.id == "screens" })
+        #expect(item.title == "Screens (2)")
+        item.action()
+        #expect(source.route == .screens)
+        #expect(source.tabs(on: second).map(\.id) == [ids.last!])
+        await source.selectScreen(second)
+        await source.selectScreen(first)  // already current: nothing sent
+        await source.renameScreen(second, to: "  build ")
+        await source.renameScreen(second, to: "   ")  // empty: nothing sent
+        await source.newScreen()
+        await source.closeScreen(second)
+        #expect(backend.screenEdits == ["select 2", "rename 2 build", "new", "close 2"])
+        #expect(store.workspace(id: "ws-cmux")?.tabs.contains { $0.id == ids.last! } == false)
+        // One screen: no screen label on cards.
+        store.updateWorkspace("ws-cmux") { $0.screens = [first] }
+        #expect(source.workspace?.screenLabel(ofTab: ids[0]) == nil)
     }
 
     @Test func forkArchiveAndDuplicateAChat() async throws {

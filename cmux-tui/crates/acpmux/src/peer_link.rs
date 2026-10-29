@@ -93,6 +93,64 @@ impl Backoff {
     }
 }
 
+/// Notices that this computer slept (a closed lid, a sleeping Mac): the wall clock moved on further
+/// than the monotonic one, which stops while the computer sleeps (macOS `mach_absolute_time`,
+/// Linux `CLOCK_MONOTONIC`). A link's timers run on the monotonic clock, so after a wake a dead
+/// link still looks fresh (its last frame "seconds" ago) and a backoff wait picks up where it was.
+/// Each check is a few integer reads; a forward step of the wall clock (a time sync) reads as a
+/// sleep too, which costs one early probe or attempt and nothing else.
+#[derive(Debug, Clone, Copy)]
+pub struct SleepWatch {
+    wall_ms: u64,
+    mono: std::time::Instant,
+}
+
+impl SleepWatch {
+    /// How often a link or a backoff wait checks the clocks.
+    pub const EVERY: Duration = Duration::from_secs(5);
+    /// A gap between the clocks under this is scheduling noise, not a sleep.
+    pub const SLACK: Duration = Duration::from_secs(10);
+
+    pub fn new(wall_ms: u64, mono: std::time::Instant) -> Self {
+        Self { wall_ms, mono }
+    }
+
+    /// From the clocks now.
+    pub fn now() -> Self {
+        Self::new(crate::store::now_ms(), std::time::Instant::now())
+    }
+
+    /// How long the computer slept since the last check, when it did; the watch then counts from
+    /// now either way.
+    pub fn check_at(&mut self, wall_ms: u64, mono: std::time::Instant) -> Option<Duration> {
+        let wall = Duration::from_millis(wall_ms.saturating_sub(self.wall_ms));
+        let awake = mono.saturating_duration_since(self.mono);
+        *self = Self::new(wall_ms, mono);
+        let slept = wall.saturating_sub(awake);
+        (slept >= Self::SLACK).then_some(slept)
+    }
+
+    /// ``check_at`` with the clocks now.
+    pub fn check(&mut self) -> Option<Duration> {
+        self.check_at(crate::store::now_ms(), std::time::Instant::now())
+    }
+}
+
+/// After a wake, how long an open link has to answer a ping before it is dropped and redialed
+/// (its ssh tunnel and TCP connection often died while the computer slept).
+pub const WAKE_PROBE: Duration = Duration::from_secs(10);
+
+/// When a write that starts at `now` gives up: after the send `budget`, or at a running wake
+/// probe's deadline when that comes first, so a write to a link that died while the computer
+/// slept never holds the probe past it. Generic over the clock so a test can pass plain instants.
+pub fn write_deadline<I>(now: I, budget: Duration, wake_probe: Option<I>) -> I
+where
+    I: Copy + Ord + std::ops::Add<Duration, Output = I>,
+{
+    let end = now + budget;
+    wake_probe.map_or(end, |probe| probe.min(end))
+}
+
 /// A fresh jitter in `0.0..1.0` from the OS generator (0.5 if it fails).
 pub fn jitter() -> f64 {
     let mut b = [0u8; 4];
@@ -119,6 +177,18 @@ pub enum PeerState {
 }
 
 impl PeerState {
+    /// Its `_acpmux/peer_state_changed` form (`protocol/peer_state.rs`).
+    pub fn wire(self) -> crate::protocol::peer_state::PeerLinkState {
+        use crate::protocol::peer_state::PeerLinkState as W;
+        match self {
+            Self::Connecting => W::Connecting,
+            Self::Connected => W::Connected,
+            Self::Degraded => W::Degraded,
+            Self::Reconnecting => W::Reconnecting,
+            Self::Offline => W::Offline,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Connecting => "connecting",
@@ -144,6 +214,8 @@ pub struct Link {
     pub attempts: u32,
     /// When the link last became ready.
     ready_at: Option<u64>,
+    /// When the WebSocket last opened, while it is open.
+    opened_at: Option<u64>,
 }
 
 impl Link {
@@ -161,6 +233,17 @@ impl Link {
         self.open && self.ready
     }
 
+    /// Whether an unforced reconnect leaves this link alone (`Hub::reconnect_peer_with`): it is
+    /// ready (connected, or slow to answer a ping), or its handshake began less than `young` ago.
+    /// A handshake older than that may never finish, so a reconnect replaces it.
+    pub fn keeps_on_reconnect(&self, now: u64, young: Duration) -> bool {
+        if !self.open {
+            return false;
+        }
+        self.ready
+            || self.opened_at.is_some_and(|at| now.saturating_sub(at) < young.as_millis() as u64)
+    }
+
     /// A saved `lastSeen` from an earlier run of this daemon.
     pub fn seed(&mut self, last_seen: Option<u64>) {
         if self.last_seen.is_none() {
@@ -170,6 +253,7 @@ impl Link {
 
     /// The WebSocket opened; the handshake runs.
     pub fn opened(&mut self, now: u64) {
+        self.opened_at = Some(now);
         self.open = true;
         self.ready = false;
         self.overdue = false;
@@ -208,6 +292,7 @@ impl Link {
         self.ready = false;
         self.overdue = false;
         self.ready_at = None;
+        self.opened_at = None;
         self.attempts = self.attempts.saturating_add(1);
         self.down_since.get_or_insert(now);
         stable
@@ -275,6 +360,58 @@ pub fn state_label(peer: &Value, now: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sleep_is_the_wall_clock_running_ahead_of_the_monotonic_one() {
+        let start = std::time::Instant::now();
+        let mut watch = SleepWatch::new(1_000_000, start);
+        // Awake: both clocks moved 5 s.
+        assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(5)), None);
+        // Scheduling noise under the slack is no sleep.
+        assert_eq!(watch.check_at(1_015_000, start + Duration::from_secs(9)), None);
+        // Asleep for 10 minutes: the wall clock moved 10 min 5 s, the monotonic one 5 s.
+        let slept = watch.check_at(1_620_000, start + Duration::from_secs(14));
+        assert_eq!(slept, Some(Duration::from_secs(600)));
+        // The watch counts from the wake on.
+        assert_eq!(watch.check_at(1_625_000, start + Duration::from_secs(19)), None);
+    }
+
+    #[test]
+    fn an_unforced_reconnect_keeps_a_ready_link_and_a_young_handshake() {
+        let young = Duration::from_secs(30);
+        let mut link = Link::default();
+        assert!(!link.keeps_on_reconnect(1_000, young), "a link that never opened is replaced");
+        link.opened(1_000);
+        assert!(link.keeps_on_reconnect(20_000, young), "a handshake 19 s old is left to finish");
+        assert!(!link.keeps_on_reconnect(40_000, young), "a handshake 39 s old may never finish");
+        link.ready(40_000);
+        link.overdue();
+        assert!(link.keeps_on_reconnect(500_000, young), "a ready link slow to answer is kept");
+        link.down(600_000, STABLE);
+        assert!(!link.keeps_on_reconnect(600_001, young), "a link that is down is replaced");
+    }
+
+    #[test]
+    fn a_wall_clock_set_back_is_no_sleep() {
+        let start = std::time::Instant::now();
+        let mut watch = SleepWatch::new(2_000_000, start);
+        assert_eq!(watch.check_at(1_000_000, start + Duration::from_secs(5)), None);
+        assert_eq!(watch.check_at(1_005_000, start + Duration::from_secs(10)), None);
+    }
+
+    #[test]
+    fn a_write_during_a_wake_probe_gives_up_at_the_probes_deadline() {
+        let now = std::time::Instant::now();
+        let budget = Duration::from_secs(80);
+        assert_eq!(write_deadline(now, budget, None), now + budget);
+        let probe = now + WAKE_PROBE;
+        assert_eq!(write_deadline(now, budget, Some(probe)), probe);
+        // A probe further off than the budget leaves the budget.
+        assert_eq!(
+            write_deadline(now, Duration::from_secs(5), Some(probe)),
+            now + Duration::from_secs(5)
+        );
+    }
 
     const STABLE: Duration = Duration::from_secs(60);
 

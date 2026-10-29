@@ -205,13 +205,17 @@ final class SidebarScrollBench {
     }
 
     /// Scrolls top to bottom and back `passes` times, `step` points per frame (a fast trackpad
-    /// flick moves 30-60 pt a frame). The first pass down is a warm-up and is dropped.
-    func run(step: CGFloat = 40, passes: Int = 2) -> [Frame] {
+    /// flick moves 30-60 pt a frame). The first pass down is a warm-up and is dropped. `depth`
+    /// turns each pass back that far below the top (nil: at the bottom), so a run's frame count
+    /// stops growing with the list.
+    func run(step: CGFloat = 40, passes: Int = 2, depth: CGFloat? = nil) -> [Frame] {
         var frames: [Frame] = []
         for pass in 0...max(passes, 0) {
+            // Read each step, as `maxY` follows the list's height (ticks can change it mid-pass).
+            var bottom: CGFloat { min(maxY, depth ?? maxY) }
             var y: CGFloat = 0
             var down: [Frame] = []
-            while y < maxY { y = min(maxY, y + step); down.append(frame(to: y)) }
+            while y < bottom { y = min(bottom, y + step); down.append(frame(to: y)) }
             while y > 0 { y = max(0, y - step); down.append(frame(to: y)) }
             if pass > 0 || passes == 0 { frames += down }
             drain()

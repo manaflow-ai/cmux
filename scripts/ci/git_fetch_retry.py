@@ -17,6 +17,14 @@ Each try here:
   `shallow.lock`, `index.lock` and `*.lock` ref locks older than the try.
 Then it waits BACKOFF_SECONDS[n] and tries again, up to `--tries` times.
 
+Before each try of a `submodule update`, a submodule checkout whose `.git` file
+names a git dir that is gone (or has no HEAD) is removed, with that half-made
+git dir, so the update clones it again. A reused workspace can lose
+`.git/modules` while its submodule checkouts stay: on 2026-10-28 the warm
+nightly-next builder failed three tries in a row with `fatal: could not get a
+repository handle for submodule 'ghostty'`, then `fatal: not a git repository:
+ghostty/../.git/modules/ghostty`.
+
     git_fetch_retry.py [--tries 3] [--timeout S] [--repo DIR] -- git ARGS...
 
 Exits with the last try's status (124 for a timeout).
@@ -190,6 +198,119 @@ def clean_new_modules(repo: Path, before: set[Path], log: Callable[[str], None] 
     return removed
 
 
+def gitfile_target(worktree: Path) -> Path | None:
+    """The git dir a submodule checkout's `.git` file names, or None when `.git` is not such a file."""
+    marker = worktree / ".git"
+    if marker.is_symlink() or not marker.is_file():
+        return None
+    try:
+        text = marker.read_text(errors="replace").strip()
+    except OSError:
+        return None
+    if not text.startswith("gitdir:"):
+        return None
+    target = Path(text.removeprefix("gitdir:").strip())
+    return target if target.is_absolute() else worktree / target  # not normalized: the OS walks it as git does
+
+
+def inside(path: Path, root: Path) -> bool:
+    """Whether `path` is strictly under `root` with no symlink on the way (root itself included)."""
+    if root.is_symlink():
+        return False
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return False
+    if not rel.parts or ".." in rel.parts:
+        return False
+    walk = root
+    for part in rel.parts:
+        walk = walk / part
+        if walk.is_symlink():
+            return False
+    return path.resolve() != root.resolve() and root.resolve() in path.resolve().parents
+
+
+def drop_dangling_submodules(repo: Path, log: Callable[[str], None] = print,
+                             only: Sequence[str] = ()) -> list[Path]:
+    """Remove submodule checkouts whose `.git` file names a git dir that is gone or has no HEAD.
+
+    `submodule update --init --force` cannot repair such a checkout ("could not get a repository
+    handle", "not a git repository"); with the checkout gone it clones the submodule again. A
+    half-made git dir it named is removed too when it is under this repository's own .git/modules.
+    Only paths inside the repository with no symlink on the way are touched. Checkouts are visited
+    top-down, so a nested one under a removed checkout is not visited. With `only`, just those top-level
+    paths (and submodules inside them) are looked at.
+    """
+    removed: list[Path] = []
+    repo = Path(os.path.abspath(repo))
+    scopes = [repo / path for path in only]
+    modules = repo / ".git" / "modules"
+    own_modules = (repo / ".git").is_dir() and not (repo / ".git").is_symlink()
+    for worktree in submodule_worktrees(repo):
+        if any(parent in removed for parent in worktree.parents) or not inside(worktree, repo):
+            continue
+        if scopes and not any(worktree == scope or scope in worktree.parents for scope in scopes):
+            continue
+        target = gitfile_target(worktree)
+        if target is None or (target / "HEAD").is_file():
+            continue
+        try:
+            remove_tree(worktree)
+            worktree.mkdir(parents=True, exist_ok=True)  # as a fresh checkout leaves an uninitialized submodule
+            removed.append(worktree)
+            # the git dir as git reaches it (symlinks followed), and only under the real .git/modules
+            real = Path(os.path.realpath(target))
+            if own_modules and not modules.is_symlink() and modules.is_dir() and real.is_dir() \
+                    and modules.resolve() in real.parents:
+                remove_tree(real)
+        except OSError as error:
+            log(f"git_fetch_retry: could not remove {worktree}: {error}")
+            continue
+        log(f"git_fetch_retry: removed {worktree}: its .git names {target}, which is gone (the update clones it)")
+    return removed
+
+
+# `git` options and `submodule update` options that take their value as the next word.
+GIT_VALUE_OPTIONS = frozenset({"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+                               "--config-env", "--super-prefix"})
+UPDATE_VALUE_OPTIONS = frozenset({"--reference", "--depth", "--jobs", "-j", "--filter"})
+
+
+def submodule_update_paths(command: Sequence[str]) -> list[str] | None:
+    """The paths a `git ... submodule update ...` command names (empty: every submodule), or None when the
+    command is not a submodule update. Paths are positional, with or without a `--` before them."""
+    words = list(command[1:])
+    i = 0
+    while i < len(words) and words[i].startswith("-"):  # git's own options
+        i += 2 if words[i] in GIT_VALUE_OPTIONS else 1
+    if words[i:i + 1] != ["submodule"]:
+        return None
+    i += 1
+    while i < len(words) and words[i] in ("--quiet", "-q"):  # `git submodule --quiet update`
+        i += 1
+    if words[i:i + 1] != ["update"]:
+        return None
+    paths: list[str] = []
+    rest = words[i + 1:]
+    j = 0
+    while j < len(rest):
+        word = rest[j]
+        if word == "--":
+            paths += rest[j + 1:]
+            break
+        if word.startswith("-"):
+            j += 2 if word in UPDATE_VALUE_OPTIONS else 1
+            continue
+        paths.append(word)
+        j += 1
+    return paths
+
+
+def is_submodule_update(command: Sequence[str]) -> bool:
+    return submodule_update_paths(command) is not None
+
+
 def run_once(command: Sequence[str], timeout: float) -> int:
     """Run `command` in its own process group; kill the group after `timeout` seconds."""
     process = subprocess.Popen(list(command), start_new_session=True)
@@ -238,6 +359,9 @@ def run(command: Sequence[str], *, tries: int, timeout: float, repo: Path,
     status = 1
     for attempt in range(1, tries + 1):
         started = clock()
+        only = submodule_update_paths(command)
+        if only is not None:  # an update of named paths drops only under those paths; with none, under all
+            drop_dangling_submodules(repo, log, only=only)
         modules_before = module_dirs(repo)
         status = runner(command, timeout)
         if status == 0:
@@ -256,12 +380,19 @@ def run(command: Sequence[str], *, tries: int, timeout: float, repo: Path,
 def main(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tries", type=int, default=3)
-    parser.add_argument("--timeout", type=float, required=True, help="seconds per try")
+    parser.add_argument("--timeout", type=float, help="seconds per try (required with a command)")
     parser.add_argument("--repo", type=Path, default=Path("."))
+    parser.add_argument("--drop-dangling-submodules", action="store_true",
+                        help="only remove submodule checkouts whose git dir is gone, then exit")
+    parser.add_argument("--only", action="append", default=[], metavar="PATH",
+                        help="with --drop-dangling-submodules: only this submodule path (repeatable)")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
+    if args.drop_dangling_submodules:
+        drop_dangling_submodules(args.repo, only=args.only)
+        return 0
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
-    if args.tries < 1 or args.timeout <= 0 or not command:
+    if args.tries < 1 or args.timeout is None or args.timeout <= 0 or not command:
         parser.error("need --tries >= 1, --timeout > 0 and a git command after --")
     return run(command, tries=args.tries, timeout=args.timeout, repo=args.repo.resolve())
 

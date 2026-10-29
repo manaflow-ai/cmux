@@ -159,18 +159,31 @@ test("a rail switch from a shown More models row keeps keyboard focus in the men
   expect(popup.contains(document.activeElement)).toBe(true);
 });
 
-test("on New Tab the menu holds no empty rows under its own (it opens down, so its top stays put)", async () => {
+// The browser layout suite measures actual popup height; JSDOM verifies which rows contribute
+// content as the New Tab disclosure opens and closes.
+test("on New Tab More models adds only the chosen tab's visible model rows", async () => {
   await openMenu(true);
-  const spacer = document.querySelector<HTMLElement>(".acpmux-quick-spacer")!;
-  expect(
-    spacer.querySelectorAll(":scope > .ui-menu-item, :scope > .ui-separator, :scope > .ui-menu-group-label").length,
-  ).toBe(0);
+  const initial = labels(list());
+  expect(initial).toContain("Claude a");
+  expect(initial).not.toContain("Claude old x");
+  await act(async () => disclosure()!.click());
+  await settle();
+  const expected: string[] = [...initial.slice(0, -1), "Claude old x", "Claude old y", initial.at(-1)!];
+  expect(labels(list())).toEqual(expected);
+  await act(async () => disclosure()!.click());
+  await settle();
+  expect(labels(list())).toEqual(initial);
 });
 
-test("a chat menu sizes to its visible rows without hidden height fillers", async () => {
+test("a chat rail switch replaces the visible model rows", async () => {
   await openMenu(false);
-  const spacer = document.querySelector<HTMLElement>(".acpmux-quick-spacer")!;
-  expect(spacer.querySelectorAll(":scope > .ui-menu-item").length).toBe(0);
+  expect(labels(list())).toContain("Claude a");
+  expect(labels(list())).not.toContain("Codex a");
+  const codex = document.querySelector<HTMLElement>('.acpmux-quick-rail-tab[aria-label="Codex"]')!;
+  await act(async () => codex.click());
+  await settle();
+  expect(labels(list())).toContain("Codex a");
+  expect(labels(list())).not.toContain("Claude a");
 });
 
 test("Fast mode exposes one checked menu row with a visual switch and no bare state word", async () => {
@@ -182,4 +195,12 @@ test("Fast mode exposes one checked menu row with a visual switch and no bare st
   await act(async () => fast.click());
   await settle();
   expect(document.querySelector(".acpmux-quick-fast")?.getAttribute("aria-checked")).toBe("true");
+});
+
+test("New Tab keeps Fast mode in the picker instead of adding a composer bolt", async () => {
+  await openMenu(true);
+  expect(document.querySelector(".acpmux-fast")).toBeNull();
+  const fast = document.querySelector<HTMLElement>(".acpmux-quick-fast")!;
+  expect(fast.getAttribute("role")).toBe("menuitemcheckbox");
+  expect(fast.getAttribute("aria-checked")).toBe("false");
 });

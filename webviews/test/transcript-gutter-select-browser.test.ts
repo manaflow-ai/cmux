@@ -88,6 +88,15 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       const column = node.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, left: column.left, right: column.right };
     }, id);
+  /// The midpoint between two mounted row text boxes. This is the blank vertical rhythm where a
+  /// transcript-level press should still be able to start a native text selection.
+  const gapBetween = async (page: Page, above: string, below: string) => {
+    const [upper, lower] = await Promise.all([box(page, above), box(page, below)]);
+    return {
+      x: (upper.left + upper.right) / 2,
+      y: (upper.bottom + lower.top) / 2,
+    };
+  };
   /// Waits for the transcript to draw rows (`prefix`'s, when given): React commits the shown rows after
   /// the harness call returns, so the scroller may not be in the page yet.
   const rowsIn = (page: Page, prefix = "") =>
@@ -267,6 +276,24 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       expect(text).toContain("lantern glass.");
       expect(text).toContain("Bravo tide.");
       expect(text.trimEnd().endsWith("sweep across the water.")).toBe(true);
+      await page.close();
+    });
+
+    test(`${name}: a drag from each row gap starts at its nearest mounted caret`, async () => {
+      const page = await open(name);
+      for (const [above, below] of [
+        ["m1", "m2"],
+        ["m2", "m3"],
+      ] as const) {
+        const gap = await gapBetween(page, above, below);
+        const lower = await box(page, below);
+        await drag(page, gap, { x: lower.left + 220, y: lower.top + 4 });
+        const text = await selected(page);
+        expect(text.length).toBeGreaterThan(0);
+        expect(text).toContain(below === "m2" ? "Bravo tide." : "Charlie gull.");
+        await page.mouse.click(gap.x, gap.y);
+        expect(await selected(page)).toBe("");
+      }
       await page.close();
     });
 
