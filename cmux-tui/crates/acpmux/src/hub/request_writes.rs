@@ -35,8 +35,11 @@ tokio::task_local! {
     static WRITES: RefCell<Writes>;
 }
 
-/// Runs `request` and returns its result with what it wrote.
-pub(crate) async fn scope<T>(request: impl std::future::Future<Output = T>) -> (T, Writes) {
+/// Runs `request` and returns its result with what it wrote. Takes the request boxed: a
+/// handler's future is large, and only a pointer moves into the scope.
+pub(crate) async fn scope<T>(
+    request: std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + '_>>,
+) -> (T, Writes) {
     WRITES
         .scope(RefCell::new(Writes::default()), async {
             let result = request.await;

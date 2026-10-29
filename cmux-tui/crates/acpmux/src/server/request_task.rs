@@ -39,7 +39,9 @@ pub(super) fn spawn(
             let params = params.unwrap_or(Value::Null);
             // One rule for every request: it answers only after what it wrote is on disk
             // (`hub/request_writes.rs`).
-            let (result, writes) = crate::hub::request_writes::scope(async {
+            // Boxed before the scope takes it: the handlers' futures are large, and a debug
+            // build overflowed its worker's stack moving one by value into the scope.
+            let request: BoxFuture<'_, Result<Value, RpcError>> = Box::pin(async {
                 match conn.agent_tools() {
                     // Boxed: the tool calls hold a whole `chats::route` of their own.
                     Some(tools) => {
@@ -47,8 +49,8 @@ pub(super) fn spawn(
                     }
                     None => chats::route(&hub, &conn, &method, params).await,
                 }
-            })
-            .await;
+            });
+            let (result, writes) = crate::hub::request_writes::scope(request).await;
             let saved = match &result {
                 Ok(_) => hub.wait_written(writes).await,
                 Err(_) => true,
