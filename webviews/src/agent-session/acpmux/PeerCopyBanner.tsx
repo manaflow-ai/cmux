@@ -98,7 +98,9 @@ export function PeerCopyBanner({
       </p>
       <p className="acpmux-watch-hint">{detail}</p>
       {reconnect.state === "failed" && reconnect.error && (
-        <p className="acpmux-watch-hint" role="alert">{reconnect.error}</p>
+        <p className="acpmux-watch-hint" role="alert">
+          {reconnect.error}
+        </p>
       )}
     </div>
   );

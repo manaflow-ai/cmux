@@ -2806,7 +2806,9 @@ export class AcpmuxDirectClient {
   async reconnectPeer(peer: string): Promise<unknown> {
     const result = await this.request("_acpmux/peer_reconnect", { name: peer, wait: true }, 35_000);
     this.readPeers(result);
-    const row = Array.isArray(result?.peers) ? result.peers.find((candidate: any) => candidate?.name === peer) : undefined;
+    const row = Array.isArray(result?.peers)
+      ? result.peers.find((candidate: any) => candidate?.name === peer)
+      : undefined;
     if (row?.state !== "connected") {
       const detail =
         typeof row?.error === "string"
