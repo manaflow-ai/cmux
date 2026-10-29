@@ -52,6 +52,7 @@ import {
   VM_LAST_API_ACTIVITY_KEY,
   VM_PAUSE_INTENT_EPOCH_KEY,
   VM_PAUSE_REASON_KEY,
+  VM_PAUSE_INTENT_TTL_MS,
   VM_PENDING_PAUSE_KEY,
   type VmIdleObservation,
   type VmIdlePauseMinutes,
@@ -451,13 +452,17 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
    * A deliberate pause about to touch the provider (a person's Pause Machine,
    * the allowance enforcer): moves the idle fence and stores the pause as
    * under way at the new fence (VM_PENDING_PAUSE_KEY), so the idle cron's
-   * recoveries never undo it. False when the row is gone or replaced.
+   * recoveries never undo it (hasOutstandingPauseIntent). Returns the fence
+   * it set, for the pause's own fenced clear; null when the row is gone or
+   * replaced.
    */
   readonly recordPauseIntent?: (input: {
     readonly id: string;
     readonly providerVmId: string;
     readonly cause: "user" | "allowance";
-  }) => Effect.Effect<boolean, VmDatabaseError>;
+  }) => Effect.Effect<number | null, VmDatabaseError>;
+  /** A pause that failed drops its own intent: only if the stored intent is still the one it wrote at `epoch`. */
+  readonly clearPauseIntent?: (input: { readonly id: string; readonly epoch: number }) => Effect.Effect<void, VmDatabaseError>;
   /** Running Freestyle machines for the idle cron, least recently checked (never checked first). */
   readonly idlePauseCandidates?: (input: { readonly limit: number }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
@@ -1443,6 +1448,13 @@ function bumpIdleEpoch(metadata: SQL): SQL {
   return sql`(${metadata} || jsonb_build_object(${VM_IDLE_EPOCH_KEY}::text, ${metadataMillis(VM_IDLE_EPOCH_KEY)} + 1))`;
 }
 
+/** No deliberate pause under way: the SQL side of hasOutstandingPauseIntent (services/vms/idlePause.ts). */
+function noOutstandingPauseIntent(): SQL {
+  const at = sql`(${cloudVms.providerMetadata} -> ${VM_PENDING_PAUSE_KEY}::text ->> 'requestedAt')`;
+  return sql`((case when ${at} ~ '^-?[0-9]{1,15}$' then ${at}::bigint else null end) is null
+    or (case when ${at} ~ '^-?[0-9]{1,15}$' then ${at}::bigint end) <= ${Date.now() - VM_PAUSE_INTENT_TTL_MS}::bigint)`;
+}
+
 /** The row's idle fence still holds the value the idle cron read. */
 function idleEpochIs(epoch: number): SQL {
   return sql`${metadataMillis(VM_IDLE_EPOCH_KEY)} = ${epoch}::bigint`;
@@ -2134,6 +2146,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           eq(cloudVms.providerVmId, input.providerVmId),
           eq(cloudVms.status, "running"),
           idleEpochIs(input.epoch),
+          noOutstandingPauseIntent(),
         ))
         .returning({ id: cloudVms.id });
       return rows.length > 0 ? input.epoch + 1 : null;
@@ -2148,6 +2161,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           eq(cloudVms.providerVmId, input.providerVmId),
           ne(cloudVms.status, "destroyed"),
           idleEpochIs(input.epoch),
+          noOutstandingPauseIntent(),
         ))
         .returning({ id: cloudVms.id });
       return rows.length > 0 ? input.epoch + 1 : null;
@@ -2158,15 +2172,25 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .update(cloudVms)
         .set({ providerMetadata: bumpIdleEpoch(sql`(coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || jsonb_build_object(
           ${VM_PENDING_PAUSE_KEY}::text,
-          jsonb_build_object('cause', ${input.cause}::text, 'epoch', ${metadataMillis(VM_IDLE_EPOCH_KEY)} + 1)
+          jsonb_build_object('cause', ${input.cause}::text, 'epoch', ${metadataMillis(VM_IDLE_EPOCH_KEY)} + 1, 'requestedAt', ${Date.now()}::bigint)
         ))`) })
         .where(and(
           eq(cloudVms.id, input.id),
           eq(cloudVms.providerVmId, input.providerVmId),
           ne(cloudVms.status, "destroyed"),
         ))
-        .returning({ id: cloudVms.id });
-      return rows.length > 0;
+        .returning({ epoch: sql<string>`${cloudVms.providerMetadata} ->> ${VM_IDLE_EPOCH_KEY}::text` });
+      return rows.length > 0 ? Number(rows[0].epoch) : null;
+    }),
+  clearPauseIntent: (input) =>
+    dbEffect("clearPauseIntent", async () => {
+      await cloudDb()
+        .update(cloudVms)
+        .set({ providerMetadata: sql`(${cloudVms.providerMetadata} - ${VM_PENDING_PAUSE_KEY}::text)` })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          sql`(${cloudVms.providerMetadata} -> ${VM_PENDING_PAUSE_KEY}::text ->> 'epoch') = ${String(input.epoch)}::text`,
+        ));
     }),
   idlePauseCandidates: (input) =>
     dbEffect("idlePauseCandidates", async () => await cloudDb()

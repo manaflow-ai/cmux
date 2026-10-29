@@ -154,10 +154,39 @@ export function vmIdlePauseMinutesFromRow(row: MetadataRow): VmIdlePauseMinutes 
 
 /** The fence a deliberate pause under way set (VM_PENDING_PAUSE_KEY), or null. */
 export function vmPendingPauseEpochFromRow(row: MetadataRow): number | null {
+  const epoch = pendingPauseField(row, "epoch");
+  return epoch !== null && epoch >= 0 ? epoch : null;
+}
+
+function pendingPauseField(row: MetadataRow, field: "epoch" | "requestedAt"): number | null {
   const stored = row.providerMetadata?.[VM_PENDING_PAUSE_KEY];
   if (!stored || typeof stored !== "object") return null;
-  const epoch = (stored as { epoch?: unknown }).epoch;
-  return typeof epoch === "number" && Number.isSafeInteger(epoch) && epoch >= 0 ? epoch : null;
+  const value = (stored as Record<string, unknown>)[field];
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : null;
+}
+
+/**
+ * How long a pending pause (VM_PENDING_PAUSE_KEY) holds the idle cron back.
+ * A pause clears its own intent when it fails, so only a process that died
+ * mid-pause leaves one behind. The pause callers run inside the pause route
+ * (maxDuration 300 s) and the runtime-limits cron (60 s), and every route in
+ * web/app is capped at 960 s; the provider pause itself times out at 30 s.
+ * Twenty minutes is past all of them.
+ */
+export const VM_PAUSE_INTENT_TTL_MS = 20 * 60_000;
+
+/**
+ * The one check every idle claim, recovery and compensation consults: a
+ * person's or the allowance enforcer's pause is under way (its intent is
+ * written; its zero cap and provider pause may still be in flight), whatever
+ * its fence relative to the cron's. While it holds, the cron takes no claim,
+ * clears no cap and resumes nothing; leaving a zero cap is the safe side.
+ * An intent older than VM_PAUSE_INTENT_TTL_MS is abandoned. The repository's
+ * claims check the same thing in SQL (noOutstandingPauseIntent).
+ */
+export function hasOutstandingPauseIntent(row: MetadataRow, now: number): boolean {
+  const requestedAt = pendingPauseField(row, "requestedAt");
+  return requestedAt !== null && now - requestedAt < VM_PAUSE_INTENT_TTL_MS;
 }
 
 /** The stored cause of a paused machine's pause, including the allowance enforcer's; null otherwise. */

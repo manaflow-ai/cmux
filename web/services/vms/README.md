@@ -676,11 +676,18 @@ a machine whose agent is mid-turn and quiet). The server pauses idle machines in
   resume takes no plan gate. A person's Pause on a row already marked paused still records
   their decision.
 - A deliberate pause fences its intent before any provider effect. A person's Pause Machine
-  and the allowance enforcer first write the pause as under way (`cmuxPendingPause`, with a
-  fence bump), then set a Plus machine's cap to zero and pause the provider. An idle recovery
-  that read the row earlier loses its fence and leaves the cap alone; one that already held a
-  fence loses its later write and puts the pause back. The pause's own paused write is not
-  fenced, so it still lands, and replaces the intent with its stamp.
+  and the allowance enforcer first write the pause as under way (`cmuxPendingPause`: cause,
+  fence and `requestedAt`, with a fence bump), then set a Plus machine's cap to zero and pause
+  the provider. While that intent is outstanding (`hasOutstandingPauseIntent`), the idle cron
+  takes no pause claim, takes no resume claim, clears no cap and resumes nothing, whatever the
+  intent's fence: the claims check it in SQL, and the claim settlement, the compensation, the
+  repair and the re-pause check it on the row they read. A zero cap left in place is the safe
+  side; opening the machine resumes it and clears the cap. The pause's own paused write is not
+  fenced, so it still lands and replaces the intent with its stamp. A pause whose provider
+  effects fail drops its own intent (fenced on its own epoch); one that times out keeps it,
+  since the provider pause may still be in flight. An intent older than 20 minutes is
+  abandoned (a process that died mid-pause): past the 30 s provider pause timeout, the pause
+  route's 300 s and every route's 960 s limit.
 - The allowance enforcer's pause (`goPause.ts`, Plus and the Pro and Max budgets) stores the
   cause `allowance`. It settles the claim and stamps the fence like a person's pause, so no
   idle recovery resumes a machine past its allowance, whether the allowance runs out during the

@@ -172,7 +172,7 @@ import {
   vmPauseIntentEpochFromRow,
   vmPauseCauseFromRow,
   vmPauseReasonFromRow,
-  vmPendingPauseEpochFromRow,
+  hasOutstandingPauseIntent,
   type VmIdlePauseMinutes,
   type VmPauseReason,
 } from "./idlePause";
@@ -2489,7 +2489,7 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (observed !== "paused" && observed !== "stopped") {
-      yield* recordUserPauseIntent(repo, vm, providerVmId, reason);
+      const intent = yield* recordUserPauseIntent(repo, vm, providerVmId, reason);
       const pauseOperation = Effect.gen(function* () {
         if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
         yield* pause(vm.provider, providerVmId);
@@ -2505,7 +2505,9 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
         }),
       );
       // The idle cron reads a failed pause back: a lost answer may hide a pause that went through.
-      yield* expectIdleEpoch === undefined ? attempt : attempt.pipe(Effect.catchAll((error) => pausedDespite(vm, providerVmId, error)));
+      yield* expectIdleEpoch === undefined
+        ? attempt.pipe(clearPauseIntentOnFailure(repo, vm.id, intent))
+        : attempt.pipe(Effect.catchAll((error) => pausedDespite(vm, providerVmId, error)));
     }
     const recorded = yield* repo.markProviderObservedStatus({
       id: vm.id,
@@ -2541,8 +2543,22 @@ function pauseRow(vm: CloudVmRow, requestedProviderVmId: string, reason: VmPause
  * pause is in flight. The cron's own idle pause is fenced by its claim.
  */
 function recordUserPauseIntent(repo: VmRepositoryShape, vm: CloudVmRow, providerVmId: string, reason: VmPauseReason) {
-  if (reason !== "user" || !repo.recordPauseIntent) return Effect.void;
-  return repo.recordPauseIntent({ id: vm.id, providerVmId, cause: "user" }).pipe(Effect.asVoid);
+  if (reason !== "user" || !repo.recordPauseIntent) return Effect.succeed(null);
+  return repo.recordPauseIntent({ id: vm.id, providerVmId, cause: "user" });
+}
+
+/**
+ * A pause whose provider effects failed drops its own intent (fenced on the
+ * epoch it wrote, so a newer pause's stays). A timeout is not a failure: the
+ * provider pause may still be in flight, so the intent stays until the pause
+ * is retried or the intent expires.
+ */
+export function clearPauseIntentOnFailure(repo: VmRepositoryShape, id: string, epoch: number | null) {
+  return <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(Effect.tapError((error) => {
+    const timedOut = (error as { readonly _tag?: string })._tag === "VmOperationDeadlineError";
+    if (epoch === null || timedOut || !repo.clearPauseIntent) return Effect.void;
+    return repo.clearPauseIntent({ id, epoch }).pipe(Effect.catchAll(() => Effect.void));
+  }));
 }
 
 function recordPausedDecision(repo: VmRepositoryShape, vm: CloudVmRow, providerVmId: string, reason: VmPauseReason) {
@@ -4205,7 +4221,7 @@ export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, c
     if (epoch === null) {
       const winner = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
       const gone = !winner || winner.id !== vm.id || winner.providerVmId !== providerVmId || winner.status === "destroyed";
-      return gone || isDeliberatePauseSince(winner, claimEpoch) ? "superseded" as const : "retry" as const;
+      return gone || isDeliberatePauseSince(winner, claimEpoch, yield* Clock.currentTimeMillis) ? "superseded" as const : "retry" as const;
     }
     const state = yield* readIdleProviderState(vm, providerVmId);
     if (state === null) {
@@ -4222,7 +4238,7 @@ export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, c
       return "resumed" as const;
     }
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
-    if (current && isDeliberatePauseSince(current, epoch)) {
+    if (current && isDeliberatePauseSince(current, epoch, yield* Clock.currentTimeMillis)) {
       yield* bestEffortPause(providers, current, providerVmId);
       return "superseded" as const;
     }
@@ -4241,7 +4257,7 @@ export function resumeAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, c
 export function repairRunningAfterLostIdlePause(vm: CloudVmRow, providerVmId: string, claimEpoch: number) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    if (isDeliberatePauseSince(vm, claimEpoch)) return false;
+    if (isDeliberatePauseSince(vm, claimEpoch, yield* Clock.currentTimeMillis)) return false;
     const epoch = yield* repo.claimIdleResume!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
     if (epoch === null) return false;
     yield* restoreIdlePauseBudget(vm, providerVmId);
@@ -4265,7 +4281,7 @@ export function repauseIfDeliberateSince(vm: CloudVmRow, providerVmId: string, e
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
-    if (!current || !isDeliberatePauseSince(current, epoch)) return false;
+    if (!current || !isDeliberatePauseSince(current, epoch, yield* Clock.currentTimeMillis)) return false;
     yield* bestEffortPause(yield* VmProviderGateway, current, providerVmId);
     return true;
   });
@@ -4292,9 +4308,9 @@ export function restoreIdlePauseBudget(vm: CloudVmRow, providerVmId: string): Ef
  * (reason user) or the allowance enforcer's. Recovery from a lost idle pause
  * never undoes either.
  */
-export function isDeliberatePauseSince(row: CloudVmRow, epoch: number): boolean {
-  // Under way (its intent written, its provider effects maybe still in flight) counts too.
-  if ((vmPendingPauseEpochFromRow(row) ?? -1) > epoch) return true;
+export function isDeliberatePauseSince(row: CloudVmRow, epoch: number, now: number): boolean {
+  // Under way (its intent written, its provider effects maybe still in flight) counts, whatever its fence.
+  if (hasOutstandingPauseIntent(row, now)) return true;
   const cause = vmPauseCauseFromRow(row);
   return (cause === "user" || cause === "allowance") && (vmPauseIntentEpochFromRow(row) ?? -1) > epoch;
 }

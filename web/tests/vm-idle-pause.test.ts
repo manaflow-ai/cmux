@@ -12,6 +12,7 @@ import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import {
   decideVmIdlePause,
+  hasOutstandingPauseIntent,
   parseVmIdleProbe,
   vmIdleObservationFromRow,
   vmIdlePauseMinutesFromRow,
@@ -583,6 +584,7 @@ function cronFakes(
       let claimed: number | null = null;
       update(input.id, (row) => {
         if (row.status !== "running" || row.providerVmId !== input.providerVmId || epochOf(row) !== input.epoch) return row;
+        if (hasOutstandingPauseIntent(row, Date.now())) return row;
         claimed = input.epoch + 1;
         return { ...row, providerMetadata: bumped(row, { ...(row.providerMetadata ?? {}), cmuxIdlePauseClaim: input.epoch + 1 }) };
       });
@@ -592,6 +594,7 @@ function cronFakes(
       let claimed: number | null = null;
       update(input.id, (row) => {
         if (row.status === "destroyed" || row.providerVmId !== input.providerVmId || epochOf(row) !== input.epoch) return row;
+        if (hasOutstandingPauseIntent(row, Date.now())) return row;
         claimed = input.epoch + 1;
         return { ...row, providerMetadata: bumped(row) };
       });
@@ -635,12 +638,19 @@ function cronFakes(
     },
     recordPauseIntent: (input: { id: string; providerVmId: string; cause: string }) => Effect.sync(() => {
       const row = rows.find((r) => r.id === input.id);
-      if (!row || row.providerVmId !== input.providerVmId || row.status === "destroyed") return false;
+      if (!row || row.providerVmId !== input.providerVmId || row.status === "destroyed") return null;
+      const epoch = epochOf(row) + 1;
       update(input.id, (current) => ({
         ...current,
-        providerMetadata: bumped(current, { ...(current.providerMetadata ?? {}), cmuxPendingPause: { cause: input.cause, epoch: epochOf(current) + 1 } }),
+        providerMetadata: bumped(current, { ...(current.providerMetadata ?? {}), cmuxPendingPause: { cause: input.cause, epoch, requestedAt: Date.now() } }),
       }));
-      return true;
+      return epoch;
+    }),
+    clearPauseIntent: (input: { id: string; epoch: number }) => Effect.sync(() => {
+      update(input.id, (row) => {
+        const pending = row.providerMetadata?.cmuxPendingPause as { epoch?: number } | undefined;
+        return pending?.epoch === input.epoch ? { ...row, providerMetadata: omit(row.providerMetadata ?? {}, "cmuxPendingPause") } : row;
+      });
     }),
     mergeProviderMetadata: (input: { id: string; patch: Record<string, unknown> }) => Effect.sync(() => {
       update(input.id, (row) => ({ ...row, providerMetadata: { ...(row.providerMetadata ?? {}), ...input.patch } }));
@@ -1878,13 +1888,30 @@ describe("idle pause SQL", () => {
     // A deliberate pause's intent moves the fence before its provider effects; its own paused write still
     // lands (it is not fenced) and replaces the intent with its stamp.
     expect(await meta()).toMatchObject({ cmuxIdleEpoch: 5 });
-    expect(await run(repo.recordPauseIntent!({ id: keptId, providerVmId: vmId, cause: "user" }))).toBe(true);
+    expect(await run(repo.recordPauseIntent!({ id: keptId, providerVmId: vmId, cause: "user" }))).toBe(6);
     expect(await meta()).toMatchObject({ cmuxIdleEpoch: 6, cmuxPendingPause: { cause: "user", epoch: 6 } });
     expect(await run(repo.claimIdleResume!({ id: keptId, providerVmId: vmId, epoch: 5 }))).toBeNull();
+    // Outstanding: no idle resume claim even at the current fence.
+    expect(await run(repo.claimIdleResume!({ id: keptId, providerVmId: vmId, epoch: 6 }))).toBeNull();
+    // A pause's own clear is fenced on its epoch: an older one clears nothing.
+    await run(repo.clearPauseIntent!({ id: keptId, epoch: 5 }));
+    expect((await meta()).cmuxPendingPause).toBeDefined();
     expect(await run(repo.markProviderObservedStatus({ id: keptId, providerVmId: vmId, status: "paused", pauseReason: "user" }))).toBe(true);
     const settled = await meta();
     expect(settled).toMatchObject({ cmuxIdleEpoch: 7, cmuxPauseReason: "user", cmuxPauseIntentEpoch: 7 });
     expect(settled.cmuxPendingPause).toBeUndefined();
+
+    // A pause that failed clears its intent, and claims work again.
+    expect(await run(repo.recordPauseIntent!({ id: keptId, providerVmId: vmId, cause: "user" }))).toBe(8);
+    await run(repo.clearPauseIntent!({ id: keptId, epoch: 8 }));
+    expect((await meta()).cmuxPendingPause).toBeUndefined();
+    expect(await run(repo.claimIdleResume!({ id: keptId, providerVmId: vmId, epoch: 8 }))).toBe(9);
+    expect(await run(repo.markProviderObservedStatus({ id: keptId, providerVmId: vmId, status: "running", expectIdleEpoch: 9 }))).toBe(true);
+    // No idle pause claim over an outstanding intent on a running machine; an abandoned one no longer holds.
+    expect(await run(repo.recordPauseIntent!({ id: keptId, providerVmId: vmId, cause: "allowance" }))).toBe(11);
+    expect(await run(repo.claimIdlePause!({ id: keptId, providerVmId: vmId, epoch: 11 }))).toBeNull();
+    await sql`update cloud_vms set provider_metadata = jsonb_set(provider_metadata, '{cmuxPendingPause,requestedAt}', ${String(Date.now() - 2 * 60 * MIN)}::jsonb) where id = ${keptId}`;
+    expect(await run(repo.claimIdlePause!({ id: keptId, providerVmId: vmId, epoch: 11 }))).toBe(12);
   });
 });
 

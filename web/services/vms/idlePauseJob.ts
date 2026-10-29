@@ -1,7 +1,9 @@
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import { VmDatabaseError } from "./errors";
 import {
   decideVmIdlePause,
+  hasOutstandingPauseIntent,
   parseVmIdleProbe,
   vmIdleEpochFromRow,
   vmIdleObservationFromRow,
@@ -160,6 +162,8 @@ function claimPause(vm: CloudVmRow, providerVmId: string) {
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
     if (!current || current.id !== vm.id || current.status !== "running" || current.providerVmId !== providerVmId) return null;
     if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return null;
+    // A person's or the allowance enforcer's pause under way: never claim over it.
+    if (hasOutstandingPauseIntent(current, yield* Clock.currentTimeMillis)) return null;
     if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return null;
     if (vmIdleEpochFromRow(current) !== vmIdleEpochFromRow(vm)) return null;
     const epoch = yield* repo.claimIdlePause!({ id: vm.id, providerVmId, epoch: vmIdleEpochFromRow(vm) });
@@ -185,7 +189,7 @@ function undoLostPause(vm: CloudVmRow, providerVmId: string, claimEpoch: number)
       console.info("[VM] idle pause lost; the machine was replaced or is gone", JSON.stringify({ vmId: vm.id }));
       return "aborted" as const;
     }
-    if (isDeliberatePauseSince(current, claimEpoch)) {
+    if (isDeliberatePauseSince(current, claimEpoch, yield* Clock.currentTimeMillis)) {
       console.info("[VM] idle pause lost to a person's pause; kept", JSON.stringify({ vmId: vm.id }));
       return "aborted" as const;
     }
@@ -216,6 +220,12 @@ function undoLostPause(vm: CloudVmRow, providerVmId: string, claimEpoch: number)
 function settleLeftClaim(vm: CloudVmRow, providerVmId: string, checkedAt: number) {
   return Effect.gen(function* () {
     const claim = vmIdlePauseClaimFromRow(vm) ?? 0;
+    // A deliberate pause under way owns the machine: no cap clear, no resume, no record. Its own paused
+    // write settles the claim; a pause that fails drops its intent and the next run settles it.
+    if (hasOutstandingPauseIntent(vm, yield* Clock.currentTimeMillis)) {
+      console.info("[VM] idle pause claim left by an earlier run: a pause is under way; next run", JSON.stringify({ vmId: vm.id, claim }));
+      return "unknown" as const;
+    }
     const state = yield* readIdleProviderState(vm, providerVmId);
     console.info("[VM] idle pause claim left by an earlier run", JSON.stringify({ vmId: vm.id, claim, provider: state ?? "unreadable" }));
     if (state === null) return "unknown" as const;
