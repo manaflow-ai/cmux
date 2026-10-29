@@ -371,6 +371,36 @@ extension CloudHandlers {
         if let total = stats.diskTotalMb { fields["disk_total_mb"] = .double(total) }
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
         fields.merge(costFields(session.machine, now: now)) { _, new in new }
+        if let idlePause = session.machine.idlePause {
+            fields["idle_pause"] = .object(idlePauseFields(idlePause))
+        }
+        return fields
+    }
+
+    /// The server's idle cron diagnostics, kept nested so `--json` mirrors
+    /// the `/api/vm/:id` response while retaining the action's snake-case
+    /// result convention.
+    static func idlePauseFields(_ idle: CloudMachine.IdlePauseDiagnostics) -> [String: ActionResultValue] {
+        var fields: [String: ActionResultValue] = [
+            "minutes": .int(idle.minutes),
+            "last_checked_at": idle.lastCheckedAt.map { .int($0) } ?? .null,
+            "idle_since": idle.idleSince.map { .int($0) } ?? .null,
+            "last_api_activity_at": idle.lastApiActivityAt.map { .int($0) } ?? .null,
+            "private_address_known": .bool(idle.privateAddressKnown),
+        ]
+        if let decision = idle.lastDecision {
+            fields["last_decision"] = .object([
+                "at": .int(decision.at),
+                "outcome": .string(decision.outcome),
+                "reason": .string(decision.reason),
+                "run": .object([
+                    "checked": .int(decision.run.checked),
+                    "elapsed_ms": .int(decision.run.elapsedMs),
+                ]),
+            ])
+        } else {
+            fields["last_decision"] = .null
+        }
         return fields
     }
 
@@ -393,6 +423,18 @@ extension CloudHandlers {
         if let used = stats.diskUsedMb, let total = stats.diskTotalMb { lines.append(String(format: "disk: %.0f / %.0f MB", used, total)) }
         if let address = session.machine.address?.ipv4 { lines.append("address: \(address)") }
         if let usage = CloudCreationRows.cost(session.machine, limits: nil).flatMap({ $0.usage(now: now) }) { lines.append(usage) }
+        if let idlePause = session.machine.idlePause {
+            lines.append("idle pause: \(idlePause.minutes) minutes")
+            lines.append("idle pause last checked: \(idlePause.lastCheckedAt.map(String.init) ?? \"null\")")
+            lines.append("idle pause idle since: \(idlePause.idleSince.map(String.init) ?? \"null\")")
+            lines.append("idle pause last API activity: \(idlePause.lastApiActivityAt.map(String.init) ?? \"null\")")
+            lines.append("idle pause private address known: \(idlePause.privateAddressKnown)")
+            if let decision = idlePause.lastDecision {
+                lines.append("idle pause decision: \(decision.outcome) (\(decision.reason)) at \(decision.at); run checked=\(decision.run.checked), elapsed_ms=\(decision.run.elapsedMs)")
+            } else {
+                lines.append("idle pause decision: null")
+            }
+        }
         return lines.joined(separator: "\n")
     }
 }

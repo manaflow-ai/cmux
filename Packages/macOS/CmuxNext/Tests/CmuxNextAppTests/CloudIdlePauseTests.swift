@@ -48,6 +48,20 @@ struct CloudIdlePauseTests {
         #expect(idle.lastDecision?.reason == "idle")
         #expect(idle.lastDecision?.run.checked == 8)
         #expect(idle.lastDecision?.run.elapsedMs == 120)
+
+        let fields = CloudHandlers.idlePauseFields(idle)
+        #expect(fields["minutes"] == .int(30))
+        #expect(fields["private_address_known"] == .bool(true))
+        #expect(fields["last_checked_at"] == .int(1_700_000_000_000))
+        #expect(fields["last_decision"] != .null)
+
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-diag")
+        session.machine = machine
+        let stats = try JSONDecoder().decode(CloudMachineStats.self, from: Data(#"{"state":"running"}"#.utf8))
+        let text = CloudHandlers.describe(session, stats, now: Date(timeIntervalSince1970: 0))
+        #expect(text.contains("idle pause: 30 minutes"))
+        #expect(text.contains("idle pause decision: idle (idle)"))
     }
 
     @Test func anOlderServerOrAnUnknownReasonDecodesAsNone() throws {
