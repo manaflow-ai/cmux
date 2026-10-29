@@ -13,7 +13,7 @@ extension DemoDriver {
         guard var presenter = windows.first(where: \.isKeyWindow)?.rootViewController else { return }
         while let presented = presenter.presentedViewController { presenter = presented }
         let link = LargePreviewDemoLink()
-        let capacity: (@Sendable (URL) throws -> Int64)? = lowSpace ? { _ in 0 } : nil
+        let capacity: (@Sendable (URL) throws -> Int64)? = lowSpace ? { @Sendable _ in 0 } : nil
         let source = LinkFileArtifactSource(macName: "Mac", baseDirectory: "/demo", availableCapacity: capacity) { link }
         FilePreviewRequest(reference: "/demo/sample.pdf", source: source).present(from: presenter)
     }
