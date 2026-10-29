@@ -40,6 +40,8 @@ struct ObjCSelectorRuntimeTests {
         "CmuxNextPages.PageWKWebView.draggingEnded:",
         // NSStandardKeyBindingResponding's Escape: closes the modal, no super call.
         "CmuxNextUpdater.ShareCmuxMessageTextView.cancelOperation:",
+        // Escape in the window's top layer, else passed to the next responder (tryToPerform), no super call.
+        "CmuxNextDesign.OverlayTopLayerView.cancelOperation:",
     ]
 
     @Test func cmuxsApplicationAnswersWhatChromiumSendsToNSApp() throws {
