@@ -68,10 +68,10 @@ index f9ae8ca5..d246c4a3 100644
      #[repr(C)]
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs
 new file mode 100644
-index 00000000..ed4180ee
+index 00000000..c9c6e22b
 --- /dev/null
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/host_consent.rs
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,427 @@
 +//! Machine consent from the verified cmux host (feature `cmux-host-consent`).
 +//!
 +//! The build inside cmux.app holds the person's macOS grants, so it trusts
@@ -102,12 +102,15 @@ index 00000000..ed4180ee
 +/// bounded below this.
 +pub const DEADLINE: Duration = Duration::from_millis(1500);
 +
++/// Lines waiting for the host's connection; more fail closed.
++const QUEUE: usize = 64;
++
 +type Reply = std::sync::mpsc::Sender<Option<Value>>;
 +
 +#[derive(Default)]
 +struct State {
 +    /// The connected host: its generation and the queue its writer drains.
-+    host: Option<(u64, tokio::sync::mpsc::UnboundedSender<String>)>,
++    host: Option<(u64, tokio::sync::mpsc::Sender<String>)>,
 +    next_id: u64,
 +    next_generation: u64,
 +    /// Open questions by id, with the generation of the host they went to:
@@ -168,7 +171,9 @@ index 00000000..ed4180ee
 +        R: AsyncBufRead + Unpin,
 +        W: AsyncWrite + Unpin,
 +    {
-+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
++        // Bounded: a host that stops reading fails new questions at once
++        // instead of queueing them.
++        let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(QUEUE);
 +        let generation = {
 +            let mut state = self.lock();
 +            state.next_generation += 1;
@@ -182,9 +187,12 @@ index 00000000..ed4180ee
 +            tokio::select! {
 +                question = rx.recv() => {
 +                    let Some(question) = question else { break };
-+                    if writer.write_all(question.as_bytes()).await.is_err()
-+                        || writer.flush().await.is_err()
-+                    {
++                    let write = async {
++                        writer.write_all(question.as_bytes()).await?;
++                        writer.flush().await
++                    };
++                    // A host that does not read within the deadline is gone.
++                    if !matches!(tokio::time::timeout(DEADLINE, write).await, Ok(Ok(()))) {
 +                        break;
 +                    }
 +                }
@@ -230,7 +238,7 @@ index 00000000..ed4180ee
 +            let id = state.next_id;
 +            state.pending.insert(id, (generation, reply));
 +            let question = json!({"type": "machine_consent", "id": id}).to_string() + "\n";
-+            if host.send(question).is_err() {
++            if host.try_send(question).is_err() {
 +                state.pending.remove(&id);
 +                return None;
 +            }
@@ -283,7 +291,7 @@ index 00000000..ed4180ee
 +        let state = self.lock();
 +        if let Some((_, host)) = state.host.as_ref() {
 +            let line = json!({"type": "consent_refused", "surface": surface.as_str()}).to_string();
-+            let _ = host.send(line + "\n");
++            let _ = host.try_send(line + "\n");
 +        }
 +    }
 +}
@@ -486,7 +494,7 @@ index 00000000..ed4180ee
 +    #[tokio::test]
 +    async fn a_current_thread_runtime_never_blocks_on_the_host() {
 +        let consent = HostConsent::with_deadline(Duration::from_secs(30));
-+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
++        let (tx, _rx) = tokio::sync::mpsc::channel(1);
 +        consent.lock().host = Some((1, tx));
 +        assert_eq!(consent.status(), ConsentStatus::UNKNOWN);
 +    }
@@ -1808,7 +1816,7 @@ index 459a6dbc..d3a4f2b6 100644
      pub fn current_state(&self) -> RecordingState {
          let inner = self.inner.lock().unwrap();
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
-index 013fc39f..057357b1 100644
+index 013fc39f..37a4b254 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
 @@ -481,6 +481,28 @@ pub struct ToolRegistry {
@@ -1840,7 +1848,7 @@ index 013fc39f..057357b1 100644
  }
  
  /// Signature of the platform target guard.
-@@ -496,9 +518,29 @@ impl ToolRegistry {
+@@ -496,9 +518,32 @@ impl ToolRegistry {
              target_app_resolver: Some(crate::session_state::resolve_process_name),
              target_front_hook: None,
              target_policy_hook: None,
@@ -1857,12 +1865,15 @@ index 013fc39f..057357b1 100644
          }
      }
  
-+    /// Pin the acpmux state directory the consent check reads (tests).
++    /// Pin the acpmux state directory the consent check reads (tests). Not
++    /// in the cmux.app build, where only the verified host decides.
++    #[cfg(any(test, not(feature = "cmux-host-consent")))]
 +    pub fn set_machine_consent_home(&mut self, home: std::path::PathBuf) {
 +        self.consent = Arc::new(crate::machine_consent::StateFiles::At(Some(home)));
 +    }
 +
-+    /// Replace where consent comes from.
++    /// Replace where consent comes from (tests). Not in the cmux.app build.
++    #[cfg(any(test, not(feature = "cmux-host-consent")))]
 +    pub fn set_consent_source(&mut self, source: Arc<dyn crate::machine_consent::ConsentSource>) {
 +        self.consent = source;
 +    }
@@ -1870,7 +1881,7 @@ index 013fc39f..057357b1 100644
      /// Install the platform target guard. See [`crate::target_policy`].
      pub fn set_target_policy_hook(&mut self, hook: TargetPolicyHook) {
          self.target_policy_hook = Some(hook);
-@@ -660,6 +702,46 @@ impl ToolRegistry {
+@@ -660,6 +705,46 @@ impl ToolRegistry {
              return ToolResult::error(format!("Unknown tool: {name}"));
          };
  
@@ -1917,7 +1928,7 @@ index 013fc39f..057357b1 100644
          // Target guard: a refused target is side-effect free (no recording
          // turn, no fronting, no dispatch).
          if let Some(hook) = self.target_policy_hook {
-@@ -670,12 +752,8 @@ impl ToolRegistry {
+@@ -670,12 +755,8 @@ impl ToolRegistry {
  
          // Reserve and capture the turn before dispatch so recorded evidence
          // shows the application immediately before the action changed it.
@@ -1932,7 +1943,7 @@ index 013fc39f..057357b1 100644
              .then(|| self.recording.begin_turn(resolved_name, &args, start_ms))
              .flatten();
  
-@@ -695,13 +773,26 @@ impl ToolRegistry {
+@@ -695,13 +776,26 @@ impl ToolRegistry {
                      Content::Text { text, .. } => Some(text.as_str()),
                      _ => None,
                  }).unwrap_or("");
@@ -1960,7 +1971,7 @@ index 013fc39f..057357b1 100644
          // Embedded-host process state is action-scoped: update it only after a
          // successful call to one of the target-driving tools, and only when the
          // call names a target pid/window. State I/O is observability-only and
-@@ -788,7 +879,9 @@ impl ToolRegistry {
+@@ -788,7 +882,9 @@ impl ToolRegistry {
                      else { None }
                  })
                  .unwrap_or("");
@@ -1971,7 +1982,7 @@ index 013fc39f..057357b1 100644
          }
  
          // Experimental PiP push — only when --experimental-pip is on argv
-@@ -797,7 +890,11 @@ impl ToolRegistry {
+@@ -797,7 +893,11 @@ impl ToolRegistry {
          // of action tools the recording pipeline cares about (non-read-only,
          // not the recording-control meta-tools) so the live view matches
          // what the recorder would have captured for the turn.
@@ -1984,7 +1995,7 @@ index 013fc39f..057357b1 100644
              let window_id = args.opt_u64("window_id");
              let pid = args.opt_i64("pid");
              if let Some(png_bytes) = screenshot_for(window_id, pid) {
-@@ -814,6 +911,138 @@ impl ToolRegistry {
+@@ -814,6 +914,138 @@ impl ToolRegistry {
      }
  }
  
@@ -2123,7 +2134,7 @@ index 013fc39f..057357b1 100644
  /// Shared watchable-action boundary: validate first, then front exactly once.
  /// Kept separate from [`ToolRegistry::invoke`] so focus ordering can be tested
  /// without mutating the process-wide watchable-mode environment.
-@@ -1715,3 +1944,427 @@ mod capability_tests {
+@@ -1715,3 +1947,427 @@ mod capability_tests {
          assert_eq!(v["tools"].as_array().unwrap().len(), 0);
      }
  }
@@ -2585,7 +2596,7 @@ index 83bf9f41..99ef6ba2 100644
          (None, CallKind::Act) => {
              let window_id = args.get("window_id").and_then(Value::as_u64);
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
-index 47b3f982..15f58c27 100644
+index 47b3f982..f23683fe 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua/src/serve.rs
 @@ -11,6 +11,8 @@
@@ -2597,23 +2608,45 @@ index 47b3f982..15f58c27 100644
  //!   {"method":"application_surface_start","args":{...}}
  //!   {"method":"application_surface_stop","args":{"session":"..."}}
  //!   {"method":"application_surface_event","args":{...}}
-@@ -539,6 +541,8 @@ type SecurityFlags = u32;
+@@ -539,6 +541,16 @@ type SecurityFlags = u32;
  #[link(name = "Security", kind = "framework")]
  extern "C" {
      static kSecGuestAttributePid: core_foundation::string::CFStringRef;
 +    #[cfg(feature = "cmux-host-consent")]
 +    static kSecGuestAttributeAudit: core_foundation::string::CFStringRef;
++    #[cfg(feature = "cmux-host-consent")]
++    static kSecCodeInfoIdentifier: core_foundation::string::CFStringRef;
++    #[cfg(feature = "cmux-host-consent")]
++    fn SecCodeCopySigningInformation(
++        code: SecurityCodeRef,
++        flags: SecurityFlags,
++        information: *mut core_foundation::dictionary::CFDictionaryRef,
++    ) -> SecurityStatus;
      fn SecCodeCopySelf(flags: SecurityFlags, code: *mut SecurityCodeRef) -> SecurityStatus;
      fn SecCodeCopyDesignatedRequirement(
          code: SecurityCodeRef,
-@@ -774,6 +778,67 @@ fn approval_broker_peer_is_trusted(peer_pid: libc::pid_t) -> Result<(), String>
+@@ -774,6 +786,97 @@ fn approval_broker_peer_is_trusted(peer_pid: libc::pid_t) -> Result<(), String>
      validate_codex_dynamic_code(process_parent_pid(peer_pid)?)
  }
  
-+/// The code requirement of a cmux app that may serve machine consent: an
-+/// Apple-anchored signature of cmux's team with a cmux app identifier.
++/// A cmux app that may serve machine consent: valid code with an
++/// Apple-anchored signature of cmux's team (this requirement), whose
++/// signing identifier is a cmux app's ([`is_cmux_app_identifier`]; a
++/// requirement's `identifier` clause only matches exactly).
 +#[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
-+const CMUX_APP_REQUIREMENT: &str = "anchor apple generic and certificate leaf[subject.OU] = \"7WLXT3NR37\" and identifier \"com.cmuxterm.app*\"";
++const CMUX_TEAM_REQUIREMENT: &str = "anchor apple generic and certificate leaf[subject.OU] = \"7WLXT3NR37\"";
++
++/// `com.cmuxterm.app` and its channels and tags (`com.cmuxterm.app.nightly`,
++/// `com.cmuxterm.app.debug.<tag>`), never another identifier that merely
++/// starts with those letters.
++#[cfg(any(test, all(target_os = "macos", feature = "cmux-host-consent")))]
++fn is_cmux_app_identifier(identifier: &str) -> bool {
++    match identifier.strip_prefix("com.cmuxterm.app") {
++        Some("") => true,
++        Some(rest) => rest.starts_with('.') && rest.len() > 1,
++        None => false,
++    }
++}
 +
 +/// The connected peer's audit token (LOCAL_PEERTOKEN), so the code check
 +/// names this exact process instance, not a pid that could be reused.
@@ -2635,16 +2668,16 @@ index 47b3f982..15f58c27 100644
 +    (status == 0 && length as usize == std::mem::size_of_val(&token)).then_some(token)
 +}
 +
-+/// Whether the peer with `token` runs valid code satisfying
-+/// [`CMUX_APP_REQUIREMENT`]. Any error is false.
++/// Whether the peer with `token` runs valid code of cmux's team whose
++/// signing identifier is a cmux app's. Any error is false.
 +#[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
 +fn macos_peer_is_cmux_app(token: &[u32; 8]) -> bool {
 +    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
 +    use core_foundation::data::CFData;
-+    use core_foundation::dictionary::CFDictionary;
++    use core_foundation::dictionary::{CFDictionary, CFDictionaryRef};
 +    use core_foundation::string::CFString;
 +
-+    let requirement_text = CFString::new(CMUX_APP_REQUIREMENT);
++    let requirement_text = CFString::new(CMUX_TEAM_REQUIREMENT);
 +    let mut requirement: SecurityRequirementRef = std::ptr::null();
 +    if unsafe {
 +        SecRequirementCreateWithString(requirement_text.as_concrete_TypeRef(), 0, &mut requirement)
@@ -2662,19 +2695,35 @@ index 47b3f982..15f58c27 100644
 +    } == 0
 +        && !code.is_null();
 +    let valid = found && unsafe { SecCodeCheckValidity(code, 0, requirement) } == 0;
++    // The identifier of the code just validated (kSecCSSigningInformation).
++    let identified = valid && {
++        let mut information: CFDictionaryRef = std::ptr::null();
++        let status = unsafe { SecCodeCopySigningInformation(code, 1 << 1, &mut information) };
++        if status != 0 || information.is_null() {
++            false
++        } else {
++            let information: CFDictionary<CFString, core_foundation::base::CFType> =
++                unsafe { CFDictionary::wrap_under_create_rule(information) };
++            let key = unsafe { CFString::wrap_under_get_rule(kSecCodeInfoIdentifier) };
++            information
++                .find(&key)
++                .and_then(|value| value.downcast::<CFString>())
++                .is_some_and(|identifier| is_cmux_app_identifier(&identifier.to_string()))
++        }
++    };
 +    unsafe {
 +        if !code.is_null() {
 +            CFRelease(code as CFTypeRef);
 +        }
 +        CFRelease(requirement as CFTypeRef);
 +    }
-+    valid
++    identified
 +}
 +
  #[cfg(all(unix, not(target_os = "macos")))]
  fn approval_broker_peer_pid(_stream: &tokio::net::UnixStream) -> Result<libc::pid_t, String> {
      Err("Codex Computer Use approval brokers are supported only on macOS".to_owned())
-@@ -2135,6 +2200,8 @@ pub async fn run_serve_with_owner(
+@@ -2135,6 +2238,8 @@ pub async fn run_serve_with_owner(
                  }
                  #[cfg(target_os = "macos")]
                  let peer_process_id = macos_peer_process_id(&stream);
@@ -2683,7 +2732,7 @@ index 47b3f982..15f58c27 100644
                  #[cfg(target_os = "macos")]
                  let peer_process_identity =
                      peer_process_id.and_then(macos_process_identity);
-@@ -2239,6 +2306,49 @@ pub async fn run_serve_with_owner(
+@@ -2239,6 +2344,49 @@ pub async fn run_serve_with_owner(
                                  }
                                  return;
                              }
@@ -2733,6 +2782,47 @@ index 47b3f982..15f58c27 100644
                              "permissions_status" => {
                                  #[cfg(target_os = "macos")]
                                  let resp = DaemonResponse::ok(daemon_permission_status(
+@@ -5341,3 +5489,40 @@ mod session_boundary_tests {
+         ));
+     }
+ }
++
++#[cfg(test)]
++mod machine_consent_host_tests {
++    use super::*;
++
++    #[test]
++    fn only_cmux_app_identifiers_may_serve_consent() {
++        for identifier in [
++            "com.cmuxterm.app",
++            "com.cmuxterm.app.nightly",
++            "com.cmuxterm.app.debug.my-tag",
++            "com.cmuxterm.app.next",
++        ] {
++            assert!(is_cmux_app_identifier(identifier), "{identifier}");
++        }
++        for identifier in [
++            "com.cmuxterm.apple",
++            "com.cmuxterm.app.",
++            "com.cmuxterm.cua",
++            "acpmux",
++            "cmux-cua",
++            "",
++        ] {
++            assert!(!is_cmux_app_identifier(identifier), "{identifier}");
++        }
++    }
++
++    /// This test binary is not a signed cmux app, so as a peer it may
++    /// never serve consent.
++    #[cfg(all(target_os = "macos", feature = "cmux-host-consent"))]
++    #[tokio::test]
++    async fn a_peer_that_is_not_a_signed_cmux_app_is_refused() {
++        let (daemon_end, _host_end) = tokio::net::UnixStream::pair().unwrap();
++        let token = macos_peer_audit_token(&daemon_end).expect("the peer's audit token");
++        assert!(!macos_peer_is_cmux_app(&token));
++    }
++}
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs b/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs
 new file mode 100644
 index 00000000..f55685d4
