@@ -488,6 +488,17 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         base = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
         self.assertTrue(reds.classify_web([head], [base]).own)
 
+    def test_another_head_job_cannot_overwrite_the_red_jobs_diagnostic(self):
+        own = web_job((CAPSULES, [(CAPSULE_TEST, "new failure", 87)]))
+        shared = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        self.assertTrue(reds.classify_web([own, shared], [shared]).own)
+
+    def test_a_started_webview_file_without_results_is_cut_short(self):
+        broken = log(f"START {CAPSULES} (hard limit 120s)")
+        verdict = reds.classify_web([broken], [broken])
+        self.assertIsNotNone(verdict)
+        self.assertTrue(verdict.own)
+
     def test_a_job_that_names_no_webview_test_is_not_this_classifiers(self):
         self.assertIsNone(reds.classify_web([log("error: oxlint found 3 problems")], [replay()]))
 
