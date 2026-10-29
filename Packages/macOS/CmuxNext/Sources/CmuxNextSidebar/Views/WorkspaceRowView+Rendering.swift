@@ -216,8 +216,8 @@ extension WorkspaceRowView {
             trailing = columns.trailingEdge(before: presenceDots.frame)
         }
 
-        // Titles share one text column even when the optional icon is absent.
-        var textX = columns.text - Self.labelInset
+        // Without an icon, the title uses lead; visible leading marks still reserve their space.
+        var textX = columns.text(hasLeadingMark: side > 0) - Self.labelInset
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1

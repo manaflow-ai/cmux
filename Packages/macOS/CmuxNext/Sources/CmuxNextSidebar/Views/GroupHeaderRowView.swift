@@ -415,7 +415,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let iconLead = lead
         glyph.frame = NSRect(x: iconLead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
         // The label's frame sits its text inset left of the column, as a workspace title's does.
-        let nx = columns.text - SidebarStyle.labelCellPadding
+        let nx = columns.text(hasLeadingMark: hasIcon || pinned) - SidebarStyle.labelCellPadding
         let countWidth = count.stringValue.isEmpty || renaming ? 0 : Self.drawnWidth(count)
         let nh = ceil(name.intrinsicContentSize.height)
         count.isHidden = countWidth == 0

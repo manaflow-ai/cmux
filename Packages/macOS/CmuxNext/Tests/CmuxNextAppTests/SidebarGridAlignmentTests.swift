@@ -66,8 +66,8 @@ import Testing
         }
     }
 
-    /// The same matrix reaches every rendering class. App/link deliberately have no favicon:
-    /// the text must retain its column even when the leading icon is absent.
+    /// The same matrix reaches every rendering class. Only workspace and band fixtures show
+    /// a leading icon; every iconless fixture uses lead instead of reserving an empty gutter.
     @Test(arguments: cases)
     func actualRowsUseTheTextAndMidLines(_ c: Case) throws {
         try Self.withDensity(c.comfortable) {
@@ -76,7 +76,8 @@ import Testing
             let view = Self.view(c, width: 320 - origin - 8, height: height)
             view.layout()
             #expect(view.window == nil)
-            let text: CGFloat = c.kind == .sectionHeader ? 16 : (c.comfortable ? 44 : 40)
+            let hasLeadingMark = c.kind == .workspace || c.kind == .item
+            let text: CGFloat = hasLeadingMark ? (c.comfortable ? 44 : 40) : 16
             if let workspace = view as? WorkspaceRowView {
                 #expect(abs(origin + workspace.title.frame.minX - text - CGFloat(c.depth * 16)) <= 0.5)
                 let font = workspace.title.font
@@ -95,13 +96,28 @@ import Testing
         }
     }
 
+    /// Lawrence's iconless-title contract survives the grid: the first ink stays at lead,
+    /// with no empty icon gutter, at every depth and with either trailing cluster.
+    @Test(arguments: cases.filter { $0.kind == .workspace })
+    func iconlessWorkspaceUsesLead(_ c: Case) throws {
+        try Self.withDensity(c.comfortable) {
+            let origin = CGFloat(8 + c.depth * 16)
+            let workspace = try #require(Self.view(c, width: 320 - origin - 8,
+                                                  height: SidebarDensityTokens.rowHeight,
+                                                  workspaceIcon: false) as? WorkspaceRowView)
+            workspace.layout()
+            #expect(workspace.icon.frame.width == 0)
+            #expect(abs(origin + workspace.title.frame.minX - CGFloat(16 + c.depth * 16)) <= 0.5)
+        }
+    }
+
     private static func row(_ key: SidebarRowKey, height: CGFloat) -> SidebarRow {
         SidebarRow(key: key, y: 0, height: height, section: .machine(.local), group: nil,
                    siblingIndex: 0, parentIndex: nil, isLastInGroup: false, isCollapsed: true,
                    childCount: 3, groupColor: nil)
     }
 
-    private static func view(_ c: Case, width: CGFloat, height: CGFloat) -> NSView {
+    private static func view(_ c: Case, width: CGFloat, height: CGFloat, workspaceIcon: Bool = true) -> NSView {
         let workspaceID = WorkspaceID("grid-workspace")
         let groupID = GroupID("grid-group")
         let frame = NSRect(x: 0, y: 0, width: width, height: height)
@@ -109,7 +125,7 @@ import Testing
         switch c.kind {
         case .workspace:
             let view = WorkspaceRowView(key: .workspace(workspaceID))
-            let workspace = SidebarWorkspace(id: workspaceID, title: "Grid", icon: .emoji("G"), unread: .dot)
+            let workspace = SidebarWorkspace(id: workspaceID, title: "Grid", icon: workspaceIcon ? .emoji("G") : nil, unread: .dot)
             var row = row(view.key, height: height)
             row.content = WorkspaceRowContent(icon: workspace.icon, activity: c.marks == 2 ? .error : .idle)
             view.configure(workspace, row: row, badgeStyle: .trailing)
@@ -170,6 +186,8 @@ extension SidebarGridAlignmentTests {
         #expect(abs(icon.width - (c.comfortable ? 20 : 16)) <= 0.5)
         #expect(abs(icon.midY - height / 2) <= 0.5)
         #expect(abs(columns.text - CGFloat(c.comfortable ? 36 : 32) - CGFloat(c.depth * 16)) <= 0.5)
+        #expect(abs(columns.text(hasLeadingMark: false) - CGFloat(8 + c.depth * 16)) <= 0.5)
+        #expect(columns.text(hasLeadingMark: true) == columns.text)
         let disclosure = columns.disclosureFrame(height: height)
         #expect(abs(disclosure.maxX - icon.minX) <= 0.5)
         #expect(disclosure.width == 16)

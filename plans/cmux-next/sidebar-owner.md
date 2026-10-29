@@ -546,13 +546,19 @@ existing colors, glass, row geometry and drag behavior.
 ## Sidebar layout grid (2026-10-29)
 
 Leo: "We need to have the fucking shit aligned on fucking grids and lines and whatever the fuck."
-The decided `leo-workspace/design/grid.md` supersedes the older row inset and text-without-icon
-positions above. `SidebarColumns` is the one layout source: highlight inset 8, lead 16, text 40
+The decided `leo-workspace/design/grid.md` updates the row insets while preserving the
+iconless-title and group/member alignment contracts above. `SidebarColumns` is the one layout source: highlight inset 8, lead 16, text 40
 (compact) or 44 (comfortable), actual nesting steps 16, trailing center 24 from the sidebar edge
 at both densities, subsequent marks at 20-point pitches. Row heights keep `Metrics.sidebarRowHeight` (24/32 by interface density); section heights keep
 the existing density calculation. The vertical highlight inset is 2 points. Text capitals center on the row midline; multiple lines align marks
-with the first line. Empty icon slots keep the same text column. Section labels use lead.
+with the first line. Rows without a leading icon or pin put their text at lead; they reserve no empty icon gutter. Section labels use lead.
 The workspace tab caret keeps #27165's position beside the name and #27237's stable hover target;
 it is a name disclosure rather than a trailing mark. Wide badges grow inward and reserve whole
 pitches, preserving their content without moving the outer trail line. No mark or density is removed.
 `SidebarGridAlignmentTests` covers the row kinds and pure layout without a window.
+
+The compatibility correction retains Lawrence's 2026-10-23 requests: "text needs to be as left
+as possible (how it originally was)" (`a1af264c7a7`) and "the bar, left side, should be aligned
+with the header part left side. i want to see deeply nested groups too" (`ab905adeadd`).
+Group names account for the rail's overhang, keeping their members' text column at every depth.
+`SidebarLookContractTests` and `SidebarGroupRailAlignmentTests` remain unchanged.
