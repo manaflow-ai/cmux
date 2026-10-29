@@ -34,6 +34,7 @@ extension AppControl {
             },
         ])
         registerRunMethods(services)
+        registerVMAgentKeyMethods(services)
         // Tagged DEV builds only (debug.* methods; a release build registers
         // none, and ControlRouter drops them too).
         #if DEBUG || CMUX_BENCH_HOOKS
