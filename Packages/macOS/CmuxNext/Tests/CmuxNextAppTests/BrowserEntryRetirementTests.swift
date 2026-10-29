@@ -35,12 +35,12 @@ import Testing
 
     @Test func releasingAnEntryOffMainRetiresItsPageOnMain() async {
         let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
-        let owner = Mutex<BrowserEntry?>(BrowserEntry(tab: page))
+        let owner = EntryOwner(BrowserEntry(tab: page))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close(); page.close() }
-        window.contentView = owner.withLock { $0?.chrome }
+        window.contentView = owner.entry.withLock { $0?.chrome }
         let probe = PageDetachmentProbe()
         page.contentView.addSubview(probe)
         #expect(probe.window === window)
@@ -48,7 +48,7 @@ import Testing
             probe.onLeaveWindow = { done.resume() }
             // task-owner: releases the last entry reference off main, then ends
             Task.detached {
-                owner.withLock {
+                owner.entry.withLock {
                     #expect(!Thread.isMainThread)
                     $0 = nil
                 }
@@ -56,6 +56,14 @@ import Testing
         }
         #expect(page.isClosed)
         #expect(page.contentView.superview == nil)
+    }
+
+    private nonisolated final class EntryOwner: Sendable {
+        let entry: Mutex<BrowserEntry?>
+
+        init(_ entry: BrowserEntry) {
+            self.entry = Mutex(entry)
+        }
     }
 
     private final class PageDetachmentProbe: NSView {
