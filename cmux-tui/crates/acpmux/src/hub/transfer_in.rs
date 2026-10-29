@@ -515,10 +515,7 @@ impl Hub {
             // Seal the old instance before staging its durable store. Retry tasks hold this
             // lock across their replaced check and terminal append, so no late record can land
             // in the replacement journal.
-            {
-                let _retry = old.auto_resume.lock();
-                old.replaced.store(true, Ordering::SeqCst);
-            }
+            self.seal_retry_replacement(old);
             // A log retention pass that took the chat's append lock before the mark finishes its
             // commit first; one after it leaves the chat alone (`hub/retention.rs`).
             drop(old.append_lock.lock().unwrap_or_else(|e| e.into_inner()));

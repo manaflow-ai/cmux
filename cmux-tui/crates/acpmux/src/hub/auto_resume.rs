@@ -304,6 +304,13 @@ impl TurnInfo {
 }
 
 impl Hub {
+    /// Mark an outgoing session before its durable store is staged. Retry tasks hold the same
+    /// per-instance lock around their replacement check and terminal journal effects.
+    pub(super) fn seal_retry_replacement(&self, session: &Session) {
+        let _retry = session.auto_resume.lock();
+        session.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
     /// Ends the chat's turn (`finish_turn`): takes it, and marks `turn_id` as ending, in one
     /// step with Stop's check, so a Stop between the turn's end and its scheduling counts.
     pub(super) fn take_turn(&self, session: &Session, turn_id: &str) -> Option<super::TurnInfo> {
@@ -447,11 +454,31 @@ impl Hub {
         // this record are stopped, never a later turn after an earlier idle Stop.
         // The first close records this boundary while the chat is still open. A closed
         // chat cannot restore a retry, and stopping it again must not refresh its age.
-        let had_scheduled_retry = pending.is_some()
-            || self
-                .store
-                .scan_kinds(&session.id, &["auto_resume_scheduled"], &mut |_| true)
-                .is_ok();
+        let waiting_mark = matches!(
+            pending.as_ref(),
+            Some(Mark::Waiting { retry: Some(_), .. } | Mark::Firing(_))
+        );
+        let mut journal_scheduled = false;
+        let boundaries = [
+            b"auto_resume_scheduled".as_slice(),
+            b"auto_resume_stopped",
+            b"auto_resume_skipped",
+            b"auto_resume_settled",
+            b"auto_resume_exhausted",
+            b"turn_started",
+            b"turn_result",
+        ];
+        let _ = self.store.scan_back(
+            &session.id,
+            0,
+            u64::MAX,
+            &|_, kind| !boundaries.iter().any(|wanted| *wanted == kind),
+            &mut |e: EventRecord| {
+                journal_scheduled = e.kind == "auto_resume_scheduled";
+                false
+            },
+        );
+        let had_scheduled_retry = waiting_mark || journal_scheduled;
         if session.status() != SessionStatus::Closed
             && !session.replaced.load(std::sync::atomic::Ordering::SeqCst)
             && had_scheduled_retry
