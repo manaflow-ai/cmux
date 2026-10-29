@@ -144,13 +144,7 @@ await requireBrowserLane("apps-flow.test.ts", async () => {
 
           const caffeinate = cards.filter({ hasText: "Caffeinate" });
           await caffeinate.getByRole("button", { name: "Install" }).click();
-          await page.waitForFunction(() =>
-            [...document.querySelectorAll<HTMLElement>(".apps-card")].some(
-              (card) =>
-                card.textContent?.includes("Caffeinate") &&
-                [...card.querySelectorAll("button")].some((button) => button.textContent?.includes("Remove")),
-            ),
-          );
+          await caffeinate.getByRole("button", { name: "Remove", exact: true }).waitFor();
           expect(await caffeinate.innerText()).toContain("Installed");
           expect(await caffeinate.getByRole("button", { name: "Remove" }).isVisible()).toBe(true);
         } finally {
