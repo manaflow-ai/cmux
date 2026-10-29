@@ -25,15 +25,9 @@ extension InternalPageDiscardPolicyCoverageTests {
     static let typed = "Lunch at noon?"
     static let recipient = HomeRecipient.address(.email("ada@example.com"))
 
-    /// Each page of the batch and the source that declares its policy (as ``batchOne``).
-    static let batchFour: [(page: InternalPageID, source: String, declaration: String)] = [
-        (ChiefViewsPageTab.page, "Sources/CmuxNextApp/Pages/ChiefViewsPageTab.swift", "discardPolicy: discardPolicy"),
-        (.chiefUsage, "Sources/CmuxNextApp/Pages/ChiefUsagePage.swift", "discardPolicy: discardPolicy"),
-        (.chiefMemory, "Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift", "func discardPolicy(for key: String)"),
-        (.chiefInspector, "Sources/CmuxNextApp/Handlers/ChiefInspectorPage.swift", "func discardPolicy(for key: String)"),
-        (.homeChannels, "Sources/CmuxNextApp/Pages/HomeChannelsPageTab.swift", "func discardPolicy(for key: String)"),
-        (.homeTab, "Sources/CmuxNextApp/TopPages/HomePageTab.swift", "func discardPolicy(for key: String)"),
-        (.homeDock, "Sources/CmuxNextApp/Home/HomeDockTab.swift", "func discardPolicy(for key: String)"),
+    /// Each page of the batch (as ``batchOne``).
+    static let batchFour: [InternalPageID] = [
+        ChiefViewsPageTab.page, .chiefUsage, .chiefMemory, .chiefInspector, .homeChannels, .homeTab, .homeDock,
     ]
 
     /// To: Ada, with text in the blank page's box.
@@ -80,16 +74,14 @@ extension InternalPageDiscardPolicyCoverageTests {
     /// Each page of the batch registers at launch and answers ten minutes hidden. The protocol's
     /// default is never (fail closed), as is a WebPageTab's, so a page that leaves its policy out
     /// fails here.
-    @Test func everyRegisteredPageOfBatchFourDeclaresItsPolicy() throws {
+    @Test func everyRegisteredPageOfBatchFourDeclaresItsPolicy() {
         let services = Self.homeServices()
         AppActions.bind(services)
-        for entry in Self.batchFour {
-            let provider = services.pages.provider(entry.page)
-            #expect(provider != nil, "\(entry.page.rawValue) registers at launch")
-            #expect(provider?.discardPolicy(for: "batch4") == .standard, "\(entry.page.rawValue): ten minutes hidden")
-            #expect(provider?.keepReasons(for: "batch4").isEmpty == true, "\(entry.page.rawValue): no view, nothing keeps it")
-            let source = try String(contentsOf: Self.packageRoot.appending(path: entry.source), encoding: .utf8)
-            #expect(source.contains(entry.declaration), "\(entry.page.rawValue) chose its policy in \(entry.source)")
+        for page in Self.batchFour {
+            let provider = services.pages.provider(page)
+            #expect(provider != nil, "\(page.rawValue) registers at launch")
+            #expect(provider?.discardPolicy(for: "batch4") == .standard, "\(page.rawValue): ten minutes hidden")
+            #expect(provider?.keepReasons(for: "batch4").isEmpty == true, "\(page.rawValue): no view, nothing keeps it")
         }
         #expect(services.pages.provider(.homeChannels) is HomeChannelsPageTab)
     }

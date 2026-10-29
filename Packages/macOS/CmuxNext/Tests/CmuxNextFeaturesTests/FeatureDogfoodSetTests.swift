@@ -56,4 +56,11 @@ struct FeatureDogfoodSetTests {
         let unknown = FeatureDogfoodSet.chromeParity.names.filter { registry.feature(named: $0) == nil }.sorted()
         #expect(unknown.isEmpty, "not declared in this build's registry: \(unknown)")
     }
+
+    /// The chrome-parity dogfood builds keep the built-in ad blocker: with chromiumAdBlockerAtFirstTab on, a fork without
+    /// the first-tab load (fork API 41; no pinned fork has it, 2026-10-28) runs no ad blocker, a regression Lawrence
+    /// would see. The feature joins the set when a fork with API 41 is pinned.
+    @Test func theChromeParitySetKeepsTheAdBlockerUntilAForkHasTheFirstTabLoad() {
+        #expect(!FeatureDogfoodSet.chromeParity.names.contains("chromiumAdBlockerAtFirstTab"))
+    }
 }

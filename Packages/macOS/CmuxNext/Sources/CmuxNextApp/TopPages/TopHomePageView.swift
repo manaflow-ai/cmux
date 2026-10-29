@@ -49,8 +49,6 @@ final class TopHomePageView: NSView {
         observation.access(self, keyPath: \.isComposingNewMessage)
         return newMessage.map { !$0.isHidden } ?? false
     }
-    /// The conversation the person sees: none on New Message (the list selects its row), else ``shown``.
-    var displayedConversation: ConversationID? { isComposingNewMessage ? nil : shown }
     /// A conversation the person started that the inbox does not list yet: opened (with the
     /// keyboard in its box) when it shows.
     private var opening: ConversationID?

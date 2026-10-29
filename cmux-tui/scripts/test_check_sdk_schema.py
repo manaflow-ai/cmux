@@ -487,7 +487,6 @@ class SnifferNameTests(unittest.TestCase):
             "machine-catalog-publish": "connection_frame/machine_catalog.rs",
             "client-hello": "client_hello.rs",
             "fs.read": "fs_wire.rs",
-            "oracle-state": "oracle_state_command.rs",
         }.items():
             self.assertEqual(served[name].module, module)
         # Stale entries are notes, so a schema task may land first.

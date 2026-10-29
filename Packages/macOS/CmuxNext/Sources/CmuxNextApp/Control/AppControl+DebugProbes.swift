@@ -76,6 +76,35 @@ extension AppControl {
                     return try JSONValue(foundation: report.foundationObject()) ?? .null
                 }
             },
+            // The main jobs that ran between each key or click's arrival and its dispatch, by enqueue site
+            // (CMUX_NEXT_MAIN_JOB_CENSUS=input): `read` (default), `reset`, or `storm` (the rig's
+            // storm of main-actor awaits: tasks, interval_ms, work_us, seconds). Copied on main, symbolized off it.
+            .mainActor("debug.main_jobs.input") { [weak services] call in
+                guard let census = services?.environment.mainJobCensus, census.isInputWindow else {
+                    return .value(["main_job_input": ["armed": false]])
+                }
+                switch call.params["action"]?.stringValue ?? "read" {
+                case "reset":
+                    census.resetInputWindow()
+                    return .value(["reset": true])
+                case "storm":
+                    let tasks = min(max(call.params["tasks"]?.intValue ?? 16, 0), 512)
+                    let interval = Duration.microseconds(Int64(min(max(call.params["interval_ms"]?.doubleValue ?? 8, 0.1), 1_000) * 1_000))
+                    let work = Duration.microseconds(Int64(min(max(call.params["work_us"]?.doubleValue ?? 100, 0), 10_000)))
+                    let seconds = Duration.milliseconds(Int64(min(max(call.params["seconds"]?.doubleValue ?? 10, 0.1), 600) * 1_000))
+                    let rate = census.storm(tasks: tasks, interval: interval, work: work, duration: seconds)
+                    return .value(["storm": ["tasks": .number(Double(tasks)), "jobs_per_second": .number(rate)]])
+                default:
+                    let window = census.inputWindow()
+                    return .followUp {
+                        let symbolicator = StackSymbolicator(map: nil) // Debug and bench executables keep their names: no map read
+                        let report = MainJobInputReport(window) { addresses in
+                            symbolicator.frames(for: addresses).map { .init(image: $0.image, symbol: $0.symbol, imageOffset: $0.imageOffset) }
+                        }
+                        return try JSONValue(foundation: report.foundationObject()) ?? .null
+                    }
+                }
+            },
             // The tasks that started on the cooperative pool until startup completed (startup-queue.py globaljobs):
             // copied and symbolized off main.
             .mainActor("debug.startup.global_jobs") { [weak services] _ in
@@ -243,16 +272,6 @@ extension AppControl {
         // raw-observer-allow: the center the synthetic sleep and wake notices are posted on; nothing observes it here
         router.register(LifecycleSimulationControl(notices: .appKit, workspaceCenter: NSWorkspace.shared.notificationCenter,
                                                    workspace: NSWorkspace.shared, appCenter: .default, application: NSApp).methods)
-        #if CMUX_PGO_PROFILE
-        // The profile build only: rest.profraw before quit, on the files lane; launch.profraw
-        // was written at startup complete.
-        if let flush = profileFlush {
-            router.register([.async("debug.pgo_flush") { _ in
-                let rest = try await flush.writeRestProfile()
-                return ["rest": .string(rest.file.path), "rest_bytes": .number(Double(rest.bytes)), "launch": .string(flush.files.launch.path)]
-            }.withDeadline(.fixed(.seconds(30)))])
-        }
-        #endif
     }
 }
 

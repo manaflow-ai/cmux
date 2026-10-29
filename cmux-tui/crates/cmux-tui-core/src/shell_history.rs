@@ -44,17 +44,29 @@ pub(crate) const MAX_INPUT_ROWS: u32 = 32;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShellMark {
     PromptStart,
+    /// `A` with `k=s` or `k=c`: a secondary (continuation, PS2) prompt. The
+    /// shell still reads the command the last primary prompt started, so it
+    /// answers no line and ends no command.
+    SecondaryPromptStart,
     InputStart,
     CommandStart,
-    CommandEnd { exit_code: Option<i32> },
+    CommandEnd {
+        exit_code: Option<i32>,
+    },
 }
 
 impl ShellMark {
-    /// Parses the data after `133;` (for example `A`, `B`, `C;...`,
-    /// `D;0`, `D;130;aid=12`). Unknown marks are ignored.
+    /// Parses the data after `133;` (for example `A`, `A;k=s`, `B`, `C;...`,
+    /// `D;0`, `D;130;aid=12`). Unknown marks are ignored, and so is `P` (a
+    /// prompt part: Ghostty's integration marks PS2 `P;k=s`).
     pub(crate) fn parse(data: &[u8]) -> Option<Self> {
         let mut fields = data.split(|byte| *byte == b';');
         let mark = match fields.next()? {
+            // The prompt kind (FinalTerm `k=`): `s` secondary, `c`
+            // continuation; `i` and `r` (and none) are primary.
+            b"A" if fields.any(|field| field == b"k=s" || field == b"k=c") => {
+                Self::SecondaryPromptStart
+            }
             b"A" => Self::PromptStart,
             b"B" => Self::InputStart,
             b"C" => Self::CommandStart,
@@ -116,7 +128,7 @@ impl CommandTracker {
             // A prompt without D (shells that skip it on ^C): the command
             // ended, exit status unknown.
             ShellMark::PromptStart => self.finish(None, now_ms),
-            ShellMark::InputStart => None,
+            ShellMark::SecondaryPromptStart | ShellMark::InputStart => None,
             ShellMark::CommandStart => {
                 let command = screen.input_text().and_then(|text| clean_command(&text));
                 self.running =
@@ -181,5 +193,26 @@ impl CommandScreen for TerminalCommandScreen<'_> {
 
     fn cwd(&mut self) -> Option<String> {
         self.0.pwd().as_deref().and_then(command_cwd)
+    }
+}
+
+#[cfg(test)]
+mod shell_mark_tests {
+    use super::ShellMark;
+
+    /// A prompt's kind (FinalTerm `k=`): `k=s` and `k=c` mark a secondary
+    /// (continuation) prompt; Ghostty's `P` (a prompt part) is no mark here.
+    #[test]
+    fn shell_idle_a_secondary_prompt_mark_is_not_a_prompt_start() {
+        assert_eq!(ShellMark::parse(b"A"), Some(ShellMark::PromptStart));
+        assert_eq!(ShellMark::parse(b"A;redraw=1;cl=line"), Some(ShellMark::PromptStart));
+        assert_eq!(ShellMark::parse(b"A;k=i"), Some(ShellMark::PromptStart));
+        assert_eq!(ShellMark::parse(b"A;k=s"), Some(ShellMark::SecondaryPromptStart));
+        assert_eq!(ShellMark::parse(b"A;aid=7;k=c"), Some(ShellMark::SecondaryPromptStart));
+        assert_eq!(ShellMark::parse(b"P;k=s"), None);
+        assert_eq!(
+            ShellMark::parse(b"D;130"),
+            Some(ShellMark::CommandEnd { exit_code: Some(130) })
+        );
     }
 }

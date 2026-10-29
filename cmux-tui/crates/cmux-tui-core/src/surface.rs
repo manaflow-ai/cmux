@@ -719,6 +719,11 @@ impl Surface {
         if let Some(activity) = snapshot.shell_activity {
             terminal_metadata.activity.restore(activity);
         }
+        // A host another daemon ran may hold renderer connections that
+        // daemon granted; they write input this daemon never sees.
+        if adopted {
+            terminal_metadata.activity.note_unseen_input();
+        }
         term.resize(
             snapshot.cols,
             snapshot.rows,

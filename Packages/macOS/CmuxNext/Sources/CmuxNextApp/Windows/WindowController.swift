@@ -341,10 +341,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// Closes the window as its close button does (the incognito check runs). Only the person's
     /// close fades (`WindowCloseMotion.isPersonsClose`): a scripted close is done when it returns.
+    /// Never `performClose(_:)`: its button flash is a nested run loop of about 100 ms on the key turn
+    /// (`NSWindow.closeWithoutButtonFlash()`).
     func performClose(by origin: ActionOrigin) {
         closeOrigin = origin
         defer { closeOrigin = .user }
-        window?.performClose(nil)
+        window?.closeWithoutButtonFlash()
     }
 
     /// An incognito window closes its workspaces: it asks first while one

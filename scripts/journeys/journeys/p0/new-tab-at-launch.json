@@ -1,0 +1,34 @@
+{
+  "id": "new-tab-at-launch",
+  "priority": "P0",
+  "title": "A new terminal opened the moment the app answers, then typed into at once: it shows, in the one window, and takes the keys",
+  "why": "A person (or a script) opens a new terminal right after launch, while the app is still connecting to cmux-tui, and types at once. On v2.2.2 and v2.2.3 the workspace was made by the daemon but went to a second window (the launch window was not registered yet), the launch window stayed on Home, and the typed keys went to the Chief composer and were sent to Chief as a message (dogfood gate v2.2.3, journey type on cmux17). new_terminal here is the person's New Terminal Tab key (Ctrl-`, debug.key, origin user), pressed with no wait for the connection: the driver's first act after the app's socket answers (pressed again while the app has no window yet). A script's newTab no longer takes the person's keyboard (cp/fix-chief-composer-focus); scripted-newtab-keeps-person-keys covers that.",
+  "source": "dogfood gate v2.2.3 (cp/fix-newtab-at-launch): type failed 1 in N on fresh apps",
+  "first_in_app": true,
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "fresh_app"},
+    {"do": "new_terminal", "via": "key"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo launch-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
+    {
+      "do": "expect",
+      "title": "the command ran in the new terminal, shown and focused in the app's only window",
+      "since": "typed",
+      "within": 3,
+      "timeout": 10,
+      "all": [
+        {"daemon_line": "${prompt}echo launch-${nonce}-$((6*7))"},
+        {"daemon_line": "launch-${nonce}-42"},
+        {"daemon_prompt": true},
+        {"app_text_line": "launch-${nonce}-42"},
+        {"app_pane": {"focused": true}},
+        {"app_rpc": {"method": "debug.windows", "path": "windows", "len": 1}},
+        {"app_rpc": {"method": "debug.windows", "path": "launch_window", "equals": null}},
+        {"app_rpc": {"method": "debug.windows", "path": "consistent", "equals": true}},
+        {"app_rpc": {"method": "debug.windows", "path": "windows.0.page", "equals": null}},
+        {"frame_text": "launch-${nonce}-42"}
+      ]
+    }
+  ]
+}

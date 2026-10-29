@@ -277,7 +277,7 @@ pub(crate) fn restore_preview(
 /// when `None`), read on `reader`'s own read-only connection in one read
 /// transaction: sealed segments, then active rows. It takes no registry
 /// lock and never waits on the journal writer
-/// (`session.journal.restore.preview` and `oracle-restore-preview`). The
+/// (`session.journal.restore.preview`). The
 /// journal is append-only, so a preview through an earlier head is the
 /// preview of that cut whenever it is read.
 pub(crate) fn restore_preview_on_reader(

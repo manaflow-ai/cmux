@@ -38,17 +38,6 @@ public nonisolated struct BrowserCrashRecord: Hashable, Sendable {
     public var codeDescription: String? { BrowserProcessExit(reason: reason, code: code).codeDescription }
 }
 
-/// One `BrowserCrashLog.tallies` key: who saw the end, and of which process type.
-public nonisolated struct BrowserCrashTally: Hashable, Sendable {
-    public var source: BrowserCrashRecord.Source
-    public var processType: String
-
-    public init(source: BrowserCrashRecord.Source, processType: String) {
-        self.source = source
-        self.processType = processType
-    }
-}
-
 /// Recent engine process failures, newest last (bounded). Observers run on
 /// the main actor for each new record (the App writes crash reports), and
 /// helper-exit observers for each helper process's one end (the App sends
@@ -58,8 +47,6 @@ public final class BrowserCrashLog {
     public private(set) var records: [BrowserCrashRecord] = []
     /// Total records since launch (the ring keeps only `capacity`).
     public private(set) var total = 0
-    /// Records since launch by source and process type, kept past the ring.
-    public private(set) var tallies: [BrowserCrashTally: Int] = [:]
     private var observers: [UUID: (BrowserCrashRecord) -> Void] = [:]
     private var helperExitObservers: [UUID: (BrowserHelperExit) -> Void] = [:]
 
@@ -69,7 +56,6 @@ public final class BrowserCrashLog {
         records.append(record)
         if records.count > Self.capacity { records.removeFirst(records.count - Self.capacity) }
         total += 1
-        tallies[BrowserCrashTally(source: record.source, processType: record.processType), default: 0] += 1
         for observer in observers.values { observer(record) }
     }
 

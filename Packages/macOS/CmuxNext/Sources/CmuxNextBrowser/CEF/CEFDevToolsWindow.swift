@@ -13,7 +13,7 @@ import CmuxNextDesign
 ///
 /// A panel, not a cmux window: it never joins cmux's window list, layout or
 /// session, and it closes with its page.
-final class CEFDevToolsWindow: NSPanel, PageSurfaceHosting {
+final class CEFDevToolsWindow: NSPanel, PageSurfaceHosting, WindowKeyClosing {
     /// The title bar's close button: the tab closes DevTools.
     var onClose: (() -> Void)?
     /// Where the DevTools page draws (``CEFTab/pageSurface``): in process the fork's page window is a
@@ -55,6 +55,11 @@ final class CEFDevToolsWindow: NSPanel, PageSurfaceHosting {
     }
 
     override func performClose(_ sender: Any?) {
+        onClose?()
+    }
+
+    /// The close key hides the inspector through its owner, as the close button does (``performClose(_:)``).
+    func closeFromKey() {
         onClose?()
     }
 

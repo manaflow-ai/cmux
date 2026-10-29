@@ -50,13 +50,9 @@ final class AppControl {
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
-    #if CMUX_PGO_PROFILE
-    /// The profile build's flushes (`LaunchOrder.profileFlush`): `debug.pgo_flush` writes the rest profile.
-    var profileFlush: ProfileFlush?
-    #endif
     #if DEBUG || CMUX_BENCH_HOOKS
     private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
-    let hops = InputTurnHops() // `debug.input hops`; the MainJobGate hook (021) records into `hops.recorder`
+    let hops = InputTurnHops() // `debug.input hops`: the main run loop's non-Swift callouts beside input
     /// `debug.startup`'s report: the launch marks and the first committed frame (kept by AppDelegate). Counters, scheduler
     /// and catalog wait have no producer yet (tasks 007, 012, 092 wire theirs here); their fields read null until then.
     let startupReport = StartupReportRecorder(launch: { DebugTimings.launchMarksNow }, processStartNanos: DebugTimings.processStartUptimeNanos,
@@ -145,7 +141,6 @@ final class AppControl {
             AppProcesses.chromiumHelpers(helperParent: parent.pid)
         }
         registerSyncBarrier(service.router, daemon: services.daemon)
-        registerOracleSettle(service.router, services: services)
     }
 
     /// The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
@@ -200,7 +195,6 @@ final class AppControl {
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap, mainWork: services.mainWork), DebugCEF.pumpInputSource(services.cache.chromium),
                                                DebugCEF.histogramSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
-                                               MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    // A job the scheduler dropped audits nothing.
                                                    (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in
