@@ -6645,14 +6645,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // has resolved with the mode on, and why an auto-repeat reuses the
         // answer from the press that started it.
         if !textEditingGesturesInFullScreenApps {
-            let onAlternateScreen: Bool
-            if event.isARepeat,
-               let cached = textEditingGestureAlternateScreenAtPress,
-               cached.keyCode == event.keyCode {
-                onAlternateScreen = cached.onAlternateScreen
-            } else {
-                onAlternateScreen = terminalSurface?.isAlternateScreenActive() == true
-                textEditingGestureAlternateScreenAtPress = (event.keyCode, onAlternateScreen)
+            let onAlternateScreen = alternateScreenActiveAtKeyPress(event) {
+                terminalSurface?.isAlternateScreenActive() == true
             }
             guard !onAlternateScreen else { return false }
         }
@@ -6684,9 +6678,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return performBindingAction("esc:\(chord.letter)")
     }
 
-    /// Reads the screen mode for a text-editing key press.
+    /// Reads the screen mode once per held text-editing key, avoiding repeated viewport exports.
     func alternateScreenActiveAtKeyPress(_ event: NSEvent, read: () -> Bool) -> Bool {
-        read()
+        if event.isARepeat,
+           let cached = textEditingGestureAlternateScreenAtPress,
+           cached.keyCode == event.keyCode {
+            return cached.onAlternateScreen
+        }
+        let active = read()
+        textEditingGestureAlternateScreenAtPress = (event.keyCode, active)
+        return active
     }
 
     /// Replays Cmd+Z at a shell prompt as the line editor's undo key.

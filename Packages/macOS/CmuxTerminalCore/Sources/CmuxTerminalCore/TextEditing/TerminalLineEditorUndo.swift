@@ -29,6 +29,13 @@ public struct TerminalLineEditorUndo: Equatable, Sendable {
     /// Copy mode owns the keyboard.
     public var keyboardCopyModeActive: Bool
 
+    /// Captures the owners of a possible line-editor undo keystroke.
+    ///
+    /// - Parameters:
+    ///   - isUndoChord: Whether the event is exactly the Undo menu equivalent.
+    ///   - hasGhosttyBinding: Whether a user binding or active key sequence owns the key.
+    ///   - isComposing: Whether an input method owns marked text.
+    ///   - keyboardCopyModeActive: Whether keyboard copy mode owns the key.
     public init(
         isUndoChord: Bool,
         hasGhosttyBinding: Bool,
