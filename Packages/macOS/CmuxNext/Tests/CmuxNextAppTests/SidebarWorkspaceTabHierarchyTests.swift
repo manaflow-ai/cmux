@@ -27,14 +27,13 @@ struct SidebarWorkspaceTabHierarchyTests {
     static let group = GroupID("tab-group")
     static let subgroup = GroupID("tab-subgroup")
 
-    private static let favicon: CGImage = {
-        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-        let context = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
-                                space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    private static func favicon() throws -> CGImage {
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
-        return context.makeImage()!
-    }()
+        return try #require(context.makeImage())
 
     private static func workspace(_ id: WorkspaceID, _ title: String, tabs: [SidebarTab], focused: TabID? = nil) -> SidebarWorkspace {
         var workspace = SidebarWorkspace(id: id, title: title)
@@ -43,10 +42,10 @@ struct SidebarWorkspaceTabHierarchyTests {
         return workspace
     }
 
-    static func sections() -> [SidebarSection] {
+    static func sections() throws -> [SidebarSection] {
         let looseTab = SidebarTab(id: TabID("loose-tab"), title: "shell")
         let groupedTab = SidebarTab(id: TabID("grouped-tab"), title: "browser", isUnread: true,
-                                     favicon: SidebarFavicon(favicon))
+                                     favicon: SidebarFavicon(try Self.favicon()))
         let nestedTab = SidebarTab(id: TabID("nested-tab"), title: "agent", kind: .agentChat, brand: "claude")
         let looseWorkspace = workspace(loose, "Loose workspace", tabs: [looseTab], focused: looseTab.id)
         let groupedWorkspace = workspace(grouped, "Grouped workspace", tabs: [groupedTab])
@@ -60,14 +59,14 @@ struct SidebarWorkspaceTabHierarchyTests {
         ])]
     }
 
-    static func list(width: CGFloat) -> (SidebarListView, NSWindow) {
+    static func list(width: CGFloat) throws -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let root = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 600))
         window.contentView = root
-        let model = SidebarModel(sections: sections())
+        let model = SidebarModel(sections: try sections())
         model.showWorkspaceTabs = true
         let list = SidebarListView(model: model)
         list.frame = root.bounds
@@ -86,6 +85,10 @@ struct SidebarWorkspaceTabHierarchyTests {
         try #require(list.rowViews[.tab(workspace, tab)] as? SidebarTabRowView, "tab \(tab.rawValue) has no row")
     }
 
+    static func sidebarRow(_ list: SidebarListView, _ key: SidebarRowKey) throws -> SidebarRow {
+        try #require(list.displayed.rows.first { $0.key == key }, "row \(key) has no layout entry")
+    }
+
     static func listX(_ list: SidebarListView, _ view: NSView, _ x: CGFloat) -> CGFloat {
         list.convert(NSPoint(x: x, y: 0), from: view).x
     }
@@ -93,7 +96,7 @@ struct SidebarWorkspaceTabHierarchyTests {
     @Test(arguments: cases)
     func disclosedTabsReadAsChildrenAcrossParents(_ c: Case) throws {
         try SidebarGroupRailAlignmentTests.with(c.density, c.minimal) {
-            let (list, window) = Self.list(width: c.width)
+            let (list, window) = try Self.list(width: c.width)
             defer { window.close() }
             let loose = try Self.workspaceRow(list, Self.loose)
             let grouped = try Self.workspaceRow(list, Self.grouped)
@@ -115,10 +118,11 @@ struct SidebarWorkspaceTabHierarchyTests {
             #expect(groupedTab.debugIcon == "favicon", "\(c.testDescription): favicon tab lost its favicon")
 
             // Workspace siblings and the shared trailing column retain their established alignment.
-            let workspaceXs = [loose, grouped, nested].map { id in
-                (try? Self.workspaceRow(list, id)).map { Self.listX(list, $0, $0.titleFrame.minX) }
-            }
-            #expect(workspaceXs.compactMap { $0 }.count == 3, "\(c.testDescription): workspace siblings disappeared")
+            let workspaceXs = [loose, grouped, nested].map { Self.listX(list, $0, $0.titleFrame.minX) }
+            #expect(abs(workspaceXs[1] - workspaceXs[0]) < 0.5,
+                    "\(c.testDescription): grouped workspace left its shared workspace column")
+            #expect(workspaceXs[2] > workspaceXs[1],
+                    "\(c.testDescription): nested workspace lost its lineage offset")
             let trailing = list.bounds.width - list.inset - SidebarStyle.rowTrailingTrim
             for row in list.displayed.rows where row.key == .workspace(Self.loose) || row.key == .workspace(Self.grouped) || row.key == .workspace(Self.nested) {
                 #expect(list.frame(for: row).maxX == trailing, "\(c.testDescription): workspace trailing column moved")
@@ -128,16 +132,56 @@ struct SidebarWorkspaceTabHierarchyTests {
 
     @Test
     func focusedAndUnreadTabsKeepPrimaryInkAndRowsReuseHierarchyGeometry() throws {
-        let (list, window) = Self.list(width: 260)
+        let (list, window) = try Self.list(width: 260)
         defer { window.close() }
         let focused = try Self.tabRow(list, Self.loose, TabID("loose-tab"))
         let unread = try Self.tabRow(list, Self.grouped, TabID("grouped-tab"))
+        let plain = try Self.tabRow(list, Self.nested, TabID("nested-tab"))
+        let looseTab = try #require(list.tabs[TabID("loose-tab")])
+        let groupedTab = try #require(list.tabs[TabID("grouped-tab")])
+        let nestedTab = try #require(list.tabs[TabID("nested-tab")])
+        let looseRow = try Self.sidebarRow(list, .tab(Self.loose, looseTab.id))
+        let groupedRow = try Self.sidebarRow(list, .tab(Self.grouped, groupedTab.id))
+        let nestedRow = try Self.sidebarRow(list, .tab(Self.nested, nestedTab.id))
+        focused.updateLayer()
+        unread.updateLayer()
+        plain.updateLayer()
         #expect(focused.isFocusedTab)
         #expect(unread.debugIcon == "favicon")
         #expect(focused.titleFrame.minX > 0 && unread.titleFrame.minX > 0)
+        #expect(focused.debugTitleInk == focused.performWithTheme { Palette.textPrimary },
+                "focused child lost primary ink")
+        #expect(unread.debugTitleInk == unread.performWithTheme { Palette.textPrimary },
+                "unread child lost primary ink")
+        #expect(plain.debugTitleInk == plain.performWithTheme { Palette.textSecondary },
+                "plain child did not recede to secondary ink")
+
+        var readTab = groupedTab
+        readTab.isUnread = false
+        unread.configure(readTab, row: groupedRow, focused: false)
+        unread.updateLayer()
+        #expect(unread.debugTitleInk == unread.performWithTheme { Palette.textSecondary },
+                "read transition did not quiet the tab")
+        unread.configure(groupedTab, row: groupedRow, focused: false)
+        unread.updateLayer()
+        #expect(unread.debugTitleInk == unread.performWithTheme { Palette.textPrimary },
+                "unread transition did not restore primary ink")
+
+        focused.configure(looseTab, row: looseRow, focused: false)
+        focused.updateLayer()
+        #expect(focused.debugTitleInk == focused.performWithTheme { Palette.textSecondary },
+                "focus transition did not quiet the tab")
+        focused.configure(looseTab, row: looseRow, focused: true)
+        focused.updateLayer()
+        #expect(focused.debugTitleInk == focused.performWithTheme { Palette.textPrimary },
+                "focus transition did not restore primary ink")
 
         let before = focused.titleFrame
         focused.prepareForReuse(key: .tab(Self.nested, TabID("nested-tab")))
         #expect(focused.titleFrame == before, "reuse changed the disclosed child geometry before configure")
+        focused.configure(nestedTab, row: nestedRow, focused: false)
+        focused.updateLayer()
+        #expect(focused.debugTitleInk == focused.performWithTheme { Palette.textSecondary },
+                "reused plain child did not recede to secondary ink")
     }
 }
