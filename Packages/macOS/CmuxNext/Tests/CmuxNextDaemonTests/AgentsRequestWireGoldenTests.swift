@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The wire golden of every request in Sources/CmuxNextDaemon/Requests/Agents (p05-ipc-035): the line
+/// The wire golden of every request in Sources/CmuxNextDaemon/Requests/Agents: the line
 /// each one sends today, compared as JSON (key order does not count), with the capability it is gated
 /// on and whether it waits for a terminal spawn. The migration to the generated `<Name>Request` types
 /// (CmuxNextWireGen RequestEmitter) must keep these goldens green: the generated coder writes each

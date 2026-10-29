@@ -184,8 +184,9 @@ public nonisolated struct HomeBrainHost: Sendable {
 
     /// Starts the host for a Home that opened. `mintToken` replaces the
     /// owner's agent_mux credential and revokes the binding of the host that
-    /// runs, so it is called only when the host must start.
-    @concurrent public func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
+    /// runs, so it is called only when the host must start. `runner` is the app's blocking-work lanes (the
+    /// Chief's own acpmux census and end).
+    @concurrent public func start(runner: any MayBlockRunner, mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
         // cmux NEXT's one-time adoption of its old homes ends before its brain starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         // A Chief-home acpmux that runs from a replaced bundle (an update replaced the
@@ -206,7 +207,7 @@ public nonisolated struct HomeBrainHost: Sendable {
         // over, and that daemon ends (ChiefAppAcpmuxMove).
         if usesAppAcpmux, let acpmux {
             await ensureAppAcpmux?()
-            let move = ChiefAppAcpmuxMove(home: chiefHome, app: acpmux)
+            let move = ChiefAppAcpmuxMove(home: chiefHome, app: acpmux, runner: runner)
             guard await move.run() else {
                 // It hands off when its turn ends; its exit brings the next start (ChiefBrainWatch).
                 return .reusedRunningHost(pid: ChiefHostStop.runningHostPID(home: chiefHome))
@@ -232,7 +233,7 @@ public nonisolated struct HomeBrainHost: Sendable {
         // A pid the launch could not read: the host's lock names it, so the next start does
         // not take this new host for an old one and restart it.
         if usesAppAcpmux, let acpmux, let marked = pid ?? ChiefHostStop.runningHostPID(home: chiefHome) {
-            ChiefAppAcpmuxMove(home: chiefHome, app: acpmux).mark(pid: marked)
+            ChiefAppAcpmuxMove(home: chiefHome, app: acpmux, runner: runner).mark(pid: marked)
         }
         return .launched(pid: pid)
     }

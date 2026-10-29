@@ -218,12 +218,12 @@ pub(super) fn forward_new(
     home: Option<&str>,
     mut send: impl FnMut(&[u8]) -> Result<(), String>,
 ) -> Result<usize, String> {
-    let bytes = match std::fs::read(log) {
+    let bytes = match cmux_blocking::fs::read(log) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(error) => return Err(format!("read {}: {error}", log.display())),
     };
-    let mut offset = std::fs::read_to_string(state)
+    let mut offset = cmux_blocking::fs::read_to_string(state)
         .ok()
         .and_then(|text| text.trim().parse::<usize>().ok())
         .unwrap_or(0);
@@ -234,9 +234,10 @@ pub(super) fn forward_new(
     let mut sent = 0;
     let mut failure = None;
     while sent < max {
-        let rest = &bytes[offset..];
+        let Some(rest) = bytes.get(offset..) else { break };
         let Some(end) = rest.iter().position(|byte| *byte == b'\n') else { break };
-        let line = String::from_utf8_lossy(&rest[..end]);
+        let Some(line) = rest.get(..end) else { break };
+        let line = String::from_utf8_lossy(line);
         if let Some(event) = event_for(&line, home) {
             if let Err(error) = send(&envelope(&event)) {
                 failure = Some(error);
@@ -263,10 +264,11 @@ fn write_offset(state: &Path, offset: usize) -> Result<(), String> {
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     use std::io::Write;
-    let mut file = options.open(&temp).map_err(|error| format!("write offset: {error}"))?;
+    let mut file = crate::blocking::fs::open_with(&options, &temp)
+        .map_err(|error| format!("write offset: {error}"))?;
     file.write_all(offset.to_string().as_bytes())
         .map_err(|error| format!("write offset: {error}"))?;
-    std::fs::rename(&temp, state).map_err(|error| format!("write offset: {error}"))
+    cmux_blocking::fs::rename(&temp, state).map_err(|error| format!("write offset: {error}"))
 }
 
 /// The offset file beside `log`.
@@ -314,9 +316,10 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
         crate::client_log::info(LOG_AREA, "crash-forward: off (unsupported platform)");
         return None;
     }
-    let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
+    let executable =
+        std::env::current_exe().ok().and_then(|path| cmux_blocking::fs::canonicalize(path).ok());
     let managed = cmux_config::managed::default_reader(env).read();
-    let settings = std::fs::read_to_string(cmux_config::config_path())
+    let settings = cmux_blocking::fs::read_to_string(cmux_config::config_path())
         .ok()
         .and_then(|text| cmux_config::jsonc::parse(&text).ok());
     let decision = consent(&ConsentInputs {
@@ -336,7 +339,8 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     };
     let forwarder = Forwarder { dsn, home: env("HOME"), sending: Default::default() };
     let worker = forwarder.clone();
-    let _ = std::thread::Builder::new().name("crash-forward".into()).spawn(move || {
+    // supervise-allow: one best-effort pass over the logs present at start; a panic loses only this pass (the lines stay unsent and the next owner start sends them).
+    let _ = cmux_threads::spawn("crash-forward", cmux_threads::ThreadQos::Utility, move || {
         let mut sent = 0;
         let mut failures = Vec::new();
         for log in &logs {

@@ -43,18 +43,17 @@ package nonisolated struct VaultPullRequests: Sendable {
     }
 
     private func transcripts(sessionID: String) -> [URL] {
-        let fm = FileManager.default
         let name = sessionID + ".jsonl"
         return claudeProjects.flatMap { root -> [URL] in
-            let folders = (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-            return folders.map { $0.appendingPathComponent(name) }.filter { fm.fileExists(atPath: $0.path) }
+            let folders = (try? FileManager.checked.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+            return folders.map { $0.appendingPathComponent(name) }.filter { FileManager.checked.fileExists(atPath: $0.path) }
         }
     }
 
     private func lastPullRequest(in transcript: URL) -> URL? {
-        guard let handle = try? FileHandle(forReadingFrom: transcript) else { return nil }
+        guard let handle = try? FileHandle.blockingForReading(from: transcript) else { return nil }
         defer { try? handle.close() }
-        let size = (try? handle.seekToEnd()) ?? 0
+        let size = (try? handle.blockingSeekToEnd()) ?? 0
         let start = size > UInt64(tailBytes) ? size - UInt64(tailBytes) : 0
         // concurrency-allow: one capped tail read; the app runs it in a detached task (`url`), off the main actor
         guard (try? handle.seek(toOffset: start)) != nil, let data = try? handle.readToEnd() else { return nil }

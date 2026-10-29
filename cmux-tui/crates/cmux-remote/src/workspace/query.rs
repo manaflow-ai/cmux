@@ -162,10 +162,10 @@ impl WorkspaceQueryService {
         scope: &str,
         cursor: &PageCursor,
     ) -> Result<(DirectoryContinuation, ContinuationDelivery), RpcError> {
-        match self.lease(owner, workspace, scope, "directory", cursor)? {
-            (QueryContinuation::Directory(state), delivery) => Ok((state, delivery)),
-            _ => unreachable!("continuation kind was validated"),
-        }
+        self.lease_as(owner, workspace, scope, "directory", cursor, |value| match value {
+            QueryContinuation::Directory(state) => Some(state),
+            _ => None,
+        })
     }
 
     pub(super) fn put_search(
@@ -186,10 +186,10 @@ impl WorkspaceQueryService {
         scope: &str,
         cursor: &PageCursor,
     ) -> Result<(SearchContinuation, ContinuationDelivery), RpcError> {
-        match self.lease(owner, workspace, scope, "search", cursor)? {
-            (QueryContinuation::Search(state), delivery) => Ok((state, delivery)),
-            _ => unreachable!("continuation kind was validated"),
-        }
+        self.lease_as(owner, workspace, scope, "search", cursor, |value| match value {
+            QueryContinuation::Search(state) => Some(state),
+            _ => None,
+        })
     }
 
     pub(super) fn put_diff(
@@ -210,10 +210,10 @@ impl WorkspaceQueryService {
         scope: &str,
         cursor: &PageCursor,
     ) -> Result<(DiffContinuation, ContinuationDelivery), RpcError> {
-        match self.lease(owner, workspace, scope, "diff", cursor)? {
-            (QueryContinuation::Diff(state), delivery) => Ok((state, delivery)),
-            _ => unreachable!("continuation kind was validated"),
-        }
+        self.lease_as(owner, workspace, scope, "diff", cursor, |value| match value {
+            QueryContinuation::Diff(state) => Some(state),
+            _ => None,
+        })
     }
 
     fn put(
@@ -258,17 +258,7 @@ impl WorkspaceQueryService {
             let existing =
                 state.continuations.get(parent).and_then(|stored| stored.successor.clone());
             if let Some(existing) = existing {
-                if !state.continuations.contains_key(&existing) {
-                    state
-                        .continuations
-                        .get_mut(parent)
-                        .expect("validated parent continuation remains present")
-                        .successor = None;
-                } else {
-                    let successor = state
-                        .continuations
-                        .get_mut(&existing)
-                        .expect("checked successor continuation exists");
+                if let Some(successor) = state.continuations.get_mut(&existing) {
                     if successor.leased {
                         drop(state);
                         return Err(cursor_in_use(kind));
@@ -279,11 +269,19 @@ impl WorkspaceQueryService {
                     state.continuation_order.push_back(existing.clone());
                     state.continuation_bytes =
                         state.continuation_bytes.saturating_sub(clone_charge);
+                    #[allow(
+                        clippy::expect_used,
+                        reason = "INVARIANT: `parent` was read from this delivery, so it is present"
+                    )]
                     let mut delivery = delivery.take().expect("replay has a parent delivery");
                     delivery.clone_charge = 0;
                     delivery.successor = Some(existing.clone());
                     delivery.successor_created = false;
                     return Ok((PageCursor(existing), delivery));
+                }
+                // The recorded successor is gone; forget the stale link.
+                if let Some(parent) = state.continuations.get_mut(parent) {
+                    parent.successor = None;
                 }
             }
         }
@@ -317,12 +315,10 @@ impl WorkspaceQueryService {
                 value: Arc::new(value),
             },
         );
-        if let Some(parent) = &predecessor {
-            state
-                .continuations
-                .get_mut(parent)
-                .expect("validated parent continuation remains present")
-                .successor = Some(token.clone());
+        if let Some(parent) =
+            predecessor.as_ref().and_then(|parent| state.continuations.get_mut(parent))
+        {
+            parent.successor = Some(token.clone());
         }
         let delivery = if let Some(mut delivery) = delivery.take() {
             delivery.clone_charge = 0;
@@ -342,6 +338,22 @@ impl WorkspaceQueryService {
         Ok((PageCursor(token), delivery))
     }
 
+    /// Leases the `kind` continuation behind `cursor` as the state `extract`
+    /// finds in it; a cursor of another kind is an invalid cursor.
+    fn lease_as<T: Clone>(
+        &self,
+        owner: &ClientScope,
+        workspace: &WorkspaceId,
+        scope: &str,
+        kind: &str,
+        cursor: &PageCursor,
+        extract: fn(&QueryContinuation) -> Option<&T>,
+    ) -> Result<(T, ContinuationDelivery), RpcError> {
+        let (value, delivery) = self.lease(owner, workspace, scope, kind, cursor)?;
+        let state = extract(&value).ok_or_else(|| invalid_cursor(kind))?;
+        Ok((state.clone(), delivery))
+    }
+
     fn lease(
         &self,
         owner: &ClientScope,
@@ -349,14 +361,14 @@ impl WorkspaceQueryService {
         scope: &str,
         kind: &str,
         cursor: &PageCursor,
-    ) -> Result<(QueryContinuation, ContinuationDelivery), RpcError> {
+    ) -> Result<(Arc<QueryContinuation>, ContinuationDelivery), RpcError> {
         if cursor.0.len() > MAX_CURSOR_BYTES || !cursor.0.starts_with(&format!("q:{kind}:")) {
             return Err(invalid_cursor(kind));
         }
         let now = Instant::now();
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.prune_continuations(now);
-        let Some(stored) = state.continuations.get(&cursor.0) else {
+        let Some(stored) = state.continuations.get_mut(&cursor.0) else {
             return Err(RpcError::new(
                 "invalid-cursor",
                 format!("{kind} cursor expired, was evicted, or was already consumed"),
@@ -373,10 +385,6 @@ impl WorkspaceQueryService {
             return Err(cursor_in_use(kind));
         }
         let (value, charge, predecessor) = {
-            let stored = state
-                .continuations
-                .get_mut(&cursor.0)
-                .expect("validated continuation remains present");
             stored.leased = true;
             stored.last_used = now;
             (Arc::clone(&stored.value), stored.charge, stored.predecessor.take())
@@ -386,11 +394,9 @@ impl WorkspaceQueryService {
         }
         while state.continuation_bytes.saturating_add(charge) > MAX_QUERY_CONTINUATION_BYTES {
             if !state.evict_oldest_continuation() {
-                state
-                    .continuations
-                    .get_mut(&cursor.0)
-                    .expect("leased continuation remains present")
-                    .leased = false;
+                if let Some(stored) = state.continuations.get_mut(&cursor.0) {
+                    stored.leased = false;
+                }
                 return Err(RpcError::new(
                     "resource-exhausted",
                     "retained query memory is unavailable for a cursor lease",
@@ -410,19 +416,16 @@ impl WorkspaceQueryService {
             successor_created: false,
             finished: false,
         };
-        Ok((value.as_ref().clone(), delivery))
+        Ok((value, delivery))
     }
 
     pub(super) fn hash_cell(&self, key: FileHashKey) -> Arc<OnceCell<String>> {
         let now = Instant::now();
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.prune_hashes(now);
-        if state.hashes.contains_key(&key) {
-            let cell = {
-                let cached = state.hashes.get_mut(&key).expect("checked cache entry exists");
-                cached.last_used = now;
-                Arc::clone(&cached.cell)
-            };
+        if let Some(cached) = state.hashes.get_mut(&key) {
+            cached.last_used = now;
+            let cell = Arc::clone(&cached.cell);
             state.hash_order.retain(|candidate| candidate != &key);
             state.hash_order.push_back(key);
             return cell;

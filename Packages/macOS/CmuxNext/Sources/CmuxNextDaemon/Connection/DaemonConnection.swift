@@ -13,7 +13,7 @@ import os
 /// synthetic `.connected` event, so a consumer that fetches `list-workspaces`
 /// on `.connected` sees every later delta and misses none.
 ///
-/// Events are decoded on the socket's reader thread (never the main actor)
+/// Events are decoded on the connection's decode lane (``DecodeLane``, never the reader or the main actor)
 /// and stamped with a monotonic `sequence`; `snapshot()` returns the
 /// sequence barrier its tree supersedes, so a store can drop older events
 /// exactly. A consumer that takes them with ``consumeEvents(_:)`` gets each
@@ -64,7 +64,7 @@ public actor DaemonConnection {
     let clock: any Clock<Duration>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
     private var phase: Phase = .idle {
-        // The request path's snapshot follows every phase change (p05-ipc-091).
+        // The request path's snapshot follows every phase change.
         didSet {
             let snapshot = ready
             admitted.withLock { $0 = snapshot }
@@ -84,12 +84,6 @@ public actor DaemonConnection {
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// Ready connections the daemon dropped without `daemon-shutdown` (it crashed or was killed), since this
-    /// connection was made: the oracle's `crashes.daemon` (p15-oracle-188). A requested stop says
-    /// `daemon-shutdown` first and a close by the app is not a drop, so neither counts.
-    public private(set) var droppedWithoutShutdown = 0
-    #endif
     /// The ready connection's `client-hello` `user_origin_allowed` (`HandshakeLines.Replies`); false when not ready.
     public var userOriginAllowed: Bool { if case .ready(let ready) = phase { ready.userOriginAllowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
@@ -117,7 +111,7 @@ public actor DaemonConnection {
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
         let heartbeat = ConnectionHeartbeat()
         self.heartbeat = heartbeat
-        // The heartbeat asks on its shown cadence while a request waits for its reply (p14-energy-064).
+        // The heartbeat asks on its shown cadence while a request waits for its reply.
         handoffGate = QuietHandoffGate(observe: configuration.handoffWaits,
                                        busyEdge: { [heartbeat] gate in heartbeat.requestsWaiting { gate.requestsInFlight > 0 } })
         // The events no consumer took yet wait in the route's bounded EventInbox backlog; past
@@ -196,7 +190,7 @@ public actor DaemonConnection {
         }
     }
 
-    /// Runs on the caller's executor with no actor hop (p05-ipc-091): it reads the ready connection from
+    /// Runs on the caller's executor with no actor hop: it reads the ready connection from
     /// its `Mutex` snapshot and passes the quiet-handoff gate with atomics only.
     public nonisolated func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
         try await sendAdmitted(request, timeout: timeout) { request, _ in request }
@@ -252,7 +246,7 @@ public actor DaemonConnection {
     /// route's bounded backlog holds (on the calling task), then each later one on the thread that
     /// produced it (the reader for every daemon event; the actor for `connected` and `disconnected`).
     /// The echo of a person's action reaches `deliver` with no cooperative-pool job after the socket
-    /// read (p02-threads-133). One consumer per connection; returns when the connection finishes,
+    /// read. One consumer per connection; returns when the connection finishes,
     /// throwing what ended it, or when the calling task is cancelled.
     ///
     /// - Parameter deliver: Takes one event; runs under ``DaemonEventRoute``'s lock, so it must not
@@ -299,7 +293,10 @@ public actor DaemonConnection {
             let mutationCauses = mutationCauses
             // The subscribe of the handshake starts the daemon's replay before identify is read: held until then.
             let transportSites = configuration.reportsDiagnosticSites ? DaemonDiagnosticSiteRelay<DaemonDiagnosticSite>() : nil
+            // Each event decodes on the connection's decode lane; the reader waits for the stream's consumer
+            // after the line.
             transport.start(
+                dispatch: .control(readerWait: { route.waitWhileReaderParked() }),
                 onCausedEvent: { [weak self] name, line, index, wireCause in
                     let event: DaemonEvent
                     if let transportSites, name == DaemonDiagnosticSite.eventName {
@@ -319,7 +316,6 @@ public actor DaemonConnection {
                     }
                     gate.deliver(envelope) { route.emit($0, bytes: line.count, parksReader: true) }
                 },
-                waitForConsumer: { route.waitWhileReaderParked() },
                 onClose: { [weak self] reason in
                     // task-owner: hop onto the actor; transportClosed ignores a stale serial
                     Task { await self?.transportClosed(serial: serial, reason: reason) }
@@ -365,9 +361,6 @@ public actor DaemonConnection {
         guard serial == self.serial else { return }
         if case .closed = phase { return }
         if case .ready = phase {} else if case .connecting = phase {} else { return }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if case .ready = phase, case .lost = reason { droppedWithoutShutdown += 1 }
-        #endif
         phase = .waiting
         healthy.cancel()
         let detail: String = switch reason {

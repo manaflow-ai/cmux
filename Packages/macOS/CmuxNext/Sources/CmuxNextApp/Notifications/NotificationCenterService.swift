@@ -56,25 +56,31 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastAgentPulse: ContinuousClock.Instant?
     /// Agent chats whose ring arrives at rest, with no pulse: a later finish in a burst.
     @ObservationIgnored var quietAgentFinishes: Set<String> = []
-    @ObservationIgnored let desktop = DesktopNotifier()
+    @ObservationIgnored let desktop: DesktopNotifier
+    /// The app's main-thread scheduler: every observation of this service flushes on it, in its class.
+    @ObservationIgnored let work: MainWorkScheduler
+    /// The app's main-thread deadlines (held alerts, `timeout` dismissals).
+    @ObservationIgnored let deadlines: MainDeadlineScheduler
+    /// The app's off-main work: a banner button's async answer runs there (R-hop).
+    @ObservationIgnored let background: BackgroundWork
     /// A passkey request's banner was clicked (its request id): the passkey hand-off answers it
     /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.2).
     @ObservationIgnored var onPasskeyBanner: ((String) -> Void)?
     /// Pages' click handlers of their web notifications' banners.
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
-    /// `timeout` dismissal deadlines per tab id (one-shot `DemandTimer`s).
-    @ObservationIgnored private var timeouts: [String: DemandTimer] = [:]
+    /// `timeout` dismissal deadlines per tab id (one-shot ``MainDeadline``s).
+    @ObservationIgnored private(set) var timeouts: [String: MainDeadline] = [:]
     /// OSC 7501 alerts held until their record arrives, by notification id
     /// (`NotificationCenterService+ProgramStatus`).
-    @ObservationIgnored var heldProgramAlerts: [UInt64: Task<Void, Never>] = [:]
+    @ObservationIgnored var heldProgramAlerts: [UInt64: HeldProgramAlert] = [:]
     /// Banner ids posted per tab id, withdrawn once the tab is read.
     @ObservationIgnored private var banners: [String: [String]] = [:]
     @ObservationIgnored let finishedBursts = FinishedBannerBursts()
     /// The Chief pet's notices (`NotificationCenterService+ChiefPet`); nil while it is off.
     @ObservationIgnored var chiefPet: ChiefPetController?
-    /// The newest notification handled; 0 at `start` (its launch post, p08-startup-031), so a live one that came before it still arrives.
-    @ObservationIgnored private var lastSeen: UInt64 = 0
+    /// The newest notification handled; 0 at `start` (its launch post), so a live one that came before it still arrives.
+    @ObservationIgnored var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
     /// `notifications.dockBounce`: the running bounce, ended when nothing is unread.
@@ -87,12 +93,16 @@ final class NotificationCenterService {
     /// Agent chat approval banners (cx-kz6m0.2) and this Mac's `install:<id>` they need.
     @ObservationIgnored let approvals = AgentApprovalBanners()
     @ObservationIgnored var localAgentHost: @MainActor () -> String? = { nil }
-    @ObservationIgnored private var tasks: [Task<Void, Never>] = []
+    /// The service's observations (ServiceObservation tokens), released with it.
+    @ObservationIgnored var observations: [AnyObject] = []
     /// `start()` ran: the store's notifications are followed.
     @ObservationIgnored private(set) var isStarted = false
     /// Workspace statuses `followStatusRuns` examined since start: what a status change costs it
     /// (tests read it; it must follow the workspaces whose status changed, not the session).
     @ObservationIgnored var statusRunVisits = 0
+    /// Flushes of the arrivals observation that found new notifications (tests: a burst of
+    /// arrivals is one pass on the next frame, none in its own turn).
+    @ObservationIgnored var arrivalPasses = 0
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
     /// Showcase captures seed the real daemon ledger without showing banners
@@ -107,7 +117,7 @@ final class NotificationCenterService {
     /// What each banner says: where, who and state, what (`NotificationBannerFormatter`).
     @ObservationIgnored var bannerFormatter = NotificationBannerFormatter()
     @ObservationIgnored var screenLocked: () -> Bool = { NotificationPreviews.screenIsLocked }
-    /// The deadline clock; tests inject their own.
+    /// The clock of banner bursts (`FinishedBannerBursts`); tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
     @ObservationIgnored var localizations: [String] = Bundle.module.preferredLocalizations
@@ -119,6 +129,14 @@ final class NotificationCenterService {
     }
     private static let logLimit = 64
 
+    /// - Parameters: `work`, `deadlines` and `background` are the composition root's one of each.
+    init(work: MainWorkScheduler, deadlines: MainDeadlineScheduler, background: BackgroundWork) {
+        self.work = work
+        self.deadlines = deadlines
+        self.background = background
+        desktop = DesktopNotifier(work: work)
+    }
+
     /// Wires the service to the app in `AppServices.init`, with no I/O: what reads `services` before the
     /// observers start (the Chief pet the platform services make in the launch turn, a click's or a
     /// key's read) works from the first frame.
@@ -129,7 +147,7 @@ final class NotificationCenterService {
     }
 
     /// Starts the banners, rings, sounds and the Dock badge from the store's notifications, once (the
-    /// `Notifications.start` launch post, p08-startup-031). Needs `wire(services:)` first.
+    /// `Notifications.start` launch post). Needs `wire(services:)` first.
     func start() {
         guard let services, !isStarted else { return }
         isStarted = true
@@ -146,17 +164,8 @@ final class NotificationCenterService {
         let principal = FeedInstallPrincipal(identity: services.cloud.installIdentity, baseURL: feed.apiBaseURL, work: services.work, mainWork: services.mainWork)
         let driver = makeFeedDriver(services, principal: principal)
         feedDriver = driver
-        // The install id comes with the first install token: at launch and at each sign-in.
-        tasks.append(Task { [weak feed] in
-            for await signedIn in ObservationStream({ feed?.isSignedIn ?? false }) where signedIn { principal.refresh() }
-        })
-        // At activation (launch, sign-in, the first install token, a daemon
-        // that starts serving the capability) one pass rebuilds the queue (B3).
-        tasks.append(Task {
-            // A trigger: an input change while active (a daemon restart, a new install id) rebuilds the queue again.
-            for await active in ObservationStream({ ObservationTrigger(driver.isActive) }) where active.value { driver.run() }
-        })
-        tasks.append(followPermissionBridge(services, principal: principal))
+        follow(feed, principal: principal, driver: driver)
+        observations.append(followPermissionBridge(services, principal: principal))
     }
 
     private func startDesktopAndStore(_ services: AppServices) {
@@ -174,35 +183,7 @@ final class NotificationCenterService {
             self.markRead(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), in: store)
         }
         followApprovals(services)
-        let store = services.daemon.store
-        tasks.append(Task { [weak self] in
-            for await newest in ObservationStream({ store.notifications.last?.notification.rawValue ?? 0 }) {
-                guard let self, newest > self.lastSeen else { continue }
-                let fresh = store.notifications.filter { $0.notification.rawValue > self.lastSeen }
-                self.lastSeen = newest
-                for notification in fresh { self.arrived(notification) }
-            }
-        })
-        tasks.append(followViewedProgramStatus(store))
-        tasks.append(followStatusRuns(store))
-        tasks.append(followNotificationLedger(services.daemon))
-        tasks.append(Task { [weak self] in
-            for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
-                self?.updateDockBadge(count)
-                self?.dropReadChiefPetNotices()
-            }
-        })
-    }
-
-    /// Follows `notifications.*` in every loaded snapshot.
-    func follow(_ settings: SettingsController) {
-        tasks.append(Task { [weak self] in
-            for await prefs in ObservationStream({ settings.snapshot.notifications }) {
-                guard let self else { return }
-                if self.preferences != prefs { self.preferences = prefs }
-                self.updateDockBadge(self.currentUnreadCount())
-            }
-        })
+        follow(services.daemon)
     }
 
     /// The source of `tab`'s retained marker, from the daemon
@@ -417,7 +398,7 @@ final class NotificationCenterService {
 
     // MARK: Arrival
 
-    private func arrived(_ notification: DaemonNotification) {
+    func arrived(_ notification: DaemonNotification) {
         guard let services else { return }
         let store = services.daemon.store
         let located = notification.surface.flatMap { locate(surface: $0, in: store) }
@@ -586,9 +567,10 @@ final class NotificationCenterService {
 
     private func scheduleTimeout(_ seconds: Double, tabID: String) {
         note("timeout \(tabID) in \(seconds)s")
-        let timer = timeouts[tabID] ?? DemandTimer(owner: "notifications.timeout", clock: clock)
+        // Nobody waits on a dismissal: flexible, in the visible class (it clears a ring on screen).
+        let timer = timeouts[tabID] ?? MainDeadline(owner: "notifications.timeout", workClass: .visible, scheduler: deadlines)
         timeouts[tabID] = timer
-        timer.scheduleOnMain(after: .seconds(seconds)) { [weak self] in
+        timer.schedule(after: .seconds(seconds)) { [weak self] in
             self?.timeouts[tabID] = nil
             self?.interacted(.timeout, tabID: tabID)
         }

@@ -7,25 +7,52 @@ extension MainTurnMeter {
     public nonisolated struct Snapshot: Sendable, Equatable {
         /// Busy turns measured, and how many ran inside a nested run loop.
         public var turns = 0
+        /// Busy turns that ran inside a nested run loop (menu tracking, a modal panel, a live resize).
         public var nestedTurns = 0
         /// Turns longer than ``MainTurnMeter/stallNanos`` (each wrote `stall.main_turn`).
         public var turnsOverStall = 0
         /// The turns' busy time in all, and its split, in nanoseconds.
         public var busyNanos: UInt64 = 0
+        /// Busy time in scheduled tasks (``MainFrameBudget``'s), in nanoseconds.
         public var scheduledNanos: UInt64 = 0
+        /// Busy time in input dispatch, in nanoseconds.
         public var inputNanos: UInt64 = 0
+        /// Busy time in render passes (layout, display, commit), in nanoseconds.
         public var renderNanos: UInt64 = 0
+        /// Busy time no scheduled task, input dispatch or render pass explains, in nanoseconds.
         public var unattributedNanos: UInt64 = 0
+        /// The longest busy turn, in nanoseconds.
         public var maxTurnNanos: UInt64 = 0
         /// Turns per bucket of ``bucketEdges`` (the last bucket: longer than the last edge).
         public var turnBuckets = [UInt32](repeating: 0, count: Snapshot.bucketEdges.count + 1)
         /// Scheduled tasks measured (each task's own time), the longest, and per bucket.
         public var tasks = 0
+        /// The longest scheduled task, in nanoseconds.
         public var maxTaskNanos: UInt64 = 0
+        /// Scheduled tasks per bucket of ``bucketEdges`` (the last bucket: longer than the last edge).
         public var taskBuckets = [UInt32](repeating: 0, count: Snapshot.bucketEdges.count + 1)
         /// The slots of the turns with the most unattributed time, in no order (empty slots are
         /// zero); ``longestUnattributed`` sorts them.
         public var topUnattributed = [TopTurn](repeating: TopTurn(), count: MainTurnMeter.topCount)
+        /// The turns that ran the budgeted scheduler's display tick (``TurnKind/tick``), and how many
+        /// of them ran a budgeted task too: the in-tick placement's batch, zero after commit.
+        public var tickTurns = KindTurns()
+        public var tickTurnsWithBudgetedTasks = 0
+        /// The after-commit placement's budget turns (``TurnKind/budget``).
+        public var budgetTurns = KindTurns()
+
+        /// One kind's turns: how many, the longest, and per bucket of ``bucketEdges``.
+        public nonisolated struct KindTurns: Sendable, Equatable {
+            public var count = 0
+            public var maxNanos: UInt64 = 0
+            public var buckets = [UInt32](repeating: 0, count: Snapshot.bucketEdges.count + 1)
+
+            mutating func record(_ nanos: UInt64, bucket: Int) {
+                count += 1
+                maxNanos = max(maxNanos, nanos)
+                buckets[bucket] &+= 1
+            }
+        }
 
         /// The buckets' upper edges in nanoseconds: 4 ms (the turn target) and 16.7 ms (a 60 Hz frame)
         /// are edges, so the share of turns under each is exact.
@@ -69,15 +96,22 @@ extension MainTurnMeter {
     /// One measured turn: its busy time, its split, when it ended and whether it ran inside a nested
     /// run loop.
     public nonisolated struct TopTurn: Sendable, Equatable {
+        /// The turn's busy time, in nanoseconds.
         public var turnNanos: UInt64 = 0
+        /// The part nothing measured explains, in nanoseconds.
         public var unattributedNanos: UInt64 = 0
+        /// The part in scheduled tasks, in nanoseconds.
         public var scheduledNanos: UInt64 = 0
+        /// The part in input dispatch, in nanoseconds.
         public var inputNanos: UInt64 = 0
+        /// The part in render passes, in nanoseconds.
         public var renderNanos: UInt64 = 0
         /// The turn's end (`CLOCK_UPTIME_RAW` nanoseconds).
         public var endNanos: UInt64 = 0
+        /// Whether it ran inside a nested run loop.
         public var nested = false
 
+        /// A turn from its parts (the meter records them; tests build them).
         public init(turnNanos: UInt64 = 0, unattributedNanos: UInt64 = 0, scheduledNanos: UInt64 = 0, inputNanos: UInt64 = 0,
                     renderNanos: UInt64 = 0, endNanos: UInt64 = 0, nested: Bool = false) {
             self.turnNanos = turnNanos

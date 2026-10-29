@@ -125,7 +125,7 @@ impl Hub {
         let hub = Arc::downgrade(self);
         *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = "startup";
         CARE.wake.notify_one();
-        tokio::spawn(async move {
+        self.supervise("hub.worktree-care", Fatal, ShutdownBehavior::Skip, async move {
             loop {
                 CARE.wake.notified().await;
                 let Some(hub) = hub.upgrade() else { return };

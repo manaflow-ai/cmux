@@ -118,6 +118,14 @@ public final class SiteZoomLevels {
 
 /// The per-profile zoom files, read and written off the main actor.
 private actor SiteZoomFile {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.browser.site-zoom`): its file reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.browser.site-zoom
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.browser.site-zoom", qos: .utility)
+
+    /// Runs the actor on ``queue``.
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     static let shared = SiteZoomFile()
 
     static func read(_ file: URL) async -> [String: Double] { await shared.read(file) }

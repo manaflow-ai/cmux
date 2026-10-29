@@ -54,7 +54,7 @@ pub(crate) fn assert_declared(name: &str, qos: ThreadQos) {
 }
 
 /// cmux-config sits below this crate and names its watch thread's class
-/// itself; it must be the Utility class (p04-input-084).
+/// itself; it must be the Utility class.
 #[test]
 fn config_watch_thread_is_utility() {
     assert_eq!(cmux_config::watch::WATCH_THREAD_QOS, ThreadType::Utility.qos());
@@ -66,7 +66,7 @@ fn config_watch_thread_is_utility() {
 }
 
 /// The command history worker is an upkeep thread: declared at the upkeep
-/// class, each store or expiry pass lowered to utility (p04-input-084).
+/// class, each store or expiry pass lowered to utility.
 #[test]
 fn command_history_worker_is_an_upkeep_thread() {
     let mux = crate::Mux::new_for_test("qos-command-history", crate::SurfaceOptions::default());
@@ -76,8 +76,8 @@ fn command_history_worker_is_an_upkeep_thread() {
 }
 
 /// The project sources thread is a watcher: declared at the raisable class
-/// of utility (p05-ipc-080); each import pass is lowered to utility with
-/// `daemonRequestQos` on (p04-input-084, `project_watch` tests).
+/// of utility; each import pass is lowered to utility with
+/// `daemonRequestQos` on (`project_watch` tests).
 #[test]
 fn project_sources_thread_is_a_raisable_watcher() {
     let (release, released) = std::sync::mpsc::channel::<()>();
@@ -192,7 +192,7 @@ fn expected_live(class: ThreadQos) -> cmux_threads::LiveQos {
     }
 }
 
-/// Each role of threading-model.md "Daemon QoS by role" (p05-ipc-080)
+/// Each role of threading-model.md "Daemon QoS by role"
 /// starts a thread through the entry point its production threads use and
 /// reads its class inside the body: request helpers through
 /// `RequestQos::spawn_helper`, watchers and bulk through `spawn_raisable`,
@@ -210,7 +210,7 @@ fn every_role_runs_at_its_class_in_its_body() {
             |probe| {
                 crate::request_qos::RequestQosGate::default()
                     .snapshot()
-                    .spawn_helper("mux-role-request-helper", None, probe)
+                    .spawn_helper("mux-role-request-helper", probe)
                     .expect("spawn")
                     .join()
                     .expect("join")
@@ -292,7 +292,7 @@ fn new_rows_at_rest(
     }
 }
 
-/// The daemon's watchers (p05-ipc-080) start through `spawn_raisable` and
+/// The daemon's watchers start through `spawn_raisable` and
 /// rest at its class, with no refused change: Utility where the process can
 /// raise them for a lock (macOS), else Default, else (a niced Linux daemon)
 /// the class it runs at.

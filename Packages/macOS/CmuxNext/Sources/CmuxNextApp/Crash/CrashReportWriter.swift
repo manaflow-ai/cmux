@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import Foundation
 import os
 
@@ -43,8 +44,13 @@ nonisolated struct CrashReportWriter: Sendable {
         return object
     }
 
+    /// The JSON object of a Chromium Crashpad dump (p01-process task 226, ``ChromiumMinidumpReport/jsonObject``).
+    func report(for dump: ChromiumMinidumpReport) -> [String: Any] {
+        dump.jsonObject.merging(["kind": "chromium_dump", "bundle_id": bundleID, "version": version]) { _, ours in ours }
+    }
+
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The JSON object of an end of the Chromium Host (p01-process-085): its signal or exit code, what it ran and its
+    /// The JSON object of an end of the Chromium Host: its signal or exit code, what it ran and its
     /// log's last lines, URLs replaced (``ChromiumHostCrashRecord``). `debug.crashes` lists the same object.
     func report(for record: ChromiumHostCrashRecord) -> [String: Any] {
         var object: [String: Any] = [

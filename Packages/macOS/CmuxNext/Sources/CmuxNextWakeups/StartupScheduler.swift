@@ -87,6 +87,9 @@ public final class StartupScheduler {
     public nonisolated let log: StartupTaskLog
     /// The completion, once startup completed.
     public private(set) var completion: Completion?
+    /// Called with each main task's name as it begins, until completion or quit (the run marker's last task,
+    /// Chrome's crash keys name the task a crash ran in, base/task/common/task_annotator.h).
+    public var taskStarted: (@MainActor (StaticString) -> Void)?
 
     private nonisolated let background: BackgroundWork
     private nonisolated let hop: StartupMainHop
@@ -281,7 +284,7 @@ public final class StartupScheduler {
     /// Quit began: drops every task not started, cancels the failsafe, and runs nothing more.
     public func beginQuit() {
         guard !isQuitting else { return }
-        isQuitting = true
+        (isQuitting, taskStarted) = (true, nil)
         quitting.store(true, ordering: .releasing)
         log.setPhase(.quitting)
         failsafe.cancel()
@@ -361,7 +364,7 @@ public final class StartupScheduler {
         let held = heldAfterStartup
         heldAfterStartup = []
         let done = Completion(reason: reason, uptimeNanos: uptimeNanos(), heldTasks: held.count)
-        completion = done
+        (completion, taskStarted) = (done, nil)
         log.setPhase(.complete)
         log.completed(reason, heldTasks: held.count)
         for task in held { dispatch(task) }
@@ -440,6 +443,7 @@ public final class StartupScheduler {
 
     private func runMain(_ task: Pending, _ body: @MainActor @Sendable () -> Void) {
         guard !isQuitting else { return }
+        taskStarted?(task.name)
         log.run(task.record, task.name, task.priority, onMain: true) { body() }
     }
 

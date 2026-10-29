@@ -26,7 +26,7 @@ import Testing
     }
 }
 
-/// Infinite loops run only while their view is visible (p03-rendering-070): a hidden or occluded
+/// Infinite loops run only while their view is visible: a hidden or occluded
 /// window, a hidden view or a view in no window keeps no loop in the render server, and a loop that
 /// shows again begins at the shared clock's phase.
 @MainActor @Suite(.serialized) struct LoopVisibilityTests {
@@ -61,7 +61,7 @@ import Testing
     }
 
     /// A window fully under an opaque cmux window of the same size: AppKit still says visible, its
-    /// occlusion family says occluded (p03-rendering-097, crbug.com/883031), and its loops come off
+    /// occlusion family says occluded (crbug.com/883031), and its loops come off
     /// until the family clears.
     @Test func aSameSizeCoveredWindowRunsNoLoop() {
         Motion.reduceMotionOverride = false
@@ -182,7 +182,7 @@ import Testing
         #expect(running() == 0, "a sky out of its window twinkles")
     }
 
-    /// Through the ``LoopHost`` a Shared view is handed (p14-energy-056): a miniaturized or
+    /// Through the ``LoopHost`` a Shared view is handed: a miniaturized or
     /// occluded window takes every loop key off its layer, and showing it puts each one back.
     @Test func aLoopHostTakesItsKeysOffWhileItsWindowIsHiddenAndPutsThemBack() {
         Motion.reduceMotionOverride = false

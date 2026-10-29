@@ -62,7 +62,7 @@ import Testing
     }
 
     /// The send button's accessibility element, found by its identifier among every view's
-    /// accessibility children (p03-rendering-074: the button is a layer of the compose bar's controls
+    /// accessibility children (the button is a layer of the compose bar's controls
     /// view, its element the view's child only while it shows); nil when none shows it.
     private static func find(_ root: NSView) -> NSAccessibilityElement? {
         var views: [NSView] = [root]

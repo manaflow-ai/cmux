@@ -29,6 +29,7 @@
 //! runs the harness's own default and is never refused for it.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 use crate::catalog::CatalogHarness;
 
@@ -400,12 +401,12 @@ impl Hub {
         }
         let mut v = json!({});
         if let Some(m) = model {
-            v["model"] = json!(m.value);
-            v["modelSource"] = json!(m.source.as_str());
+            v.set("model", json!(m.value));
+            v.set("modelSource", json!(m.source.as_str()));
         }
         if let Some(e) = effort {
-            v["effort"] = json!(e.value);
-            v["effortSource"] = json!(e.source.as_str());
+            v.set("effort", json!(e.value));
+            v.set("effortSource", json!(e.source.as_str()));
         }
         Some(v)
     }
@@ -421,8 +422,10 @@ fn c_ids(curated: Option<&CatalogHarness>) -> Vec<String> {
 /// `model_catalog::resolve` accepts them.
 fn names(id: &str, model: &str) -> bool {
     id == model
-        || serde_json::from_str::<Vec<String>>(id)
-            .is_ok_and(|p| p.len() == 2 && (p[1] == model || format!("{}/{}", p[0], p[1]) == model))
+        || serde_json::from_str::<Vec<String>>(id).is_ok_and(|p| match p.as_slice() {
+            [provider, id] => id == model || format!("{provider}/{id}") == model,
+            _ => false,
+        })
 }
 
 /// Whether a harness that reported `reported` offers the catalog's `model`.

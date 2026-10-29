@@ -6,7 +6,7 @@ import Foundation
 @testable import CmuxNextWebUpdates
 import Testing
 
-/// The web update safe point with frozen pages (p13-webui-071, p13-webui.md 3.C). With feature
+/// The web update safe point with frozen pages (p13-webui.md 3.C). With feature
 /// `webUpdateReloadOnShow` it asks only the pages the page host shows, so a hidden or frozen page,
 /// which cannot answer, never holds the swap; the swap reloads the shown page and leaves the others
 /// to reload when they show. Without it every page that holds a document is asked and reloads.

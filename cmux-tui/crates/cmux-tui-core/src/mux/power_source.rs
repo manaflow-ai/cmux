@@ -1,4 +1,4 @@
-//! The daemon reads the Mac's power inputs itself (p14-energy-137), so it
+//! The daemon reads the Mac's power inputs itself, so it
 //! decides Energy Saver by the app's rule after the app quits; the app's
 //! `energy.set` stays an override of this reading (server/energy_op.rs).
 //!

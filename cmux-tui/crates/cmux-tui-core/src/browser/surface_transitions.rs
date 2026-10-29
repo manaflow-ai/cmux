@@ -3,6 +3,7 @@
 //! failed command.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl BrowserSurface {
     #[cfg(test)]
@@ -23,7 +24,7 @@ impl BrowserSurface {
         &self,
         may_be_same_document: bool,
     ) -> anyhow::Result<PointerFrameInvalidation> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.pending_frame_epoch.is_some()
             || state.pending_navigation_epoch.is_some()
             || state.pending_document_epoch.is_some()
@@ -65,7 +66,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn navigation_transition_pending(&self) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         state.pending_navigation_epoch.is_some()
             || state.pending_document_epoch.is_some()
             || state.pending_same_document_navigation
@@ -75,7 +76,7 @@ impl BrowserSurface {
         &self,
         may_be_same_document: bool,
     ) -> anyhow::Result<PointerFrameInvalidation> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let navigation_pending = state.pending_navigation_epoch.is_some()
             || state.pending_document_epoch.is_some()
             || state.pending_same_document_navigation;
@@ -154,7 +155,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn begin_reconfigure_frame_transition(&self) -> PointerFrameInvalidation {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         // A capture restart advances the shared ingress epoch exactly once on
         // success. A failed attempt advances it zero times, so every retry,
         // including one for replacement geometry, waits on current + 1.
@@ -168,7 +169,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn abandon_frame_transition(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.pending_frame_epoch = None;
         state.pending_navigation_epoch = None;
         state.pending_document_epoch = None;
@@ -180,7 +181,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn observe_navigation_frame_epoch(&self, frame_epoch: u64) -> bool {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if frame_epoch <= state.handled_navigation_epoch {
             return false;
         }
@@ -241,15 +242,15 @@ impl BrowserSurface {
     }
 
     pub(super) fn needs_document_paint(&self, navigation_epoch: u64) -> bool {
-        self.state.lock().unwrap().pending_document_epoch == Some(navigation_epoch)
+        self.state.lock().recover_poison().pending_document_epoch == Some(navigation_epoch)
     }
 
     pub(super) fn pending_authority_deadline(&self) -> Option<Instant> {
-        self.state.lock().unwrap().pending_authority_deadline
+        self.state.lock().recover_poison().pending_authority_deadline
     }
 
     pub(super) fn expire_navigation_authority(&self, now: Instant) -> Option<String> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.pending_authority_deadline.is_none_or(|deadline| deadline > now) {
             return None;
         }
@@ -290,7 +291,7 @@ impl BrowserSurface {
         &self,
         invalidation: PointerFrameInvalidation,
     ) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let owns_navigation_rollback =
             state.pending_navigation_rollback.as_ref().is_some_and(|rollback| {
                 rollback.revision == invalidation.revision

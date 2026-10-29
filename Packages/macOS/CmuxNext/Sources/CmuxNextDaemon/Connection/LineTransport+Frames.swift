@@ -1,7 +1,7 @@
 import CmuxNextIPC
 import Foundation
 
-/// The framed half of the transport (p05-ipc-092): what the handshake granted, and the reader's routing of
+/// The framed half of the transport: what the handshake granted, and the reader's routing of
 /// REPLY and ERROR frames. Requests become frames in ``LineTransport/submit(_:deadline:framed:_:)``.
 extension LineTransport {
     /// What the handshake granted; ``DaemonWireGrants/linesOnly`` until it ends and on a daemon that offers
@@ -39,20 +39,29 @@ extension LineTransport {
     }
 
     /// Routes one message the reader cut: a line by its fields, a frame by its header. Returns why it is a bad
-    /// message, which ends the connection, or nil. After a handled line, `waitForConsumer` runs outside the
-    /// line's hang scope (``LineTransport/start(onCausedEvent:waitForConsumer:onClose:)``).
+    /// message, which ends the connection, or nil. After a handled message the reader waits, outside its hang
+    /// scope, while its ``lane``'s backlog is full and then, after a line, as `events` asks, or after an attach
+    /// stream's item as its stream asks (``EventDispatch/readerWait``, ``LineTransport/start(dispatch:onCausedEvent:onClose:)``).
     func dispatch(_ message: FrameReader.Message, decoder: WireDecoder, outputStream: DaemonWireStats.Recorder?,
-                  onEvent: CausedEventHandler, waitForConsumer: (@Sendable () -> Void)?) -> String? {
+                  events: EventDispatch, onEvent: @escaping CausedEventHandler) -> String? {
         switch message {
         case .json(let bytes):
             // An empty line carries nothing.
             guard !bytes.isEmpty else { return nil }
             outputStream?.outputCopied(2 * bytes.count)  // out of the reader as the line, then into its Data
-            handle(bytes, decoder: decoder, onEvent: onEvent)
-            waitForConsumer?()
+            let stream = handle(bytes, decoder: decoder, dispatch: events, onEvent: onEvent)
+            lane.waitForRoom()
+            if let stream {
+                // An attach stream's item: its view's wait, not the control consumer's.
+                stream.readerWait?()
+            } else {
+                events.readerWait?()
+            }
             return nil
         case .frame(let frame):
-            return handle(frame, decoder: decoder)
+            let unrouted = handle(frame, decoder: decoder)
+            lane.waitForRoom()
+            return unrouted
         }
     }
 
@@ -62,11 +71,11 @@ extension LineTransport {
         return hangWatched.run { route(frame: frame, decoder: decoder) }
     }
 
-    /// Routes one frame on the reader thread: a REPLY or ERROR, matched by its request id. It comes on the
-    /// stream its request named: 0, or for a stream opener the stream it opened (frame_dispatch.rs
-    /// `FrameCall::reply_header`), whose `stream-end` may have freed the id already when the open failed.
-    /// Anything else is a bad message (its reason returned), which closes the connection, as the daemon closes
-    /// on a frame it cannot route (frame_dispatch.rs, `UnroutedKind`).
+    /// Routes one frame on the reader thread; its waiter resumes on the ``lane``. It is a REPLY or ERROR, matched
+    /// by its request id, on the stream its request named: 0, or for a stream opener the stream it opened
+    /// (frame_dispatch.rs `FrameCall::reply_header`), whose `stream-end` may have freed the id already when the open
+    /// failed. Anything else is a bad message (its reason returned), which closes the connection, as the daemon
+    /// closes on a frame it cannot route (frame_dispatch.rs, `UnroutedKind`).
     func route(frame: Frame, decoder: WireDecoder) -> String? {
         let header = frame.header
         let ok = header.kind == FramedRequests.replyKind
@@ -75,12 +84,11 @@ extension LineTransport {
         }
         let call = FramedRequests.call(of: header)
         let line = Data(frame.payload)
-        // An ERROR's body is decoded once, here: its fields fail the waiter.
-        let failure = ok ? nil : try? decoder.decode(Envelope.self, from: line)
         let id = state.withLock { FramedRequests.requestID(low: call.requestID, next: $0.nextID) }
-        var envelope = failure ?? Envelope(id: nil, ok: nil, event: nil, type: nil, streamID: nil, cause: nil)
-        (envelope.id, envelope.ok) = (id, ok)
-        resolveReply(envelope, line: line, parsed: failure != nil, decoder: decoder)
+        // An ERROR's body is decoded once, on the lane, for the fields that fail its waiter (the
+        // reader decodes nothing a handler reads).
+        let envelope = Envelope(id: id, ok: ok, event: nil, type: nil, streamID: nil, cause: nil)
+        resolveReply(envelope, line: line, parsed: false, decoder: decoder)
         return nil
     }
 }

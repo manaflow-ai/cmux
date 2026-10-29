@@ -43,7 +43,7 @@ import Testing
         #expect(roundTrips(streaming) == [.text(streaming)])
     }
 
-    /// p07-memory-082: only an opening Mermaid fence line that is not closed yet is a diagram on its
+    /// Only an opening Mermaid fence line that is not closed yet is a diagram on its
     /// way (the transcript then warms the renderer); the bare word in prose, another language's open
     /// fence, or a fence already closed is not.
     @Test(arguments: [

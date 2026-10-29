@@ -3,16 +3,16 @@ import CmuxNextWakeups
 import Foundation
 import os
 
-/// A stream view's keys as INPUT frames (p05-ipc-096; cmux-tui/spec/transports.md, "An INPUT frame"): the raw
+/// A stream view's keys as INPUT frames (cmux-tui/spec/transports.md, "An INPUT frame"): the raw
 /// bytes behind a 16-byte header that names the view's stream and the key press's flow id. No JSON and no
 /// base64 per key, no request id and no reply: the daemon runs the frame on the stream's sequence and writes
-/// the terminal the way `send` does (frame_dispatch.rs, p05-ipc-078); a write that fails comes back as the
+/// the terminal the way `send` does (frame_dispatch.rs); a write that fails comes back as the
 /// stream's `input-failed` event. Chrome sends input the same way: a one-way message on the widget's own
 /// associated pipe, ordered with its other messages (third_party/blink/public/mojom/input/input_handler.mojom,
 /// `WidgetInputHandler.DispatchNonBlockingEvent`).
 ///
 /// Frames go at input priority from the calling thread, Ghostty's `io_write_cb` thread, so on an idle
-/// connection the key leaves on that thread with no queue hop (FrameWriter's inline path, p05-ipc-140).
+/// connection the key leaves on that thread with no queue hop (FrameWriter's inline path).
 extension TerminalAttachment {
     /// INPUT (cmux-ipc frame.rs `FrameKind::Input`).
     static let inputFrameKind: UInt8 = 9
@@ -32,7 +32,7 @@ extension TerminalAttachment {
         case lines
         /// INPUT frames on the view's own stream, whose `attach-surface` went as a REQUEST frame naming it: the
         /// daemon takes INPUT only on a stream an opener announced that way and closes the connection on any
-        /// other (pending_streams.rs `ClientStreams::input`, p05-ipc-087).
+        /// other (pending_streams.rs `ClientStreams::input`).
         case frames(stream: UInt16)
         /// The view's channel ended: keys are dropped.
         case closed

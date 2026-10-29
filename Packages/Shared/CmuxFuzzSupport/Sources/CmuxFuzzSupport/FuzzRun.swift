@@ -200,7 +200,7 @@ public struct FuzzRun: Sendable {
 extension FuzzRun {
     /// Fails the current iteration when `condition` is false: a property test's assertion. It
     /// throws instead of recording an issue, so the same body traps a libFuzzer target
-    /// (p10-stability-182) and the run keeps the input.
+    /// and the run keeps the input.
     public static func check(
         _ condition: Bool, _ message: @autoclosure () -> String = "", fileID: String = #fileID, line: Int = #line
     ) throws(FuzzError) {

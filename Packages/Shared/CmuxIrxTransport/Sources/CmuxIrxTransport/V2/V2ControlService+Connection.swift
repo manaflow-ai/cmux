@@ -35,6 +35,7 @@ extension V2ControlService {
                     try await openHTTP(run: run)
                     journal("http-mode-entered", [:])
                     // Retry the preferred push channel while HTTP serves requests.
+                    // wakeup-allow: backoff at the 60 s cap of retryDelay, only while the socket fails to open
                     try await dependencies.sleep(60)
                     continue
                 }
@@ -74,6 +75,7 @@ extension V2ControlService {
                     "delay_s": seconds.journalInteger,
                 ])
                 attempt += 1
+                // wakeup-allow: backoff retryDelay after a failed session: 1 s doubling to 60 s, or the server's floor
                 do { try await dependencies.sleep(seconds) }
                 catch { return }
             }

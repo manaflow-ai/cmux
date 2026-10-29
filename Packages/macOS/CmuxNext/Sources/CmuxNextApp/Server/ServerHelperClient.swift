@@ -44,7 +44,7 @@ enum ServerHelperClient {
         // daemon that can never serve it.
         guard let bundleID = Bundle.main.bundleIdentifier,
               let label = ServerHelperConstants().machServiceName(appBundleID: bundleID),
-              let requirement = ServerHelperConstants().helperRequirement(teamID: ServerHelperListener.ownTeamIdentifier())
+              let requirement = ServerHelperConstants().helperRequirement(teamID: SigningTeamInstall.process.team)
         else { throw .unsigned }
         guard isBundled else { throw .notInBuild }
         try await helper.enable(requiresApproval: Failure.requiresApproval, failed: Failure.failed)

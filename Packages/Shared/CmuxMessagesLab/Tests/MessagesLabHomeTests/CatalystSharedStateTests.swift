@@ -5,8 +5,8 @@ import os
 import Testing
 @testable import MessagesLabHome
 
-/// The vendored catalyst A-L files' process-wide state, read and written from the row threads
-/// (p10-stability-040): counters lose no concurrent bump, an off-main draw reads one palette and
+/// The vendored catalyst A-L files' process-wide state, read and written from the row threads:
+/// counters lose no concurrent bump, an off-main draw reads one palette and
 /// its own elevated flag, and the guarded fetcher's per-task rules refuse what LinkGuard refuses.
 @Suite struct CatalystSharedStateTests {
     static let threads = 8

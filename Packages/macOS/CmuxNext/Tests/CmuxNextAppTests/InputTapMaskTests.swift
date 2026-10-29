@@ -3,7 +3,7 @@ import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
 import Testing
 
-/// The app owners that moved from an AppKit local monitor to the input tap (p04-input-012) hear
+/// The app owners that moved from an AppKit local monitor to the input tap hear
 /// exactly the types of the monitor mask they had, through `observe(types:)`.
 @MainActor struct InputTapMaskTests {
     /// Every ``InputEventType``.

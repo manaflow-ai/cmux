@@ -2,6 +2,7 @@
 //! and members that outlive their screens; save, unsave, delete and reopen.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     #[track_caller]
@@ -12,7 +13,7 @@ impl Mux {
                 .iter()
                 .filter_map(|screen| {
                     let (wi, si) = locate_screen(state, *screen)?;
-                    let screen = &state.workspaces[wi].screens[si];
+                    let screen = state.screen_at(wi, si).ok()?;
                     let record = presentation
                         .screens
                         .screen(screen.public_id.as_str())
@@ -55,7 +56,7 @@ impl Mux {
             updated_at_ms: crate::workspace_registry::unix_epoch_ms()?,
             icon: record.icon,
         };
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         registry.put_saved_screen_group(&saved)?;
         self.reload_presentation(&registry)
     }
@@ -94,7 +95,8 @@ impl Mux {
     #[track_caller]
     pub fn delete_saved_screen_group(&self, saved: &str) -> anyhow::Result<bool> {
         let removed = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let removed = registry.delete_saved_screen_group(saved)?;
             self.reload_presentation(&registry)?;
             removed

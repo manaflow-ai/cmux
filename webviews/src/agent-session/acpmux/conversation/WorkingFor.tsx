@@ -1,7 +1,8 @@
 // The line over a running turn's work, with the Codex-style turn off (Debug toggles codexToolRuns
 // or liveLineBelow; with both on, the default, the turn's one live line at its bottom is
-// Thinking.tsx and it draws the same counts): "Working for 42s", ticking each second from the prompt,
-// or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
+// Thinking.tsx and it draws the same counts): "Working for 42s", ticking each second from the prompt
+// and each minute past the first ("Working for 3m", ui/useElapsedNow.ts), or held at `durationMs`
+// while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does, after the terminal glyph when
 // the call is a command; not while the call's own tool row is on screen, which names it already.
 // No mark blinks before it; the ticking time says the turn is alive. After
@@ -21,18 +22,22 @@
 // Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
 // has no rule under it and its clock never stops while the turn runs, and before any output
 // (`row.thinkingNow`) it reads "Thinking" beside the time.
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext } from "react";
 import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { TerminalSquare } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { usePageInterval } from "../../../pages/shared/pageLifecycle";
+import type { PageClock } from "../../../ui/pageClock";
+import { shownElapsed, useElapsedNow } from "../../../ui/useElapsedNow";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 
+/// A running turn's time since `at`: seconds under a minute, whole minutes after (shownElapsed).
+export const workingTime = (at: number, now: number) => formatDuration(shownElapsed(now - at));
+
 export const workingLabel = (t: Translate, at: number, now: number) =>
-  t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
+  t("turn.working", { time: workingTime(at, now) });
 
 /// What the running turn's line counts (App.tsx): the subagents, background commands and started
 /// chats still running, and what opens each.
@@ -76,26 +81,16 @@ export const workingTokens = (t: Translate, language: PaneLanguage, tokens: numb
 
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
 
-/// `now()`, again each second while `running` and the page shows. A hidden page's clock rests and
-/// reads the time again when the page shows (usePageInterval), so the label is the one it would
-/// have had if it had ticked all along.
-export function useTicking(running: boolean, now: () => number = Date.now): number {
-  const [time, setTime] = useState(now);
-  useEffect(() => {
-    if (running) setTime(now());
-  }, [now, running]);
-  usePageInterval(() => setTime(now()), running ? 1000 : null, { catchUpOnShow: true });
-  return time;
-}
-
-export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
+/// `clock` is the page's clock (pageClock.ts); a test passes one it moves.
+export function WorkingFor({ row, clock }: { row: AcpmuxRow; clock?: PageClock }) {
   const t = useT();
   const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
   const waiting = useContext(WaitingOnContext);
   const held = !row.below && row.durationMs !== undefined;
-  // No tick while the line waits on the person: it shows no time.
-  const time = useTicking(!held && waiting === undefined, now);
+  // No tick while the line waits on the person (it shows no time) or holds at the turn's duration.
+  // A hidden page's clock rests and ticks once when the page shows (pageClock.ts).
+  const time = useElapsedNow(row.at, { clock, enabled: !held && waiting === undefined });
   const until = held ? row.at + row.durationMs! : time;
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
   const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true);
@@ -119,7 +114,7 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
           <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
             {doing ?? t("thinking")}
           </span>
-          <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
+          <span className="cv-worked__time">{workingTime(row.at, until)}</span>
         </>
       ) : (
         <span className="cv-worked__label">{workingLabel(t, row.at, until)}</span>

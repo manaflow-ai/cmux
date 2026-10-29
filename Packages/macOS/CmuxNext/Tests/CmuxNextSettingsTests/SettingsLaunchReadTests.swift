@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 @testable import CmuxNextSettings
@@ -156,7 +156,7 @@ struct SettingsLaunchReadTests {
         // The app's widths: four user-blocking files slots.
         let work = BackgroundWork(label: "test.settings-launch-sequence")
         let reads = work.sequence("test.ledger-then-settings")
-        let ledger = CmuxNextDesign.LaunchRead<Int>(in: reads) {
+        let ledger = CmuxNextWakeups.LaunchRead<Int>(in: reads) {
             // A cold disk: outside the sequence, the settings read would start meanwhile on another slot.
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + .milliseconds(100))
             return 1
@@ -222,7 +222,7 @@ struct SettingsLaunchReadTests {
         #expect(reader.reads.withLock { $0 } == 0, "a launch step read the managed preferences again on the main thread")
     }
 
-    /// p08-startup-079: the launch applies its read as the first load before any watch (the first frame in the
+    /// The launch applies its read as the first load before any watch (the first frame in the
     /// file's look, no read on the main thread, the MDM status posted), and the watches the app arms after the first
     /// frame reload once, so an edit made in between applies.
     @Test func theLaunchReadAppliesBeforeTheWatchesAndAnEditInBetweenApplies() async throws {

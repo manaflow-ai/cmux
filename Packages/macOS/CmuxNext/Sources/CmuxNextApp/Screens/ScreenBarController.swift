@@ -42,7 +42,7 @@ final class ScreenBarController {
     /// - Parameter node: The node the bar follows its screens under; nil: the workspace's, else the bar's own.
     init(content: WorkspaceContentController, node: VisibilityNode? = nil) {
         self.content = content
-        // The workspace's node once it has one (p06-scheduler-023); until then the bar's own, always visible.
+        // The workspace's node once it has one; until then the bar's own, always visible.
         let node = node ?? content.visibilityNode
             ?? VisibilityNode(root: "screen-bar", own: .visible, workCounts: content.services.visibilityWorkCounts)
         // The strip's node is under it: a hidden bar or workspace defers the strip's syncs to its show.

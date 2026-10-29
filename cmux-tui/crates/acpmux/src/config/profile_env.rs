@@ -98,15 +98,14 @@ pub fn resolve_env_refs(
         }
         let mut out = String::new();
         let mut rest = value.as_str();
-        while let Some(start) = rest.find("${") {
-            out.push_str(&rest[..start]);
-            let after = &rest[start + 2..];
-            let Some(end) = after.find('}') else {
-                out.push_str(&rest[start..]);
+        while let Some((before, after)) = rest.split_once("${") {
+            out.push_str(before);
+            let Some((inner, tail)) = after.split_once('}') else {
+                out.push_str("${");
+                out.push_str(after);
                 rest = "";
                 break;
             };
-            let inner = &after[..end];
             if let Some(var) = inner.strip_prefix("env:") {
                 let v = lookup_env(var).ok_or_else(|| {
                     format!("env {key}: ${{env:{var}}} is not set in the login environment")
@@ -125,9 +124,11 @@ pub fn resolve_env_refs(
                 out.push_str(&v);
             } else {
                 // `${cwd}`, `${model}`… are expanded elsewhere.
-                out.push_str(&rest[start..start + 2 + end + 1]);
+                out.push_str("${");
+                out.push_str(inner);
+                out.push('}');
             }
-            rest = &after[end + 1..];
+            rest = tail;
         }
         out.push_str(rest);
         *value = out;
@@ -217,9 +218,10 @@ pub fn parse_security_password(stderr: &str) -> Option<String> {
         if hex.len() % 2 != 0 {
             return None;
         }
-        let bytes: Option<Vec<u8>> = (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        let bytes: Option<Vec<u8>> = hex
+            .as_bytes()
+            .chunks(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok())
             .collect();
         return String::from_utf8(bytes?).ok();
     }

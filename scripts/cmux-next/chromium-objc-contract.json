@@ -1,5 +1,5 @@
 {
- "reviewed_for": "cef-stage-c8953bc613cd-arm64-macos-arm64",
+ "reviewed_for": "cef-154.0.28-cmux.36",
  "selectors": [
   {
    "receiver": "NSApp",
@@ -824,7 +824,7 @@
   "CrApplication": "NSApp",
   "MockCrApp": "ignored: test-only NSApp class"
  },
- "reviewed_sha256": "ad5d77f20c1b26189d609d9270fb176462ced56b1c74876503ce05579b4d92af",
+ "reviewed_sha256": "cc558a76c4d4b40cabe964d5056c92335848f0e055ee5ee1f87a16fed5ffcd73",
  "assumptions": [
   "+[AppController sharedController] never runs in cmux: on its first call it installs Chromium's AppController as NSApp.delegate (cef-154.0.28-cmux.28: setDelegate: at 0x47da1c8) and later calls CHECK that the delegate is unchanged. The not-reachable AppController verdicts rely on that path; it is not checked here."
  ]

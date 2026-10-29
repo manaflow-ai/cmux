@@ -18,6 +18,7 @@
 
 use crate::daemon::hang_watch::{SyncThread, WRITE_ITEM};
 use crate::store::{SessionMeta, Store};
+use crate::supervised::{Fatal, OwnedThread, ShutdownBehavior, Supervisor};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -50,12 +51,12 @@ struct Shared {
 
 pub(crate) struct MetaWriter {
     shared: Arc<Shared>,
-    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    thread: Mutex<Option<OwnedThread>>,
 }
 
 impl MetaWriter {
-    /// Starts the writer thread for `store`.
-    pub(crate) fn start(store: Arc<dyn Store>) -> Self {
+    /// Starts the writer thread for `store` under `supervisor`.
+    pub(crate) fn start(store: Arc<dyn Store>, supervisor: &Supervisor) -> Self {
         let shared = Arc::new(Shared {
             state: Mutex::new(State::default()),
             work: Condvar::new(),
@@ -63,10 +64,17 @@ impl MetaWriter {
             version: AtomicU64::new(0),
         });
         let worker = shared.clone();
-        let thread = std::thread::Builder::new()
-            .name(THREAD.into())
-            .spawn(move || run(&worker, &*store))
-            .ok();
+        // A panic in the thread leaves its queue half-written and every `flush` waiting:
+        // Fatal. Continue on shutdown: the owner's drop writes what is queued and joins it.
+        let thread = crate::supervised::owned_thread(
+            supervisor,
+            THREAD,
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || run(&worker, &*store),
+        )
+        .ok();
         if thread.is_none() {
             tracing::error!(
                 "the session record writer did not start; records are written in place"
@@ -134,8 +142,7 @@ impl Drop for MetaWriter {
         self.lock().stop = true;
         self.shared.work.notify_one();
         if let Some(thread) = self.thread.get_mut().unwrap_or_else(|e| e.into_inner()).take() {
-            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
-            let _ = cmux_blocking::scoped_blocking_call(
+            cmux_blocking::scoped_blocking_call(
                 "thread::join",
                 cmux_blocking::BlockingKind::Join,
                 || thread.join(),
@@ -259,7 +266,7 @@ mod tests {
     #[test]
     fn a_save_returns_before_the_disk_write_and_a_burst_writes_the_newest_record_once() {
         let store = slow(Duration::from_millis(50));
-        let writer = MetaWriter::start(store.clone());
+        let writer = MetaWriter::start(store.clone(), &crate::supervised::embedded());
         let purged = Arc::new(AtomicBool::new(false));
         let started = Instant::now();
         for i in 0..20 {
@@ -277,7 +284,7 @@ mod tests {
     #[test]
     fn an_older_snapshot_never_replaces_a_newer_queued_one() {
         let store = slow(Duration::from_millis(30));
-        let writer = MetaWriter::start(store.clone());
+        let writer = MetaWriter::start(store.clone(), &crate::supervised::embedded());
         let purged = Arc::new(AtomicBool::new(false));
         // Occupy the thread so both snapshots below wait in the queue together.
         let v0 = writer.next_version();
@@ -332,7 +339,7 @@ mod tests {
             entered: Mutex::new(Some(entered_tx)),
             release: Mutex::new(release_rx),
         });
-        let writer = MetaWriter::start(store.clone());
+        let writer = MetaWriter::start(store.clone(), &crate::supervised::embedded());
         let purged = Arc::new(AtomicBool::new(false));
         let older = writer.next_version();
         let newer = writer.next_version();
@@ -348,7 +355,7 @@ mod tests {
     #[test]
     fn a_purged_session_is_never_written_back() {
         let store = slow(Duration::from_millis(30));
-        let writer = MetaWriter::start(store.clone());
+        let writer = MetaWriter::start(store.clone(), &crate::supervised::embedded());
         let purged = Arc::new(AtomicBool::new(false));
         let v = writer.next_version();
         writer.queue(&*store, meta("busy", "x"), v, Arc::new(AtomicBool::new(false)));
@@ -364,7 +371,7 @@ mod tests {
     #[test]
     fn dropping_the_writer_writes_what_is_queued() {
         let store = slow(Duration::from_millis(20));
-        let writer = MetaWriter::start(store.clone());
+        let writer = MetaWriter::start(store.clone(), &crate::supervised::embedded());
         for i in 0..5 {
             let v = writer.next_version();
             writer.queue(

@@ -177,13 +177,13 @@ impl FoldedText {
         self.words.get_or_init(|| {
             let mut words = Vec::new();
             let mut current = Vec::new();
-            for (index, &scalar) in self.original.iter().enumerate() {
+            for (&scalar, &folded) in self.original.iter().zip(&self.folded) {
                 if char_class(scalar) == CharClass::Delimiter {
                     if !current.is_empty() {
                         words.push(std::mem::take(&mut current));
                     }
                 } else {
-                    current.push(self.folded[index]);
+                    current.push(folded);
                 }
             }
             if !current.is_empty() {

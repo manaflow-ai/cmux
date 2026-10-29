@@ -81,6 +81,12 @@ nonisolated public struct ReleaseNotesStore: Sendable {
         return data
     }
 
+    /// The signed feature document beside these notes (`notes/flags.json`), checked
+    /// with the same content key: no second URL or key.
+    public func flagsDocument(fetcher: any ConditionalFetching = URLSessionConditionalFetcher()) -> FlagsDocumentFetch {
+        FlagsDocumentFetch(notesBase: notesBase, publicKey: publicKey, fetcher: fetcher)
+    }
+
     /// The checked media of these notes (cx-urd.61.1), cached beside them, fetched with a short
     /// deadline; `bundledDirectories` hold the app's reviewed What's New media.
     public func media(bundledDirectories: [URL]) -> ReleaseMediaStore {

@@ -1,4 +1,4 @@
-//! One thread waits for every child's exit (p02-threads-237).
+//! One thread waits for every child's exit.
 //!
 //! A thread per child blocked in `waitpid` costs a stack and a registry row for
 //! each terminal. Chromium has none on macOS: `EnsureProcessTerminated`

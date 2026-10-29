@@ -4,7 +4,7 @@ use crate::shortcut::{self, Stroke};
 use crate::text::Query;
 use crate::text::{collapsed_lower, js_string_cmp, js_trim, js_trim_end, title_is_query};
 use crate::tier::{
-    self, DEMOTION, Field, MAXIMUM_QUALITY, TIER_SCALE, entry_tier, highlights_for, match_quality,
+    self, DEMOTION, Fields, MAXIMUM_QUALITY, TIER_SCALE, entry_tier, highlights_for, match_quality,
     match_tier,
 };
 use crate::{Entry, Frecency, RankRequest, RankedRow, RankedSection};
@@ -27,46 +27,52 @@ const DEFAULT_PICK_HALF_LIFE: f64 = 7.0 * 24.0 * 60.0 * 60.0;
 /// Suggested rows the empty query shows at most.
 const SUGGESTION_LIMIT: usize = 5;
 
-/// The prepared text of a set of entries: fields and folded action ids.
+/// The prepared text of one entry: fields, folded action id, shortcut and handles.
+pub(crate) struct PreparedEntry {
+    pub fields: Fields,
+    pub id: Option<Vec<char>>,
+    /// The row's shortcut strokes, from its keycaps.
+    pub shortcut: Option<Vec<Stroke>>,
+    /// The row's handles, lowercased.
+    pub handles: Vec<String>,
+}
+
+impl PreparedEntry {
+    fn new(entry: &Entry) -> Self {
+        Self {
+            fields: tier::fields_for(entry),
+            id: entry
+                .action_id
+                .as_deref()
+                .filter(|id| !id.is_empty())
+                .map(|id| id.chars().map(crate::text::fold_scalar).collect()),
+            shortcut: shortcut::parse_keycaps(&entry.keycaps),
+            handles: entry
+                .handles
+                .iter()
+                .map(|handle| js_trim(handle).to_lowercase())
+                .filter(|handle| !handle.is_empty())
+                .collect(),
+        }
+    }
+}
+
+/// The prepared text of a set of entries, one per entry in order.
 pub(crate) struct Prepared {
-    pub fields: Vec<Vec<Field>>,
-    pub ids: Vec<Option<Vec<char>>>,
-    /// Each row's shortcut strokes, from its keycaps.
-    pub shortcuts: Vec<Option<Vec<Stroke>>>,
-    /// Each row's handles, lowercased.
-    pub handles: Vec<Vec<String>>,
+    entries: Vec<PreparedEntry>,
 }
 
 impl Prepared {
     pub(crate) fn new(entries: &[Entry]) -> Self {
-        Self {
-            fields: entries.iter().map(tier::fields_for).collect(),
-            ids: entries
-                .iter()
-                .map(|entry| {
-                    entry
-                        .action_id
-                        .as_deref()
-                        .filter(|id| !id.is_empty())
-                        .map(|id| id.chars().map(crate::text::fold_scalar).collect())
-                })
-                .collect(),
-            shortcuts: entries
-                .iter()
-                .map(|entry| shortcut::parse_keycaps(&entry.keycaps))
-                .collect(),
-            handles: entries
-                .iter()
-                .map(|entry| {
-                    entry
-                        .handles
-                        .iter()
-                        .map(|handle| js_trim(handle).to_lowercase())
-                        .filter(|handle| !handle.is_empty())
-                        .collect()
-                })
-                .collect(),
-        }
+        Self { entries: entries.iter().map(PreparedEntry::new).collect() }
+    }
+
+    /// Each of `entries` (the ones this was prepared from) with its index and prepared text.
+    fn rows<'a>(
+        &'a self,
+        entries: &'a [Entry],
+    ) -> impl Iterator<Item = (usize, (&'a Entry, &'a PreparedEntry))> {
+        entries.iter().zip(&self.entries).enumerate()
     }
 }
 
@@ -133,7 +139,7 @@ fn lift_candidates(store: Option<&Frecency>, raw: &str, now: f64) -> Vec<String>
     let chars: Vec<char> = collapsed_lower(raw).chars().collect();
     let half_life = store.and_then(|store| store.pick_half_life).unwrap_or(DEFAULT_PICK_HALF_LIFE);
     for length in (1..=chars.len().min(PICK_PREFIX_CHARS)).rev() {
-        let start: String = chars[..length].iter().collect();
+        let start: String = chars.iter().take(length).collect();
         let prefix = js_trim_end(&start);
         let mut rows: Vec<(&crate::LearnedPick, f64)> = picks
             .iter()
@@ -292,9 +298,9 @@ pub(crate) fn rank_empty(request: &RankRequest, entries: &[Entry]) -> Vec<Ranked
         .collect();
     suggested.sort_by(|a, b| a.1.suggested_rank.cmp(&b.1.suggested_rank).then(a.0.cmp(&b.0)));
     suggested.truncate(SUGGESTION_LIMIT);
-    if shows_recent && !suggested.is_empty() {
+    if shows_recent && let Some((_, first)) = suggested.first() {
         sections.push(RankedSection {
-            section_index: suggested[0].1.suggested_section_index,
+            section_index: first.suggested_section_index,
             rows: suggested.iter().map(|(index, _)| row(*index)).collect(),
         });
         recent.extend(suggested.iter().map(|(index, _)| *index));
@@ -311,8 +317,9 @@ pub(crate) fn rank_empty(request: &RankRequest, entries: &[Entry]) -> Vec<Ranked
     sections
 }
 
-struct Scored {
+struct Scored<'e> {
     index: usize,
+    entry: &'e Entry,
     score: i64,
     tier: i64,
     enabled: bool,
@@ -337,10 +344,10 @@ fn shown_while_typing(entry: &Entry, gated: bool, raw: &str) -> bool {
     !(gated && entry.query_prefix.as_deref().is_some_and(|prefix| !raw.starts_with(prefix)))
 }
 
-pub(crate) fn rank(
+pub(crate) fn rank<'e>(
     request: &RankRequest,
-    entries: &[Entry],
-    prepared: &Prepared,
+    entries: &'e [Entry],
+    prepared: &'e Prepared,
 ) -> Vec<RankedSection> {
     let raw = request.query.as_deref().unwrap_or("");
     let query = Query::new(raw);
@@ -361,30 +368,23 @@ pub(crate) fn rank(
     let handle_query = js_trim(raw).to_lowercase();
     // A query that names a shortcut ("cmd i", "⌥⇧K"); plain words parse to nothing.
     let chord = shortcut::parse_query(raw);
-    let names_shortcut = |index: usize| {
+    let names_shortcut = |text: &PreparedEntry| {
         chord.as_deref().is_some_and(|chord| {
-            prepared.shortcuts[index].as_deref().is_some_and(|row| shortcut::matches(chord, row))
+            text.shortcut.as_deref().is_some_and(|row| shortcut::matches(chord, row))
         })
     };
-    let mut scored: Vec<Scored> = Vec::new();
-    let rank_pass = |allows_typo: bool, scored: &mut Vec<Scored>| {
+    let mut scored: Vec<Scored<'e>> = Vec::new();
+    let rank_pass = |allows_typo: bool, scored: &mut Vec<Scored<'e>>| {
         let mut strong = 0;
-        for (index, entry) in entries.iter().enumerate() {
+        for (index, (entry, text)) in prepared.rows(entries) {
             if !shown_while_typing(entry, gated, raw) {
                 continue;
             }
-            let handle = names_handle(&prepared.handles[index], &handle_query);
-            let found = entry_tier(
-                entry,
-                prepared.ids[index].as_deref(),
-                &query,
-                &prepared.fields[index],
-                allows_typo,
-            );
+            let handle = names_handle(&text.handles, &handle_query);
+            let found = entry_tier(entry, text.id.as_deref(), &query, &text.fields, allows_typo);
             let (found, highlights) = match found {
                 Some(found) => {
-                    let highlights =
-                        highlights_for(found.query.get(), &prepared.fields[index][0].text);
+                    let highlights = highlights_for(found.query.get(), text.fields.title());
                     (found, highlights)
                 }
                 None if handle => (
@@ -410,7 +410,7 @@ pub(crate) fn rank(
             {
                 MAXIMUM_QUALITY
             } else {
-                match_quality(found.query.get(), &prepared.fields[index])
+                match_quality(found.query.get(), &text.fields)
             };
             if found.tier >= match_tier::SUBSTRING {
                 strong += 1;
@@ -425,13 +425,14 @@ pub(crate) fn rank(
             }
             scored.push(Scored {
                 index,
+                entry,
                 score,
                 tier: tier_reached,
                 enabled,
                 demoted: entry.demoted == Some(true),
                 exact_name: entry.demoted == Some(true) && title_is_query(&entry.title, raw),
                 shortcut: entry.has_shortcut == Some(true),
-                chord: names_shortcut(index),
+                chord: names_shortcut(text),
                 lifted: false,
                 aliased: enabled && entry.action_id.as_ref().is_some_and(|id| aliased.contains(id)),
                 handle: enabled && handle,
@@ -449,22 +450,23 @@ pub(crate) fn rank(
     if !candidates.is_empty() {
         let mut by_key: HashMap<&str, usize> = HashMap::new();
         for (position, item) in scored.iter().enumerate() {
-            if let Some(key) =
-                entries[item.index].frecency_key.as_deref().filter(|key| !key.is_empty())
+            if let Some(key) = item.entry.frecency_key.as_deref().filter(|key| !key.is_empty())
                 && item.enabled
             {
                 by_key.entry(key).or_insert(position);
             }
         }
-        if let Some(&position) = candidates.iter().find_map(|key| by_key.get(key.as_str())) {
-            scored[position].lifted = true;
+        let lifted = candidates.iter().find_map(|key| by_key.get(key.as_str()).copied());
+        // `by_key` holds positions of `scored`, so the lookup finds the row.
+        if let Some(item) = lifted.and_then(|position| scored.get_mut(position)) {
+            item.lifted = true;
         }
     }
     // The user's alias names its row, even when the query matches none of its text.
     if !aliased.is_empty() {
         let mut present: HashSet<Option<&str>> =
-            scored.iter().map(|item| entries[item.index].action_id.as_deref()).collect();
-        for (index, entry) in entries.iter().enumerate() {
+            scored.iter().map(|item| item.entry.action_id.as_deref()).collect();
+        for (index, (entry, text)) in prepared.rows(entries) {
             let Some(id) = entry.action_id.as_deref().filter(|id| !id.is_empty()) else { continue };
             if !aliased.contains(id)
                 || present.contains(&Some(id))
@@ -478,13 +480,14 @@ pub(crate) fn rank(
             present.insert(Some(id));
             scored.push(Scored {
                 index,
+                entry,
                 score: 0,
                 tier: 0,
                 enabled: true,
                 demoted: entry.demoted == Some(true),
                 exact_name: false,
                 shortcut: entry.has_shortcut == Some(true),
-                chord: names_shortcut(index),
+                chord: names_shortcut(text),
                 lifted: false,
                 aliased: true,
                 handle: false,
@@ -495,9 +498,9 @@ pub(crate) fn rank(
     // The row bound to the shortcut the query names, even when the query matches none of its text.
     if chord.is_some() {
         let present: HashSet<usize> = scored.iter().map(|item| item.index).collect();
-        for (index, entry) in entries.iter().enumerate() {
+        for (index, (entry, text)) in prepared.rows(entries) {
             if present.contains(&index)
-                || !names_shortcut(index)
+                || !names_shortcut(text)
                 || !shown_while_typing(entry, gated, raw)
             {
                 continue;
@@ -508,6 +511,7 @@ pub(crate) fn rank(
             let enabled = entry.is_enabled != Some(false);
             scored.push(Scored {
                 index,
+                entry,
                 score: if enabled { 0 } else { -DISABLED_PENALTY },
                 tier: 0,
                 enabled,
@@ -523,17 +527,16 @@ pub(crate) fn rank(
         }
     }
     // A setting whose whole title is the query, and the only one, keeps the whole-title tier.
-    let exact: Vec<usize> =
-        scored.iter().enumerate().filter(|(_, item)| item.exact_name).map(|(at, _)| at).collect();
-    if let [only] = exact.as_slice() {
-        scored[*only].tier += DEMOTION;
-        scored[*only].score = scored[*only].score.saturating_add(DEMOTION * TIER_SCALE);
+    let mut exact = scored.iter_mut().filter(|item| item.exact_name);
+    if let (Some(only), None) = (exact.next(), exact.next()) {
+        only.tier += DEMOTION;
+        only.score = only.score.saturating_add(DEMOTION * TIER_SCALE);
     }
     if request.ranks_prefix_first == Some(true) {
         let prefix = js_trim(raw).to_lowercase();
         let starts: HashSet<usize> = scored
             .iter()
-            .filter(|item| entries[item.index].title.to_lowercase().starts_with(&prefix))
+            .filter(|item| item.entry.title.to_lowercase().starts_with(&prefix))
             .map(|item| item.index)
             .collect();
         scored.sort_by(|left, right| {
@@ -573,7 +576,7 @@ pub(crate) fn rank(
     let highlight_limit = usize::try_from(request.highlight_limit.unwrap_or(60)).unwrap_or(0);
     let (mut order, rows_by_section) =
         group(scored.into_iter().take(row_limit).enumerate().map(|(rank, item)| {
-            let entry = &entries[item.index];
+            let entry = item.entry;
             let section = entry.typing_section_index.or(entry.section_index).unwrap_or(0);
             let highlights = if rank < highlight_limit { item.highlights } else { Vec::new() };
             (section, RankedRow { index: item.index, score: item.score, highlights })

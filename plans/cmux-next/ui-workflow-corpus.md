@@ -120,20 +120,6 @@ real network URLs in offline fixtures, and manifests that omit a source ref or a
 writes a normalized manifest beside the run so later agents do not depend on the hand-authored
 format.
 
-### Executable form: the oracle case
-
-The correctness oracle ([oracle-DESIGN.md](oracle-DESIGN.md), section 3) runs these manifests. Its
-case format, [`schemas/oracle/case-v1.schema.json`](../../schemas/oracle/case-v1.schema.json), is this
-manifest plus `requires` (the capabilities a product must have), `switches`, `platforms`,
-`allow_crashes`, and per step an `op`, `waitFor` and `checkpoint`. The schema rejects unknown fields
-and real network URLs in offline fixtures. The rules it cannot state, such as unique step IDs, are in
-[`scripts/cmux-next/oracle/case_checks.py`](../../scripts/cmux-next/oracle/case_checks.py)
-(`python3 -I scripts/cmux-next/oracle/case_checks.py --selftest`). Journey cases go in
-`tests/oracle/corpus/journeys/<id>.json`, one file for each ID in the table above. The expected
-semantic state of a step is a snapshot of
-[`schemas/oracle/snapshot-v1.schema.json`](../../schemas/oracle/snapshot-v1.schema.json), not a
-screenshot.
-
 ## State graph
 
 The manifest steps are edges in a state graph. The graph is stored in the normalized run receipt
@@ -274,8 +260,6 @@ A review finding uses this shape:
   "confidence": "confirmed|probable|unconfirmed"
 }
 ```
-
-The oracle writes each confirmed divergence in this shape (`divergence.json`).
 
 This lets a later Codex, ChatGPT, or Claude session reproduce a bug from structured evidence,
 while still giving the reviewer the video that explains what a human saw. Agents must preserve

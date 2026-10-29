@@ -2,7 +2,7 @@ import CmuxFuzzSupport
 import Testing
 @testable import CmuxNextDaemon
 
-/// ``DeadlineHeap`` and ``PendingRequests`` (p05-ipc-090) against plain models under seeded random operations.
+/// ``DeadlineHeap`` and ``PendingRequests`` against plain models under seeded random operations.
 @Suite struct DeadlineHeapTests {
     /// Inserts (new and replacing), removals by id and due pops agree with a sorted model; equal deadlines
     /// come out in id order.

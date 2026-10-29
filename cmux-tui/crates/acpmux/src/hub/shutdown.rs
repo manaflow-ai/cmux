@@ -2,6 +2,7 @@
 //! stops: detach agents under hosts, or end them (`_acpmux/shutdown endAgents`).
 
 use super::*;
+use crate::no_panic::LockExt;
 
 /// The shutdown's decision about hosted agents (`Hub::shutdown_plan`).
 #[derive(Default)]
@@ -22,7 +23,7 @@ impl Hub {
         &self,
         keep: std::collections::HashSet<String>,
     ) -> Result<(), RpcError> {
-        let mut plan = self.shutdown_plan.lock().unwrap();
+        let mut plan = self.shutdown_plan.lock_or_recover();
         if plan.started {
             return Err(RpcError::internal(
                 "the daemon is already shutting down and hands its agents off; endAgents comes too late",
@@ -62,7 +63,7 @@ impl Hub {
         // A pass that already started finishes first (bounded by its kills).
         drop(self.idle_pass.lock().await);
         let (end_agents, keep) = {
-            let mut plan = self.shutdown_plan.lock().unwrap();
+            let mut plan = self.shutdown_plan.lock_or_recover();
             plan.started = true;
             (plan.end_agents, plan.keep.clone())
         };
@@ -107,7 +108,7 @@ impl Hub {
             if ends {
                 self.settle_cancelled(s);
             } else {
-                *s.turn.lock().unwrap() = None;
+                *s.turn.lock_or_recover() = None;
             }
             if s.status() != SessionStatus::Closed {
                 self.set_status(s, SessionStatus::Idle);
@@ -132,8 +133,8 @@ impl Hub {
     /// `turn_result`, the record every reader treats as the turn's end), and
     /// its prompt future writes nothing more.
     fn settle_cancelled(&self, s: &Arc<Session>) {
-        let Some(turn) = s.turn.lock().unwrap().take() else { return };
-        self.settled_by_shutdown.lock().unwrap().insert(turn.turn_id.clone());
+        let Some(turn) = s.turn.lock_or_recover().take() else { return };
+        self.settled_by_shutdown.lock_or_recover().insert(turn.turn_id.clone());
         let result = json!({"status": "cancelled", "stopReason": "cancelled", "detail": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq});
         // `lastTurn` too, as every other turn end: the chat lists date a chat by its last turn's end.
         self.record_last_turn(s, &result);

@@ -1,4 +1,4 @@
-// glass-capture: what the display showed after each real key, read outside the app (p04-input-071, done check DC3).
+// glass-capture: what the display showed after each real key, read outside the app.
 // input-glass-check.py compiles it (`xcrun swiftc -swift-version 5 -O`) and runs it once per surface.
 //
 //   glass-capture --check-grant

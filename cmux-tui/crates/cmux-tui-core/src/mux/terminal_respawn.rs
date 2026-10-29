@@ -290,7 +290,7 @@ impl Mux {
         end: &TerminalEnd,
     ) -> Option<(String, String)> {
         let TerminalEnd::HostLost(_) = end else { return None };
-        let cause = end.wire_json()["reason"].as_str()?.to_string();
+        let cause = end.wire_json().get("reason").and_then(Value::as_str)?.to_string();
         if !RESPAWN_REASONS.contains(&cause.as_str()) || !self.respawn_enabled() {
             return None;
         }

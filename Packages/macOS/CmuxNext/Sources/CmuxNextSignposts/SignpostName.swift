@@ -277,7 +277,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// flow id (bit 63 set).
     case taskPost = 50
     /// A posted item's run (Chrome's `ThreadPool_RunTask`): a BackgroundWork lane item's (emitter: CmuxNextWakeups
-    /// `LaneScheduler`, p02-threads-124) or a control request's on the main thread (``TaskTrace``, task 042). Ring:
+    /// `LaneScheduler`) or a control request's on the main thread (``TaskTrace``, task 042). Ring:
     /// B/E. B arg0 the lane in bits 8-15 (0 files, 1 system, 2 cpu, 3 main, 0xFF a lane made without one) and the
     /// priority in bits 0-7 (a `WorkPriority`'s, or on the main lane a `MainWorkClass`'s, `rawValue`); B arg1 the
     /// queue wait in us (on the main lane `UInt64.max` when the post was not traced). Right after the B, the flow-in
@@ -300,7 +300,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the next content-changing commit (events that change no frame are dropped). Ring: AB/AE; begin arg0
     /// the kind (mouse_down, mouse_up, drag, scroll, ime_commit, paste).
     case inputFrame = 55
-    /// One input event's EventLatency record (p04-input-004; emitter `InputLatencyTracker` in CmuxNextInput, wired
+    /// One input event's EventLatency record (emitter `InputLatencyTracker` in CmuxNextInput, wired
     /// into the app's input dispatch by p04-input-005): a point event when its slot closes, at the presented estimate
     /// of the frame that shows it (the turn's commit for a view, the target's own content submission for a terminal
     /// or a page), so it never runs as an interval across turns. Message (``InputLatencySignpostMessage``, numbers
@@ -384,7 +384,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// ``webuiOpen`` are that open's requests, and all its slices sum the handler's main-thread time for it.
     case webuiScheme = 72
 
-    // MARK: stall, continued (emitter: CmuxNextWakeups `MainTurnMeter`, task p06-scheduler-008)
+    // MARK: stall, continued (emitter: CmuxNextWakeups `MainTurnMeter`)
     /// One busy main run-loop turn (the innermost nested loop's) ran past 4 ms. Ring only, no
     /// `os_signpost` (it is written on the main thread inside the slow turn, with no allocation):
     /// instant; arg0 the turn in us, bit 63 set for a nested turn; arg1 the scheduled tasks', render
@@ -392,7 +392,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// 100 us units (0xFFFF at 6.5 s or more). Per turn: never mirrored to MetricKit.
     case stallMainTurn = 73
 
-    // MARK: launch, continued (emitter: CmuxNextWakeups `StartupTaskLog`, task p08-startup-010)
+    // MARK: launch, continued (emitter: CmuxNextWakeups `StartupTaskLog`)
     /// One task the launch scheduler (`StartupScheduler`) runs, from its start to its return, on main or on
     /// its lane. Message: `name=<Domain.step> priority=<critical|afterFirstFrame|afterStartup>`. Ring: B/E
     /// (it begins and ends in one synchronous call on one thread); arg0 the priority's position + 1 (0 not
@@ -403,7 +403,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// held until then.
     case launchStartupComplete = 76
 
-    // MARK: steps (emitters: the start-path timings, task p09-observability-035)
+    // MARK: steps (emitters: the start-path timings)
     // Each step event fires every time its step happens, so none is in the launch category: the App keeps the
     // first of each as a launch mark (`launch.mark`), and the launch.* slices above end at those marks.
 
@@ -418,18 +418,18 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// (`AgentPaneLaunchTimings.Step`).
     case webuiAgentPaneStep = 78
     /// One phase of the libghostty runtime's one-time start on main (`TerminalTimings`): `ghostty_init`, the
-    /// config load, `ghostty_app_new`. Message: `phase=<name>`. Ring: instant at the phase's end; arg0 the
+    /// config load, `ghostty_app_new`, then its first surface's (`TerminalFirstSurfaceSplit`). Message: `phase=<name>`. Ring: instant at the phase's end; arg0 the
     /// phase's code (`TerminalTimings.RuntimePhase`), arg1 its duration in ns.
     case stallGhosttyRuntimePhase = 79
 
-    // MARK: launch reads (emitter: CmuxNextLaunch `LaunchReadEvent`, task p09-observability-036)
+    // MARK: launch reads (emitter: CmuxNextLaunch `LaunchReadEvent`)
 
-    /// A launch read is done (CmuxNextLaunch `LaunchReadEvent.signal()`, task p08-startup-028; Chromium's
+    /// A launch read is done (CmuxNextLaunch `LaunchReadEvent.signal()`; Chromium's
     /// `base::OneShotEvent::Signal`): the steps that waited for it run next. Message: `read=<Domain.read>
     /// waiting=<steps released>`. Ring: instant; arg0 the steps released. Once per read per launch.
     case launchReadDone = 80
 
-    // MARK: burst (emitter: CmuxNextControl `BurstTrace`, task p09-observability-044)
+    // MARK: burst (emitter: CmuxNextControl `BurstTrace`)
 
     /// One burst bench mark (`BurstTrace`), in every build while the `burst` category records: a refusal the person
     /// saw, a Cmd-W's outcome, a grid sent to a PTY, its echo, the first output after it. Ring only: instant; arg0
@@ -459,7 +459,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// arg1 the presented time (uptime ns).
     case actionPresented = 84
 
-    // MARK: cef memory pressure (emitter: CmuxNextBrowser `CEFMemoryPressureVote`, task p07-memory-051)
+    // MARK: cef memory pressure (emitter: CmuxNextBrowser `CEFMemoryPressureVote`)
 
     /// cmux's memory pressure vote into Chromium's aggregator (`cmux_shim_memory_pressure_vote`), the synchronous
     /// part of the call on the main thread: in process, the vote and the sync listeners Chromium runs when the
@@ -469,7 +469,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the level. Once per change of the coordinator's vote.
     case cefMemoryPressureVote = 86
 
-    // MARK: ghostty lock wait (emitter: CmuxNextTerminal `GhosttyLockWaitSignpost`, task p04-input-078)
+    // MARK: ghostty lock wait (emitter: CmuxNextTerminal `GhosttyLockWaitSignpost`)
 
     /// One input entry point's wait of 50 us or more for Ghostty's terminal lock (key, modifier change, IME point,
     /// text, preedit, a manual surface's input write), reported by ghostty-next after the wait
@@ -478,7 +478,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// `wait_us=<wait>`. Ring: instant; arg0 the wait in ns.
     case ghosttyLockWait = 87
 
-    // MARK: launch catalog read (emitter: CmuxNextActions `ActionCatalogLaunch`, task p08-startup-092)
+    // MARK: launch catalog read (emitter: CmuxNextActions `ActionCatalogLaunch`)
 
     /// The registry's first read of the action catalog on the main thread (`ActionCatalogLaunch.descriptors()`),
     /// from its start to its return: 0 when the launch warm-up thread had built the catalog, the rest of that build

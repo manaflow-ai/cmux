@@ -197,7 +197,7 @@ pub fn load_one(cfg: &Config, gate: &FolderGate, folder: &Path, id: &str) -> Opt
             }
         }
     }
-    let program = &profile.argv[0];
+    let program = profile.argv.first().map_or("", String::as_str);
     if program.contains('/') && !Path::new(program).is_absolute() {
         fp.diagnostics.push(Diagnostic::error(
             &shown,

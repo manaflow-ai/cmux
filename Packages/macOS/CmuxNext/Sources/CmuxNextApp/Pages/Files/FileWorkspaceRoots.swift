@@ -25,8 +25,8 @@ nonisolated struct FileWorkspaceRoots: Sendable, Equatable {
     }
 
     /// What one file page tab may open and save besides the roots, file by file (canonical paths).
-    /// A discarded tab's next provider starts with its last provider's (`memoryDiscardInternalPages`,
-    /// p07-memory-026), so a discard changes no file's grant: a file the page followed in place stays
+    /// A discarded tab's next provider starts with its last provider's (`memoryDiscardInternalPages`),
+    /// so a discard changes no file's grant: a file the page followed in place stays
     /// shown, not granted, and the page can still go back to what it showed.
     struct Grants: Sendable, Equatable {
         /// The tab's documents, whoever opened them: its first document, chooseFile results,

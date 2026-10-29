@@ -30,9 +30,13 @@ import func CmuxSafeConcurrency.withOnceContinuation
 ///   clears it. A detach cmux asks for is never reported.
 /// - `uint32_t cmux_remote_shim_last_reply_token(void)`: the REPLY token of the async call this turn
 ///   just made; 0 when it sent nothing (task 018).
+/// - `void cmux_remote_shim_set_input_ack(void* ctx, cmux_remote_input_ack_fn ack)`: where the host's
+///   input acks go, `ack(ctx, browser, kind, seq)` on the main thread (task 042); optional.
+/// - `uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq)`: the input seq and control seq of the
+///   next ring frame (task 092); 0 with no host attached; optional.
 /// - `void cmux_remote_shim_set_host_watch(void* ctx, cmux_remote_host_watch_fn watch)`: where the host
 ///   watch goes, `watch(ctx, event, a, b)` on the main thread: input waiting for the host's dispatch,
-///   its progress and its end, and the host's UI hangs (task p01-process-084). Optional: a remote shim
+///   its progress and its end, and the host's UI hangs. Optional: a remote shim
 ///   without it has no busy banner.
 ///
 /// Immutable C function pointers and a `dlsym` lookup over a handle that is never closed.
@@ -45,6 +49,9 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     typealias ReplyFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeRawPointer?, Int) -> Void
     typealias SetReplyFn = @convention(c) (UnsafeMutableRawPointer?, ReplyFn?) -> Void
     typealias LastReplyTokenFn = @convention(c) () -> UInt32
+    typealias InputAckFn = @convention(c) (UnsafeMutableRawPointer?, Int32, Int32, UInt32) -> Void
+    typealias SetInputAckFn = @convention(c) (UnsafeMutableRawPointer?, InputAckFn?) -> Void
+    typealias OrderInputFn = @convention(c) (UnsafeMutablePointer<UInt32>?) -> UInt32
     typealias HostWatchFn = @convention(c) (UnsafeMutableRawPointer?, Int32, Int64, Int64) -> Void
     typealias SetHostWatchFn = @convention(c) (UnsafeMutableRawPointer?, HostWatchFn?) -> Void
     typealias EndedFn = @convention(c) (UnsafeMutableRawPointer?, Int32) -> Void
@@ -57,6 +64,9 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     private let setReplyFn: SetReplyFn
     private let setEndedFn: SetEndedFn
     private let lastReplyTokenFn: LastReplyTokenFn
+    /// The input ring's two entry points (tasks 042 and 092); nil in a dylib built before them.
+    private let setInputAckFn: SetInputAckFn?
+    private let orderInputFn: OrderInputFn?
     /// `cmux_remote_shim_set_host_watch`, nil for a remote shim without it.
     private let setHostWatchFn: SetHostWatchFn?
 
@@ -74,10 +84,14 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
         let abiID: @convention(c) () -> UnsafePointer<CChar>? = try unsafe resolve("cmux_shim_abi_id")
         try CEFShimLibrary.checkABI(expected: expected, found: unsafe abiID().map(String.init(cString:)))
         _ = try unsafe CEFShimLibrary.resolving(symbol, hostExports: [])
+        // The input ring's two entry points are optional (a dylib built before tasks 042 and 092).
+        let setInputAckFn = unsafe symbol("cmux_remote_shim_set_input_ack").map { unsafe unsafeBitCast($0, to: SetInputAckFn.self) }
+        let orderInputFn = unsafe symbol("cmux_remote_shim_order_input").map { unsafe unsafeBitCast($0, to: OrderInputFn.self) }
         return try unsafe CEFRemoteShim(symbol: symbol, attachFn: resolve("cmux_remote_shim_attach"),
                                         detachFn: resolve("cmux_remote_shim_detach"), setReplyFn: resolve("cmux_remote_shim_set_reply"),
                                         setEndedFn: resolve("cmux_remote_shim_set_ended"),
                                         lastReplyTokenFn: resolve("cmux_remote_shim_last_reply_token"),
+                                        setInputAckFn: setInputAckFn, orderInputFn: orderInputFn,
                                         setHostWatchFn: symbol("cmux_remote_shim_set_host_watch").map { unsafe unsafeBitCast($0, to: SetHostWatchFn.self) })
     }
 
@@ -105,8 +119,33 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
         // SAFETY: NULL context and callback clear the reply and end sinks; nothing is read through them.
         unsafe setReplyFn(nil, nil)
         unsafe setEndedFn(nil, nil)
+        // SAFETY: NULL context and callback clear the input ack sink the same way.
+        unsafe setInputAckFn?(nil, nil)
         // SAFETY: as above, for the host watch.
         if let setHostWatchFn { unsafe setHostWatchFn(nil, nil) }
+    }
+
+    /// The remote shim has the input ring's entry points: input acks and ordered input seqs.
+    var hasInputRing: Bool { unsafe setInputAckFn != nil && orderInputFn != nil }
+
+    /// Where the host's input acks go from now on (`ack(context, browser, kind, seq)` on the main
+    /// thread); nil drops them. Whoever sets a context keeps it alive until it sets another.
+    @MainActor
+    func setInputAck(context: UnsafeMutableRawPointer?, ack: InputAckFn?) {
+        // SAFETY: the shim keeps `context` opaque and passes it back only to `ack`; the caller keeps it alive
+        // until it sets another (ChromiumHostInputRoute, released in CEFHostStart.endInputRoute).
+        unsafe setInputAckFn?(context, ack)
+    }
+
+    /// The next ring frame's input seq and the control seq it follows (task 092); nil with no host
+    /// attached (the frame is not written) or a dylib without the entry point.
+    @MainActor
+    func orderInput() -> (seq: UInt32, ctlSeq: UInt32)? {
+        guard let orderInputFn = unsafe orderInputFn else { return nil }
+        var ctlSeq: UInt32 = 0
+        // SAFETY: the shim writes one UInt32 through the pointer, which is valid for the call.
+        let seq = unsafe orderInputFn(&ctlSeq)
+        return seq == 0 ? nil : (seq, ctlSeq)
     }
 
     /// The host watch goes to `monitor` until ``detach()``: false when this remote shim has no host watch.

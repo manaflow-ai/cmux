@@ -4,7 +4,7 @@ import Testing
 
 @testable import CmuxIrxTransport
 
-/// The tunnel's address conversions without pointer views (p10-stability-064):
+/// The tunnel's address conversions without pointer views:
 /// kernel structs to bytes, bytes to text, and the frame length prefix.
 @Suite("tunnel address conversions")
 struct IrxTunnelIPAddressKernelTests {

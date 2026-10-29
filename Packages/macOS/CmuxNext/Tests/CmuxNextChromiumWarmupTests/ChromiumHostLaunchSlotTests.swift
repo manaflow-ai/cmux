@@ -3,7 +3,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p08-startup-046: with the Chromium Host the launch decides the host's start once the restore finished,
+/// With the Chromium Host the launch decides the host's start once the restore finished,
 /// when the restored panes exist: a Chromium page in a shown pane starts it after the first frame, hidden
 /// Chromium tabs only after startup, and nothing likely only arms the warm-up. Startup completing with no
 /// restore decides then.
@@ -42,7 +42,7 @@ import Testing
         #expect(seen.started == [.restoredTab])
     }
 
-    /// p01-process-086: Chromium as the default engine starts the host at the first frame, before startup
+    /// Chromium as the default engine starts the host at the first frame, before startup
     /// completes, and never before the first frame.
     @Test func chromiumAsTheDefaultEngineStartsTheHostAtTheFirstFrame() {
         let f = StartupTestScheduler()

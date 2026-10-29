@@ -26,8 +26,10 @@ public protocol InputResponseObservation: AnyObject {
 /// loop from the start of the input's dispatch, before a nested loop's first wait).
 @MainActor
 public struct MainRunLoopBeforeCommit: InputResponseRunLoop {
+    /// The main run loop's commit stages.
     public nonisolated init() {}
 
+    /// Adds a repeating main run loop observer before waiting and on exit, in the common modes.
     public func observeBeforeCommit(order: CFIndex, _ handler: @escaping @MainActor () -> Void) -> any InputResponseObservation {
         MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: order) { _ in handler() }
     }

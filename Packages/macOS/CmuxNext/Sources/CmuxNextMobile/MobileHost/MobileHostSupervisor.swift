@@ -12,6 +12,14 @@ import os
 ///
 /// Tokens never leave this actor except as hostd's stdin lines; nothing logs them.
 public actor MobileHostSupervisor {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.mobile.host-supervisor`): its binary check block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.mobile.host-supervisor
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.mobile.host-supervisor", qos: .utility)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// What one run needs from the app.
     public struct Inputs: Sendable {
         public var launch: MobileHostLaunch

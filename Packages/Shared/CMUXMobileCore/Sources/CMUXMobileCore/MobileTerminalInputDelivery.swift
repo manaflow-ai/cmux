@@ -31,8 +31,7 @@ public struct MobileTerminalInputDelivery: Equatable, Hashable, Sendable {
         var data = Data(capacity: Self.encodedByteCount)
         data.append(contentsOf: surfaceID.uuidBytes)
         data.append(contentsOf: streamID.uuidBytes)
-        var sequence = sequence.bigEndian
-        withUnsafeBytes(of: &sequence) { data.append(contentsOf: $0) }
+        data.appendBigEndian(sequence)
         return data
     }
 
@@ -123,10 +122,8 @@ public struct MobileTerminalInputAcknowledgement: Equatable, Sendable {
         data.append(1) // body version
         data.append(status.rawValue)
         data.append(contentsOf: streamID.uuidBytes)
-        var sequence = sequence.bigEndian
-        withUnsafeBytes(of: &sequence) { data.append(contentsOf: $0) }
-        var expected = expected.bigEndian
-        withUnsafeBytes(of: &expected) { data.append(contentsOf: $0) }
+        data.appendBigEndian(sequence)
+        data.appendBigEndian(expected)
         return data
     }
 

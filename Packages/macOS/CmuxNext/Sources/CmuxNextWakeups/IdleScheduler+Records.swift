@@ -3,7 +3,9 @@
 extension IdleScheduler {
     /// Counters for `debug.main_budget` (its `idle` member) and the tests.
     public struct Stats: Sendable, Equatable {
+        /// Long idle periods started (no frame expected).
         public var longPeriods = 0
+        /// Short idle periods started (between a frame's end and the next frame).
         public var shortPeriods = 0
         /// Idle tasks run in idle periods.
         public var tasks = 0

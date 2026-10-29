@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import MessagesLabHome
 
-/// The transcript's pixel caches take their size from the host and give bytes back on request (p07-memory-081):
+/// The transcript's pixel caches take their size from the host and give bytes back on request:
 /// `setBudget(bytes:)` caps each cache, `trim(toFraction:)` frees the least recently used first, a budget of 0
 /// keeps nothing, and a row drawn again after a trim has the same pixels.
 @MainActor @Suite(.serialized) struct TranscriptCachesBudgetTests {

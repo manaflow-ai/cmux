@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Harnesses page's Sign In and Install… (cx-uj5g8 follow-up): `tab.open` with `keep` asks the
 /// host to open the terminal or browser tab beside the page, so a page with no chat yet is not
@@ -16,7 +17,7 @@ struct AgentPaneOpenTabKeepTests {
     }
 
     @Test func keepReachesTheHostOnlyWhenThePageAsks() async {
-        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), allowsTabConversion: true)
         var opened: [AgentPaneOpenTab] = []
         model.onOpenTab = { opened.append($0) }
         model.transport.gestures.record()  // a run needs the person's click (cx-hnpxh)

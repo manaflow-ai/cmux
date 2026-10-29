@@ -8,6 +8,7 @@ import CmuxNextPages
 import CmuxNextSidebar
 @testable import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 extension MainPaneGutterSuites {
@@ -63,7 +64,7 @@ extension MainPaneGutterSuites {
                 layout = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
                 let sidebarModel = SidebarModel()
                 if sidebarHidden { sidebarModel.presentation = .hidden }
-                root = WindowRootView(sidebar: SidebarContainerView(model: sidebarModel, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+                root = WindowRootView(sidebar: SidebarContainerView(model: sidebarModel, mainWork: MainWorkScheduler(budget: MainFrameBudget())), revealDeadlines: .testing())
                 window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
@@ -189,7 +190,7 @@ extension MainPaneGutterSuites {
             let file = try Self.page("<html><body></body></html>")
             defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
             let descriptor = PageDescriptor(id: "test.one-edge", resource: "one-edge", processGroup: .solo, namespaces: [])
-            let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: []))
+            let page = try #require(PageWebView(descriptor: descriptor, root: file.deletingLastPathComponent(), routes: [], deadlines: .testing()))
             let rig = Rig(content: page)
             defer { rig.tearDown() }
             try expectOneEdge(rig, content: page, "page pane")

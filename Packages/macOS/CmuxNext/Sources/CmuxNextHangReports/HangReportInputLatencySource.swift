@@ -1,6 +1,6 @@
 public import CmuxNextInputCore
 
-/// Where a report's input latency comes from (p04-input-010): the app passes an adapter over the
+/// Where a report's input latency comes from: the app passes an adapter over the
 /// input latency reporter's field report (`InputLatencyReporter` in CmuxNextControl; the wiring is
 /// p04-input-104). ``HangReportService`` turns recording on only while reports are on and its wire
 /// schema carries input latency, previews without taking, takes for a report it builds, and

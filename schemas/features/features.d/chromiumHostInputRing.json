@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostInputRing",
+  "owner": "PL-cef-layer",
+  "description": "In host mode, a Chromium page's keys, clicks, pointer moves and wheel ticks go to the Chromium host through the shared-memory input ring, with one move and one wheel tick in flight per page and the rest coalesced until the host acks.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

@@ -1,4 +1,4 @@
-// Experimental > Feature Flags (p12-perf-process-096, feature featureFlagsCard): the host lists'
+// Experimental > Feature Flags (feature featureFlagsCard): the host lists'
 // `features` (the socket's features.list plus the next launch's local choices). Each feature shows
 // its state, the input that decided it and its channel default; DEV and NIGHTLY get a choice per
 // feature that applies at the next launch, Release none. Off (null) draws no card.

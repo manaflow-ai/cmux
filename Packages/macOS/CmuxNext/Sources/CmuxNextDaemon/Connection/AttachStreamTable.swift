@@ -1,6 +1,6 @@
 import Foundation
 
-/// One item the reader thread hands an attach stream's sink (attach-streams-v1, cmux-tui/spec/events.md
+/// One item the reader thread routes to an attach stream's sink (attach-streams-v1, cmux-tui/spec/events.md
 /// "Attach streams").
 enum AttachStreamDelivery: Sendable {
     /// An item of the stream: its event name and its whole line.
@@ -11,7 +11,20 @@ enum AttachStreamDelivery: Sendable {
     case lost(TransportCloseReason)
 }
 
-typealias AttachStreamSink = @Sendable (AttachStreamDelivery) -> Void
+/// Where one attach stream's items go. The reader only routes them: each item runs on the connection's
+/// ``DecodeLane`` in wire order, weighed as the stream's `dispatch` says, and the reader runs the stream's
+/// ``EventDispatch/readerWait`` after the item, outside its hang scope, so a lane item never waits on the view.
+struct AttachStreamSink: Sendable {
+    /// The weight of each item and the reader's wait after it.
+    let dispatch: EventDispatch
+    /// The connection's decode lane, in wire order: one item of the stream. Never waits.
+    let deliver: @Sendable (AttachStreamDelivery) -> Void
+
+    init(dispatch: EventDispatch, deliver: @escaping @Sendable (AttachStreamDelivery) -> Void) {
+        self.dispatch = dispatch
+        self.deliver = deliver
+    }
+}
 
 /// A stream id this side minted, with the epoch of that minting, so a late cancel or release of an
 /// id that ended and was minted again never touches the newer stream.
@@ -20,7 +33,7 @@ struct AttachStreamHandle: Sendable, Hashable {
     let epoch: UInt64
 }
 
-/// The client-minted attach streams of one connection (p05-ipc-095), kept in the transport's state
+/// The client-minted attach streams of one connection, kept in the transport's state
 /// under its one lock. Chrome's `MultiplexRouter` works the same way: the side that associates an
 /// endpoint picks its id, every message names it, and the id is forgotten only once the peer's
 /// closed notification arrived (mojo/public/cpp/bindings/lib/multiplex_router.cc,
@@ -58,8 +71,8 @@ struct AttachStreamTable {
     }
 
     private var entries: [UInt16: Entry] = [:]
-    /// The epochs of the ids whose opener went as a REQUEST frame naming the id in its header (p05-ipc-096):
-    /// the daemon knows those streams and takes INPUT frames on them (pending_streams.rs, p05-ipc-087).
+    /// The epochs of the ids whose opener went as a REQUEST frame naming the id in its header:
+    /// the daemon knows those streams and takes INPUT frames on them (pending_streams.rs).
     private var announced: [UInt16: UInt64] = [:]
     private var lastMinted: UInt16 = 0
     private var epochs: UInt64 = 0
@@ -85,7 +98,7 @@ struct AttachStreamTable {
     }
 
     /// Binds `sink` to a reserved id; false when the id is no longer this handle's.
-    mutating func bind(_ handle: AttachStreamHandle, _ sink: @escaping AttachStreamSink) -> Bool {
+    mutating func bind(_ handle: AttachStreamHandle, _ sink: AttachStreamSink) -> Bool {
         guard case .reserved(let epoch)? = entries[handle.id], epoch == handle.epoch else { return false }
         entries[handle.id] = .open(epoch: epoch, sink)
         return true

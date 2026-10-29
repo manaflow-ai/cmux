@@ -1,7 +1,7 @@
 public import CmuxNextWakeups
 public import Observation
 
-/// The restored windows behind the front one that wait to be built (p08-startup-062), as
+/// The restored windows behind the front one that wait to be built, as
 /// ``LaunchWindowVisibility`` split them: each window that shows is built in its own afterFirstFrame
 /// post of the launch's ``StartupScheduler`` (one window per post, front first, so no main turn
 /// builds them all), and each hidden one in its own afterStartup post. A window something acts in

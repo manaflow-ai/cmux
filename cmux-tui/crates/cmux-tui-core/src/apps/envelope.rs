@@ -5,10 +5,15 @@
 
 use std::sync::OnceLock;
 
+use crate::panic_free::JsonFields;
 use serde_json::{Map, Value, json};
 
 const CATALOG_JSON: &str = include_str!("../../../../spec/resource-operations-v2.json");
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: CATALOG_JSON is compiled in (include_str!); every catalog test parses it"
+)]
 pub(crate) fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     // crash-allow: compiled-in catalog JSON (include_str!); a parse failure fails every catalog test
@@ -57,7 +62,7 @@ pub(crate) fn request(
         let key = idempotency_key
             .filter(|k| !k.is_empty())
             .ok_or_else(|| error("validation.invalid", "a mutation needs an idempotency key"))?;
-        envelope["idempotency_key"] = Value::String(key);
+        envelope.insert("idempotency_key", Value::String(key));
     }
     Ok(envelope.to_string())
 }
@@ -65,20 +70,58 @@ pub(crate) fn request(
 /// Response envelope to the ABI body: reads answer `{value}`, mutations
 /// already answer a `MutationResult` (`{value, revision, replayed, …}`).
 pub(crate) fn answer(op: &str, response: Value) -> Result<Value, Value> {
-    if response["ok"] == true {
+    if response.field("ok") == true {
         let result = response.get("result").cloned().unwrap_or(Value::Null);
-        let mutation = catalog()["operations"][op]["class"] == "mutation";
+        let mutation = catalog().field("operations").field(op).field("class") == "mutation";
         return Ok(if mutation && result.get("value").is_some() {
             result
         } else {
             json!({ "value": result })
         });
     }
-    let error = response.get("error").cloned().unwrap_or_else(|| json!({}));
-    Err(json!({
-        "code": error["code"].as_str().unwrap_or("operation.failed"),
-        "message": error["message"].as_str().unwrap_or("operation failed"),
+    Err(error_answer(response.field("error")))
+}
+
+/// The ABI error body of a failed response's `error` (missing fields take
+/// the generic code and message).
+pub(crate) fn error_answer(error: &Value) -> Value {
+    json!({
+        "code": error.field("code").as_str().unwrap_or("operation.failed"),
+        "message": error.field("message").as_str().unwrap_or("operation failed"),
         "details": error.get("details").cloned().unwrap_or(Value::Null),
-        "retryable": error["retryable"].as_bool().unwrap_or(false),
-    }))
+        "retryable": error.field("retryable").as_bool().unwrap_or(false),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::{answer, error_answer};
+
+    #[test]
+    fn an_error_answer_keeps_the_fields_given_and_defaults_the_rest() {
+        let full = json!({"code": "x.y", "message": "m", "retryable": true, "details": {"a": 1}});
+        assert_eq!(
+            error_answer(&full),
+            json!({"code": "x.y", "message": "m", "details": {"a": 1}, "retryable": true})
+        );
+        let defaults = json!({
+            "code": "operation.failed", "message": "operation failed",
+            "details": null, "retryable": false,
+        });
+        assert_eq!(error_answer(&Value::Null), defaults);
+        assert_eq!(error_answer(&json!("not an object")), defaults);
+    }
+
+    #[test]
+    fn a_failed_response_answers_its_error_and_one_without_error_the_defaults() {
+        let failed = json!({"ok": false, "error": {"code": "a.b", "message": "no"}});
+        assert_eq!(answer("workspace.list", failed).unwrap_err()["code"], "a.b");
+        assert_eq!(
+            answer("workspace.list", json!({"ok": false})).unwrap_err()["code"],
+            "operation.failed"
+        );
+        assert_eq!(answer("workspace.list", json!([])).unwrap_err()["code"], "operation.failed");
+    }
 }

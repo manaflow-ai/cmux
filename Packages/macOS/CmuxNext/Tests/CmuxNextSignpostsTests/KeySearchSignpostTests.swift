@@ -3,7 +3,7 @@ import CmuxNextCompat
 @testable import CmuxNextTrace
 import Testing
 
-/// The `key.omnibar_suggest` and `key.palette_search` slices (p09-observability-040, perf-hot `omnibar-key` and
+/// The `key.omnibar_suggest` and `key.palette_search` slices (perf-hot `omnibar-key` and
 /// `palette-key`): each pass is one B/E pair with its pass code in the B and the list's row count in the E, nothing is
 /// written while the key category is off, and nothing at all, not even the begin, while the keystroke-timing gate is
 /// closed. Each test records into its own runtime.

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d.
+// cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -840,6 +840,12 @@ pub struct BindConversationTabSessionResult {
     pub conversation: T::ConversationTabRecord,
     pub replayed: bool,
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BridgeHelloRequest {
+    pub features: Vec<String>,
 }
 
 #[rustfmt::skip]
@@ -2745,6 +2751,8 @@ pub struct IdentifyRequest {
     pub machine_metadata: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub revisions: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub startup_marks: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -3019,6 +3027,14 @@ pub struct MarkWorkspacesProviderManagedRequest {
 
 #[rustfmt::skip]
 pub type MarkWorkspacesProviderManagedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MemoryReportRequest {
+}
+
+#[rustfmt::skip]
+pub type MemoryReportResult = serde_json::Value;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4520,6 +4536,24 @@ pub struct SetSplitRatioRequest {
 pub type SetSplitRatioResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetStreamPriorityRequestPriority {
+    #[serde(rename = "focused")]
+    Focused,
+    #[serde(rename = "visible")]
+    Visible,
+    #[serde(rename = "hidden")]
+    Hidden,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetStreamPriorityRequest {
+    pub priority: SetStreamPriorityRequestPriority,
+    pub stream: u16,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetTabPinnedRequest {
     pub pinned: bool,
@@ -5425,6 +5459,10 @@ impl CmuxClient {
         self.execute(&BIND_CONVERSATION_TAB_SESSION_METADATA, &request)
     }
 
+    pub fn bridge_hello(&mut self, request: BridgeHelloRequest) -> Result<T::BridgeHelloResult> {
+        self.execute(&BRIDGE_HELLO_METADATA, &request)
+    }
+
     pub fn browser_activate(&mut self, request: BrowserActivateRequest) -> Result<BrowserActivateResult> {
         self.execute(&BROWSER_ACTIVATE_METADATA, &request)
     }
@@ -6040,6 +6078,10 @@ impl CmuxClient {
         if request.revisions.is_some() {
             self.require_protocol_field("identify", 12)?;
         }
+        if request.startup_marks.is_some() {
+            self.require_protocol_field("identify", 12)?;
+            self.require_capability_field("identify", "startup-marks-v1")?;
+        }
         self.execute_identify(&IDENTIFY_METADATA, &request)
     }
 
@@ -6145,6 +6187,10 @@ impl CmuxClient {
 
     pub fn mark_workspaces_provider_managed(&mut self, request: MarkWorkspacesProviderManagedRequest) -> Result<MarkWorkspacesProviderManagedResult> {
         self.execute(&MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, &request)
+    }
+
+    pub fn memory_report(&mut self, request: MemoryReportRequest) -> Result<MemoryReportResult> {
+        self.execute(&MEMORY_REPORT_METADATA, &request)
     }
 
     pub fn mint_terminal_renderer(&mut self, request: MintTerminalRendererRequest) -> Result<T::MintTerminalRendererResult> {
@@ -6856,6 +6902,10 @@ impl CmuxClient {
             self.require_capability_field("set-split-ratio", "layout-undo-v1")?;
         }
         self.execute(&SET_SPLIT_RATIO_METADATA, &request)
+    }
+
+    pub fn set_stream_priority(&mut self, request: SetStreamPriorityRequest) -> Result<T::SetStreamPriorityResult> {
+        self.execute(&SET_STREAM_PRIORITY_METADATA, &request)
     }
 
     pub fn set_tab_pinned(&mut self, request: SetTabPinnedRequest) -> Result<SetTabPinnedResult> {

@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Review comments in the Changes view (cx-ncc.77.2, Codex desktop's inline PR comments):
 /// `git.pullRequest {action: "threads"}` reads the branch's pull request review threads with the
@@ -73,7 +74,7 @@ struct AgentPaneGitReviewThreadsTests {
     }
 
     private static func model(_ folder: String, here: Bool = true) -> AgentPaneModel {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.workspaceRoots = { [folder] }
         model.gitWritesHere = { here }
         return model

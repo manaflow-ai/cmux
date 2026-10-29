@@ -50,7 +50,7 @@ extension BrowserHistoryStarts {
     }
 
     /// Chromium tab `key`'s saved navigation from its daemon record, for its page on a Chromium Host restarted after a
-    /// crash (``ChromiumHostSavedNavigation``, p01-process-083): the record outlives the host. Nil, and the page loads
+    /// crash (``ChromiumHostSavedNavigation``): the record outlives the host. Nil, and the page loads
     /// `url`, as in `chromium`: no record of this Mac's daemon (incognito, another machine), one saved at another
     /// page, with a form submission (BR-R1) or a file outside `url`'s folder (cx-5djb2), or a read slower than `budget`.
     func hostRestart(_ key: String, at url: URL, service: BrowserTabService) async -> BrowserRestoreState? {

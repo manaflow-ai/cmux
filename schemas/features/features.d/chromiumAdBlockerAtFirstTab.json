@@ -2,7 +2,7 @@
   "$schema": "../features.schema.json",
   "name": "chromiumAdBlockerAtFirstTab",
   "owner": "PL-webui",
-  "description": "The built-in ad blocker loads into a browser profile right before its first browser tab instead of when Chromium starts, so Home with no browser tab runs no extension renderer.",
+  "description": "The ad blocker loads into a profile before its first browser tab, so Home and Chromium's root profile run no extension. A fork without that load (API 41) runs no ad blocker unless browser.builtInAdBlocker is true: kept out of dogfood until one is pinned.",
   "defaults": { "dev": false, "nightly": false, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",

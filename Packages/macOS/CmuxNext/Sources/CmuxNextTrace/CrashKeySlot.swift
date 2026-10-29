@@ -52,6 +52,10 @@ public nonisolated enum CrashKeySlot: UInt16, Sendable, CaseIterable {
     /// 64 words: the stalled main thread's frames, innermost first; each is the image's index in
     /// ``hangInProgressImages`` (high 16 bits) and the offset in that image (low 48 bits).
     case hangInProgressFrames = 56
+    /// The maker of the last agent pane freed without its `close()` and when (``unclosedAgentPane(maker:uptimeNanos:)``;
+    /// 0: none), set as it is freed: an abort in that pane's teardown names its owner (2026-10-28,
+    /// handoff/cef-parent-tracker-crash.md). One word after ``hangInProgressFrames``' 64.
+    case unclosedAgentPaneMaker = 120
 
     /// The number of 64-bit words the slot holds.
     public var wordCount: Int {
@@ -83,6 +87,7 @@ public nonisolated enum CrashKeySlot: UInt16, Sendable, CaseIterable {
         case .hangInProgressFrameCount: "hang_in_progress_frame_count"
         case .hangInProgressImages: "hang_in_progress_images"
         case .hangInProgressFrames: "hang_in_progress_frames"
+        case .unclosedAgentPaneMaker: "unclosed_agent_pane_maker"
         }
     }
 
@@ -90,4 +95,20 @@ public nonisolated enum CrashKeySlot: UInt16, Sendable, CaseIterable {
     public static let pageWordCount = 512
     /// The words at the start of the page that hold its header, before the first slot.
     public static let headerWordCount = 8
+}
+
+extension CrashKeySlot {
+    /// ``unclosedAgentPaneMaker``'s word for a pane of maker `code` (`AgentPaneMaker`'s raw value) freed without its
+    /// `close()` at `uptimeNanos` (`CLOCK_UPTIME_RAW`): the code in the high 8 bits, the uptime in the low 56 (2.2 years
+    /// of nanoseconds). A crash long after the free shows the gap, so it is not taken for that pane's teardown.
+    public static func unclosedAgentPane(maker code: UInt8, uptimeNanos: UInt64) -> UInt64 {
+        UInt64(code) << 56 | (uptimeNanos & unclosedAgentPaneUptimeMask)
+    }
+
+    /// The maker code and the free's uptime in nanoseconds of an ``unclosedAgentPaneMaker`` word.
+    public static func unclosedAgentPane(_ word: UInt64) -> (maker: UInt8, uptimeNanos: UInt64) {
+        (UInt8(truncatingIfNeeded: word >> 56), word & unclosedAgentPaneUptimeMask)
+    }
+
+    static var unclosedAgentPaneUptimeMask: UInt64 { (1 << 56) - 1 }
 }

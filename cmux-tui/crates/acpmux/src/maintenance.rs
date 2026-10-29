@@ -1,4 +1,4 @@
-//! acpmux's periodic upkeep on one [`MaintenanceClock`] (p14-energy-034).
+//! acpmux's periodic upkeep on one [`MaintenanceClock`].
 //!
 //! The model catalog refresh (`catalog/`), the agent CLI health check
 //! (`hub/health_view.rs`) and the upload age-cap sweep
@@ -38,6 +38,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use cmux_wake::MaintenanceClock;
+
+use crate::supervised::{Fatal, ShutdownBehavior, Supervisor};
 pub use cmux_wake::{EnergyMode, JobSpec, Placement, RegisterError};
 
 /// The file in the acpmux home that keeps [`install_phase`].
@@ -108,14 +110,22 @@ impl Maintenance {
 
     /// Starts the clock thread and the adapter task, once, with every job on
     /// the grid shifted by `phase` ([`install_phase`]); call in the daemon's
-    /// runtime. A second call does nothing.
-    pub fn start(&self, phase: u64) -> std::io::Result<()> {
+    /// runtime. A second call does nothing. The adapter holds every registered
+    /// job: it runs under `supervisor` as Fatal.
+    pub fn start(&self, phase: u64, supervisor: &Supervisor) -> std::io::Result<()> {
         if self.running.get().is_some() {
             return Ok(());
         }
         let clock = MaintenanceClock::start(&self.energy)?;
         let (adapter, inbox) = mpsc::unbounded_channel();
-        tokio::spawn(adapt(inbox));
+        let jobs = adapt(inbox);
+        crate::supervised::task(
+            supervisor,
+            "maintenance.adapter",
+            Fatal,
+            ShutdownBehavior::Skip,
+            jobs,
+        );
         // A racing start loses its clock here; its adapter ends with its sender.
         let _ = self.running.set(Running { clock, phase, adapter, next_slot: AtomicUsize::new(0) });
         Ok(())

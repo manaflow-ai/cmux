@@ -33,6 +33,14 @@ public nonisolated struct LaunchFileReader: Sendable {
         self.read = read
     }
 
+    /// This reader while `reads()` is true; once it is false, every file reads as missing (nothing is read or
+    /// decoded): the app's launch caches in a crash streak's safe launch (`LaunchSafeMode`). `reads` runs on the
+    /// reading thread before each read.
+    public func gated(by reads: @escaping @Sendable () -> Bool) -> LaunchFileReader {
+        let read = self.read
+        return LaunchFileReader(read: { url, maximumBytes in reads() ? read(url, maximumBytes) : nil })
+    }
+
     /// The bytes of the file at `url`.
     ///
     /// - Parameters:

@@ -61,6 +61,32 @@ final class InternalPageView: NSView {
     }
     /// The provider's view, made now when the tab has not shown yet.
     var content: NSView { build().content }
+
+    /// Told this view's page when it is freed with content still in it (``detachContent()`` never ran): its owner let
+    /// it go without the teardown the store does (a report only). Runs in the deinit, on the thread that frees the
+    /// view, so it may touch only thread-safe sinks (a log, a crash key). Set once, before the view is used.
+    func reportFreedAttached(_ report: @escaping @Sendable (InternalPageID) -> Void) {
+        freedAttached.withLock { $0 = report }
+    }
+    private let freedAttached = Mutex<(@Sendable (InternalPageID) -> Void)?>(nil)
+    /// Content is in this view (``install(_:)``) and ``detachContent()`` has not run: the deinit reads it.
+    private let holdsContent = Atomic<Bool>(false)
+
+    /// Takes every subview out (the content, its bar, a picture) while this view lives; the store calls it when the
+    /// tab's view goes (close, discard). A page must never leave its hierarchy inside this view's `-[NSView dealloc]`:
+    /// a hidden tab's page then loses its hidden ancestor there, and the CEF fork's parent tracker stores a weak
+    /// reference to the deallocating view and aborts the app (cmux21 cmux-2026-10-28-114922.ips, a closed Settings tab).
+    func detachContent() {
+        holdsContent.store(false, ordering: .relaxed)
+        for subview in subviews { subview.removeFromSuperview() }
+    }
+
+    // cx-t7hu pattern: not an isolated deinit (a runtime hop traps when released inside an action's task-local scope).
+    // It reads only Sendable state (an atomic, a lock, a let).
+    nonisolated deinit {
+        guard holdsContent.load(ordering: .relaxed), let report = freedAttached.withLock({ $0 }) else { return }
+        report(page)
+    }
     /// The native bar above the content (below it, ``toolbarPosition``); it sets its own height.
     /// Nil until the content is made.
     var topBar: NSView? {
@@ -113,6 +139,7 @@ final class InternalPageView: NSView {
     }
 
     private func install(_ parts: Parts) {
+        holdsContent.store(true, ordering: .relaxed)
         let content = parts.content
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
@@ -195,6 +222,7 @@ final class InternalPageView: NSView {
     private func startRestoring(_ body: @escaping @MainActor (NSView) async -> Void) {
         let content = content
         // task-owner: restoring; one state put back on this view, then its cover goes
+        // main-hop-allow: `body` is a main-actor async restore of this view; each of its awaits resumes on main either way
         restoring = Task { @MainActor [weak self] in
             await body(content)
             self?.removeCover()

@@ -9,6 +9,7 @@ import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettingsWindow
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 
 /// Internal page tabs and their views; provider registration is observed.
@@ -16,6 +17,9 @@ import Observation
 final class InternalPageTabStore {
     private var providers: [InternalPageID: any InternalPageProvider] = [:]
     private let tabsByPane = ObservedMap<String, [String]>()
+    /// Told the page of a tab view freed with content still in it (``InternalPageView/reportFreedAttached(_:)``; the app
+    /// logs it). Runs on the thread that frees the view: thread-safe sinks only.
+    @ObservationIgnored var onFreedAttached: (@Sendable (InternalPageID) -> Void)?
     @ObservationIgnored private var views: [String: InternalPageView] = [:]
     /// The main window each tab opened or last showed in, for its provider's theme scope. Held weakly: a
     /// closed window goes with its parked workspaces while its page tabs stay restorable, as a Chrome tab
@@ -28,7 +32,10 @@ final class InternalPageTabStore {
     /// The daemon tree each pane with page tabs belongs to; watched so the
     /// tabs of a pane closed out of sight close once the tree drops it.
     @ObservationIgnored private var paneStores: [String: DaemonStore] = [:]
-    @ObservationIgnored private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// One tab-list follower per store with page tabs (``watch(_:)``).
+    @ObservationIgnored private var watches: [ObjectIdentifier: ServiceObservation<UInt64?>] = [:]
+    /// The app's main-thread scheduler: the store followers flush on it.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
     /// Go Back (true) or Go Forward (false) from a page view's mouse buttons and swipes.
     @ObservationIgnored var navigate: ((Bool) -> Void)?
     /// Sends `new-conversation-tab` for a page tab (`page-tabs-v1`) on its
@@ -63,6 +70,11 @@ final class InternalPageTabStore {
     @ObservationIgnored var showsStandIns = false
     /// Whether the page tabs of one pane share one Chromium window (feature `pageTabsShareChromiumWindow`, ``place(_:in:)``).
     @ObservationIgnored var sharesChromiumWindows = false
+
+    /// `mainWork`: the app's main-thread scheduler (`AppServices.mainWork`); a test's own by default.
+    init(mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
+        self.mainWork = mainWork
+    }
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
@@ -193,6 +205,7 @@ final class InternalPageTabStore {
             }
         }
         view.navigate = navigate
+        if let onFreedAttached { view.reportFreedAttached(onFreedAttached) }
         views[key] = view
         return view
     }
@@ -202,6 +215,10 @@ final class InternalPageTabStore {
 
     /// The provider key of store page tab `id`, nil for any other tab.
     func storeKey(of id: String) -> String? { storeKeys[id] }
+
+    /// The strip id of the tab whose provider key is `key`, as the content cache names it (and its
+    /// visibility node): a store page tab's id, else `key` itself.
+    func stripTab(ofKey key: String) -> String { storeKeys.first { $0.value == key }?.key ?? key }
 
     /// `key`'s view with its content made: an app-only page tab's, or a store page tab's by its id.
     /// Nil for a tab that has not shown yet (its content waits, ``tabView(for:)``).
@@ -312,6 +329,7 @@ final class InternalPageTabStore {
             }
         }
         let create = createStoreTab, handle = model.handle, paneKey = model.id
+        // main-hop-allow: the action's tracked work awaits the main-actor create seam and settles the store in its reply's job
         services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
                 let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction)
@@ -438,24 +456,38 @@ final class InternalPageTabStore {
 
     private func forget(_ key: String) {
         createTabs?.released(key) // a local page tab's id is its key
-        views.removeValue(forKey: key)?.removeFromSuperview()
+        if let view = views.removeValue(forKey: key) {
+            view.removeFromSuperview()
+            view.detachContent() // while the view lives: never a page leaving its hierarchy inside a dealloc
+        }
         discardRecords.forget(key)
         windows[key] = nil
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }
 
+    /// Follows `store`'s tab list while it has page tabs: a model write (tabs close), so a service
+    /// observation that runs while no window shows the store, in the visible class. One observed
+    /// value: the tab-list revision changes when a tab or a pane comes, goes or moves. The current
+    /// list is checked in a posted task, never inside the open or track that started the watch.
     private func watch(_ store: DaemonStore) {
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
-        // task-owner: stored in watches; cancelled once the store has no page tabs
-        watches[id] = Task { [weak self] in
-            // One observed value: the tab-list revision changes when a tab or a pane comes, goes or moves.
-            for await live in ObservationStream({ store.liveTabListRevision }) where live != nil {
-                guard let self else { return }
-                self.closeGonePanes(in: store)
-                self.closeGoneStoreTabs(in: store)
-            }
+        watches[id] = ServiceObservation(.visible, owner: "pages.store-tabs", on: mainWork) {
+            store.liveTabListRevision
+        } apply: { [weak self, weak store] live in
+            // The first value comes inside `init`, before the watch is stored: the post below checks it.
+            guard live != nil, let self, let store, self.watches[id] != nil else { return }
+            self.closeGone(in: store)
         }
+        mainWork.post(.visible, owner: "pages.store-tabs") { [weak self, weak store] in
+            guard let self, let store, self.watches[id] != nil, store.liveTabListRevision != nil else { return }
+            self.closeGone(in: store)
+        }
+    }
+
+    private func closeGone(in store: DaemonStore) {
+        closeGonePanes(in: store)
+        closeGoneStoreTabs(in: store)
     }
 
     private func forgetUnusedStores() {

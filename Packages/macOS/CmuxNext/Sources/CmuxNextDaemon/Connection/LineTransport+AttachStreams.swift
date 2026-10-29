@@ -1,6 +1,6 @@
 import Foundation
 
-/// Client-minted attach streams on this connection (attach-streams-v1, p05-ipc-095): the reader routes each
+/// Client-minted attach streams on this connection (attach-streams-v1): the reader routes each
 /// item by the `stream` it carries to the sink its view bound before the open went out, and never counts it
 /// as a stream-0 event (``routedEventCount``).
 extension LineTransport {
@@ -19,7 +19,7 @@ extension LineTransport {
     }
 
     /// Routes the handle's items to `sink` from now on. False when the connection ended meanwhile.
-    func bindAttachStream(_ handle: AttachStreamHandle, _ sink: @escaping AttachStreamSink) -> Bool {
+    func bindAttachStream(_ handle: AttachStreamHandle, _ sink: AttachStreamSink) -> Bool {
         state.withLock { $0.attachStreams.bind(handle, sink) }
     }
 
@@ -43,27 +43,36 @@ extension LineTransport {
     /// Ids taken on this connection (tests, diagnostics).
     var attachStreamCount: Int { state.withLock { $0.attachStreams.count } }
 
-    /// Reader thread. Hands a tagged item to its stream; false on a connection that never minted one, whose
-    /// line the control path routes. Once this side minted a stream, an item for an id it no longer holds is
-    /// dropped, never routed as a control event.
-    func routeAttachStream(_ stream: UInt16, event: String, line: Data) -> Bool {
+    /// Reader thread. Routes a tagged item to its stream: the item runs on the ``lane`` in wire order,
+    /// and the stream's reader wait is returned for the reader to run after the line. Nil on a connection that never
+    /// minted a stream, whose line the control path routes. Once this side minted a stream, an item for an id it no
+    /// longer holds is dropped, never routed as a control event.
+    func routeAttachStream(_ stream: UInt16, event: String, line: Data) -> AttachStreamRouted? {
         let ended = event == AttachStreamTable.endEvent
         switch state.withLock({ $0.attachStreams.route(stream, ended: ended) }) {
         case .deliver(let sink):
             recorder?.lineRead(ended ? .streamEnd : .streamItem)
-            sink(ended ? .end(line: line) : .event(name: event, line: line))
-            return true
+            let item: AttachStreamDelivery = ended ? .end(line: line) : .event(name: event, line: line)
+            let deliver = sink.deliver
+            lane.post(ended ? .heavy : sink.dispatch.weigh(event, line), bytes: line.count) { deliver(item) }
+            return AttachStreamRouted(readerWait: sink.dispatch.readerWait)
         case .dropped:
             recorder?.lineRead(.ignored)
-            return true
+            return AttachStreamRouted(readerWait: nil)
         case .unknown:
-            return false
+            return nil
         }
     }
 
-    /// Reader thread, once the connection ended: every open stream learns it, and no id is minted again.
-    func endAttachStreams(_ reason: TransportCloseReason) {
-        let sinks = state.withLock { $0.attachStreams.endAll() }
-        for sink in sinks { sink(.lost(reason)) }
+    /// Reader thread, once the connection ended: no id is minted again, and the open streams are returned, to
+    /// learn it on the lane after their last items.
+    func takeAttachStreams() -> [AttachStreamSink] {
+        state.withLock { $0.attachStreams.endAll() }
     }
+}
+
+/// An attach stream item the reader routed (``LineTransport/routeAttachStream(_:event:line:)``).
+struct AttachStreamRouted: Sendable {
+    /// The stream's wait for its view, which the reader runs after the line (``EventDispatch/readerWait``).
+    var readerWait: (@Sendable () -> Void)?
 }

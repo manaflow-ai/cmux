@@ -116,6 +116,10 @@ final class CEFPumpInputPolicy {
         pending.hasPendingInput(uptime: now) ? .runAfterDispatch(target: target) : .run
     }
 
+    /// The due pass waited for input already (a hold began and no pass ran since): it is not held for
+    /// input again elsewhere (``CEFPumpFrameDeadline``), so its wait keeps this one bound.
+    var isHolding: Bool { heldUntil != nil }
+
     /// A pass ran, or no pass waits any more: the next hold starts its own bound.
     func holdEnded() {
         heldUntil = nil

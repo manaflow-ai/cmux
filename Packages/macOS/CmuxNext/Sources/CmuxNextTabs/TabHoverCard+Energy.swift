@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import Foundation
 
-/// What a tab's hover card asks about the tab's energy use (p14-energy-125); the App implements it (feature
+/// What a tab's hover card asks about the tab's energy use; the App implements it (feature
 /// `highEnergyTabs`). Chrome's tab hover card names a background tab's high resource use the same way, and its
 /// performance detection offers to discard such a tab
 /// (chrome/browser/ui/performance_controls/performance_intervention_button_controller.cc).

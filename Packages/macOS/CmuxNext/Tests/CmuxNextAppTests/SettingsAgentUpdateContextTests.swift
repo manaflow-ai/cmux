@@ -34,7 +34,7 @@ import Testing
                     : "update:" + (action == "update" ? params["id"]?.stringValue ?? "" : "all")); return .array([])
             })
         await harnesses.refresh()
-        let page = SettingsPageProvider(settings: settings)
+        let page = SettingsPageProvider(settings: settings, on: linklessMainWork())
         page.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         return (page, harnesses, recorder, directory)
     }

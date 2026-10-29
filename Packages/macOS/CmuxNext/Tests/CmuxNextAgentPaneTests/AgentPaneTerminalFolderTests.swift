@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// A terminal opened from an agent chat (Cmd-D, Cmd-T, Cmd-N, the header's Terminal, a shell
 /// block's Open in Terminal) starts in the chat's exact folder. The daemon records no folder for a
@@ -21,7 +22,7 @@ struct AgentPaneTerminalFolderTests {
     /// page has said anything.
     @Test func aChatsTerminalStartsInItsSessionFolder() throws {
         let worktree = try Self.folder()
-        let chat = AgentPaneModel(host: NoHost(), sessionId: "s")
+        let chat = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: "s")
         chat.transport.sessions.observeFolder(["result": ["session": ["sessionId": "s", "cwd": worktree]]], replyTo: "_acpmux/attach")
         #expect(chat.terminalFolder == worktree)
     }
@@ -29,7 +30,7 @@ struct AgentPaneTerminalFolderTests {
     /// A new chat's `session/new` reply names its folder the same way.
     @Test func aNewChatsTerminalStartsInTheFolderItStartedIn() throws {
         let project = try Self.folder()
-        let chat = AgentPaneModel(host: NoHost(), sessionId: "n")
+        let chat = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: "n")
         chat.transport.sessions.observeFolder(["result": ["sessionId": "n", "_meta": ["acpmux": ["cwd": project]]]], replyTo: "session/new")
         #expect(chat.terminalFolder == project)
     }
@@ -38,7 +39,7 @@ struct AgentPaneTerminalFolderTests {
     @Test func anAgentHomeChatNamesNoFolder() throws {
         let base = try Self.folder()
         let home = AgentHome(base: base)
-        let chat = AgentPaneModel(host: NoHost(), sessionId: "h")
+        let chat = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: "h")
         chat.workspaceAgentHome = { AgentHomeFill(home: home, workspace: "w") }
         chat.transport.sessions.observeFolder(["result": ["session": ["sessionId": "h", "cwd": base + "/w"]]], replyTo: "_acpmux/attach")
         #expect(chat.terminalFolder == nil)

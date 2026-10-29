@@ -1,6 +1,6 @@
 public import AppKit
 
-/// How long a hidden page keeps its view (p07-memory-023: top pages; 022: internal page tabs).
+/// How long a hidden page keeps its view (top pages; 022: internal page tabs).
 /// A page hidden past its policy lets its view go and keeps a ``PageViewState``, as a discarded
 /// Chrome tab keeps its navigation entries (chrome/browser/resource_coordinator/tab_lifecycle_unit.cc,
 /// `Discard`).

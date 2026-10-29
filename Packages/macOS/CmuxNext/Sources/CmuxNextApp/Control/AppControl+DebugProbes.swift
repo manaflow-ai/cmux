@@ -63,7 +63,7 @@ extension AppControl {
             DebugTimings.startupTraceMethod,
             // This launch's milestones, temperature, startup tasks and first frame (bench-startup.py, startup-queue.py).
             .mainActor("debug.startup") { [startupReport] _ in .value(try JSONValue(foundation: startupReport.report.foundationObject()) ?? .null) },
-            // The launch's main jobs and main turns until startup completed (startup-queue.py mainjobs, p08-startup-080):
+            // The launch's main jobs and main turns until startup completed (startup-queue.py mainjobs):
             // copied on main, symbolized off it.
             .mainActor("debug.startup.main_jobs") { [weak services] _ in
                 guard let services, let census = services.environment.mainJobCensus else { return .value(["main_job_census": ["armed": false]]) }
@@ -76,8 +76,8 @@ extension AppControl {
                     return try JSONValue(foundation: report.foundationObject()) ?? .null
                 }
             },
-            // The tasks that started on the cooperative pool until startup completed (startup-queue.py globaljobs,
-            // p08-startup-082): copied and symbolized off main.
+            // The tasks that started on the cooperative pool until startup completed (startup-queue.py globaljobs):
+            // copied and symbolized off main.
             .mainActor("debug.startup.global_jobs") { [weak services] _ in
                 guard let census = services?.environment.globalJobCensus else { return .value(["global_job_census": ["armed": false]]) }
                 return .followUp {
@@ -89,7 +89,7 @@ extension AppControl {
                 }
             },
             // The timers, deadlines and folder watches armed until startup completed, with their first fires
-            // (startup-queue.py arms, p08-startup-085): copied and encoded off main.
+            // (startup-queue.py arms): copied and encoded off main.
             .async("debug.startup.arms") { _ in JSONValue(foundation: WakeupLedger.shared.armCensus.snapshot().foundationObject) ?? .null },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
             .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
@@ -126,7 +126,7 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugHints.report(services.windowHints, menus: services.menuTracking, params: call.params))
             },
-            // The Settings, History and Cloud preload in the preload slot (p13-webui-045); `action`: `drop`, `preload`.
+            // The Settings, History and Cloud preload in the preload slot; `action`: `drop`, `preload`.
             .mainActor("debug.page_preload") { [weak services] call in
                 .value(services?.pagePreloads.debugReport(action: call.params["action"]?.stringValue) ?? .null)
             },
@@ -171,7 +171,7 @@ extension AppControl {
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
                 return .value(DebugLayers.report(services: services, params: call.params))
             },
-            // Overlay reorders per event cycle (p01-process-223); `reset: true` starts the counts over first.
+            // Overlay reorders per event cycle; `reset: true` starts the counts over first.
             .mainActor("debug.overlay") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.overlay(services: services, params: call.params))
@@ -204,7 +204,9 @@ extension AppControl {
             // The action signposts' commit boundary against this macOS's display observers.
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
-            .async("debug.wakeups") { [budgeted = mainWork.frames] call in await DebugWakeups.report(call.params, budgeted: budgeted) },
+            .async("debug.wakeups") { [budgeted = mainWork.frames, parent = services.cache.chromium.source.helperParent] call in
+                await DebugWakeups.report(call.params, budgeted: budgeted, helperParent: parent.pid)
+            },
             // Energy Saver policy and inputs, main wake queue, top wakers, process energy; simulated inputs (p14-energy.md).
             EnergyReport(services: services).method, EnergyReport.simulateMethod(services: services),
             // Chromium start: trigger (tab or warm reason), timings, footprint.
@@ -221,7 +223,7 @@ extension AppControl {
                 } else if call.params["file_dialog_cancel"]?.boolValue == true {
                     _ = services.cache.cef.answerHostFileDialog(with: nil)
                 }
-                // {"color_chooser_pick": 0xRRGGBB} or {"color_chooser_close": true}: the open <input type=color>'s panel (p01-process-228).
+                // {"color_chooser_pick": 0xRRGGBB} or {"color_chooser_close": true}: the open <input type=color>'s panel.
                 if let color = call.params["color_chooser_pick"]?.intValue { _ = services.cache.cef.pickHostColor(UInt32(truncatingIfNeeded: color)) }
                 if call.params["color_chooser_close"]?.boolValue == true { _ = services.cache.cef.closeHostColorChooser() }
                 return .value(DebugCEF.report(services))
@@ -241,16 +243,6 @@ extension AppControl {
         // raw-observer-allow: the center the synthetic sleep and wake notices are posted on; nothing observes it here
         router.register(LifecycleSimulationControl(notices: .appKit, workspaceCenter: NSWorkspace.shared.notificationCenter,
                                                    workspace: NSWorkspace.shared, appCenter: .default, application: NSApp).methods)
-        #if CMUX_PGO_PROFILE
-        // The profile build only (p08-startup-103): rest.profraw before quit, on the files lane; launch.profraw
-        // was written at startup complete.
-        if let flush = profileFlush {
-            router.register([.async("debug.pgo_flush") { _ in
-                let rest = try await flush.writeRestProfile()
-                return ["rest": .string(rest.file.path), "rest_bytes": .number(Double(rest.bytes)), "launch": .string(flush.files.launch.path)]
-            }.withDeadline(.fixed(.seconds(30)))])
-        }
-        #endif
     }
 }
 

@@ -4,9 +4,9 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// A stream view's keys as INPUT frames (p05-ipc-096): raw bytes behind a 16-byte header, no JSON and no
+/// A stream view's keys as INPUT frames: raw bytes behind a 16-byte header, no JSON and no
 /// base64, in call order, on a stream whose `attach-surface` went as a REQUEST frame naming it, as the daemon
-/// takes INPUT only on such a stream (pending_streams.rs, p05-ipc-087). A view on a connection of its own, or a
+/// takes INPUT only on such a stream (pending_streams.rs). A view on a connection of its own, or a
 /// stream whose opener went as a line, keeps `send` lines. The path is fixed at the attach reply; once the view's
 /// channel ends, its keys are dropped, never sent as lines. A refused INPUT frame ends the connection.
 extension TerminalAttachmentStreamTests {

@@ -7,6 +7,7 @@
 // of "None" under every title. The running turn's line counts started chats. What still runs
 // between turns shows in the tray above the composer (subagent-tray.test.tsx).
 import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
+import { fixedPageClock } from "../src/ui/fixedPageClock";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -300,7 +301,7 @@ test("the running turn's line counts the started chats that run", () => {
   const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: 0 };
   const html = renderToStaticMarkup(
     <WorkingCountsContext.Provider value={counts({ commands: 2, sessions: 3 })}>
-      <WorkingFor row={status} now={() => 26_000} />
+      <WorkingFor row={status} clock={fixedPageClock(26_000)} />
     </WorkingCountsContext.Provider>,
   );
   expect(text(html)).toBe("Working for 26s · 3 subagents · 2 commands");

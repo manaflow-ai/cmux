@@ -1,4 +1,4 @@
-//! `memory.limit` on the wire (p07-memory-109): a critical push from the app
+//! `memory.limit` on the wire: a critical push from the app
 //! makes the daemon release its lossless consumers before the reply, the
 //! limit ends with the app's connection, and only the verified local app may
 //! send it (never a CLI, a WebSocket page or a remote relay).

@@ -1,5 +1,5 @@
 // Checks the Chromium Host's hang watch (ChromiumHost/src/host_hang_watcher.h,
-// task p01-process-084; scripts/cmux-next/tests/chromium-host-wire.test.sh):
+// scripts/cmux-next/tests/chromium-host-wire.test.sh):
 // the wire, a turn's hang report and input ack, the watcher's decisions on a
 // fake clock, the real watcher thread (no wakeup while idle, one dump per long
 // turn) and cmux's ack count (InputAcks).

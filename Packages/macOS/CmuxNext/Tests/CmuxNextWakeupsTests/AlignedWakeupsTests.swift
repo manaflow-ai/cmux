@@ -2,7 +2,7 @@ import CmuxNextCompat
 @testable import CmuxNextWakeups
 import Testing
 
-/// AlignedWakeups (p06-scheduler-012): one wake per boundary bucket (1 s hidden, 8 ms flexible), hidden
+/// AlignedWakeups: one wake per boundary bucket (1 s hidden, 8 ms flexible), hidden
 /// deadlines only at their whole second, precise deadlines exact, and the timer parked when every deadline
 /// is cancelled. The deadlines go through a real MainWakeUpQueue on WakeUpQueueRig; the test fires the
 /// timer itself.

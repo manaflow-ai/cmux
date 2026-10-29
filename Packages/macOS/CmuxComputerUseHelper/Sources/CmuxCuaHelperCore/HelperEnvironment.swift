@@ -34,6 +34,11 @@ public struct HelperEnvironment: Sendable {
     /// Forces the required values into this process before the driver loads
     /// (whatever the launcher passed). Call before any thread starts.
     public func apply() {
-        for (name, value) in required { setenv(name, value, 1) }
+        for (name, value) in required {
+            // SAFETY: setenv copies the NUL-terminated copies of `name` and `value` Swift
+            // makes for the call; main calls apply() before any thread starts, so no
+            // getenv runs concurrently with the environment change.
+            unsafe setenv(name, value, 1)
+        }
     }
 }

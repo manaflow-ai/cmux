@@ -13,11 +13,17 @@ public final class ObservationDeadline {
     private var watch: Task<Void, Never>?
     private let timer: DemandTimer
 
+    /// - Parameter owner: The limit timer's name in the wakeup ledger.
     public init(owner: String) {
         // timer-class-allow: the deadline half of this wait primitive; its action only ends the wait
         timer = DemandTimer(owner: owner)
     }
 
+    /// Returns once `condition` holds or `limit` passed, whichever is first; at once when it holds already.
+    ///
+    /// - Parameters:
+    ///   - condition: Read with Observation tracking on the main actor; re-read on each change of what it read.
+    ///   - limit: The longest wait.
     public func until(_ condition: @escaping @MainActor @Sendable () -> Bool, limit: Duration) async {
         try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             self.continuation = continuation

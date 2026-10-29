@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::panic_free::RecoverPoison;
+use crate::startup_marks::{StartupMark, StartupMarks};
 
 /// How long shutdown waits for the work items it waits for: block items (one
 /// short save each) and started skip items (short disk reads).
@@ -264,7 +265,7 @@ impl Mux {
     /// Publish that every owner needed by canonical server lifecycle commands
     /// is installed. Ordinary control clients may connect before this point.
     pub fn mark_server_lifecycle_ready(&self) {
-        self.server_lifecycle_ready.store(true, Ordering::Release);
+        self.server_startup.mark_ready();
         self.release_startup_adoptions();
         // The first terminal must not pay for the host executable's install
         // (cx-b4sjc); unit tests start no daemon and install nothing.
@@ -275,7 +276,23 @@ impl Mux {
     }
 
     pub fn server_lifecycle_ready(&self) -> bool {
-        self.server_lifecycle_ready.load(Ordering::Acquire)
+        self.server_startup.is_ready()
+    }
+
+    /// Adopts the startup timeline of the daemon that serves this mux
+    /// (`startup-marks-v1`); a mux keeps the first one.
+    pub fn install_startup_marks(&self, marks: Arc<StartupMarks>) {
+        self.server_startup.install(marks);
+    }
+
+    /// Records the daemon's startup step `mark` once; nothing without a timeline.
+    pub fn mark_startup(&self, mark: StartupMark) {
+        self.server_startup.mark(mark);
+    }
+
+    /// The serving daemon's startup timeline, when one was installed.
+    pub(crate) fn startup_marks(&self) -> Option<&StartupMarks> {
+        self.server_startup.marks()
     }
 
     /// Validate the target daemon and atomically reserve its handoff. Unless

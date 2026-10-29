@@ -2,12 +2,15 @@
 import CmuxNextFloating
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 import Testing
 
 /// A Chief with no avatar of its own wears the chosen pet character (`home.chiefPetMascot`,
 /// orb by default), never a plain disc. A Chief that sets its own avatar keeps it.
 @Suite struct ChiefDefaultAvatarTests {
+    static let lanes = BackgroundWork(label: "test.chief-avatars")
+
     static func home() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-chief-default-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -35,12 +38,12 @@ import Testing
     @Test func theHeaderWearsTheCharacterOnlyWithoutAnAvatar() async throws {
         let fox = try #require(ChiefPetMascot.fox.avatarURL)
         let bare = HomeChiefFiles(muxHome: try Self.home())
-        let shown = await HomeChiefAvatars.headerAvatar(files: bare, fallback: fox)
+        let shown = await HomeChiefAvatars.headerAvatar(files: bare, fallback: fox, on: Self.lanes)
         #expect(shown.text == nil)
         #expect(shown.picture == (try Data(contentsOf: fox)))
         let own = HomeChiefFiles(muxHome: try Self.home())
         own.writeAvatar("AB")
-        let kept = await HomeChiefAvatars.headerAvatar(files: own, fallback: fox)
+        let kept = await HomeChiefAvatars.headerAvatar(files: own, fallback: fox, on: Self.lanes)
         #expect(kept.text == "AB")
         #expect(kept.picture == nil)
     }

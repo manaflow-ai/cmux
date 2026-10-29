@@ -38,13 +38,22 @@ import IOSurface
 /// under the same cap. A change (a tunable edit, a display added or changed)
 /// reaches the fork at the next show or display change, only when the deadline
 /// changed, and counts as applied only when the fork took it. From fork API 32
-/// a page window never holds the commit and no deadline is sent (the resize
-/// fence, task p03-rendering-043, replaces it).
+/// a page window never holds the commit and no deadline is sent.
+///
+/// From fork API 32 (``resizeFenceForkAPI``), with the default-off feature
+/// `cefResizeFence` (``CEFRuntime/resizeFences``) and in process, each resize of
+/// the shown view (``viewDidResize()``: a divider drag, a step of the window's
+/// live resize, a spring start) puts a hosted page's next frame at the new size
+/// into the transaction's one fence (``CEFResizeFences``, deadline 2 frames), so
+/// the page and the pane show the new size together; during the window's live
+/// resize a page in its own window joins too. The render server waits, the main
+/// thread never does, and no deadline reaches the fork. The fence is the Track A
+/// call ``TrackA/resizeFence``.
 ///
 /// `browser` must name a live browser of the page window: a show records the
 /// shown one, and ``windowBrowsersChanged(_:)`` moves it off a closed one.
 ///
-/// Show and hide (p03-rendering-054): while the page is hosted and the fork takes
+/// Show and hide: while the page is hosted and the fork takes
 /// its visibility from the app (``Fork/setVisibility``), a switch only shows or
 /// hides the view, so the page's layer goes in or out in the switch's own
 /// transaction; the fork hears the page's visibility, the shown tab's activation
@@ -53,14 +62,14 @@ import IOSurface
 /// catches up (`content/browser/renderer_host/delegated_frame_host.cc`,
 /// `WasShown`).
 ///
-/// Past its grace (p03-rendering-055: the app-wide hidden frame list dropped a hidden page's kept
+/// Past its grace (the app-wide hidden frame list dropped a hidden page's kept
 /// frame) the page keeps one volatile snapshot instead of a layer host: the fork copies its last frame
 /// on its GPU thread, the app drops the `CALayerHost` and the renderer evicts its frame. A show puts
 /// the snapshot on screen in the switch's own commit and the live layer under it; the page window's
 /// next frame takes it away. A snapshot the system purged shows the page's background
 /// (``CEFHiddenPageSnapshot``).
 ///
-/// With the fork's attach call (feature `cefAttachedPages`, p03-rendering-045) a pane's tabs attach
+/// With the fork's attach call (feature `cefAttachedPages`) a pane's tabs attach
 /// Chromium's own view in the host view instead (``attachedPages``): one attach per browser, at the end of
 /// the turn like a hosting request, and the context-id path above is the fallback of a tab the fork refused.
 /// A first refusal retries once, like a hosting request: on the tracker's next read or the tab's next show.
@@ -86,7 +95,7 @@ final class CEFLayerHosting {
     /// The first fork API whose `cmux_browser_attach_view` attaches (Track B). The shim exports
     /// `cmux_shim_browser_attach_view` in every build; below this API it always refuses.
     static let attachViewForkAPI: Int32 = 36
-    /// The first fork API with `cmux_browser_set_embedder_visibility` (p03-rendering-058).
+    /// The first fork API with `cmux_browser_set_embedder_visibility`.
     static let embedderVisibilityForkAPI: Int32 = 34
 
     /// Whether the fork's resize deadline holds the commit: fork API 27 to 31.
@@ -105,6 +114,9 @@ final class CEFLayerHosting {
     var drawsWithViews: Bool { page != nil || attachedPages.shownView != nil }
     /// What the view shows; its owner sets it before the first page window.
     var widget = Widget.page
+    /// Whether the content lifecycle shows the page over the view (`CEFTab.isContentHidden` of the
+    /// shown tab, set by the view's owner); a hidden page never joins a resize fence.
+    var isPageVisible: () -> Bool = { true }
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
     private(set) var page: ChromiumHostPageView?
@@ -275,6 +287,18 @@ final class CEFLayerHosting {
         guard active != inLiveResize else { return }
         inLiveResize = active
         syncDeadline()
+    }
+
+    /// The view's size changed (`CEFHostView.setFrameSize`: a divider drag, a step of the window's
+    /// live resize, a spring start). With the fork's resize fence the page window's next frame at
+    /// the new size joins this transaction's fence: a hosted page on every resize, a page in its
+    /// own window during the window's live resize only (the API 27 deadlines' rule). A page its
+    /// content lifecycle hid (``isPageVisible``: a hidden tab, a parked pane, a hidden DevTools)
+    /// draws no frame to wait for, and a view out of every window has no context to hold.
+    func viewDidResize() { // perf-hot: 0.05ms cef-geometry (each resize of a page's host view)
+        guard let resizeFence = fork?.resizeFence, let browser, let view, page != nil || inLiveResize,
+              isPageVisible() else { return }
+        resizeFence.fences.join(view, browser: browser, setFence: resizeFence.set)
     }
 
     /// The fork's tracker read the host view's clip (`ChildWindowPageFallback`): it is attached

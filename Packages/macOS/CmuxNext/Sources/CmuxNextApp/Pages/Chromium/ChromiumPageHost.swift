@@ -13,12 +13,12 @@ import Foundation
 /// Every page shares one off-the-record profile (``CEFEngine/beginPagesProfile()``): like the WebKit pages'
 /// non-persistent store, a page keeps nothing on disk, and no profile of the person's (their
 /// extensions, cookies) touches a cmux page. Each page's key is a key of that profile, so it takes
-/// the pages spare window the warm start built (`ChromiumWarmup`, p13-webui-016) instead of building
+/// the pages spare window the warm start built (`ChromiumWarmup`) instead of building
 /// a window in the turn that opened it. The page tabs of one pane share that pane's page window
-/// (``PageChromiumWindow``, p13-webui-063): the second page of a pane builds no window. A page tab runs no
-/// browser-tab document script and attaches none of their DevTools bridges (``CEFEngine/makePagesTab(_:)``,
-/// p13-webui-068): only its first paint is read. A page's ``PageChromiumOrigin`` is its tab's origin, and the slot's
-/// launch order (``CEFLaunchDeferral``, 040) answers a restored page's origin and hidden start (p08-startup-041).
+/// (``PageChromiumWindow``): the second page of a pane builds no window. A page tab runs no
+/// browser-tab document script and attaches none of their DevTools bridges (``CEFEngine/makePagesTab(_:)``):
+/// only its first paint is read. A page's ``PageChromiumOrigin`` is its tab's origin, and the slot's
+/// launch order (``CEFLaunchDeferral``, 040) answers a restored page's origin and hidden start.
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
@@ -37,6 +37,8 @@ final class ChromiumPageHost: PageChromiumHosting {
     private let pushChannel: Bool
     /// The app's lanes: a page's screenshot reply is decoded on their `.cpu` lane.
     let work: BackgroundWork
+    /// The app's main-thread scheduler: each page's crash watch flushes on it.
+    private let mainWork: MainWorkScheduler
     /// The app's dialog center: a page's "Page unresponsive" card shows there.
     let dialogs: CmuxDialogCenter
 
@@ -46,6 +48,7 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
     ///   - work: The app's lanes (``PageChromiumHosting/work``).
+    ///   - mainWork: The app's main-thread scheduler (``CEFPageChromiumPage``'s crash watch).
     ///   - dialogs: The app's dialog center (``PageChromiumHosting/dialogs``).
     ///   - hangWork: The app's main-thread scheduler when pages report their renderer's hang (feature
     ///     `pageHangNotice`, ``PageChromiumEvent/unresponsive``); nil: they never do.
@@ -53,12 +56,13 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///     `pageHostChannel`, ``PageChromiumPage/pageHostEvent``); false: on their DevTools binding.
     ///   - pushChannel: The feature `pagePushChannel` (``PageChromiumPage/pushesToPage``).
     init(chromium: ChromiumEngineSlot, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
-         work: BackgroundWork, dialogs: CmuxDialogCenter, hangWork: MainWorkScheduler?, pageChannel: Bool = false,
-         pushChannel: Bool = false) {
+         work: BackgroundWork, mainWork: MainWorkScheduler, dialogs: CmuxDialogCenter, hangWork: MainWorkScheduler?,
+         pageChannel: Bool = false, pushChannel: Bool = false) {
         self.chromium = chromium
         enginePreference = preference
         self.keyRouter = keyRouter
         self.work = work
+        self.mainWork = mainWork
         self.dialogs = dialogs
         self.hangWork = hangWork
         self.pageChannel = pageChannel
@@ -95,8 +99,8 @@ final class ChromiumPageHost: PageChromiumHosting {
         #endif
         let tab = try await cef.makePagesTab(configuration)
         tab.keyRouter = keyRouter
-        let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id, hangWork: hangWork, pageChannel: pageChannel,
-                                               pushChannel: pushChannel)
+        let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id, mainWork: mainWork, hangWork: hangWork,
+                                               pageChannel: pageChannel, pushChannel: pushChannel)
         tab.delegate = chromiumPage
         tab.agentRelay.createBrowser()
         guard await tab.agentRelay.browserCreated() else {

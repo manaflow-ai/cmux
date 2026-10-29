@@ -2,9 +2,12 @@ import AppKit
 import CmuxNextBrowser
 import Foundation
 import os
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextCrashReporting
 import CmuxNextDesign
+import CmuxNextFeatures
+import CmuxNextLaunch
+import CmuxNextMetrics
 import CmuxNextWakeups
 
 /// Whole-app crash recovery and crash visibility (plans/cmux-next/browser-isolation.md):
@@ -27,6 +30,9 @@ final class CrashRecoveryService {
     /// Which Chromium helper ends go to Sentry (``helperExited(_:reporter:at:)``).
     private var helperExitLimiter = HelperExitRateLimiter()
     private weak var crashLog: BrowserCrashLog?
+    /// The Chromium Host's Crashpad dumps (`debug.crashes`), once Chromium started in a build that has the host.
+    private(set) var chromiumDumps: ChromiumMinidumpCollector?
+    private let bundleID: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
     private var notice: RestartNoticePanel?
     private var noticeShown = false
@@ -36,6 +42,13 @@ final class CrashRecoveryService {
     private let mainWork: MainWorkScheduler
 
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
+
+    /// This launch's one reattach decision, from the run marker and feature `relaunchReattach`, which
+    /// do not change while the app runs: the terminal frames' discard (`AppDelegate`) and the window picture's refusal
+    /// (`LaunchSnapshotWindow`) both take it from here.
+    func relaunchReattach(features: FeatureList) -> RelaunchReattach {
+        RelaunchReattach(previousEnd: RelaunchReattach.PreviousEnd(marker?.previousExit), enabled: features.isEnabled(.relaunchReattach))
+    }
 
     /// `runMarker` is the run marker's launch read (``AppRunMarker/startLaunchRead(directory:in:now:bootSession:)``),
     /// which `main` orders before the settings read, so it has ended when the services are made; nil (tests, tools
@@ -49,6 +62,7 @@ final class CrashRecoveryService {
         marker = runMarker?.value.map { AppRunMarker(launch: $0) }
         if marker != nil, let crashKeys { CrashReporter.attachCrashKeys(crashKeys) }
         writer = CrashReportWriter.standard(bundleID: bundleID)
+        self.bundleID = bundleID
         self.work = work
         self.mainWork = mainWork
         if let previous = marker?.recovery.previous {
@@ -85,12 +99,18 @@ final class CrashRecoveryService {
 
     /// Writes a report for each Chromium failure from now on, and sends each helper process's end to `reporter`
     /// (``helperExited(_:reporter:at:)``). The Chromium Host's ends have a fuller report of their own, written from
-    /// its supervisor (``AppRunMarker/reportHostCrashes(of:writer:work:)``).
+    /// its supervisor (``AppRunMarker/reportHostCrashes(of:writer:work:)``). With the Chromium Host in the build, also
+    /// collects its Crashpad dumps (p01-process task 226): now, and after each failure (the host's own end too), when
+    /// Crashpad has written the failed process's dump. `reporter` sends a helper's dump when crash reports are on.
     func observe(_ log: BrowserCrashLog, reporter: CrashReporter) {
         guard crashLog == nil else { return }
         crashLog = log
         let writer = writer
+        let dumps = chromiumDumpCollector(reporter: reporter)
+        chromiumDumps = dumps
+        dumps?.scan()
         crashObserver = log.addObserver { record in
+            dumps?.scan()
             guard record.processType != CrashRecoveryService.hostProcessType else { return }
             writer.writeInBackground(record)
         }
@@ -107,6 +127,30 @@ final class CrashRecoveryService {
                                     pid: exit.pid, pump: exit.pump, heldBack: heldBack)
         work.post(.bestEffort, mayBlock: .files) { reporter.reportHelperExit(event) }
         return event
+    }
+
+    /// The host's dump collector (nil without a run marker, or in a build without the host): the database in
+    /// the host's data folder, the seen list beside the run marker, each report written into the crash folder.
+    private func chromiumDumpCollector(reporter: CrashReporter?) -> ChromiumMinidumpCollector? {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard marker != nil, let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let rootCache = ChromiumHostConfiguration.rootCache(applicationSupport: support, bundleIdentifier: bundleID ?? "cmux")
+        let database = ChromiumCrashpadDatabase(
+            directory: ChromiumHostConfiguration.crashDatabase(rootCache: rootCache),
+            stateFile: AppRunMarker.standardDirectory(bundleID: bundleID).appending(path: "chromium-dumps.json"))
+        let send: (@Sendable (ChromiumMinidumpReport) -> Void)? = reporter.map { reporter in
+            { @Sendable report in reporter.sendChromiumDump(report) }
+        }
+        let (writer, work) = (writer, work)
+        return ChromiumMinidumpCollector(database: database, send: send, work: work, mainWork: mainWork) { report in
+            let data = CrashReportWriter.encode(writer.report(for: report))
+            work.post(.bestEffort, mayBlock: .files) { _ = writer.write(data, name: "chromium-dump-\(report.processType)", date: report.date) }
+        }
+        #else
+        return nil
+        #endif
     }
 
     /// The crash log's process type of the Chromium Host (`CEFRuntime.hostEnded`).
@@ -205,6 +249,7 @@ final class CrashRecoveryService {
             object["exception_frames"] = exception.frames
         }
         if let previousCrashLog { object["system_report"] = previousCrashLog.path }
+        if previous.startupComplete == false, let task = previous.lastStartupTask { object["last_startup_task"] = task }
         if let tags = crashKeys?.tags, !tags.isEmpty { object["crash_keys"] = tags }
         return object
     }
@@ -219,5 +264,17 @@ final class CrashRecoveryService {
             .map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
             .filter { $0.1 >= date }
             .max { $0.1 < $1.1 }?.0
+    }
+}
+
+extension RelaunchReattach.PreviousEnd {
+    /// The run marker's unclean exit (`AppRunMarker.previousExit`; nil after a quit as asked or on a first launch).
+    init(_ exit: HistogramID.UncleanExit?) {
+        switch exit {
+        case nil: self = .quit
+        case .crash?: self = .crashed
+        case .systemShutdown?: self = .systemShutdown
+        case .killed?, .fatalHang?: self = .killed
+        }
     }
 }

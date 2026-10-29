@@ -44,7 +44,7 @@ struct PrivacyLeakScannerTests {
     }
 
     @Test func acceptsInputLatencyLabelsEvenWhenTheUserIsCalledTerminalOrPerson() throws {
-        // A short name inside an input label must not refuse every report (p04-input-010).
+        // A short name inside an input label must not refuse every report.
         let scanner = PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms + ["Terminal", "Person", "Frames", "mina"])
         let report = InputLatencyReportTests.report(InputLatencyReportTests.fieldSnapshot())
         #expect(report.inputLatency?.isEmpty == false)
@@ -75,7 +75,7 @@ struct PrivacyLeakScannerTests {
     }
 
     @Test func theInteractionKindSkipsTheTermCheckOnlyForItsOwnClosedSet() throws {
-        // A person called Tap still gets `kind_of_worst: tap`; any other value there is checked (p04-input-097).
+        // A person called Tap still gets `kind_of_worst: tap`; any other value there is checked.
         let scanner = PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms + ["Tap"])
         var report = InputLatencyReportTests.report(InputLatencyReportTests.interactionSnapshot())
         report.interactionLatency?.kindOfWorst = "tap"
@@ -96,7 +96,7 @@ struct PrivacyLeakScannerTests {
     }
 
     /// A blocking site id is a hash: a person whose name is hex digits (Abbe) inside one must not refuse every
-    /// report, as the id stays pending and is sent again (p12-perf-process-226). The name is still refused
+    /// report, as the id stays pending and is sent again. The name is still refused
     /// anywhere else, and in the site field when the value is not a site id.
     @Test func aHexOnlyNameInsideABlockingSiteIDDoesNotRefuseTheReport() throws {
         let scanner = PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms + ["Abbe"])

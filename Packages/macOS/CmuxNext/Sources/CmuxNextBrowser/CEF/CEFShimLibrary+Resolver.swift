@@ -22,6 +22,12 @@ nonisolated extension CEFShimLibrary {
             guard hostExports?.contains(name) ?? true else { return nil }
             return unsafe symbol(name).map { unsafe unsafeBitCast($0, to: T.self) }
         }
+
+        /// A function only newer shims export that passes this process's Mach ports: nil in host
+        /// mode, where a port name would reach the Chromium Host's process as a bare number.
+        func inProcess<T>(_ name: String) -> T? {
+            hostExports == nil ? optional(name) : nil
+        }
     }
 
     /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).

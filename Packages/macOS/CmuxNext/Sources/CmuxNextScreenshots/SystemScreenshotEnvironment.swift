@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// ``ScreenshotEnvironment`` over this Mac: CFPreferences for unsandboxed
 /// apps, the container plist for sandboxed ones, and the file system.
@@ -36,14 +37,14 @@ public nonisolated struct SystemScreenshotEnvironment: ScreenshotEnvironment {
     }
 
     public func text(at url: URL) -> String? {
-        guard let attributes = try? FileManager().attributesOfItem(atPath: url.path),
+        guard let attributes = try? FileManager.checked.attributesOfItem(atPath: url.path),
               (attributes[.size] as? Int ?? 0) < 1 << 20 else { return nil }
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
     public func isDirectory(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
-        return FileManager().fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+        return FileManager.checked.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     /// A sandboxed app's preferences, from its container (CFPreferences does not read it).

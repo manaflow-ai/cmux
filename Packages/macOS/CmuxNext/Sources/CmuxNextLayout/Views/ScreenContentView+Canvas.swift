@@ -307,7 +307,7 @@ extension ScreenContentView {
     }
 }
 
-/// The canvas camera on the render server (chrome-parity R2, p03-rendering-031; on with
+/// The canvas camera on the render server (chrome-parity R2; on with
 /// `motion.renderServer`): ``ScreenContentView/springCanvasCameraOnRenderServer()``.
 struct CanvasRenderMotion: RenderServerMotion {
     var kind: RenderMotionKind { .canvas }

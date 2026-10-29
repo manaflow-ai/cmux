@@ -17,6 +17,7 @@ mod revision_conflict;
 mod session;
 mod topology;
 
+pub(crate) use content::direct_children;
 pub(crate) use open_url::CAPABILITY as OPEN_URL_CAPABILITY;
 pub(crate) use open_url::is_web_url;
 pub(crate) use open_url::right_pane_beside_focused_dock;

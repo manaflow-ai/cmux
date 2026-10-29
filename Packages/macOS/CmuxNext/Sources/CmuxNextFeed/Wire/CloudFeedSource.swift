@@ -10,7 +10,7 @@ public import CmuxNextWakeups
 /// resent with the same key after the reconnect (the owner's ledger answers a
 /// decided key from the ledger); nothing new is sent while disconnected.
 ///
-/// With the app's Energy Saver policy (p14-energy-120, ``KeepaliveGate``) a sleep of the Mac or its
+/// With the app's Energy Saver policy (``KeepaliveGate``) a sleep of the Mac or its
 /// displays drops a pending pong deadline (its 10 s would run through the sleep), and a wake that
 /// finds the network closes the socket once and reconnects within ``EnergyPolicy/reconnectJitter``.
 @MainActor

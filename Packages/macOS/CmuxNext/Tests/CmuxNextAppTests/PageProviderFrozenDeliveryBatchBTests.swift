@@ -12,7 +12,7 @@ import Testing
 @testable import CmuxNextApp
 
 /// Each stream of the Settings, Mobile Pairing, update surface and Debug Settings providers names
-/// what ``PageRouter`` keeps of it while the page is hidden or frozen (p13-webui-025). A stream
+/// what ``PageRouter`` keeps of it while the page is hidden or frozen. A stream
 /// whose event is the whole state keeps the newest (`.latest`); `cmux.settings.changed` names only
 /// the keys that changed since the last event, a delta, so a drop must reach the page as a gap
 /// (`.resync`, which the page answers by re-reading every row and clearing every refusal), never
@@ -94,7 +94,7 @@ import Testing
     }
 
     @Test func updateSurfaceChangesKeepTheNewest() async throws {
-        let page = UpdateSurfaceProvider(kind: .updated, services: nil)
+        let page = UpdateSurfaceProvider(kind: .updated, services: nil, mainWork: linklessMainWork())
         let changes = try await Self.subscribe(page, "cmux.changelog.surface.changes")
         defer { changes.cancel() }
         #expect(changes.frozenDelivery == .latest)
@@ -182,6 +182,6 @@ import Testing
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
-        return (SettingsPageProvider(settings: settings, hostLists: hostLists), settings, directory)
+        return (SettingsPageProvider(settings: settings, hostLists: hostLists, on: linklessMainWork()), settings, directory)
     }
 }

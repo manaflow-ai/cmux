@@ -76,6 +76,7 @@
 //! locked while it is held, so it may be taken under any other lock.
 
 use super::*;
+use crate::no_panic::JsonExt;
 use crate::store::{SubsessionLimits, SubsessionLink};
 use std::collections::BTreeSet;
 
@@ -109,11 +110,15 @@ pub struct Catalog {
 }
 
 /// The catalog, parsed once from the embedded source.
+#[allow(
+    clippy::expect_used,
+    reason = "an invariant: the embedded settings source parses, checked by every daemon start in tests/subsessions.rs"
+)]
 pub fn catalog() -> &'static Catalog {
     static CATALOG: std::sync::OnceLock<Catalog> = std::sync::OnceLock::new();
     CATALOG.get_or_init(|| {
         // crash-allow: the source is a checked-in file embedded with include_str!, so a bad row fails every daemon start in tests/subsessions.rs before it can ship
-        parse_catalog(CATALOG_SOURCE).expect("subsessions.json rows")
+        parse_catalog(CATALOG_SOURCE).expect("INVARIANT: the embedded subsessions.json rows parse")
     })
 }
 
@@ -121,7 +126,7 @@ pub fn catalog() -> &'static Catalog {
 fn parse_catalog(source: &str) -> Option<Catalog> {
     let doc: Value = serde_json::from_str(source).ok()?;
     let row = |key: &str| -> Option<Value> {
-        doc["lists"]
+        doc.field("lists")
             .as_array()
             .into_iter()
             .flatten()
@@ -132,11 +137,14 @@ fn parse_catalog(source: &str) -> Option<Catalog> {
     let get = |v: &Value| v.as_u64().and_then(|n| u32::try_from(n).ok());
     let number = |key: &str| -> Option<NumberSetting> {
         let r = row(key)?;
-        Some(NumberSetting { default: get(&r["default"])?, max: get(&r["range"]["max"])? })
+        Some(NumberSetting {
+            default: get(r.field("default"))?,
+            max: get(r.field("range").field("max"))?,
+        })
     };
     Some(Catalog {
-        enabled: row(SETTING_ENABLED)?["default"].as_bool()?,
-        answer_questions: row(SETTING_ANSWER_QUESTIONS)?["default"].as_bool()?,
+        enabled: row(SETTING_ENABLED)?.field("default").as_bool()?,
+        answer_questions: row(SETTING_ANSWER_QUESTIONS)?.field("default").as_bool()?,
         max_children: number(SETTING_MAX_CHILDREN)?,
         max_depth: number(SETTING_MAX_DEPTH)?,
         max_running: number(SETTING_MAX_RUNNING).unwrap_or(MAX_RUNNING_FALLBACK),
@@ -363,7 +371,7 @@ impl Drop for KeptWorktree {
     fn drop(&mut self) {
         if !self.kept {
             let (folder, made) = (self.folder.clone(), self.made.clone());
-            std::thread::spawn(move || crate::subsession_worktree::remove_worktree(&folder, &made));
+            crate::subsession_worktree::remove_worktree_in_background(folder, made);
         }
     }
 }
@@ -725,12 +733,12 @@ impl Hub {
             "turnId": accepted.get("turnId"),
             // Its parent runs as many sub-sessions as `maxRunning` allows: its first prompt
             // waits for a run slot (`subsession_runs.rs`).
-            "waitsForSlot": accepted["waitsForSlot"].as_bool().unwrap_or(false),
+            "waitsForSlot": accepted.field("waitsForSlot").as_bool().unwrap_or(false),
             "session": row,
         });
         if let Some(kept) = &worktree {
             let w = &kept.made;
-            reply["worktree"] = json!({"root": w.root, "branch": w.branch, "base": w.base});
+            reply.set("worktree", json!({"root": w.root, "branch": w.branch, "base": w.base}));
         }
         Ok((probe, reply, worktree))
     }
@@ -795,7 +803,7 @@ impl Hub {
             "fromRole": super::subsession_send::family_role(&fm, &to.meta()),
         });
         if let Some(link) = &fm.subsession {
-            provenance["fromShortName"] = json!(link.short_name);
+            provenance.set("fromShortName", json!(link.short_name));
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         // An agent a remote device drove (its turn, or its last one, is a Web
@@ -838,12 +846,15 @@ impl Hub {
     pub fn subsession_row(&self, s: &Session, with_reply: bool) -> Value {
         let mut summary = self.session_summary(s);
         // Masked before their cut (`TurnInfo::masked_preview`, `doing`), for `turn` and `doing`.
-        if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
-            summary["turn"]["prompt"] = json!(t.masked_preview);
-            t.doing.mask_into(&mut summary["turn"]);
+        if let Some(t) =
+            s.turn().filter(|t| summary.field("turn").field("turnId") == t.turn_id.as_str())
+            && let Some(turn) = summary.field_mut("turn")
+        {
+            turn.set("prompt", json!(t.masked_preview));
+            t.doing.mask_into(turn);
         }
-        if summary["waitingPrompt"].is_string() {
-            summary["waitingPrompt"] = json!(super::subsession_send::masked_waiting_prompt(s));
+        if summary.field("waitingPrompt").is_string() {
+            summary.set("waitingPrompt", json!(super::subsession_send::masked_waiting_prompt(s)));
         }
         let pick = |k: &str| summary.get(k).cloned().unwrap_or(Value::Null);
         let mut row = json!({
@@ -862,27 +873,27 @@ impl Hub {
             "pendingPermissions": pick("pendingPermissions"),
             "queued": pick("queued"),
             // Its prompt waits for a run slot of its parent (`subsession_runs.rs`): not done yet.
-            "waitsForSlot": summary["waitsForSlot"].as_bool().unwrap_or(false),
+            "waitsForSlot": summary.field("waitsForSlot").as_bool().unwrap_or(false),
             // Non-null from the moment a prompt is accepted to its turn's end.
             "turn": pick("turn"),
             // working, input, failed, lost or idle, and since when (`views::lane`).
-            "state": summary["lane"]["state"].clone(),
-            "stateSince": summary["lane"]["since"].clone(),
+            "state": summary.field("lane").field("state").clone(),
+            "stateSince": summary.field("lane").field("since").clone(),
             // Working, but quiet with no tool call in flight since then (`hub/activity.rs`).
-            "stalledSince": summary["lane"]["stalledSince"].clone(),
+            "stalledSince": summary.field("lane").field("stalledSince").clone(),
             "doing": super::subsession_send::doing(&summary),
             // question or permission: only the person allows a permission, in the app.
             "waitingOn": pick("waitingOn"),
             "questions": self.subsession_questions(s), // ancestors may answer them
         });
         if with_reply {
-            row["lastReply"] = json!(self.last_reply(s));
+            row.set("lastReply", json!(self.last_reply(s)));
         }
         // The tools hand this to another session's agent: a secret in the
         // child's text (one it read from a file, say) is masked.
         for key in ["title", "lastReply", "doing"] {
-            if let Some(text) = row[key].as_str() {
-                row[key] = json!(crate::secret_scan::mask(text));
+            if let Some(text) = row.field(key).as_str() {
+                row.set(key, json!(crate::secret_scan::mask(text)));
             }
         }
         // The last turn's text, and the running turn's again (a turn that changed between the
@@ -1022,8 +1033,7 @@ impl Hub {
         let mut seen = std::collections::HashSet::from([target.id.clone()]);
         let mut order = vec![target.clone()];
         let mut i = 0;
-        while i < order.len() {
-            let id = order[i].id.clone();
+        while let Some(id) = order.get(i).map(|s| s.id.clone()) {
             order.extend(
                 self.subsession_children(&id).into_iter().filter(|c| seen.insert(c.id.clone())),
             );

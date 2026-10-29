@@ -77,10 +77,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::TraceStatus => {
             cmd_server::trace_control(mux, client, || Ok(trace_control::Call::Status))
         }
+        Command::MemoryReport => cmd_server::memory_report(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify { machine_metadata, revisions } => {
-            cmd_server::identify(mux, client, machine_metadata, revisions)
-        }
+        Command::Identify(params) => cmd_server::identify(mux, client, params),
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
             cmd_server::shutdown_daemon(
                 mux,
@@ -851,6 +850,10 @@ pub(super) fn handle_command_with_cancellation(
         Command::CancelStream(terminal_io_wire::CancelStreamParams { stream }) => {
             attach_streams::cancel_stream(mux, client, writer, stream)
         }
+        Command::SetStreamPriority(terminal_io_wire::SetStreamPriorityParams {
+            stream,
+            priority,
+        }) => stream_priority::set_stream_priority(mux, client, writer, stream, &priority),
         Command::FocusPane { pane } => cmd_panes::focus_pane(mux, actor, pane),
         Command::SelectTab(params) => cmd_tabs::select_tab(mux, actor, params),
         Command::SelectScreen { index, delta } => {

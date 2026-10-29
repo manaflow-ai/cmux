@@ -3,10 +3,6 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextFocus
 import CmuxNextInputModel
-#if DEBUG || CMUX_BENCH_HOOKS
-import CmuxNextControl
-import CmuxNextOracle
-#endif
 
 /// Reads the live combined input state into an `InputObservation`: each
 /// window's focus model next to AppKit's first responder and key window,
@@ -66,70 +62,3 @@ enum InputObservationBuilder {
         return .other(kind)
     }
 }
-
-#if DEBUG || CMUX_BENCH_HOOKS
-/// The oracle's `focus` facet (p15-oracle-034, schemas/oracle/snapshot-v1.schema.json `focus`): the same
-/// `observe` the input monitor checks, so the facet and the W invariants see one state and there is no
-/// second reader of AppKit or Ghostty focus. Chromium's interactive UI tests read focus the same way, from
-/// the FocusManager that owns it (ui/views/focus/focus_manager.h, `GetFocusedView`), never a test-side tracker.
-extension InputObservationBuilder {
-    static func oracleFocusFacet(_ services: AppServices) -> OracleFacetSource {
-        OracleFacetSource(.focus, .mainActor { [weak services] () throws(OracleFacetError) -> OracleValue in
-            guard let services else { throw OracleFacetError("the app services are gone") }
-            return oracleFocus(observe(services))
-        })
-    }
-
-    /// `observation` in the schema's form: public window ids (`win_<hex>`, as `snapshot.get` prints them), the
-    /// model's target and resolved kind as `debug.focus` names them, and per window whether no world
-    /// invariant violation names it. Settle state is not folded in: `debug.oracle.settle` and I5 own it.
-    static func oracleFocus(_ observation: InputObservation) -> OracleValue {
-        let broken = Set(InputInvariants.world(observation).violations.compactMap(\.window))
-        func id(_ key: String?) -> OracleValue { key.map { .string(ControlWindowInfo.publicID(forKey: $0)) } ?? .null }
-        func string(_ value: String?) -> OracleValue { value.map(OracleValue.string) ?? .null }
-        let windows = observation.windows.map { window -> OracleValue in
-            let model = window.model
-            return [
-                "id": id(window.id),
-                "isKey": .bool(window.isKey),
-                "responder": .string(String(FocusResponderClassifier.describe(window.responder).prefix { $0 != ":" })),
-                "responderPane": string(window.responder.pane),
-                "layoutFocus": string(window.layoutFocus),
-                "ghosttyFocused": .array(window.ghosttyFocused.map(OracleValue.string)),
-                "childPage": string(window.childPage),
-                "hasSheet": .bool(window.hasSheet),
-                "topPage": .bool(window.topPage == true),
-                "model": [
-                    "pane": string(model.pane),
-                    "target": .string(String(describing: model.target)),
-                    "resolved": .string(model.resolved.kind),
-                    "resolvedPane": string(model.resolved.pane),
-                    "resolvedTab": string(model.resolved.tab),
-                    "overlays": .array(model.overlays.map { .string($0.rawValue) }),
-                    "dragging": .bool(model.isDragging),
-                    "windowKey": .bool(model.windowKey),
-                    "sidebarHidden": .bool(model.sidebarHidden),
-                    "generation": .number(Double(model.generation)),
-                ],
-                "consistent": .bool(!broken.contains(window.id)),
-            ]
-        }
-        let keyWindow: (kind: String, window: String?) = switch observation.keyWindow {
-        case .none: ("none", nil)
-        case .window(let window): ("window", window)
-        case .childPage(let window): ("childPage", window)
-        case .panel(let window, _): ("panel", window)
-        case .sheet(let window): ("sheet", window)
-        case .other: ("other", nil)
-        }
-        let context = observation.context
-        return [
-            "windows": .array(windows),
-            "keyWindow": ["kind": .string(keyWindow.kind), "window": id(keyWindow.window)],
-            "activeWindow": id(observation.activeWindow),
-            "paletteOpen": .bool(observation.paletteOpen),
-            "context": ["terminal": .bool(context.terminal), "browser": .bool(context.browser), "agent": .bool(context.agent)],
-        ]
-    }
-}
-#endif

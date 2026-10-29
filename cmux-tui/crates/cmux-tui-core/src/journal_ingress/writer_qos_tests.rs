@@ -1,5 +1,5 @@
 //! The journal writer runs a commit attempt at utility only while no request
-//! waits on it (p02-threads-212). Where the platform cannot take utility
+//! waits on it. Where the platform cannot take utility
 //! back (Linux without root or `RLIMIT_NICE`) nothing is lowered.
 //!
 //! Each check reads the thread's own live value first and compares with it:

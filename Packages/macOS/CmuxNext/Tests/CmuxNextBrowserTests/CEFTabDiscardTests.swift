@@ -3,9 +3,9 @@ import AppKit
 import Foundation
 import Testing
 
-/// p13-webui-031: a hidden cmux page in Chromium is discarded in place, as Chrome's Memory Saver does
+/// A hidden cmux page in Chromium is discarded in place, as Chrome's Memory Saver does
 /// (`WebContents::Discard`, content/public/browser/web_contents.h), through the fork's optional
-/// `cmux_shim_tab_discard` (p13-webui-018). A fork without the export, or the Chromium Host (whose
+/// `cmux_shim_tab_discard`. A fork without the export, or the Chromium Host (whose
 /// answer is a later reply), discards nothing, so the page host closes the page instead. After a
 /// discard Chromium reloads the entry when the page shows (`NavigationControllerImpl::LoadIfNecessary`),
 /// so cmux sends nothing for a load of that entry's URL. Against a spy shim.

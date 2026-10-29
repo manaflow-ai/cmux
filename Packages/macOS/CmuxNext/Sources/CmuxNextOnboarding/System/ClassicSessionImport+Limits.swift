@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 
 nonisolated extension ClassicSessionImporter {
     struct DecodeBudget {
@@ -172,13 +173,13 @@ nonisolated extension ClassicSessionImporter {
     static func readData(at url: URL, maximumBytes: Int) throws -> Data? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
-        let handle = try FileHandle(forReadingFrom: url)
+        let handle = try FileHandle.blockingForReading(from: url)
         defer { try? handle.close() }
         var data = Data()
         while data.count <= maximumBytes {
             let remaining = maximumBytes + 1 - data.count
             guard remaining > 0,
-                  let chunk = try handle.read(upToCount: min(1024 * 1024, remaining)),
+                  let chunk = try handle.blockingRead(upToCount: min(1024 * 1024, remaining)),
                   !chunk.isEmpty else { break }
             data.append(chunk)
         }

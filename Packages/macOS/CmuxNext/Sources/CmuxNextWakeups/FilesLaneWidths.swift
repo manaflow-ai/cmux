@@ -8,9 +8,13 @@
 /// has the same 4/3/2/1. Work that must run in order goes through a ``WorkSequence``, never through a
 /// width of 1.
 public struct FilesLaneWidths: Sendable, Equatable {
+    /// Items of ``WorkPriority/userBlocking`` that may run at once.
     public var userBlocking: Int
+    /// Items of ``WorkPriority/userVisible`` that may run at once.
     public var userVisible: Int
+    /// Items of ``WorkPriority/bestEffort`` that may run at once.
     public var bestEffort: Int
+    /// Items of ``WorkPriority/idle`` that may run at once.
     public var idle: Int
 
     /// Each width is at least 1.

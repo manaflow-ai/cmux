@@ -25,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Condvar, Mutex, OnceLock};
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 use super::super::TerminalHostRecord;
 use super::records::write_record_deferring_dir_sync;
@@ -38,9 +39,15 @@ struct Mirror {
 fn mirror() -> &'static Mirror {
     static MIRROR: OnceLock<Mirror> = OnceLock::new();
     MIRROR.get_or_init(|| {
-        // A recovery mirror no request waits on: utility (p04-input-084).
+        // A recovery mirror no request waits on: utility.
         let qos = crate::thread_qos::ThreadType::Utility.qos();
-        let spawned = cmux_threads::spawn("terminal-host-record-mirror", qos, run);
+        let spawned = supervised::spawn_at(
+            "terminal-host-record-mirror",
+            qos,
+            Fatal,
+            ShutdownBehavior::Continue,
+            run,
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: host record mirror writer did not start: {error}");
         }
@@ -91,7 +98,7 @@ fn still_this_incarnation(path: &Path, record: &TerminalHostRecord) -> bool {
 mod tests {
     use super::*;
 
-    /// p04-input-084: the mirror writer is a registered utility thread. The
+    /// The mirror writer is a registered utility thread. The
     /// queued record names a missing file, so nothing is written.
     #[test]
     fn the_writer_is_a_utility_thread() {

@@ -90,11 +90,14 @@ pub fn add_uniichat(found: &mut BTreeMap<String, HarnessProfile>, self_argv: Opt
 /// The profile name of the cmux model router harness.
 pub const CMUX_ROUTER_PROFILE: &str = "cmux";
 
+/// The cmux router profile's default model: the first of [`CMUX_ROUTER_MODELS`].
+const CMUX_ROUTER_DEFAULT_MODEL: (&str, &str) = ("qwen/qwen3.7-flash", "Qwen3.7 Flash");
+
 /// The models the hosted cmux model router serves (backend
 /// apps/api/src/inference/catalog.ts): `(id, name)`. The first is the profile
 /// default. The live list is GET /v1/models through the relay.
 pub const CMUX_ROUTER_MODELS: &[(&str, &str)] = &[
-    ("qwen/qwen3.7-flash", "Qwen3.7 Flash"),
+    CMUX_ROUTER_DEFAULT_MODEL,
     ("z-ai/glm-5.3", "GLM-5.3"),
     ("moonshotai/kimi-k3", "Kimi K3"),
     ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
@@ -118,7 +121,7 @@ pub fn add_cmux_router(
         return;
     }
     let Some(claude) = which("claude") else { return };
-    let default = CMUX_ROUTER_MODELS[0].0;
+    let default = CMUX_ROUTER_DEFAULT_MODEL.0;
     let env = BTreeMap::from([
         (crate::routes::PROFILE_ROUTE_KEY.to_owned(), crate::routes::CMUX_ROUTE_ID.to_owned()),
         // Claude Code's background calls name Haiku/Sonnet aliases; the

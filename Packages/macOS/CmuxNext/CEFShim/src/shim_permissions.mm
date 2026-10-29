@@ -8,7 +8,7 @@
 // Deny in its own content settings. Media access is not handled here:
 // Chromium's MediaStreamDevicesController asks for camera and microphone
 // through OnShowPermissionPrompt, and screen sharing keeps Chromium's
-// desktop media picker path (task p01-process-228).
+// desktop media picker path.
 
 #include <map>
 

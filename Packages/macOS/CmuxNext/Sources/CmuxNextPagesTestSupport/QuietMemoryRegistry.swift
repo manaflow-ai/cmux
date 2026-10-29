@@ -6,7 +6,7 @@ public import CmuxNextCompat
 /// drives instead.
 ///
 /// ```swift
-/// let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry())
+/// let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: .testing())
 /// ```
 @MainActor
 public final class QuietMemoryRegistry: MemoryConsumerRegistry {

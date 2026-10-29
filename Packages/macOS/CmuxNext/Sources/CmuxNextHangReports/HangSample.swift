@@ -17,7 +17,7 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         /// first in its life (``DaemonDiagnosticSite``; wire schema 3 only); ``HangSample/daemon`` says which.
         case daemon
         /// cmux's hang watch: a registered thread or lane still inside its scope 2 s past its budget
-        /// (p09-observability-068, Chrome's `HangWatcher`; wire schema 3 only). ``HangSample/thread`` names it.
+        /// (Chrome's `HangWatcher`; wire schema 3 only). ``HangSample/thread`` names it.
         case hangWatch = "hangwatch"
     }
 
@@ -167,6 +167,34 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         }
     }
 
+    /// Where the launch was when a watchdog stall or hang before startup completion ran (the watchdog's
+    /// `startup_phase` and `startup_task`): the launch phase and the `main()` step or startup
+    /// task running. Wire schema 3 only (``HangReport/WireSchema/carriesStartupTag``); the builder keeps only a
+    /// known phase and a code-defined task name (``HangReportBuilder/safeStartup(_:)``).
+    public struct Startup: Codable, Sendable, Hashable {
+        /// The phases a stall record names (`StartupTaskTag.Reading.stallPhase`).
+        public static let phases: Set<String> = ["main", "critical", "after_first_frame"]
+        /// The task name the builder writes for one it may not send.
+        public static let other = "other"
+
+        /// `main` (up to `applicationDidFinishLaunching`), `critical` (to the first frame) or `after_first_frame`.
+        public var phase: String
+        /// The `main()` step or startup task (a `StaticString` compiled into the app); nil between tasks.
+        public var task: String?
+
+        /// Makes the value from its parts.
+        public init(phase: String, task: String?) {
+            self.phase = phase
+            self.task = task
+        }
+
+        /// The watchdog's `startup_phase` and `startup_task`; nil when the stall named no phase (after startup).
+        public init?(stallPhase: String?, task: String?) {
+            guard let stallPhase else { return nil }
+            self.init(phase: stallPhase, task: task)
+        }
+    }
+
     /// The most frames one stack carries.
     public static let maxFrames = 64
 
@@ -187,12 +215,16 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
     /// The watched thread of a ``Source/hangWatch`` hang (wire `thread`); nil for every other sample, and in
     /// schema 2 (absent from its JSON).
     public var thread: WatchedThread?
+    /// Where the launch was during a watchdog stall or hang before startup completed (wire `startup`); nil for
+    /// every other sample, and in schema 2 (absent from its JSON).
+    public var startup: Startup?
     /// What a ``Source/daemon`` sample is; nil for every other sample (and absent from its JSON).
     public var daemon: Daemon?
 
     /// Makes the value from its parts.
     public init(source: Source, kind: Kind, durationMs: Int, cpuMs: Int? = nil, frames: [HangReportFrame],
-                blocking: Blocking? = nil, mainTask: MainTask? = nil, thread: WatchedThread? = nil, daemon: Daemon? = nil) {
+                blocking: Blocking? = nil, mainTask: MainTask? = nil, thread: WatchedThread? = nil, startup: Startup? = nil,
+                daemon: Daemon? = nil) {
         self.source = source
         self.kind = kind
         self.durationMs = max(0, durationMs)
@@ -201,6 +233,7 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         self.blocking = blocking
         self.mainTask = mainTask
         self.thread = thread
+        self.startup = startup
         self.daemon = daemon
     }
 
@@ -223,11 +256,11 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case source, kind, durationMs, cpuMs, frames, blocking, thread, daemon
+        case source, kind, durationMs, cpuMs, frames, blocking, thread, startup, daemon
         case mainTask = "task"
     }
 
-    /// Decodes through ``init(source:kind:durationMs:cpuMs:frames:blocking:mainTask:thread:daemon:)``, so a saved pending file
+    /// Decodes through ``init(source:kind:durationMs:cpuMs:frames:blocking:mainTask:thread:startup:daemon:)``, so a saved pending file
     /// is bounded too (nonnegative times, at most ``maxFrames`` frames).
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -239,6 +272,7 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
                   blocking: try container.decodeIfPresent(Blocking.self, forKey: .blocking),
                   mainTask: try container.decodeIfPresent(MainTask.self, forKey: .mainTask),
                   thread: try container.decodeIfPresent(WatchedThread.self, forKey: .thread),
+                  startup: try container.decodeIfPresent(Startup.self, forKey: .startup),
                   daemon: try container.decodeIfPresent(Daemon.self, forKey: .daemon))
     }
 }

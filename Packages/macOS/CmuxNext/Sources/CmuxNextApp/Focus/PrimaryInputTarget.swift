@@ -65,13 +65,15 @@ extension PrimaryInputTarget {
     }
 
     /// The surface got the keyboard (`FocusEffectApplier`): its primary
-    /// input takes it unless the responder keeps it. Returns false when the
+    /// input takes it unless the responder keeps it, or a pending creation
+    /// owns the window's keyboard (a new terminal asked for while Home showed:
+    /// `NSWindow.pendingCreationOwnsKeyboard`). Returns false when the
     /// surface shows no primary input in `window` now (the caller then
     /// focuses its own target).
     @discardableResult
     func landKeyboard(in window: NSWindow) -> Bool {
         guard let input = primaryInputView, input.window === window, input.isShownForInput else { return false }
-        if window.firstResponder !== input, primaryInputShouldTakeKeyboard(from: window.firstResponder) {
+        if window.firstResponder !== input, !window.pendingCreationOwnsKeyboard, primaryInputShouldTakeKeyboard(from: window.firstResponder) {
             window.makeFirstResponder(input)
         }
         return true
@@ -107,12 +109,24 @@ extension NSWindow {
     /// - Parameter view: The surface's view, in this window.
     /// - Returns: True when the surface may give its primary input the keyboard now.
     @MainActor func keyboardIsFree(for view: NSView) -> Bool {
-        guard firstResponder === self || firstResponder == nil else { return false }
+        guard firstResponder === self || firstResponder == nil, !pendingCreationOwnsKeyboard else { return false }
         guard let controller = windowController as? WindowController,
               case .content(let pane) = FocusResponderClassifier.classify(view, in: controller) else { return true }
         let focus = controller.focus.currentState()
         guard focus.topology.panes.contains(where: { $0.id == pane }) else { return true }
         return focus.keepsKeyboard(inContentOf: pane)
+    }
+}
+
+extension NSWindow {
+    /// Whether a creation asked for in this cmux window with focus (a new terminal, pane or tab; a new workspace's
+    /// terminal) holds its keys and the person has not moved on since (no user intent after it): the keyboard is that
+    /// creation's, so no primary input takes it by itself, on a pane focus nobody chose, a shown conversation or an
+    /// installed message box (Chrome's rule: a tab that is not the one asked for never takes focus by itself). Keys typed
+    /// meanwhile wait for the creation (`CreationInputCoordinator`). False outside a cmux window.
+    @MainActor var pendingCreationOwnsKeyboard: Bool {
+        guard let controller = windowController as? WindowController else { return false }
+        return controller.services.keyRouter.creationInputCoordinator.claimsKeyboard(in: self, generation: controller.focus.state.generation)
     }
 }
 

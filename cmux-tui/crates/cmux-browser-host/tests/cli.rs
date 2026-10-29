@@ -319,3 +319,37 @@ fn a_browser_the_host_starts_holds_none_of_the_inherited_sockets() {
     let sockets: Vec<&str> = fds.lines().filter(|target| target.starts_with("socket:")).collect();
     assert!(sockets.is_empty(), "the browser inherited sockets {sockets:?}; all fds: {fds}");
 }
+
+/// `serve` takes `--panic-log <path>` (the daemon
+/// passes it) and serves; the hook itself is tested in tests/panic_log.rs.
+#[cfg(unix)]
+#[test]
+fn serve_takes_a_panic_log_and_serves() {
+    use std::os::unix::net::UnixStream;
+    use std::time::{Duration, Instant};
+
+    let dir = std::env::temp_dir().join(format!("cmux-host-panic-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("browser-host.sock");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["serve", "--panic-log"])
+        .arg(dir.join("browser-host-panics.jsonl"))
+        .arg("--socket")
+        .arg(&socket)
+        .env("CMUX_BROWSER_HOST_SOCKET", &socket)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("start the host");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while UnixStream::connect(&socket).is_err() {
+        assert!(child.try_wait().unwrap().is_none(), "the host refused --panic-log");
+        assert!(Instant::now() < deadline, "the host never listened");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}

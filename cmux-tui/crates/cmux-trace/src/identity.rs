@@ -268,21 +268,21 @@ pub(crate) fn gnu_build_id(mut notes: &[u8]) -> Option<[u8; 16]> {
     None
 }
 
-#[cfg(target_os = "macos")]
 fn process_start_unix_us() -> u64 {
+    process_start_unix_us_of(std::process::id())
+}
+
+/// The kernel's start time of process `pid` in us since 1970 (`proc_pidinfo` `PROC_PIDTBSDINFO`);
+/// 0 when it cannot be read. The header's `process_start_unix_us`, and what cleanup compares it with.
+#[cfg(target_os = "macos")]
+pub(crate) fn process_start_unix_us_of(pid: u32) -> u64 {
+    let Ok(pid) = libc::c_int::try_from(pid) else { return 0 };
     // SAFETY: proc_bsdinfo is plain old data; all zero is a valid value.
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
     let size = size_of::<libc::proc_bsdinfo>() as libc::c_int;
-    // SAFETY: our own pid, a buffer of `size` bytes.
-    let read = unsafe {
-        libc::proc_pidinfo(
-            std::process::id() as libc::c_int,
-            libc::PROC_PIDTBSDINFO,
-            0,
-            (&raw mut info).cast(),
-            size,
-        )
-    };
+    // SAFETY: any pid (a missing one fails the call), a buffer of `size` bytes.
+    let read =
+        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
     if read != size {
         return 0;
     }
@@ -290,8 +290,14 @@ fn process_start_unix_us() -> u64 {
 }
 
 /// `/proc/self/stat` field 22 (start time in clock ticks after boot) plus `btime` of `/proc/stat`.
+/// Another process's is 0 (unknown): cmux-next reads no other process's `/proc` entry
+/// (plans/cmux-next/pty-holder.md, "No process scanning"), so on Linux cleanup tells a dead pid by
+/// `kill(pid, 0)` alone.
 #[cfg(target_os = "linux")]
-fn process_start_unix_us() -> u64 {
+pub(crate) fn process_start_unix_us_of(pid: u32) -> u64 {
+    if pid != std::process::id() {
+        return 0;
+    }
     let ticks = std::fs::read_to_string("/proc/self/stat").ok().and_then(|stat| {
         let after_name = &stat[stat.rfind(')')? + 1..];
         after_name.split_whitespace().nth(19)?.parse::<u64>().ok()
@@ -310,7 +316,7 @@ fn process_start_unix_us() -> u64 {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn process_start_unix_us() -> u64 {
+pub(crate) fn process_start_unix_us_of(_pid: u32) -> u64 {
     0
 }
 

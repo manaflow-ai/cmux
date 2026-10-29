@@ -6,7 +6,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p08-startup-040: a tab's origin orders its Chromium start at launch (``CEFLaunchDeferral``), as Chrome's
+/// A tab's origin orders its Chromium start at launch (``CEFLaunchDeferral``), as Chrome's
 /// session restore loads the visible tab first and the rest after startup. A `.restoreVisible` page starts
 /// after the first frame and before completion, a `.restoreHidden` one after completion, a `.user` or
 /// `.automation` one at once. The page engine here is a fake: it waits as `CEFEngine.makeTab` does, then

@@ -13,7 +13,7 @@ import Foundation
 /// (the remote shim clears the marks before it hands the REPLY over), so ``snapshot()`` is nil
 /// meanwhile and the refresh at the answer reads the host's lists.
 final class CEFExtensionBackend: BrowserExtensionBackend {
-    /// The runtime, which owns the extension stores this backend serves (p10-stability-091).
+    /// The runtime, which owns the extension stores this backend serves.
     private let runtimeReference: OwnerReference<CEFRuntime>
     /// The runtime; nil (reported) only once it is gone, and then every call answers that nothing was sent.
     private var runtime: CEFRuntime? { runtimeReference.resolve() }

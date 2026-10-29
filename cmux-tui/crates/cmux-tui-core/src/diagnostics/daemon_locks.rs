@@ -1,6 +1,6 @@
 //! Wait and hold time of the daemon's state and registry locks, by caller
 //! class and request op (`debug-daemon-locks`; the plan names it
-//! `debug.daemon_locks`, p06-scheduler-226).
+//! `debug.daemon_locks`).
 //!
 //! Chrome keeps one fixed-bucket histogram per metric with atomic counts
 //! (base/metrics/histogram.h, buckets fixed at creation) and splits task

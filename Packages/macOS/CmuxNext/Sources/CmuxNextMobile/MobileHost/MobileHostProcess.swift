@@ -90,7 +90,7 @@ public final class MobileHostProcess: Sendable {
         state.withLock { state in
             guard state.exitStatus == nil, let input = state.input else { return false }
             do {
-                try input.write(contentsOf: line)
+                try input.blockingWrite(contentsOf: line)
                 return true
             } catch {
                 return false
@@ -137,8 +137,8 @@ public final class MobileHostProcess: Sendable {
         if !FileManager.default.fileExists(atPath: path) {
             FileManager.default.createFile(atPath: path, contents: nil, attributes: [.posixPermissions: 0o600])
         }
-        guard let handle = FileHandle(forWritingAtPath: path) else { return nil }
-        _ = try? handle.seekToEnd()
+        guard let handle = try? FileHandle.blockingForWriting(to: URL(fileURLWithPath: path)) else { return nil }
+        _ = try? handle.blockingSeekToEnd()
         return handle
     }
 }

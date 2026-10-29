@@ -21,6 +21,7 @@ use serde_json::{Value, json};
 use crate::cli::errors::{AppError, Code};
 use crate::cli::output::print_json;
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]
@@ -91,7 +92,7 @@ pub fn list_params(
         [("harness", harness), ("folder", folder), ("account", account), ("query", query)]
     {
         if let Some(value) = value.filter(|value| !value.is_empty()) {
-            params[key] = json!(value);
+            params.set(key, json!(value));
         }
     }
     params
@@ -109,7 +110,7 @@ pub fn open_params(key: &str, cwd: Option<&Path>) -> Result<Value, AppError> {
         if !cwd.is_absolute() {
             return Err(AppError::usage(format!("--cwd {} must be absolute", cwd.display())));
         }
-        params["cwd"] = json!(cwd);
+        params.set("cwd", json!(cwd));
     }
     Ok(params)
 }
@@ -288,7 +289,9 @@ pub fn list_text(page: &Value, now_ms: i64) -> String {
             ]
         })
         .collect();
-    let width = |i: usize| rows.iter().map(|row| row[i].chars().count()).max().unwrap_or(0);
+    let width = |i: usize| {
+        rows.iter().map(|row| row.get(i).map_or(0, |cell| cell.chars().count())).max().unwrap_or(0)
+    };
     let (w0, w1, w2) = (width(0), width(1), width(2));
     for [key, harness, age, title, cwd] in rows {
         let line = format!("{key:<w0$}  {harness:<w1$}  {age:>w2$}  {title}  {cwd}");
