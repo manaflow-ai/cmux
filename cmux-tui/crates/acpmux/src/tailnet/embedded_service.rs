@@ -28,6 +28,14 @@ impl Service {
         Self { stop, task, controller }
     }
 
+    /// Fence supervision before the daemon's WebSocket shutdown: no start,
+    /// replacement or listener-failure retirement happens after this, and the
+    /// current listener stays up so that shutdown can send its own close (1012
+    /// on restart) and drain it.
+    pub(crate) fn fence(&self) {
+        self.controller.begin_shutdown();
+    }
+
     pub(crate) async fn shutdown(mut self) {
         self.controller.begin_shutdown();
         self.stop.send_replace(true);
@@ -92,6 +100,10 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
         if *stopping.borrow() {
             break;
         }
+        if controller.stopping() {
+            hold_fenced(&mut active, &mut stopping).await;
+            break;
+        }
         let snapshot = controller.snapshot();
         let desired = if controller.retirement_pending() {
             None
@@ -145,6 +157,12 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
                     std::future::pending::<()>().await;
                 }
             } => {
+                // A listener that ends after the shutdown fence was closed by
+                // the daemon's WebSocket shutdown, not a failure.
+                if controller.stopping() {
+                    drop(active.take());
+                    break;
+                }
                 // A failed listener stays stopped until explicit retry. Do not
                 // spin against a port or certificate configuration failure.
                 if let Some(failed) = active.take() {
@@ -173,9 +191,68 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
     }
 }
 
+/// After the shutdown fence, neither reconcile nor stop the current listener:
+/// wait until it ends on its own (the daemon's WebSocket shutdown closes and
+/// drains it) or until `Service::shutdown` stops supervision.
+async fn hold_fenced(active: &mut Option<Active>, stopping: &mut watch::Receiver<bool>) {
+    let finished = match active.as_mut() {
+        None => return,
+        Some(current) => tokio::select! {
+            biased;
+            _ = stopping.wait_for(|stopped| *stopped) => false,
+            _ = &mut current.task => true,
+        },
+    };
+    if finished {
+        // A finished JoinHandle must not be polled again; dropping it is enough.
+        drop(active.take());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn fenced_supervision_leaves_the_listener_to_the_websocket_shutdown() {
+        let (stop, mut stop_seen) = watch::channel(false);
+        let (finish, finished) = tokio::sync::oneshot::channel::<()>();
+        let (outcome, ended) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let stopped_by_supervisor = tokio::select! {
+                _ = stop_seen.wait_for(|stopped| *stopped) => true,
+                _ = finished => false,
+            };
+            let _ = outcome.send(stopped_by_supervisor);
+            Ok::<(), anyhow::Error>(())
+        });
+        let mut active =
+            Some(Active { node: None, name: "node.example.ts.net".into(), stop, task });
+        let (service_stop, mut stopping) = watch::channel(false);
+        {
+            let hold = hold_fenced(&mut active, &mut stopping);
+            tokio::pin!(hold);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(20), &mut hold).await.is_err(),
+                "a fenced supervisor waits for the WebSocket shutdown to drain the listener"
+            );
+            finish.send(()).unwrap();
+            tokio::time::timeout(Duration::from_secs(1), hold).await.unwrap();
+        }
+        assert!(!ended.await.unwrap(), "the fenced supervisor must not stop the listener itself");
+        assert!(active.is_none());
+
+        // Service::shutdown still ends a fenced wait whose listener never drained.
+        let (stop, _listener) = watch::channel(false);
+        let task = tokio::spawn(std::future::pending::<anyhow::Result<()>>());
+        let mut active =
+            Some(Active { node: None, name: "node.example.ts.net".into(), stop, task });
+        service_stop.send_replace(true);
+        tokio::time::timeout(Duration::from_secs(1), hold_fenced(&mut active, &mut stopping))
+            .await
+            .unwrap();
+        assert!(active.is_some(), "the caller stops an undrained listener with its bound");
+    }
 
     #[tokio::test]
     async fn tailnet_service_bounds_and_joins_stalled_listener_cleanup() {

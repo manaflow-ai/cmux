@@ -205,7 +205,12 @@ pub struct Controller {
     node_factory: Mutex<Option<NodeFactory>>,
     #[cfg(test)]
     before_close: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    #[cfg(test)]
+    remote_logout: Mutex<Option<RemoteLogout>>,
 }
+
+#[cfg(test)]
+type RemoteLogout = Box<dyn FnOnce() -> Result<(), String> + Send>;
 
 impl Controller {
     pub fn new(state_dir: impl Into<PathBuf>, hostname: impl Into<String>) -> Arc<Self> {
@@ -229,6 +234,8 @@ impl Controller {
             node_factory: Mutex::new(None),
             #[cfg(test)]
             before_close: Mutex::new(None),
+            #[cfg(test)]
+            remote_logout: Mutex::new(None),
         })
     }
 
@@ -332,6 +339,27 @@ impl Controller {
         self.publish_locked(&inner.snapshot);
     }
 
+    /// The node's remote sign-out, run on a blocking thread by its caller.
+    /// Every path that signs out clears the opt-in marker first, so a daemon
+    /// restart during an unfinished sign-out never resumes this identity. If
+    /// the marker cannot be cleared, no remote sign-out is attempted.
+    fn remote_logout(
+        &self,
+        node: Arc<Node>,
+    ) -> impl FnOnce() -> Result<(), String> + Send + 'static {
+        let state_dir = self.state_dir.clone();
+        #[cfg(test)]
+        let hook = self.remote_logout.lock().unwrap_or_else(PoisonError::into_inner).take();
+        move || {
+            clear_opt_in(&state_dir)?;
+            #[cfg(test)]
+            if let Some(hook) = hook {
+                return hook();
+            }
+            node.logout().map_err(|e| e.0)
+        }
+    }
+
     pub(crate) fn begin_shutdown(&self) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         self.stopping.store(true, Ordering::Release);
@@ -364,12 +392,10 @@ impl Controller {
             Arc::clone(&self.lifecycle),
             move || async move {
                 let plan = controller.begin_retirement_close(generation, &node);
+                let remote_logout = controller.remote_logout(Arc::clone(&cleanup_node));
                 let result = tokio::task::spawn_blocking(move || {
                     if plan.logout {
-                        logout_and_close(
-                            || cleanup_node.logout().map_err(|e| e.0),
-                            || cleanup_node.close().map_err(|e| e.0),
-                        )
+                        logout_and_close(remote_logout, || cleanup_node.close().map_err(|e| e.0))
                     } else {
                         cleanup_node.close().map_err(|e| e.0)
                     }
@@ -627,11 +653,9 @@ impl Controller {
             }
         };
         let signed_out = if let Some(node) = self.state_node() {
+            let remote_logout = self.remote_logout(Arc::clone(&node));
             tokio::task::spawn_blocking(move || {
-                logout_and_close(
-                    || node.logout().map_err(|e| e.0),
-                    || node.close().map_err(|e| e.0),
-                )
+                logout_and_close(remote_logout, || node.close().map_err(|e| e.0))
             })
             .await
             .map_err(|error| error.to_string())
@@ -986,12 +1010,10 @@ impl Controller {
             (inner.generation, pending)
         };
         let work_node = Arc::clone(&node);
+        let remote_logout = self.remote_logout(Arc::clone(&node));
         let result = tokio::task::spawn_blocking(move || {
             if logout_pending {
-                logout_and_close(
-                    || work_node.logout().map_err(|e| e.0),
-                    || work_node.close().map_err(|e| e.0),
-                )
+                logout_and_close(remote_logout, || work_node.close().map_err(|e| e.0))
             } else {
                 work_node.close().map_err(|e| e.0)
             }
@@ -1060,6 +1082,11 @@ impl Controller {
     pub(crate) fn listener_is_current(&self, node: &Arc<Node>) -> bool {
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         matches!(&inner.state, LifecycleState::Running(current) if Arc::ptr_eq(current, node))
+    }
+
+    /// Daemon shutdown has begun: no start, resume or listener failure acts.
+    pub(super) fn stopping(&self) -> bool {
+        self.stopping.load(Ordering::Acquire)
     }
 
     pub(super) fn retirement_pending(&self) -> bool {
@@ -1185,12 +1212,56 @@ pub fn state_dir(home: &Path) -> PathBuf {
     home.join("tailnet")
 }
 
+/// Read the opt-in marker without creating state. Its directory must be the
+/// private one an explicit start made, and the marker a regular file owned by
+/// this user: no symlink, FIFO or device is followed, and a few bytes at most
+/// are read, so a planted marker cannot start a node or stall daemon startup.
+#[cfg(unix)]
 fn saved_opt_in(path: &Path) -> Result<bool, String> {
-    match std::fs::read(path) {
-        Ok(value) => Ok(value == b"1\n"),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error.to_string()),
+    use std::io::Read;
+    use std::os::unix::io::FromRawFd;
+
+    let (Some(state_dir), Some(name)) = (path.parent(), path.file_name()) else {
+        return Ok(false);
+    };
+    let Some(directory) = open_logout_directory(state_dir)? else { return Ok(false) };
+    let name = CString::new(name.as_encoded_bytes()).map_err(|error| error.to_string())?;
+    // SAFETY: openat on our open directory descriptor with a NUL-terminated name.
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::NotFound {
+            return Ok(false);
+        }
+        return Err(format!("open tailnet opt-in marker: {error}"));
     }
+    // SAFETY: fd was just returned by openat and is owned by nothing else.
+    let file = unsafe { std::fs::File::from_raw_fd(fd) };
+    let metadata =
+        file.metadata().map_err(|error| format!("stat tailnet opt-in marker: {error}"))?;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    if !metadata.is_file() || metadata.uid() != uid {
+        return Err("tailnet opt-in marker is not a regular file owned by this user".into());
+    }
+    let mut value = Vec::with_capacity(3);
+    file.take(3)
+        .read_to_end(&mut value)
+        .map_err(|error| format!("read tailnet opt-in marker: {error}"))?;
+    Ok(value == b"1\n")
+}
+
+/// Remove the opt-in marker through the private state directory, refusing a
+/// symlinked or shared directory. A missing directory has nothing to clear.
+fn clear_opt_in(state_dir: &Path) -> Result<(), String> {
+    let directory = open_logout_directory(state_dir)?;
+    unlink_saved_file(directory.as_ref(), "enabled")
 }
 
 #[cfg(test)]
@@ -1856,6 +1927,121 @@ mod tests {
             assert!(controller.state_node().is_none());
             release_node(node);
         }
+    }
+
+    #[tokio::test]
+    async fn queued_logout_clears_opt_in_before_retirement_signs_out() {
+        // A login holds the lifecycle gate, a listener fails (its cleanup
+        // queues first), then logout queues behind that cleanup. The cleanup
+        // performs the remote sign-out; the marker must already be gone, or a
+        // daemon restart during that sign-out resumes the saved identity.
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(
+            temporary.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
+        let marker = temporary.path().join("enabled");
+        std::fs::write(&marker, b"1\n").unwrap();
+        let config = NodeConfig::new(temporary.path(), "queued-logout");
+        let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
+            .await
+            .unwrap();
+        let controller = Controller::new(temporary.path(), "queued-logout");
+        controller.inner.lock().unwrap().state = LifecycleState::Running(Arc::clone(&node));
+        let (seen, marker_seen) = std::sync::mpsc::channel();
+        let observed = marker.clone();
+        *controller.remote_logout.lock().unwrap() = Some(Box::new(move || {
+            let _ = seen.send(observed.exists());
+            Ok(())
+        }));
+        let login = controller.lifecycle.lock().await;
+        let failing = controller.clone();
+        let failed = Arc::clone(&node);
+        let failure = tokio::spawn(async move { failing.listener_failed(&failed).await });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        let signing_out = controller.clone();
+        let logout = tokio::spawn(async move { signing_out.logout().await });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        drop(login);
+        failure.await.unwrap();
+        let result = logout.await.unwrap();
+        assert!(
+            !marker_seen.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
+            "remote sign-out ran while the opt-in marker could still resume the node"
+        );
+        assert!(result.is_ok(), "{result:?}");
+        assert!(!marker.exists());
+        assert!(controller.state_node().is_none());
+        release_node(node);
+    }
+
+    #[tokio::test]
+    async fn watch_start_failure_clears_opt_in_before_remote_sign_out() {
+        let temporary = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(
+            temporary.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
+        let marker = temporary.path().join("enabled");
+        std::fs::write(&marker, b"1\n").unwrap();
+        let config = NodeConfig::new(temporary.path(), "watch-logout");
+        let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
+            .await
+            .unwrap();
+        let controller = Controller::new(temporary.path(), "watch-logout");
+        controller.inner.lock().unwrap().state = LifecycleState::Running(Arc::clone(&node));
+        controller.request_logout();
+        let (seen, marker_seen) = std::sync::mpsc::channel();
+        let observed = marker.clone();
+        *controller.remote_logout.lock().unwrap() = Some(Box::new(move || {
+            let _ = seen.send(observed.exists());
+            Ok(())
+        }));
+        controller.finish_watch_start_failure(Arc::clone(&node), "no watch thread").await;
+        assert!(
+            !marker_seen.recv_timeout(std::time::Duration::from_secs(5)).unwrap(),
+            "remote sign-out ran while the opt-in marker could still resume the node"
+        );
+        assert!(!marker.exists());
+        release_node(node);
+    }
+
+    #[test]
+    fn saved_opt_in_refuses_a_marker_that_is_not_a_private_regular_file() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let temporary = tempfile::tempdir().unwrap();
+        let state = temporary.path().join("tailnet");
+        std::fs::create_dir(&state).unwrap();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let marker = state.join("enabled");
+        let elsewhere = temporary.path().join("elsewhere");
+        std::fs::write(&elsewhere, b"1\n").unwrap();
+        symlink(&elsewhere, &marker).unwrap();
+        assert!(saved_opt_in(&marker).is_err(), "a symlinked marker is not followed");
+        std::fs::remove_file(&marker).unwrap();
+
+        std::fs::write(&marker, b"1\n").unwrap();
+        assert!(saved_opt_in(&marker).unwrap());
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o770)).unwrap();
+        assert!(saved_opt_in(&marker).is_err(), "a shared state directory is refused");
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::remove_file(&marker).unwrap();
+
+        let fifo = CString::new(marker.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: mkfifo with a NUL-terminated path inside our temporary directory.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        let (done, finished) = std::sync::mpsc::channel();
+        let reading = marker.clone();
+        std::thread::spawn(move || {
+            let _ = done.send(saved_opt_in(&reading));
+        });
+        let result = finished
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("reading a FIFO marker must not block daemon startup");
+        assert!(result.is_err(), "a FIFO is not a marker");
     }
 
     #[test]
