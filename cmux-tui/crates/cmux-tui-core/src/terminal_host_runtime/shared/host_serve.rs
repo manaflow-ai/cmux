@@ -467,7 +467,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     let command_stream = stream.try_clone()?;
     let frames = Arc::new(ClientFrames {
         host: host.clone(),
-        sender: command_sender.clone(),
+        sender: command_sender,
         client,
         granted_rights,
         selected_version,

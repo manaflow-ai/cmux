@@ -40,7 +40,9 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::os::fd::RawFd;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
+use std::sync::{Arc, OnceLock, Weak};
+
+use cmux_threads::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
 use super::read_poller::{Poller, WAKE_TOKEN};
 
@@ -239,7 +241,7 @@ impl TerminalReads {
         }
         let shared = Arc::new(Shared {
             poller: Poller::new()?,
-            state: Mutex::default(),
+            state: Mutex::new(State::default()),
             work: Condvar::new(),
         });
         // A racing first register may have won; its poller is the one.
@@ -391,7 +393,9 @@ impl Shared {
                 return;
             }
             state.parked += 1;
-            state = self.work.wait(state).unwrap_or_else(PoisonError::into_inner);
+            // A parked worker waits for its own next run and holds no one
+            // else's work: an idle wait.
+            state = self.work.idle().wait(state).unwrap_or_else(PoisonError::into_inner);
             state.parked -= 1;
         }
     }

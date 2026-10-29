@@ -183,7 +183,7 @@ pub(crate) struct ShellActivity {
     /// from, not only whether `shell_idle` is there).
     foreground_leader: Option<u32>,
     /// Counts marks and inputs, so a foreground check that raced one of them
-    /// is dropped ([`Self::record_foreground`]).
+    /// is dropped ([`Self::record_foreground_leader`]).
     epoch: u64,
     /// Input may reach the PTY without this daemon seeing it: a renderer
     /// grant (its holder writes Input and Paste frames to the terminal host
@@ -394,7 +394,7 @@ impl ShellActivity {
         self.retract_idle(was_idle)
     }
 
-    /// The epoch to hand [`Self::record_foreground`] when the shell sits at a
+    /// The epoch to hand [`Self::record_foreground_leader`] when the shell sits at a
     /// prompt with no input since and its foreground was not checked since
     /// the last mark; `None` when no check would change the facts.
     pub(crate) fn foreground_check_due(&self) -> Option<u64> {
@@ -416,9 +416,9 @@ impl ShellActivity {
         self.foreground_check_due().or_else(|| self.idle_since().map(|_| self.epoch))
     }
 
-    /// Records a foreground check started at `epoch`
-    /// ([`Self::foreground_check_due`]): `holds` is whether the terminal's
-    /// own shell held the foreground. A mark or input since then drops it.
+    /// [`Self::record_foreground_leader`] with no leader: the tests' form (the
+    /// daemon always passes the leader its check saw).
+    #[cfg(test)]
     pub(crate) fn record_foreground(&mut self, epoch: u64, holds: bool) {
         self.record_foreground_leader(epoch, holds, None);
     }
@@ -431,8 +431,11 @@ impl ShellActivity {
         self.epoch = self.epoch.wrapping_add(1);
     }
 
-    /// [`Self::record_foreground`] with the foreground group leader the check
-    /// saw (`None`: the lookup failed).
+    /// Records a foreground check started at `epoch`
+    /// ([`Self::foreground_check_due`]): `holds` is whether the terminal's
+    /// own shell held the foreground, `leader` the foreground group leader
+    /// the check saw (`None`: the lookup failed). A mark or input since then
+    /// drops it.
     pub(crate) fn record_foreground_leader(
         &mut self,
         epoch: u64,
