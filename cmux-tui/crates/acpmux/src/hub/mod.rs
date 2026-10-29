@@ -53,6 +53,7 @@ pub mod media_handles;
 pub mod media_read;
 mod mesh_rows;
 pub(crate) mod subagent_transcript;
+mod team_information;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
@@ -953,6 +954,7 @@ impl Hub {
             turn: StdMutex::new(None),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
+            team_information: Default::default(),
             queue_moved: Notify::new(),
             moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
@@ -1482,46 +1484,6 @@ impl Hub {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.store.scan(id, after, visit)
-    }
-
-    /// Takes durable team information that arrived while a session was between turns.
-    /// Consumption is recorded in the same session log, so a daemon restart cannot replay it.
-    /// Callers hold the session turn lock while taking messages, which makes the scan-and-mark
-    /// operation single-consumer for a session.
-    pub(crate) fn take_team_messages(&self, session: &Arc<Session>) -> Vec<(String, String)> {
-        let mut messages = Vec::<(String, String)>::new();
-        let mut consumed = HashSet::new();
-        let mut seen = HashSet::new();
-        let _ = self.scan_events(&session.id, 0, &mut |event| {
-            match event.kind.as_str() {
-                "team_message" => {
-                    if let (Some(id), Some(text)) = (
-                        event.msg.get("messageId").and_then(Value::as_str),
-                        event.msg.get("text").and_then(Value::as_str),
-                    ) {
-                        if seen.insert(id.to_owned()) {
-                            messages.push((id.to_owned(), text.to_owned()));
-                        }
-                    }
-                }
-                "team_message_consumed" => {
-                    if let Some(id) = event.msg.get("messageId").and_then(Value::as_str) {
-                        consumed.insert(id.to_owned());
-                    }
-                }
-                _ => {}
-            }
-            true
-        });
-        let pending: Vec<_> =
-            messages.into_iter().filter(|(id, _)| !consumed.contains(id)).collect();
-        pending
-    }
-
-    pub(crate) fn mark_team_messages(&self, session: &Arc<Session>, messages: &[(String, String)]) {
-        for (id, _) in messages {
-            self.append(session, "mux", "team_message_consumed", json!({"messageId": id}));
-        }
     }
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {

@@ -230,7 +230,10 @@ async fn heartbeats(
         if hub_ended(&hub) {
             break;
         }
-        let Some(sessions) = hub.upgrade().map(|h| h.mesh_rows()) else { break };
+        let sessions = match hub.upgrade() {
+            Some(hub) => hub.mesh_rows().await,
+            None => break,
+        };
         let beat = Heartbeat { host: host.clone(), sessions };
         let wait = tokio::select! {
             r = client.heartbeat(&beat) => match r {
@@ -266,8 +269,16 @@ async fn heartbeats(
             },
             () = ended(&mut stop, &hub) => break,
         };
+        let wait = wait.max(HEARTBEAT_FLOOR.max(options.min_poll_gap));
+        let read_receipts = async {
+            if let Some(hub) = hub.upgrade() {
+                let budget = wait.min(Duration::from_secs(5));
+                let _ = tokio::time::timeout(budget, hub.flush_team_read_receipts(client.as_ref()))
+                    .await;
+            }
+        };
         tokio::select! {
-            () = tokio::time::sleep(wait.max(HEARTBEAT_FLOOR.max(options.min_poll_gap))) => {}
+            () = async { tokio::join!(tokio::time::sleep(wait), read_receipts); } => {}
             () = ended(&mut stop, &hub) => break,
         }
     }
@@ -457,19 +468,8 @@ pub async fn deliver(
     // session's event stream and acknowledge delivery without starting a
     // model turn; a later inbox read/ack records the durable user action.
     if team && !start_work_allowed(message) {
-        let stored = hub.append_stored(
-            &session,
-            "in",
-            "team_message",
-            json!({
-                "messageId": message.message_id,
-                "from": message.from.team_address.clone().or(message.from.name.clone()),
-                "text": format!("Team message from {}: {}", sender_name(message), message.body),
-                "information": true,
-            "startWork": "information",
-                "state": message.state,
-            }),
-        );
+        let stored =
+            hub.receive_team_information(&session, prompt_id, &sender_name(message), &message.body);
         if !stored {
             return None;
         }
@@ -478,15 +478,24 @@ pub async fn deliver(
             Some("information queued for the next turn boundary".into()),
         ));
     }
+    let body = if team {
+        format!(
+            "Team message from {}: {}\nThe team hub allows this message to start work; normal session permissions still apply.",
+            sender_name(message),
+            message.body
+        )
+    } else {
+        message.body.clone()
+    };
     let request = json!({
         "sessionId": session.id,
-        "prompt": [{"type": "text", "text": message.body}],
+        "prompt": [{"type": "text", "text": body}],
         "_meta": {"acpmux": {
             "steer": !team && message.mode == Mode::Now,
             "promptId": prompt_id,
             "resend": true,
             "fromAgent": sender_name(message),
-            "teamMessage": message.start_work.is_some() || message.to.team_address.is_some(),
+            "teamMessage": team,
             "startWork": message.start_work,
         }},
     });
@@ -550,6 +559,18 @@ mod tests {
         let mut message = from("", "lane");
         message.from.team_address = Some("lawrence/coordinator".into());
         assert_eq!(sender_name(&message), "@lawrence/coordinator");
+    }
+
+    #[test]
+    fn only_an_explicit_allowed_decision_can_start_work() {
+        let mut message = from("", "lane");
+        message.to.team_address = Some("@team/coordinator".into());
+        message.start_work = None;
+        assert!(!start_work_allowed(&message));
+        message.start_work = Some(StartWork::Information);
+        assert!(!start_work_allowed(&message));
+        message.start_work = Some(StartWork::Allowed);
+        assert!(start_work_allowed(&message));
     }
 
     #[test]

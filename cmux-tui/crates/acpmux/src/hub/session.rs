@@ -49,6 +49,8 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     pub(super) queued: AtomicU64,
     pub(super) queue: StdMutex<Vec<QueuedPrompt>>,
+    /// Durable team notices, indexed once per session; receiving one never queues a turn.
+    pub(super) team_information: StdMutex<Option<super::team_information::State>>,
     /// Fired when the queue's head may have changed (a prompt left the queue,
     /// a turn ended): queued prompts wait on it for their turn (`queue.rs`).
     pub(super) queue_moved: Notify,

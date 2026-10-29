@@ -15,7 +15,9 @@ impl Hub {
     /// The sessions here a heartbeat lists: every one but a closed one, at most
     /// [`MAX_HEARTBEAT_SESSIONS`], working ones first, then the most recently changed. Read under
     /// each one's meta lock (no clone of a meta).
-    pub fn mesh_rows(&self) -> Vec<SessionRow> {
+    pub async fn mesh_rows(&self) -> Vec<SessionRow> {
+        let team_enabled =
+            self.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging);
         let sessions: Vec<Arc<Session>> = self
             .sessions
             .lock()
@@ -39,13 +41,18 @@ impl Hub {
                         harness: m.harness.clone(),
                         state: m.status.to_string(),
                         stuck_reason: None,
-                        team_address: m
-                            .tags
-                            .get("teamAddress")
-                            .filter(|tag| {
-                                tag.expires_at.map(|at| at > crate::store::now_ms()).unwrap_or(true)
+                        team_address: team_enabled
+                            .then(|| {
+                                m.tags
+                                    .get("teamAddress")
+                                    .filter(|tag| {
+                                        tag.expires_at
+                                            .map(|at| at > crate::store::now_ms())
+                                            .unwrap_or(true)
+                                    })
+                                    .map(|tag| tag.value.clone())
                             })
-                            .map(|tag| tag.value.clone()),
+                            .flatten(),
                     };
                     (rank(m.status), m.updated_at, row)
                 })
