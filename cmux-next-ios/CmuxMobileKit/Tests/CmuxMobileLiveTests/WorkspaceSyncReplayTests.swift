@@ -9,7 +9,7 @@ import Testing
     /// arrangement. Each reply has older title/add events before it and a newer
     /// title immediately after it, in a single channel read.
     @Test(arguments: [1, 2])
-    func snapshotBarrierDropsEarlierEventsAndKeepsLaterTitle(_ snapshotRequest: Int) async throws {
+    func replayedAddsAreIdempotentAndLatestTitleWins(_ snapshotRequest: Int) async throws {
         let channel = ReplayDaemonChannel(replayOnRequest: snapshotRequest)
         defer { channel.finish() }
         let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
@@ -25,12 +25,56 @@ import Testing
         }
         #expect(result.workspaces.first?.tabs.map(\.id) == ["s1", "s2"])
         #expect(result.workspaces.first?.tabs.last?.title == "snapshot-tab")
-        // Checking every callback catches a transient stale publication, even
-        // if the final title event would hide it again.
-        #expect(published.allSatisfy { $0.workspaces.first?.tabs.first?.title != "stale-title" })
+        // Reply receipt is not a server snapshot watermark. Replaying an
+        // earlier title temporarily is allowed; a replayed add must never
+        // duplicate a tab or overwrite the entity held by the snapshot.
         #expect(published.allSatisfy { $0.workspaces.first?.tabs.count == 2 })
         #expect(published.allSatisfy { $0.workspaces.first?.tabs.last?.title == "snapshot-tab" })
         #expect(channel.listWorkspaceRequests >= snapshotRequest)
+        await sync.bind(nil, macID: "mac")
+    }
+
+    /// The daemon can capture a snapshot, then send a newer title event
+    /// before the older reply reaches the wire. No later event repairs it.
+    @Test(arguments: [1, 3])
+    func titleReceivedBeforeOlderReplySurvivesSnapshotCaptureRace(_ request: Int) async throws {
+        let channel = ReplayDaemonChannel(captureRaceOnRequest: request)
+        defer { channel.finish() }
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        let (ready, readyContinuation) = AsyncStream<DaemonTree>.makeStream()
+        let (rows, rowsContinuation) = AsyncStream<DaemonTree>.makeStream()
+        defer { readyContinuation.finish(); rowsContinuation.finish() }
+        var fullPublications = 0
+        var capturedSnapshotPublished = false
+        sync.onTree = { tree in
+            fullPublications += 1
+            if fullPublications == 2 { readyContinuation.yield(tree) }
+            if channel.listWorkspaceRequests >= request,
+               tree.workspaces.first?.tabs.first?.title == "snapshot-title" {
+                capturedSnapshotPublished = true
+            }
+            // Initial setup legitimately follows with an arrangement list
+            // whose newer capture can already contain the title.
+            if request == 1, tree.workspaces.first?.tabs.first?.title == "newer-than-capture" {
+                rowsContinuation.yield(tree)
+            }
+        }
+        sync.onRows = { tree, _, _ in
+            if tree.workspaces.first?.tabs.first?.title == "newer-than-capture" {
+                #expect(capturedSnapshotPublished)
+                rowsContinuation.yield(tree)
+            }
+        }
+        await sync.bind(channel, macID: "mac")
+        if request == 3 {
+            _ = try await replayTree(ready) { _ in true }
+            await sync.refresh()
+        }
+        let restored = try await replayTree(rows) { _ in true }
+        #expect(restored.workspaces.first?.tabs.first?.title == "newer-than-capture")
+        #expect(restored.workspaces.first?.tabs.map(\.id) == ["s1", "s2"])
+        // For the explicit refresh only onRows satisfies the barrier; no
+        // follow-up list can conceal a dropped event.
         await sync.bind(nil, macID: "mac")
     }
 
@@ -168,6 +212,7 @@ private func replayTree(_ updates: AsyncStream<DaemonTree>,
 private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
     let id: UInt32 = 1
     private let replayOnRequest: Int?
+    private let captureRaceOnRequest: Int?
     private let failIdentify: Bool
     private var snapshotBody: String?
     private let lock = NSLock()
@@ -183,8 +228,9 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
 
     func replaceSnapshot(_ body: String) { lock.withLock { snapshotBody = body } }
 
-    init(replayOnRequest: Int? = nil, failIdentify: Bool = false, snapshotBody: String? = nil) {
+    init(replayOnRequest: Int? = nil, failIdentify: Bool = false, snapshotBody: String? = nil, captureRaceOnRequest: Int? = nil) {
         self.replayOnRequest = replayOnRequest
+        self.captureRaceOnRequest = captureRaceOnRequest
         self.failIdentify = failIdentify
         self.snapshotBody = snapshotBody
     }
@@ -202,9 +248,18 @@ private final class ReplayDaemonChannel: LinkChannel, @unchecked Sendable {
             if command == "list-personal" { lock.withLock { personalCount += 1 } }
             if command == "list-workspaces" {
                 let number = lock.withLock { listCount += 1; return listCount }
-                let title = replayOnRequest.map { number > $0 ? "after-snapshot" : "snapshot-title" } ?? "snapshot-title"
+                let title: String
+                if let captureRaceOnRequest, number > captureRaceOnRequest {
+                    title = "newer-than-capture"
+                } else {
+                    title = replayOnRequest.map { number > $0 ? "after-snapshot" : "snapshot-title" } ?? "snapshot-title"
+                }
                 let snapshot = lock.withLock { snapshotBody } ?? Self.snapshot(title: title)
-                if number == replayOnRequest {
+                if number == captureRaceOnRequest {
+                    var batch = Data((#"{"event":"title-changed","surface":1,"title":"newer-than-capture"}"# + "\n").utf8)
+                    batch.append(Self.withID(id, body: snapshot))
+                    push(batch)
+                } else if number == replayOnRequest {
                     var batch = Data((#"{"event":"title-changed","surface":1,"title":"stale-title"}"# + "\n").utf8)
                     batch.append(Data((#"{"event":"tab-added","workspace":1,"screen":1,"pane":1,"surface":2,"index":1,"entity":{"surface":2,"kind":"pty","title":"stale-add"}}"# + "\n").utf8))
                     batch.append(Self.withID(id, body: snapshot))

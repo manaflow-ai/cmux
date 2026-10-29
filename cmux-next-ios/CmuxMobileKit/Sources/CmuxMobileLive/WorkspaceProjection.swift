@@ -232,6 +232,7 @@ public actor WorkspaceProjection {
         removedMetadata[oldID] = metadata[oldID]
         if row.key != oldID { metadata.removeValue(forKey: oldID) }
         refreshMetadata(for: row.key, at: index)
+        if row.key != oldID { rebuildSurfaceIndex() }
         if delta.kind == .workspaceMoved, let target = delta.index {
             let moved = rows.remove(at: index)
             rows.insert(moved, at: min(max(target, 0), rows.count))
@@ -313,7 +314,17 @@ public actor WorkspaceProjection {
         if delta.kind.isClose { tabs.remove(at: tabIndex) }
         else {
             guard let entity else { throw ProjectionError.needsSnapshot }
+            let selected = (panes[paneIndex]["active_tab"] as? Int).flatMap {
+                tabs.indices.contains($0) ? tabs[$0]["surface"] as? Int : nil
+            }
             tabs[tabIndex] = entity
+            if let destination = delta.index, destination != tabIndex {
+                let moved = tabs.remove(at: tabIndex)
+                tabs.insert(moved, at: min(max(destination, 0), tabs.count))
+                if let selected, let selectedIndex = tabs.firstIndex(where: { $0["surface"] as? Int == selected }) {
+                    panes[paneIndex]["active_tab"] = selectedIndex
+                }
+            }
         }
         panes[paneIndex]["tabs"] = tabs
         screens[screenIndex]["panes"] = panes

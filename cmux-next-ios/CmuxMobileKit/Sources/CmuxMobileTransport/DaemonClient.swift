@@ -29,6 +29,10 @@ public actor DaemonClient {
     private let usesOrderedEvents: Bool
     private var sequence: UInt64 = 0
 
+    /// Last received line before a caller sends its next request. Unlike a
+    /// reply's position, this can establish what predates snapshot capture.
+    public var receivedPosition: UInt64 { sequence }
+
     /// Choose one event stream; the unused stream is finished immediately so
     /// clients that use only one do not retain a second copy of every event.
     public init(channel: any LinkChannel, orderedEvents: Bool = false) {
@@ -66,7 +70,8 @@ public actor DaemonClient {
         try await requestOrdered(cmd, params: params, deadline: deadline, clock: clock).data
     }
 
-    /// Reply with its wire position: events through that position predate the snapshot.
+    /// Reply with its wire position. This is transport order, not a server
+    /// snapshot watermark: event generation can race with reply serialization.
     public func requestOrdered(_ cmd: String, params: [String: Any] = [:], deadline: Duration? = nil,
                                clock: any Clock<Duration> = ContinuousClock()) async throws -> ReceivedLine {
         start()

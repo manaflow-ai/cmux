@@ -58,6 +58,23 @@ import Testing
         #expect(update?.tree.workspaces.first?.tabs.first?.title == "renamed")
     }
 
+    @Test func tabChangedMovePreservesSelectedSurfaceAndPlaceIndices() async throws {
+        let snapshot = Data(#"{"ok":true,"data":{"workspace_revision":1,"registry_id":"r","workspaces":[{"id":1,"key":"w1","name":"one","screens":[{"id":2,"active":true,"active_pane":3,"panes":[{"id":3,"active_tab":1,"tabs":[{"surface":4,"kind":"pty","title":"first"},{"surface":5,"kind":"pty","title":"selected"},{"surface":6,"kind":"pty","title":"last"}]}]}]}]}}"#.utf8)
+        let projection = WorkspaceProjection()
+        let before = try await projection.reset(snapshot: snapshot, macID: "m")
+        #expect(before.workspaces.first?.activeTabID == "s5")
+        let moved = Self.delta(.tabChanged, surface: 4, index: 2,
+                               entity: ["surface": 4, "kind": "pty", "title": "first"])
+        let update = try await projection.apply(moved, agents: AgentStates(), activity: [:])
+        let tree = try #require(update?.tree)
+        #expect(tree.workspaces.first?.tabs.map(\.id) == ["s5", "s6", "s4"])
+        #expect(tree.tabPlaces["s5"]?.index == 0)
+        #expect(tree.tabPlaces["s6"]?.index == 1)
+        #expect(tree.tabPlaces["s4"]?.index == 2)
+        #expect(tree.workspaces.first?.activeTabID == "s5")
+        #expect(tree.workspaces.first?.tabs.first?.linkIDs?.isPaneSelected == true)
+    }
+
     @Test func workspaceInsertReindexesDisplacedSurfaces() async throws {
         let snapshot = Data(#"{"ok":true,"data":{"workspace_revision":1,"workspaces":[{"id":1,"key":"one","screens":[{"id":1,"panes":[{"id":1,"tabs":[{"surface":4,"kind":"pty","title":"one"}]}]}]},{"id":2,"key":"two","screens":[{"id":2,"panes":[{"id":2,"tabs":[{"surface":5,"kind":"pty","title":"two"}]}]}]}]}}"#.utf8)
         let projection = WorkspaceProjection()

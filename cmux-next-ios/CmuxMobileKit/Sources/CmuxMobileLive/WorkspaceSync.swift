@@ -32,10 +32,10 @@ public final class WorkspaceSync {
         var sequence: UInt64?
     }
     @ObservationIgnored private var queued: [QueuedEvent] = []
-    /// Committed reset positions on this connection, captured where the
-    /// client routes each reply, not when an executor happens to resume.
+    /// Events received before the latest snapshot request are covered by it.
+    /// Events received during capture must replay, even before its reply:
+    /// the daemon writes subscription events from a separate thread.
     @ObservationIgnored private var snapshotSequence: UInt64 = 0
-    @ObservationIgnored private var agentSequence: UInt64 = 0
     @ObservationIgnored private var pendingChanged = false
     @ObservationIgnored private var initializing = false
     @ObservationIgnored private var dirty = false
@@ -141,19 +141,20 @@ public final class WorkspaceSync {
             guard self.client === client else { return }
             identity = setup.identity
             agents.bySurface = setup.agents.bySurface
-            agentSequence = (try? replies[3].get().sequence) ?? 0
             let snapshot = try replies[4].get()
             let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
             let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
                                                   previous: known.isEmpty ? cached : known,
                                                   agents: agents, activity: activity, arrangement: arrangement)
             guard self.client === client else { return }
-            snapshotSequence = snapshot.sequence
+            // Setup subscribed before its list. Replay every setup event;
+            // reply arrival is not a watermark for the captured snapshot.
             discardBeforeSnapshot()
             tree = next
             lastError = nil
             initializing = false
             onTree?(next)
+            drain()
             // The Mac's own order and pins follow in one more round trip.
             Task {
                 guard self.client === client else { return }
@@ -187,7 +188,6 @@ public final class WorkspaceSync {
         updateTask = nil
         queued = []
         snapshotSequence = 0
-        agentSequence = 0
         pendingChanged = false
         initializing = false
         dirty = false
@@ -211,7 +211,7 @@ public final class WorkspaceSync {
     private func isBeforeSnapshot(_ entry: QueuedEvent) -> Bool {
         guard let sequence = entry.sequence else { return false }
         switch entry.event {
-        case .agentChanged: return sequence <= agentSequence
+        case .agentChanged: return false
         // Memory-only notification text and subscription loss aren't in a tree.
         case .notification, .resubscribe, .treeChanged: return false
         default: return sequence <= snapshotSequence
@@ -319,13 +319,14 @@ public final class WorkspaceSync {
                 dirty = false
                 do {
                     await loadArrangementIfStale(client)
+                    let coveredThrough = await client.receivedPosition
                     let reply = try await client.requestOrdered("list-workspaces")
                     guard self.client === client, !Task.isCancelled else { return }
                     let next = try await projection.reset(snapshot: reply.data, macID: macID,
                                                           previous: tree?.workspaces ?? [], agents: agents,
                                                           activity: activity, arrangement: arrangement)
                     guard self.client === client, !Task.isCancelled else { return }
-                    snapshotSequence = reply.sequence
+                    snapshotSequence = coveredThrough
                     discardBeforeSnapshot()
                     tree = next
                     lastError = nil
