@@ -10,7 +10,9 @@ import {
   type Options,
   evidenceLeaks,
   redact,
+  byteForm,
   heartbeatMs,
+  realDeps,
   refusal,
   runE2E,
   safeId,
@@ -96,10 +98,18 @@ interface Knobs {
   heartbeatValue?: (ms: number) => unknown
   /** How the platform's list shows a heartbeat at `ms` (default: RFC 3339). */
   listHeartbeat?: (ms: number) => unknown
+  /** Status reads take this long once the daemon runs; from the second such read on, the daemon beats as each returns. */
+  statusDelayMs?: number
+  /** tar archives everything but warns on stderr (as it does for a socket), exiting 0. */
+  tarWarning?: string
+  /** The join is this shell script, run as a real child by realDeps (its exit code and output are the join's). */
+  joinScript?: string
 }
 
 /** A GNU tar archive of `files` (path -> text) relative to HOME, as `tar -C HOME -cf - .` writes it. */
 function tarOf(files: Record<string, string>): string {
+  // Names and bodies as their UTF-8 bytes, one character per byte, as tar writes them and realDeps reads them.
+  const bytes = (text: string) => Buffer.from(text, "utf8").toString("latin1")
   const block = (text: string) => text + "\0".repeat((512 - (text.length % 512)) % 512)
   const header = (name: string, size: number, type: string) => {
     const pad = (text: string, n: number) => (text + "\0".repeat(n)).slice(0, n)
@@ -108,9 +118,10 @@ function tarOf(files: Record<string, string>): string {
   }
   let out = header("./", 0, "5")
   for (const [path, text] of Object.entries(files)) {
-    const name = `./${path.slice(HOME.length + 1)}`
+    const name = bytes(`./${path.slice(HOME.length + 1)}`)
+    const body = bytes(text)
     if (name.length > 100) out += header("././@LongLink", name.length + 1, "L") + block(`${name}\0`)
-    out += header(name.slice(0, 100), text.length, "0") + block(text)
+    out += header(name.slice(0, 100), body.length, "0") + block(body)
   }
   return out + "\0".repeat(1024)
 }
@@ -250,8 +261,19 @@ function world(k: Knobs = {}) {
     return json(404, { code: "machine.not_found" })
   }
 
-  const acpmux = async (args: string[], stdin: string | undefined, signal?: AbortSignal): Promise<ChildResult> => {
+  let daemonStatusReads = 0
+  const acpmux = async (args: string[], stdin: string | undefined, signal?: AbortSignal, timeoutMs = 60_000): Promise<ChildResult> => {
     if (args.join(" ") === "host join --status --json") {
+      if (k.statusDelayMs && daemonUp) {
+        daemonStatusReads += 1
+        // A read past its timeout is killed, as realDeps kills it.
+        if (k.statusDelayMs > timeoutMs) {
+          await after(timeoutMs)
+          return { code: null, stdout: "", stderr: "" }
+        }
+        await after(k.statusDelayMs)
+        if (daemonStatusReads >= 2) lastHeartbeat = clock
+      }
       if (k.statusFailsWithDaemon && daemonUp) return { code: 1, stdout: "", stderr: "status failed\n" }
       const status = {
         credentialPresent: joined,
@@ -285,6 +307,7 @@ function world(k: Knobs = {}) {
         listReads = 0
         return { code: k.redeemThenExit, stdout: "", stderr: "could not store the machine credential\n" }
       }
+      if (k.joinScript) return realDeps().run(["/bin/sh", "-c", k.joinScript], { env: { PATH: CHILD_PATH }, timeoutMs: 10_000 })
       if (k.joinExit) return { code: k.joinExit, stdout: "", stderr: k.joinStderr ?? "this line was used or expired\n" }
       joined = true
       files[CRED_PATH] = k.credentialFile ?? JSON.stringify({ credential: CREDENTIAL, machine_id: "m_1" })
@@ -306,7 +329,7 @@ function world(k: Knobs = {}) {
       // Every child runs as the disposable user: sudo -n -u USER -- /usr/bin/env -i -C HOME (5 assignments) PROGRAM ...
       if (argv[0] !== "sudo" || argv[2] !== "-u" || argv[5] !== "/usr/bin/env") return { code: 1, stdout: "", stderr: "not as the user" }
       const cmd = argv.slice(14)
-      if (cmd[0] === opts.acpmux) return acpmux(cmd.slice(1), o.stdin, o.signal)
+      if (cmd[0] === opts.acpmux) return acpmux(cmd.slice(1), o.stdin, o.signal, o.timeoutMs)
       if (cmd[0] === "cat") {
         if (k.catFails && cmd[2] !== CRED_PATH) return { code: 1, stdout: "", stderr: "Permission denied" }
         return { code: 0, stdout: files[cmd[2]!] ?? "", stderr: "" }
@@ -320,7 +343,9 @@ function world(k: Knobs = {}) {
       if (cmd[0] === "tar") {
         if (k.catFails) return { code: 2, stdout: "", stderr: "tar: ./.acpmux/config.json: Cannot open: Permission denied" }
         const home = Object.fromEntries(Object.entries(files).filter(([path]) => path.startsWith(`${HOME}/`)))
-        return { code: 0, stdout: tarOf(home), stderr: "" }
+        const archive = tarOf(home)
+        // Read as text, the archive's bytes would arrive UTF-8 decoded, as realDeps decodes text.
+        return { code: 0, stdout: o.binary ? archive : Buffer.from(archive, "latin1").toString("utf8"), stderr: k.tarWarning ?? "" }
       }
       return { code: 1, stdout: "", stderr: "" }
     },
@@ -893,6 +918,15 @@ describe("cancellation, the sweep, masking and the scan", () => {
     assertNoSecretEscaped(w)
   })
 
+  test("a home entry tar skips with a warning (a socket) fails the scan", async () => {
+    const w = world({ tarWarning: `tar: ./.acpmux/${CREDENTIAL}: socket ignored\n` })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("could not scan the whole disposable home")
+    expect(e.secretScan.home.cmm).toBeNull()
+    assertNoSecretEscaped(w)
+  })
+
   test("an incomplete home scan fails the run", async () => {
     const w = world({ catFails: true, homeFiles: { [`${HOME}/.acpmux/config.json`]: "{}" } })
     const e = await runE2E(opts, env, w.deps)
@@ -903,7 +937,72 @@ describe("cancellation, the sweep, masking and the scan", () => {
   })
 })
 
+// A synthetic non-ASCII held value: its text and its UTF-8 bytes (one character per byte) differ.
+const UPW = "pässwörd-ünïcode-123"
+const uenv = { ...env, CMUX_UITEST_STACK_PASSWORD: UPW }
+const UPW_BYTES = Buffer.from(UPW, "utf8").toString("latin1")
+const octal = (text: string) => [...Buffer.from(text, "utf8")].map((b) => `\\${b.toString(8).padStart(3, "0")}`).join("")
+
+/** Neither form of the non-ASCII value is printed (masks aside), put in an argv or URL, or in the evidence. */
+function assertUnicodeHeld(w: ReturnType<typeof world>) {
+  expect(w.lines).toContain(`::add-mask::${UPW}`)
+  expect(w.lines).toContain(`::add-mask::${UPW_BYTES}`)
+  for (const form of [UPW, UPW_BYTES]) {
+    for (const line of w.lines.filter((l) => !l.startsWith("::add-mask::"))) expect(line).not.toContain(form)
+    for (const r of w.runs) expect(r.argv.join("\0")).not.toContain(form)
+    for (const c of w.calls) expect(c.url).not.toContain(form)
+    expect(w.evidenceText()).not.toContain(form)
+  }
+}
+
+describe("non-ASCII held values", () => {
+  test("child text output is read as UTF-8, and binary output keeps each byte", async () => {
+    const script = `printf '${octal("xäy")}'; printf '${octal("päss")}' >&2`
+    const text = await realDeps().run(["/bin/sh", "-c", script], { env: { PATH: CHILD_PATH }, timeoutMs: 10_000 })
+    expect(text.stdout).toBe("xäy")
+    expect(text.stderr).toBe("päss")
+    const binary = await realDeps().run(["/bin/sh", "-c", script], { env: { PATH: CHILD_PATH }, timeoutMs: 10_000, binary: true })
+    expect(binary.stdout).toBe("x\u00c3\u00a4y")
+    expect(binary.stderr).toBe("päss")
+    expect(byteForm("xäy")).toBe("x\u00c3\u00a4y")
+  })
+
+  test("one stored as UTF-8 in a home file's body fails the scan", async () => {
+    const w = world({ homeFiles: { [`${HOME}/.acpmux/cache.json`]: `{"p":"${UPW}"}` } })
+    const e = await runE2E(opts, uenv, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("the home holds a value of this run's sign-in or tokens")
+    assertUnicodeHeld(w)
+  })
+
+  test("one stored as UTF-8 in a home file's name fails the scan", async () => {
+    const w = world({ homeFiles: { [`${HOME}/.acpmux/${UPW}.txt`]: "" } })
+    const e = await runE2E(opts, uenv, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("the home holds a value of this run's sign-in or tokens")
+    assertUnicodeHeld(w)
+  })
+
+  test("one a real child prints as UTF-8 on stderr is redacted from the printed tail and fails the run", async () => {
+    const w = world({ joinScript: `printf 'cannot reach the hub with ${octal(UPW)}\\n' >&2; exit 4` })
+    const e = await runE2E(opts, uenv, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.reason).toContain("join: exit 4 (hub unreachable)")
+    expect(e.reason).toContain("output holds a secret value")
+    expect(w.lines.some((l) => l.startsWith("  acpmux: cannot reach the hub with [secret]"))).toBe(true)
+    assertUnicodeHeld(w)
+  })
+})
+
 describe("heartbeats", () => {
+  test("slow status reads cannot carry the check past its deadline", async () => {
+    const w = world({ statusDelayMs: 55_000 })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    expect(e.status.heartbeatAgeSeconds).toBeNull()
+    assertNoSecretEscaped(w)
+  })
+
   test("a status heartbeat in the future does not count", async () => {
     const w = world({ heartbeatValue: (ms) => String(ms + 600_000) })
     const e = await runE2E(opts, env, w.deps)

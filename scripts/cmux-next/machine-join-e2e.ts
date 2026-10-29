@@ -59,9 +59,14 @@ export interface Options {
 
 export interface ChildResult {
   code: number | null
+  /** UTF-8 text; with `binary`, one character per byte (latin1). */
   stdout: string
+  /** UTF-8 text. */
   stderr: string
 }
+
+/** `text`'s UTF-8 bytes, one character per byte: how a held value appears in binary (latin1) output. */
+export const byteForm = (text: string) => Buffer.from(text, "utf8").toString("latin1")
 
 export interface Daemon {
   /** Stops the process (SIGTERM, then SIGKILL) and answers what it printed. */
@@ -71,7 +76,7 @@ export interface Daemon {
 export interface Deps {
   fetch: (url: string, init: RequestInit) => Promise<Response>
   /** Runs argv with exactly `env`, writing `stdin` (then closing it) when given. */
-  run(argv: string[], options: { env: Record<string, string>; stdin?: string; timeoutMs: number; signal?: AbortSignal }): Promise<ChildResult>
+  run(argv: string[], options: { env: Record<string, string>; stdin?: string; timeoutMs: number; signal?: AbortSignal; binary?: boolean }): Promise<ChildResult>
   /** Starts a long-running argv with exactly `env`; stdin is closed. */
   start(argv: string[], options: { env: Record<string, string> }): Daemon
   /** One line of this step's output (the job log). */
@@ -234,9 +239,13 @@ export async function runE2E(
     if (!value) return
     // The runner swallows this command and hides the value everywhere after it. The value is escaped as
     // a workflow command's data (% CR LF), and each line of a multi-line value is masked on its own too.
-    deps.write(`::add-mask::${escapeData(value)}`)
-    for (const line of value.split(/\r?\n|\r/)) if (line && line !== value) deps.write(`::add-mask::${escapeData(line)}`)
-    secrets.push(value)
+    // Held in both forms: as text (UTF-8 child output, the log) and as its UTF-8 bytes one per character
+    // (the home scan's archive), which differ for a non-ASCII value. Both are masked and matched.
+    for (const form of new Set([value, byteForm(value)])) {
+      deps.write(`::add-mask::${escapeData(form)}`)
+      for (const line of form.split(/\r?\n|\r/)) if (line && line !== form) deps.write(`::add-mask::${escapeData(line)}`)
+      secrets.push(form)
+    }
   }
   const evidence: Evidence = {
     run: { id: opts.runId, sha: opts.sha },
@@ -283,10 +292,10 @@ export async function runE2E(
       file?.[0] === credentialFile && /^regular (empty )?file$/.test(file[1] ?? "") && file[2] === opts.user && file[3] === "1"
     return { own, mode: own && /^[0-7]{3,4}$/.test(file?.[4] ?? "") ? file![4]! : null }
   }
-  const acpmux = async (args: string[], stdin?: string, signal?: AbortSignal) => {
+  const acpmux = async (args: string[], stdin?: string, signal?: AbortSignal, timeoutMs = 60_000) => {
     // No new process of the disposable user once cleanup has begun (it has stopped them all).
     live()
-    const r = await deps.run(asUser(args), { env: childEnv, timeoutMs: 60_000, ...(stdin === undefined ? {} : { stdin }), ...(signal ? { signal } : {}) })
+    const r = await deps.run(asUser(args), { env: childEnv, timeoutMs, ...(stdin === undefined ? {} : { stdin }), ...(signal ? { signal } : {}) })
     childText.push(r.stdout, r.stderr)
     return r
   }
@@ -399,9 +408,9 @@ export async function runE2E(
     return (r.json.machines as any[]).find((m) => m?.joinTokenId === evidence.joinTokenId)
   }
   // One retry: status records a revoke under the join lock, which the daemon's heartbeat may hold for a moment.
-  const status = async () => {
+  const status = async (timeoutMs = 60_000) => {
     for (let attempt = 0; ; attempt++) {
-      const r = await acpmux(["host", "join", "--status", "--json"])
+      const r = await acpmux(["host", "join", "--status", "--json"], undefined, undefined, timeoutMs)
       const s = lastJson(r.stdout)
       if (r.code === 0 && s) return s
       if (attempt >= 1) throw new Failed(`status: exit ${r.code}`)
@@ -647,11 +656,15 @@ export async function runE2E(
     let s: any = pre
     let strangeBeat = false
     for (;;) {
-      s = await status()
+      // Each status read gets only what is left of the heartbeat budget, so a slow one cannot carry the
+      // check past it.
+      const remaining = deadline - deps.now()
+      if (remaining <= 0) break
+      s = await status(Math.min(60_000, Math.max(1_000, remaining)))
       // acpmux records ms since the epoch on this machine's clock (a string): a beat counts only when it
-      // falls in this daemon's run (1 s of slack before its start, none beyond 5 s in the future).
+      // falls in this daemon's first HEARTBEAT_LIMIT_S (1 s of slack before its start), and not in the future.
       const beat = typeof s.lastHeartbeat === "string" && /^\d{1,16}$/.test(s.lastHeartbeat) ? Number(s.lastHeartbeat) : NaN
-      if (Number.isFinite(beat) && beat >= daemonStartedAt - 1_000 && beat <= deps.now() + 5_000) {
+      if (Number.isFinite(beat) && beat >= daemonStartedAt - 1_000 && beat <= Math.min(deadline, deps.now() + 5_000)) {
         evidence.status.heartbeatAgeSeconds = Math.max(0, Math.round((deps.now() - beat) / 1000))
         if (evidence.status.heartbeatAgeSeconds < HEARTBEAT_LIMIT_S) break
       } else if (s.lastHeartbeat !== null && s.lastHeartbeat !== undefined) strangeBeat = true
@@ -707,8 +720,10 @@ export async function runE2E(
   try {
     // One process with a fixed argv archives the whole home (names, link targets and contents), so no
     // file name ever reaches an argv. Incomplete is a failure: tar must read everything and exit 0.
-    const archive = await deps.run(asUserTool(["tar", "-C", opts.home, "--one-file-system", "--format=gnu", "-cf", "-", "."]), { env: childEnv, timeoutMs: 30_000 })
-    if (archive.code !== 0) throw new Error("tar failed")
+    const archive = await deps.run(asUserTool(["tar", "-C", opts.home, "--one-file-system", "--format=gnu", "-cf", "-", "."]), { env: childEnv, timeoutMs: 30_000, binary: true })
+    // tar skips what it cannot archive (a socket, say) with only a warning and exit 0: any word on stderr
+    // means the archive is not the whole home.
+    if (archive.code !== 0 || archive.stderr.trim() !== "") throw new Error("tar failed or skipped an entry")
     let cmj = 0
     let cmm = 0
     let held = 0
@@ -719,6 +734,7 @@ export async function runE2E(
       cmm += count(meta, "cmm_")
       if (entry.name === credentialEntry && credentialPath) evidence.secretScan.home.credentialFileCmm = count(entry.body, "cmm_")
       else cmm += count(entry.body, "cmm_")
+      // Names and bodies are bytes here: `secrets` holds each value's byte form too (see hold).
       for (const v of secrets) if (v.length >= 8 && !v.startsWith("cmm_") && (meta.includes(v) || entry.body.includes(v))) held += 1
     }
     evidence.secretScan.home.cmj = cmj
@@ -780,7 +796,7 @@ export function parseArgs(argv: string[]): Options {
 
 /** Production dependencies: sudo children with exactly the given environment, output kept in memory. */
 export function realDeps(): Deps {
-  const collect = (argv: string[], env: Record<string, string>, stdin: string | undefined) => {
+  const collect = (argv: string[], env: Record<string, string>, stdin: string | undefined, binary = false) => {
     const child = spawn(argv[0]!, argv.slice(1), { env, cwd: "/", stdio: ["pipe", "pipe", "pipe"] })
     const out: Buffer[] = []
     const err: Buffer[] = []
@@ -791,14 +807,18 @@ export function realDeps(): Deps {
     child.stdin.end()
     const done = new Promise<ChildResult>((resolve) => {
       child.on("error", () => resolve({ code: null, stdout: "", stderr: "spawn failed" }))
-      child.on("close", (code) => resolve({ code, stdout: Buffer.concat(out).toString("latin1"), stderr: Buffer.concat(err).toString("latin1") }))
+      // Text is UTF-8, as acpmux and the tools print it, so redaction and masks see the original values;
+      // binary output (the scan's archive) keeps every byte as one character.
+      child.on("close", (code) =>
+        resolve({ code, stdout: Buffer.concat(out).toString(binary ? "latin1" : "utf8"), stderr: Buffer.concat(err).toString("utf8") })
+      )
     })
     return { child, done }
   }
   return {
     fetch: (url, init) => fetch(url, init),
-    run: async (argv, { env, stdin, timeoutMs, signal }) => {
-      const { child, done } = collect(argv, env, stdin)
+    run: async (argv, { env, stdin, timeoutMs, signal, binary }) => {
+      const { child, done } = collect(argv, env, stdin, binary)
       const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs)
       // An abort: SIGTERM (sudo relays it to its command), then SIGKILL a second later.
       let hard: ReturnType<typeof setTimeout> | undefined
