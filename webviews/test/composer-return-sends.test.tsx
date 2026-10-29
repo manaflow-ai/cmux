@@ -179,12 +179,16 @@ const key = (init: KeyboardEventInit & { keyCode?: number }) =>
 
 /** The lines the field shows: its paragraphs, and the line breaks inside them. */
 const lines = (field: HTMLElement) =>
-  field.querySelectorAll("p").length + field.querySelectorAll("br:not(.ProseMirror-trailingBreak)").length;
+  field.querySelectorAll("p").length +
+  field.querySelectorAll("br:not(.ProseMirror-trailingBreak)").length;
 
 test("Return sends what is typed", async () => {
   const { field, sent } = await composer(chat(), "What is Spotlight?");
   const proceeded = await dispatch(field, key({ key: "Enter", keyCode: 13 }));
-  expect({ sent, proceeded }).toEqual({ sent: [{ text: "What is Spotlight?", steer: false }], proceeded: false });
+  expect({ sent, proceeded }).toEqual({
+    sent: [{ text: "What is Spotlight?", steer: false }],
+    proceeded: false,
+  });
 });
 
 const refuseCommand = (command: CmuxCommand, args?: string) => {
@@ -206,7 +210,9 @@ test("a refused cmux-owned command keeps its draft and shows the inline reason",
   await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect(sent).toEqual([]);
   expect(field.textContent).toContain("/fork");
-  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("Fork is unavailable");
+  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain(
+    "Fork is unavailable",
+  );
 });
 
 test("a cmux-owned command with an invalid target keeps its draft and explains the refusal", async () => {
@@ -215,20 +221,16 @@ test("a cmux-owned command with an invalid target keeps its draft and explains t
   await dispatch(field, key({ key: "Enter", keyCode: 13 }));
   expect(sent).toEqual([]);
   expect(field.textContent).toContain("/continue nope");
-  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain("No matching harness");
+  expect(host.querySelector(".acpmux-attachment-note")?.textContent).toContain(
+    "No matching harness",
+  );
 });
 
 test("a Sandboxed chat refuses /import before the picker and ignores a late file", async () => {
   const imported: File[] = [];
-  const { field, sent } = await composer(
-    chat(),
-    "/import",
-    undefined,
-    true,
-    async (file) => {
-      imported.push(file);
-    },
-  );
+  const { field, sent } = await composer(chat(), "/import", undefined, true, async (file) => {
+    imported.push(file);
+  });
   const input = host.querySelector<HTMLInputElement>('input[aria-label="/import"]')!;
   let opened = false;
   input.click = () => {
@@ -241,7 +243,10 @@ test("a Sandboxed chat refuses /import before the picker and ignores a late file
     "Transcript import is unavailable in Sandboxed mode",
   );
 
-  Object.defineProperty(input, "files", { configurable: true, value: [new File(["{}"], "transcript.json")] });
+  Object.defineProperty(input, "files", {
+    configurable: true,
+    value: [new File(["{}"], "transcript.json")],
+  });
   await act(async () => input.dispatchEvent(new window.Event("change", { bubbles: true })));
   expect(imported).toEqual([]);
   expect(sent).toEqual([]);
@@ -282,7 +287,9 @@ test("active-chat /import opens synchronously despite a pending file and consume
   // Type into the field itself: restore() would replace attachments and hide a leaked pending read.
   await act(async () => {
     page.field.textContent = "Explain this file";
-    page.field.dispatchEvent(new window.InputEvent("input", { bubbles: true, inputType: "insertText" }));
+    page.field.dispatchEvent(
+      new window.InputEvent("input", { bubbles: true, inputType: "insertText" }),
+    );
   });
   await dispatch(page.field, key({ key: "Enter", keyCode: 13 }));
   expect(page.sentAttachments).toEqual([[]]);
@@ -316,11 +323,20 @@ test("the Return that commits an input method's candidate is the input method's:
   const { field, sent } = await composer(chat(), "日本語");
   await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
   // During composition the committing Return is the input method's.
-  const during = await dispatch(field, key({ key: "Enter", keyCode: 229, isComposing: true }), 1_500);
+  const during = await dispatch(
+    field,
+    key({ key: "Enter", keyCode: 229, isComposing: true }),
+    1_500,
+  );
   // WebKit sends the committing Return just after compositionend, isComposing false.
   await dispatch(field, new window.CompositionEvent("compositionend", { bubbles: true }), 2_000);
   const after = await dispatch(field, key({ key: "Enter", keyCode: 229 }), 2_010);
-  expect({ sent, during, after, lines: lines(field) }).toEqual({ sent: [], during: true, after: true, lines: 1 });
+  expect({ sent, during, after, lines: lines(field) }).toEqual({
+    sent: [],
+    during: true,
+    after: true,
+    lines: 1,
+  });
 });
 
 // WebKit (jsdom's vendor is Apple): ProseMirror's after-composition guard swallows the commit
@@ -337,7 +353,11 @@ test("Shift-Return right after an input method's commit Return adds a line and s
   if (proceeded)
     await dispatch(
       field,
-      new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
+      new window.InputEvent("beforeinput", {
+        inputType: "insertParagraph",
+        bubbles: true,
+        cancelable: true,
+      }),
       2_301,
     );
   expect({ sent, lines: lines(field) }).toEqual({ sent: [], lines: 2 });
@@ -347,13 +367,23 @@ test("a paragraph the input method inserts on its own sends instead", async () =
   const { field, sent } = await composer(working(), "What is Spotlight?");
   const inserted = await dispatch(
     field,
-    new window.InputEvent("beforeinput", { inputType: "insertParagraph", bubbles: true, cancelable: true }),
+    new window.InputEvent("beforeinput", {
+      inputType: "insertParagraph",
+      bubbles: true,
+      cancelable: true,
+    }),
   );
-  expect({ sent, inserted }).toEqual({ sent: [{ text: "What is Spotlight?", steer: true }], inserted: false });
+  expect({ sent, inserted }).toEqual({
+    sent: [{ text: "What is Spotlight?", steer: true }],
+    inserted: false,
+  });
 });
 
 test("Return with the command menu closed sends the typed /word", async () => {
-  const { field, sent } = await composer(chat({ commands: [{ name: "review", description: "Review" }] }), "/rev");
+  const { field, sent } = await composer(
+    chat({ commands: [{ name: "review", description: "Review" }] }),
+    "/rev",
+  );
   expect(host.querySelector("#acpmux-slash-menu")).not.toBeNull();
   await dispatch(field, key({ key: "Escape" }));
   expect(host.querySelector("#acpmux-slash-menu")).toBeNull();
