@@ -678,3 +678,7 @@ impl Hub {
         found
     }
 }
+
+#[cfg(test)]
+#[path = "ops_tests.rs"]
+mod tests;

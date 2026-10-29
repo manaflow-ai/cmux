@@ -82,6 +82,12 @@ impl Writes {
     pub(crate) fn kept(&self) -> bool {
         self.kept
     }
+
+    /// The last record of session `id`'s log this request waits for, if any.
+    #[cfg(test)]
+    pub(crate) fn noted(&self, id: &str) -> Option<u64> {
+        self.logs.get(id).copied()
+    }
 }
 
 tokio::task_local! {
