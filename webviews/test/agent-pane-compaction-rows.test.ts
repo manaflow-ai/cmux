@@ -371,10 +371,26 @@ test("a late cancelled compaction boundary is fenced after the next explicit pro
   );
   expect(compactions().map((row) => row.compaction?.state)).toEqual(["failed"]);
 
-  // A genuine post-prompt compaction still gets its own row and can complete normally.
+  // A post-prompt running update gets its own row, but it cannot identify a later unscoped
+  // boundary. That boundary could still belong to the cancelled compaction.
   daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })]], 8));
-  daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })]], 9));
-  expect(compactions().map((row) => row.compaction?.state)).toEqual(["failed", "completed"]);
+  const fresh = compactions()[1];
+  daemon.push(
+    record(
+      [["in", "compaction", update({ sessionUpdate: "compaction", state: "completed", preTokens: 12, postTokens: 4 })]],
+      9,
+    ),
+  );
+  expect(compactions().map((row) => row.compaction?.state)).toEqual(["failed", "running"]);
+  expect(compactions()[1]).toBe(fresh);
+  daemon.push(record([["mux", "turn_result", { status: "completed", turnId: "turn-new" }]], 10));
+  expect(compactions().map((row) => row.compaction)).toEqual([
+    { state: "failed", inferred: true },
+    { state: "failed", inferred: true },
+  ]);
+  const settled = compactions()[1];
+  daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })]], 11));
+  expect(compactions()[1]).toBe(settled);
   client.close();
 });
 

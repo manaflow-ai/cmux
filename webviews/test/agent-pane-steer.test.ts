@@ -430,6 +430,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "completed" } },
       });
+      await drawn(page);
       expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
       recordInbound("compaction", {
         method: "session/update",
@@ -440,7 +441,19 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "completed" } },
       });
-      await page.locator('.cv-compaction[data-state="completed"]').waitFor();
+      // Even after fresh running, this unscoped boundary could be the stopped compaction's.
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);
+      record("turn_result", { status: "completed", turnId: "turn-2" });
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(0);
+      recordInbound("compaction", {
+        method: "session/update",
+        params: { update: { sessionUpdate: "compaction", state: "completed" } },
+      });
+      await drawn(page);
+      expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
       await page.close();
     });
 
