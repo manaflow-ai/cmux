@@ -173,14 +173,19 @@ def run_engine(engine):
     before = len(opens())
     check(run(engine, f"location.href = {json.dumps(CALLBACK)}; true", gesture=False),
           f"{engine}: the scripted sign-in return runs")
-    if wait_for(asked, f"{engine}: a scripted sign-in return asks before opening its app", 10):
+    scripted_prompt = wait_for(asked, f"{engine}: a scripted sign-in return asks before opening its app", 10)
+    rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"{engine}-scripted-return.png")})
+    if scripted_prompt:
         check(len(opens()) == before, f"{engine}: the callback waits for consent")
         prompts("cancel")
         check(len(opens()) == before and not asked(), f"{engine}: cancelling delivers no callback")
 
     before = len(opens())
-    click(engine, "redirect")
-    if wait_for(asked, f"{engine}: an HTTP sign-in redirect asks before opening its app", 10):
+    check(run(engine, "location.href = new URL('/redirect', location.href).href; true", gesture=False),
+          f"{engine}: the sign-in redirect starts without a gesture")
+    redirect_prompt = wait_for(asked, f"{engine}: an HTTP sign-in redirect asks before opening its app", 10)
+    rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"{engine}-http-return.png")})
+    if redirect_prompt:
         check(len(opens()) == before, f"{engine}: a redirect cannot open an app without consent")
         prompts("allowOnce")
         wait_for(lambda: opens()[before:] == [CALLBACK],
