@@ -1,4 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { usePopupHost } from "../../ui/UiProvider";
+import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { useT } from "./i18n";
 import { tooltipProps } from "./shortcuts";
 import { useComposerPopup, popupChoice, popupIdentity } from "./nativeComposerPopup";
@@ -59,6 +61,7 @@ export function useSpeedToggle(speed: SpeedTiers | undefined): boolean {
 /// on/off.
 export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inline?: boolean }) {
   const t = useT();
+  const native = usePopupHost()?.native;
   const offered = speed.tiers.length > 0;
   const at = speed.tiers.indexOf(speed.current ?? "");
   const nextAt = at + 1 < speed.tiers.length ? at + 1 : -1;
@@ -73,7 +76,7 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   useComposerPopup({
-    open: offered && !inline && open,
+    open: Boolean(native) && offered && !inline && open,
     anchor: () => trigger.current,
     model: {
       side: "top",
@@ -124,21 +127,40 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
         </button>
       ) : (
         <button
-          ref={trigger}
           type="button"
           className="acpmux-fast"
           data-tier={at < 0 ? "off" : at === 0 ? "fast" : "ultrafast"}
           aria-pressed={at >= 0}
-          aria-haspopup="menu"
-          aria-expanded={open}
           aria-label={label}
           {...tooltipProps(t("composer.speedTooltip", { tier: name(at), next: name(nextAt) }), undefined)}
           onMouseDown={(event) => event.preventDefault()}
-          onClick={() => setOpen((was) => !was)}
+          onClick={() => speed.onPick(nextAt < 0 ? speed.off : speed.tiers[nextAt]!)}
         >
           <BoltIcon />
           <span>{name(at < 0 ? 0 : at)}</span>
         </button>
+      )}
+      {native && !inline && (
+        <button ref={trigger} type="button" className="acpmux-speed-choices" aria-label={label}
+          data-menu="Speed" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+          ⌄
+        </button>
+      )}
+      {!native && !inline && (
+        <Menu open={open} onOpenChange={setOpen}>
+          <MenuButton className="acpmux-speed-choices" label={label} data-menu="Speed">
+            ⌄
+          </MenuButton>
+          <MenuPopup className="acpmux-menu" label={label}>
+            <MenuRadioGroup value={speed.current ?? speed.off} onValueChange={speed.onPick}>
+              {[speed.off, ...speed.tiers].map((value, index) => (
+                <MenuRadioItem key={value} value={value} closeOnClick>
+                  {name(index - 1)}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuPopup>
+        </Menu>
       )}
     </span>
   );

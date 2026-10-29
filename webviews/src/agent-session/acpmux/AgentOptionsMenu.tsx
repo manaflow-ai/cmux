@@ -1,4 +1,6 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
+import { usePopupHost } from "../../ui/UiProvider";
+import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { type ConfigOption, optionValueName } from "./agentOptions";
 import { ChevronIcon, unrestricted } from "./ComposerPickers";
 import { useT } from "./i18n";
@@ -7,7 +9,7 @@ import { OnNewTab } from "./newTabComposer";
 import { useComposerPopup, popupChoice, popupSection, popupIdentity } from "./nativeComposerPopup";
 import type { NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
 
-/** Native-only menu for harness config options. Choice IDs remain scoped to their config option. */
+/** Harness option menu with scoped choice IDs and browser rendering when native transport is absent. */
 export function AgentOptionsMenu({
   options,
   managed = false,
@@ -21,6 +23,7 @@ export function AgentOptionsMenu({
 }) {
   const blocked = (value: string) => managed && unrestricted(value);
   const t = useT();
+  const native = usePopupHost()?.native;
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -49,8 +52,14 @@ export function AgentOptionsMenu({
       }),
     ),
   );
+  const pickChoice = (configId: string, value: string) => {
+    const option = options.find((item) => item.id === configId);
+    if (blocked(value) || !option || !option.options.some((choice) => choice.value === value)) return;
+    setOpen(false);
+    if (option.currentValue !== value) onPick(configId, value);
+  };
   useComposerPopup({
-    open,
+    open: Boolean(native) && open,
     anchor: () => trigger.current,
     model: {
       side: newTab ? "bottom" : "top",
@@ -62,13 +71,60 @@ export function AgentOptionsMenu({
     onEvent: (event: NativePopupEvent) => {
       if (event.type !== "pick" || !event.id) return;
       const choice = choiceById.get(event.id);
-      const option = choice && options.find((item) => item.id === choice.configId);
-      if (choice && !blocked(choice.value) && option && option.currentValue !== choice.value)
-        onPick(choice.configId, choice.value);
+      if (choice) pickChoice(choice.configId, choice.value);
     },
     onDismiss: () => setOpen(false),
   });
   if (options.length === 0) return null;
+  if (!native)
+    return (
+      <span className="acpmux-picker acpmux-options" data-fit-title={face} data-fit-title-unit="options">
+        <Menu open={open} onOpenChange={setOpen}>
+          <MenuButton
+            className="acpmux-picker-button acpmux-options-trigger"
+            label={label}
+            /* tooltip-allow: the chip names one option or reads Options; the tooltip lists every current choice */
+            title={tooltip}
+            aria-haspopup="menu"
+            data-menu="options"
+          >
+            <span className="acpmux-options-text">{face}</span>
+            <ChevronIcon />
+          </MenuButton>
+          <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-access-menu acpmux-options-menu">
+            {options.map((option) => (
+              <MenuGroup key={option.id} label={option.name ?? option.id}>
+                <MenuRadioGroup
+                  value={option.currentValue ?? ""}
+                  onValueChange={(value) => {
+                    pickChoice(option.id, value);
+                  }}
+                >
+                  {option.options.map((choice) => (
+                    <MenuRadioItem
+                      key={choice.value}
+                      value={choice.value}
+                      disabled={blocked(choice.value)}
+                      closeOnClick
+                    >
+                      <span className="acpmux-menu-text">
+                        <span className="acpmux-menu-label">{choice.name ?? choice.value}</span>
+                        {blocked(choice.value) && managedReason ? (
+                          <span className="acpmux-menu-description">{managedReason}</span>
+                        ) : choice.description ? (
+                          <span className="acpmux-menu-description">{choice.description}</span>
+                        ) : null}
+                      </span>
+                    </MenuRadioItem>
+                  ))}
+                </MenuRadioGroup>
+              </MenuGroup>
+            ))}
+          </MenuPopup>
+        </Menu>
+      </span>
+    );
+
   return (
     <span className="acpmux-picker acpmux-options" data-fit-title={face} data-fit-title-unit="options">
       <button

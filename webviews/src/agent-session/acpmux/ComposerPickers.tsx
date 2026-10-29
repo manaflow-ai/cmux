@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -52,7 +52,16 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import type { NativePopupEvent, NativePopupRow } from "../../ui/nativePopup";
 import { useComposerPopup, popupAction, popupChoice, popupSection, popupIdentity } from "./nativeComposerPopup";
+import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
+import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
+import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
+import { useEscapingPopup } from "../../ui/popupHost";
+import { usePopupHost } from "../../ui/UiProvider";
+import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { isMousePress } from "../../ui/pressRelease";
+import { focusAfterEscape } from "../../ui/escapeFocus";
 import { registerPicker } from "./pickerOpeners";
+import { focusWithRing } from "../../ui/focusWithRing";
 import {
   type ModeIconName,
   RECOMMENDED_BADGE,
@@ -133,6 +142,13 @@ export type Choice = {
   /// The level the model recommends (its catalog default): the effort slider marks it.
   recommended?: boolean;
 };
+
+/** Semantic mode glyphs are shared with the native icon catalog. */
+function nativeModeIcon(icon: ModeIconName): string {
+  return { hand: "permission.ask", "terminal-shield": "permission.auto", "shield-alert": "permission.full-access" }[
+    icon
+  ];
+}
 
 /// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
 type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
@@ -1123,6 +1139,8 @@ function AccessMenu({
   numbered?: boolean;
 }) {
   const t = useT();
+  const native = usePopupHost()?.native !== undefined;
+  const iconless = numbered && heading !== undefined;
   // On New Tab the menu opens down, with no key hints (newTabComposer.ts).
   const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
@@ -1189,7 +1207,7 @@ function AccessMenu({
             checked: choice.id === value,
             disabled: blocked(choice.id),
             shortcut: numbered && !newTab && index < 9 ? String(index + 1) : undefined,
-            icon: typeof choice.icon === "string" ? choice.icon : choice.nativeIcon,
+            icon: choice.icon ? nativeModeIcon(choice.icon) : choice.nativeIcon,
           });
         }),
       ),
@@ -1208,7 +1226,7 @@ function AccessMenu({
       ),
     );
   useComposerPopup({
-    open,
+    open: native && open,
     anchor: () => trigger.current,
     model: {
       side: newTab ? "bottom" : "top",
@@ -1242,6 +1260,102 @@ function AccessMenu({
         <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
           {currentMode?.name ?? label}
         </span>
+      </span>
+    );
+  if (!native)
+    return (
+      <span
+        className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}
+        // A narrow row shows the glyph alone; the row's fit names the mode in a tooltip then (composerRowFit.ts).
+        data-fit-title={currentMode?.name ?? label}
+        data-fit-title-unit="access"
+      >
+        <Menu open={open} onOpenChange={setOpen}>
+          <MenuButton
+            className="acpmux-picker-button acpmux-access-trigger"
+            label={label}
+            /* tooltip-allow: the chip is its shield alone; the tooltip names the mode and what the control is */
+            title={tooltip}
+            aria-haspopup="menu"
+          >
+            {modes.length > 0 ? <ModeIcon modeId={value} icon={currentMode?.icon} /> : <LockIcon />}
+            <span className="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">
+              {currentMode?.name ?? (modes.length === 0 ? grants[0]?.label : undefined) ?? label}
+            </span>
+            <ChevronIcon />
+          </MenuButton>
+          <MenuPopup
+            side={newTab ? "bottom" : "top"}
+            align="start"
+            className="acpmux-access-menu"
+            // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
+            onKeyDown={(event) => {
+              if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
+              const choice = modes[Number(event.key) - 1];
+              if (!choice) return;
+              event.preventDefault();
+              if (choice.id === value) setOpen(false);
+              else pick(choice.id);
+            }}
+          >
+            {modes.length > 0 && (
+              <MenuRadioGroup value={value} onValueChange={pick}>
+                {modes.map((choice, index) => (
+                  <MenuRadioItem
+                    key={choice.id}
+                    value={choice.id}
+                    disabled={blocked(choice.id)}
+                    shortcut={numbered && !newTab && index < 9 ? String(index + 1) : undefined}
+                    className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}${iconless ? " acpmux-access-item-iconless" : ""}`}
+                  >
+                    {!iconless && (
+                      <span className="acpmux-access-item-icon" aria-hidden="true">
+                        <ModeIcon modeId={choice.id} icon={choice.icon} />
+                      </span>
+                    )}
+                    <span className="acpmux-menu-text">
+                      {choice.recommended ? (
+                        // The name and Claude Code's Recommended badge on one line.
+                        <span className="acpmux-access-title">
+                          <span className="acpmux-menu-label">{choice.name}</span>
+                          <span className="acpmux-menu-badge">{t(RECOMMENDED_BADGE)}</span>
+                        </span>
+                      ) : (
+                        <span className="acpmux-menu-label">{choice.name}</span>
+                      )}
+                      {managed && unrestricted(choice.id) ? (
+                        // Managed off outranks an earlier refusal: the organization's bound is the reason now.
+                        <span className="acpmux-menu-description">{managedReason}</span>
+                      ) : refusedIds.includes(choice.id) ? (
+                        <span className="acpmux-menu-description">{refusedReason}</span>
+                      ) : choice.description || unrestricted(choice.id) ? (
+                        <span className="acpmux-menu-description">{choice.description ?? warning}</span>
+                      ) : null}
+                    </span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            )}
+            {grants.length > 0 && (
+              <fieldset className="acpmux-access-grants" aria-label={t("permission.grants")}>
+                <div className="acpmux-access-grants-heading">{t("permission.grants")}</div>
+                {grants.map((grant) => (
+                  <div className="acpmux-access-grant" key={grant.id}>
+                    <span className="acpmux-access-grant-label">{grant.label}</span>
+                    <button
+                      type="button"
+                      className="acpmux-access-grant-remove"
+                      aria-label={`${t("permission.revoke")}: ${grant.label}`}
+                      onClick={grant.onRemove}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </fieldset>
+            )}
+          </MenuPopup>
+        </Menu>
       </span>
     );
   return (
@@ -1531,7 +1645,7 @@ export function Picker({
   button,
   sections,
   align,
-  warnUnrestricted: _warnUnrestricted = false,
+  warnUnrestricted = false,
   returnFocus = true,
   heading,
   tooltip,
@@ -1542,63 +1656,286 @@ export function Picker({
   sections: Section[];
   align: "start" | "end";
   warnUnrestricted?: boolean;
+  /// An action menu hands focus to whatever its pick focuses, not back to the button.
   returnFocus?: boolean;
+  /// A question over the choices, as an approval menu asks it.
   heading?: string;
+  /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
+  /// passes one (a picker showing its choice's name needs none).
   tooltip?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
-  const choiceByPopupId = new Map<string, { section: Section; id: string }>();
-  const rows: NativePopupRow[] = sections.flatMap((section, index) => [
-    ...(index > 0 ? [{ id: `separator-${index}`, kind: "separator" as const, label: "" }] : []),
+  const menu = useRef<HTMLDivElement | null>(null);
+  const menuId = useId();
+  const native = usePopupHost()?.native !== undefined;
+  const menuStyle = useUiAnchor(trigger, menu, open && !native, { side: "above", align: "start" });
+  // No room above or below its button in the pane: past the window's edge (popupHost.ts).
+  const host = usePopupHost();
+  const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const attach = useCallback(
+    (node: HTMLDivElement | null) => {
+      menu.current = node;
+      if (host) setShown(node);
+    },
+    [host],
+  );
+  useEscapingPopup(host, shown, () => trigger.current, {
+    side: "top",
+    align,
+    gap: UI_ANCHOR_GAP,
+    kind: "list",
+    active: ".acpmux-menu-active",
+  });
+  const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
+  // A live update can shrink the list under the highlight.
+  const selected = Math.min(active, Math.max(rows.length - 1, 0));
+  useEffect(() => {
+    if (!native && open && rows.length) scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
+  }, [native, open, rows.length, menuId, selected]);
+
+  useEffect(() => {
+    if (!open || native) return;
+    const away = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const blur = () => setOpen(false);
+    // In the capture phase, as Base UI's menus close: a press outside only closes the menu, and
+    // nothing under it sees the press (menuPressGuard.ts).
+    document.addEventListener("pointerdown", away, true);
+    window.addEventListener("blur", blur);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("blur", blur);
+    };
+  }, [native, open]);
+
+  // A mouse press is opening it (cg-composer click polish): the focus it moves here is not drawn.
+  const byPointer = useRef(false);
+  const show = () => {
+    const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
+    setActive(Math.max(current, 0));
+    setOpen(true);
+    // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
+    // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
+    focusWithRing(trigger.current, byPointer.current ? { focusVisible: false } : undefined);
+  };
+  const showRef = useRef(show);
+  showRef.current = show;
+  // Like a click, which takes focus off the prompt first: that closes the slash menu and restores the draft.
+  useEffect(
+    () =>
+      registerPicker(label, () => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        showRef.current();
+      }),
+    [label],
+  );
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  const press = usePopoverTrigger(open, setOpen, show);
+  const pick = (index: number) => {
+    const row = rows[index];
+    if (!row) return;
+    if (sections[row.section].onPick(row.choice.id) === "keep") return;
+    if (returnFocus) close();
+    else setOpen(false);
+  };
+  const keyDown = (event: React.KeyboardEvent) => {
+    if (!open) {
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+        event.preventDefault();
+        show();
+      }
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      // Back on the button with its ring, though a press opened the menu without one: the button
+      // already has the focus, so it takes it again (escapeFocus.ts).
+      trigger.current?.blur();
+      focusAfterEscape(trigger.current);
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      if (rows.length > 0) setActive((selected + step + rows.length) % rows.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      if (rows.length > 0) setActive(event.key === "Home" ? 0 : rows.length - 1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      pick(selected);
+    }
+    // A button clicks on Space's keyup; pick there and cancel that click, or it would reopen the menu.
+    else if (event.key === " ") event.preventDefault();
+    else if (event.key === "Tab") setOpen(false);
+  };
+  const keyUp = (event: React.KeyboardEvent) => {
+    if (open && event.key === " ") {
+      event.preventDefault();
+      pick(selected);
+    }
+  };
+
+  const popupRows: NativePopupRow[] = sections.flatMap((section, sectionIndex) => [
+    ...(sectionIndex > 0 ? [{ id: `separator-${sectionIndex}`, kind: "separator" as const, label: "" }] : []),
     ...popupSection(
-      `section-${index}`,
+      `section-${sectionIndex}`,
       section.title ?? (sections.length > 1 ? label : ""),
-      section.choices.map((choice) => {
-        const id = popupIdentity("picker", String(index), choice.id);
-        choiceByPopupId.set(id, { section, id: choice.id });
-        return popupChoice(id, choice.name, {
+      section.choices.map((choice) =>
+        popupChoice(popupIdentity("picker", String(sectionIndex), choice.id), choice.name, {
           description: choice.description,
           checked: choice.id === section.current,
           shortcut: choice.hint,
           keepOpen: true,
           icon: choice.nativeIcon,
-        });
-      }),
+        }),
+      ),
     ),
   ]);
   useComposerPopup({
-    open,
+    open: native && open,
     anchor: () => trigger.current,
-    model: { side: "top", align, width: 300, title: heading ?? label, rows },
-    onEvent: (event: NativePopupEvent) => {
-      if (event.type !== "pick" || !event.id) return;
-      const choice = choiceByPopupId.get(event.id);
-      if (!choice) return;
-      const result = choice.section.onPick(choice.id);
-      if (result !== "keep") {
-        setOpen(false);
-        if (returnFocus) trigger.current?.focus({ preventScroll: true });
-      }
+    model: { side: "top", align, width: 300, title: heading ?? label, rows: popupRows },
+    onEvent(event) {
+      if (event.type !== "pick") return;
+      const index = rows.findIndex((row) => popupIdentity("picker", String(row.section), row.choice.id) === event.id);
+      if (index >= 0) pick(index);
     },
     onDismiss: () => setOpen(false),
   });
+  if (native)
+    return (
+      <span className={`acpmux-picker ${className}`}>
+        <button
+          ref={trigger}
+          type="button"
+          className="acpmux-picker-button"
+          data-menu={label}
+          aria-label={label}
+          title={tooltip}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => (open ? setOpen(false) : show())}
+          onKeyDown={keyDown}
+        >
+          {button}
+        </button>
+      </span>
+    );
+
+  let index = -1;
   return (
-    <span className={`acpmux-picker ${className}`}>
+    <span
+      ref={root}
+      className={`acpmux-picker ${className}`}
+      style={{ position: "relative" }}
+      onBlur={(event) => {
+        if (open && !root.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
       <button
         ref={trigger}
         type="button"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        role="combobox"
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
+        // tooltip-allow: only an icon-only trigger (the composer's +) passes a tooltip.
         title={tooltip}
-        aria-haspopup="menu"
+        aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => setOpen((was) => !was)}
+        aria-controls={open ? menuId : undefined}
+        aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
+        onKeyDown={keyDown}
+        onKeyUp={keyUp}
+        {...press}
+        onPointerDown={(event) => {
+          byPointer.current = isMousePress(event);
+          press.onPointerDown(event);
+          byPointer.current = false;
+        }}
       >
         {button}
       </button>
+      {/* A native select cannot hold descriptions, sections or the pane's styling. */}
+      {open && (
+        <div
+          ref={attach}
+          style={menuStyle}
+          className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
+          data-side="above"
+        >
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+          <div id={menuId} role="listbox" aria-label={heading ?? label}>
+            {heading && (
+              <div className="acpmux-menu-heading" aria-hidden="true">
+                {heading}
+              </div>
+            )}
+            {sections.map((section, s) => {
+              const titled = section.title && sections.length > 1;
+              return (
+                <div
+                  key={s}
+                  className="acpmux-menu-section"
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                  role="group"
+                  aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
+                  aria-label={titled ? undefined : label}
+                >
+                  {titled && (
+                    <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
+                      {section.title}
+                    </div>
+                  )}
+                  {section.choices.map((choice) => {
+                    index += 1;
+                    const at = index;
+                    const current = choice.id === section.current;
+                    return (
+                      <div
+                        key={choice.id}
+                        id={`${menuId}-${at}`}
+                        data-value={choice.id}
+                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                        role="option"
+                        tabIndex={-1}
+                        // `aria-selected` is the option's value; the combobox's
+                        // `aria-activedescendant` carries the keyboard highlight.
+                        aria-selected={section.current === undefined ? false : current}
+                        className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                        onMouseMove={() => {
+                          if (at !== selected) setActive(at);
+                        }}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          pick(at);
+                        }}
+                      >
+                        {choice.icon}
+                        <span className="acpmux-menu-text">
+                          <span className="acpmux-menu-label">{choice.name}</span>
+                          {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
+                        </span>
+                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                        {current && <CheckIcon />}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </span>
   );
 }

@@ -1159,6 +1159,7 @@
 }
 .acpmux-fast[aria-pressed="true"],
 .acpmux-fast[aria-pressed="true"]:hover { color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text))); }
+.acpmux-speed-choices[aria-expanded="true"] { background: var(--acpmux-row-hover, var(--acpmux-composer-hover)); color: var(--agent-text); }
 
 /* Claude Code's split (Leo 2026-10-19, "stick it to the bottom"; ComposerFoot.tsx): under the plain
    footer look the box keeps +, the prompt, the mic and Send or Stop, and the mode, model and effort

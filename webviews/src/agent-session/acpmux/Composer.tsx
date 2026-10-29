@@ -871,7 +871,6 @@ export function Composer({
           id: `plan:${plan.id}`,
           name: planning ? t("picker.build") : t("picker.plan"),
           icon: planning ? <BuildIcon /> : <PlanIcon />,
-          nativeIcon: planning ? "mode.build" : "mode.plan",
         }
       : undefined;
   // A prompt ↑ brought back keeps its arrows for history: a / command or @ mention in it opens no menu.
@@ -1967,7 +1966,16 @@ export function Composer({
                               ) : (
                                 <Icon name={entry.icon} size={18} />
                               ),
-                            nativeIcon: entry.icon,
+                            nativeIcon:
+                              entry.id === "add.files"
+                                ? "composer.attach"
+                                : entry.id === "add.commands"
+                                  ? "composer.command"
+                                  : entry.id.startsWith("add.mode.")
+                                    ? planning
+                                      ? "mode.build"
+                                      : "mode.plan"
+                                    : entry.icon,
                             ...(entry.id === "add.mention" ? { hint: "@" } : {}),
                             ...(entry.id === "add.commands" ? { hint: "/" } : {}),
                           })),
