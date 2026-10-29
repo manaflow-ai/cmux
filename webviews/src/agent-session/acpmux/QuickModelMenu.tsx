@@ -811,18 +811,6 @@ export function QuickModelMenu({
             </Submenu>
           </>
         )}
-      {accountRow &&
-        (menu.routeLayout === "inline" ? (
-          <MenuGroup label={t("picker.account")}>{accountRows}</MenuGroup>
-        ) : (
-          <Submenu
-            className="acpmux-quick-item acpmux-quick-sub acpmux-quick-account"
-            popupClassName="acpmux-quick-menu acpmux-quick-submenu"
-            label={<QuickRowLabel label={t("picker.account")} value={chatRoutes ? accountValue : undefined} />}
-          >
-            {accountRows}
-          </Submenu>
-        ))}
       {!query && runningRow?.offers && providerLook === "row" && !(effort && levels.length > 1) && <MenuSeparator />}
       {!query && runningRow?.offers && providerLook === "row" && (
         <Submenu
@@ -901,6 +889,18 @@ export function QuickModelMenu({
           )}
         </>
       )}
+      {accountRow &&
+        (menu.routeLayout === "inline" ? (
+          <MenuGroup label={t("picker.account")}>{accountRows}</MenuGroup>
+        ) : (
+          <Submenu
+            className="acpmux-quick-item acpmux-quick-sub acpmux-quick-account"
+            popupClassName="acpmux-quick-menu acpmux-quick-submenu"
+            label={<QuickRowLabel label={t("picker.account")} value={chatRoutes ? accountValue : undefined} />}
+          >
+            {accountRows}
+          </Submenu>
+        ))}
       {!query && onChatTab && fast && (
         <>
           <MenuSeparator />
