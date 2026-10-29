@@ -4803,7 +4803,10 @@ export class AcpmuxDirectClient {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
     if (this.creating || !this.selectedSessionId) {
-      const sessionId = await (this.creating ?? this.create());
+      // A rejected seeded peer start stays sessionless. The next Send retries that peer,
+      // with its own folder, instead of silently falling back to a local session.
+      const sessionId = await (this.creating ??
+        this.create(this.host.harness, this.host.peer ? this.host.cwd : undefined, this.host.peer));
       // The app also calls this before send(): an empty result must stop that preflight,
       // otherwise send() would ensure again after the failed creation has been cleared.
       if (!sessionId) throw new Error(translate("error.notOpen"));
@@ -6075,6 +6078,7 @@ export class AcpmuxDirectClient {
         ...(cwd ? {} : { cwd: undefined }),
         harness: undefined,
         model: undefined,
+        peer: undefined,
       };
     }
     return result?.sessionId ? String(result.sessionId) : undefined;

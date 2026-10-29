@@ -8053,7 +8053,13 @@ function AcpmuxPane() {
         if (host.peer && !host.sessionId && !client.attachedSession() && !client.adopted) {
           // The Environment picker's existing action owns peer creation and persistence. An
           // explicit host chooses it too, without inventing a second session/new handler.
-          await window.cmuxAcpmuxActions["chat.new"]!({ peer: host.peer, cwd: host.cwd, harness, model });
+          await window.cmuxAcpmuxActions["chat.new"]!({ peer: host.peer, cwd: host.cwd, harness, model }).catch(
+            (error: unknown) => {
+              // The handshake succeeded. A rejected folder/model is a creation failure on
+              // this connection, not a reason to reconnect and repeat session/new forever.
+              if (!cancelled && directClient.current === client) client.notice(errorMessage(error) || String(error));
+            },
+          );
         } else if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd, { model });
           void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
