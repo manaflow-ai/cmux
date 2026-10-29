@@ -569,7 +569,7 @@ mod tests {
     #[test]
     fn a_server_whose_path_has_a_space_is_matched_word_for_word() {
         let acpmux = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
-        let socket = "/Users/me/Library/Application Support/cmux/cua.sock";
+        let socket = "/Users/me/cmux sockets/cua.sock";
         let servers = from_json(Some(&json!([
             {"name": "forum", "command": acpmux, "args": ["forum-mcp"]},
             {"name": "cua", "command": "/opt/cua", "args": ["mcp", "--socket", socket]},

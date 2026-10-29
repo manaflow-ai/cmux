@@ -346,14 +346,10 @@ mod census_tests {
         let real = std::fs::canonicalize("/bin/sleep").unwrap();
         let same = |e: &std::path::PathBuf| std::fs::canonicalize(e).ok().as_ref() == Some(&real);
         let exe = settled(|| super::exe(pid).filter(same));
-        #[cfg(target_os = "linux")]
-        let why = std::fs::read_link(format!("/proc/{}/exe", child.id()));
-        #[cfg(not(target_os = "linux"))]
-        let why: std::io::Result<()> = Ok(());
         let _ = child.kill();
         let _ = child.wait();
         assert_eq!(argv.unwrap(), ["/opt/fake-server", "30"]);
-        assert!(exe.is_some(), "exe not read as /bin/sleep: {why:?}");
+        assert!(exe.is_some(), "exe not read as /bin/sleep");
     }
 
     #[test]
