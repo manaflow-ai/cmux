@@ -1068,7 +1068,16 @@ fn machine_files_stamp_in(home: &std::path::Path) -> Option<String> {
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_nanos())
                     .unwrap_or(0);
-                stamp.push_str(&format!("{name}:{kind}:{}:{modified};", meta.len()));
+                // A delivery uses atomic replacement: preserve the identity change
+                // even for a same-length secret written within one mtime tick.
+                #[cfg(unix)]
+                let identity = {
+                    use std::os::unix::fs::MetadataExt as _;
+                    format!("{}:{}:{}:{}", meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec())
+                };
+                #[cfg(not(unix))]
+                let identity = String::new();
+                stamp.push_str(&format!("{name}:{kind}:{}:{modified}:{identity};", meta.len()));
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 stamp.push_str(&format!("{name}:absent;"));
@@ -1192,6 +1201,20 @@ mod machine_file_tests {
         std::fs::write(&secrets, b"export SESSION_KEY='different-dummy-secret'\n").expect("rotate");
         let rotated = machine_files_stamp_in(dir.path());
         assert_ne!(rotated, delivered);
+        #[cfg(unix)]
+        {
+            // Atomic replace with the same size changes the file identity.
+            let next = conf.join("replacement");
+            std::fs::write(&next, b"export SESSION_KEY='same-length-secret-value'\n")
+                .expect("prepare replacement");
+            let before = machine_files_stamp_in(dir.path());
+            let same_length = std::fs::read(&secrets).expect("old bytes").len();
+            let mut replacement = std::fs::read(&next).expect("new bytes");
+            replacement.resize(same_length, b' ');
+            std::fs::write(&next, replacement).expect("same length replacement");
+            std::fs::rename(&next, &secrets).expect("atomic replace");
+            assert_ne!(machine_files_stamp_in(dir.path()), before);
+        }
         std::fs::remove_file(&secrets).expect("revoke");
         assert_eq!(machine_files_stamp_in(dir.path()), applied);
         std::fs::remove_file(&env).expect("remove machine env");
