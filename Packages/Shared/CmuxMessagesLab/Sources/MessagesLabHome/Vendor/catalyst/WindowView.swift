@@ -2065,14 +2065,19 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 Animate.scalar(target, e.keyPath, from: e.from, to: e.to, e.element, begin: e.begin)
             }
         }
-        // cmux: working only rotates; the typing bubble and tail never breathe.
         if case .typing = r.spec.kind {
             if r.ghost {
-                cell.stopTypingSpinner()
-            } else if cell.typingInsertedAt != r.insertedAt || !cell.typingSpinnerActive {
+                cell.stopTypingBreath()
+            } else if cell.typingInsertedAt != r.insertedAt || cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil
+                        || cell.needsTypingBreath {
+                // The dots and the breathing run from the insert's begin (layer time). This used to read a begin
+                // that the commit stored after the cell's first decorate: the dots then ran from layer time 0, so
+                // their phase was arbitrary (motion-gate harness: begin 0). A new indicator under the same key, or
+                // the same row live again after its fade began (stopTypingBreath), starts both again.
                 let insert = r.insertedAt > 0 ? beginTime(r.insertedAt) : Animate.now(layer)
                 cell.typingInsertedAt = r.insertedAt
-                cell.startTypingSpinner(begin: insert + Springs.typingDotsPhase)
+                cell.startTypingDots(begin: insert + Springs.typingDotsPhase)
+                cell.startTypingBreath(insert: insert)
             }
         }
     }

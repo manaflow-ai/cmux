@@ -527,9 +527,6 @@ final class RowCell: UICollectionViewCell {
     /// frame rounded to whole device pixels in the window, as Messages clips its bubble (clipTypingBody).
     let typingClip = CALayer()
     var dots: [CALayer] = []
-    // cmux: working is a constant-opacity spinner, never dots or a breathing bubble.
-    let typingSpinner = RowCell.makeTypingSpinner()
-    var typingSpinnerActive = false
     /// The typing bubble's tail discs (RowDraw.typingDiscs): on macOS beside the scaled bubble in the
     /// row's content (they move on their own, Springs.typingDiscFrom); on iOS in the bubble's container.
     let typingDiscs = [CALayer(), CALayer()]
@@ -684,7 +681,24 @@ final class RowCell: UICollectionViewCell {
         // uses them: fewer layers per new cell during a fast fling.
         contentView.layer.addSublayer(fillContainer)
         contentView.layer.addSublayer(bitmap)
-        // cmux: the shared working arc replaces the upstream dots.
+        for i in 0..<3 {
+            let d = CALayer()
+            d.actions = noActions
+            // Dot levels (Fixture.typingColors; tintTypingDiscs follows a palette or key state change).
+            d.backgroundColor = typing.dotDim.cgColor
+            d.cornerRadius = 3.25
+            let hi = CALayer()
+            hi.actions = noActions
+            hi.backgroundColor = typing.dotLit.cgColor
+            hi.cornerRadius = 3.25
+            hi.opacity = 0
+            hi.name = "hi"
+            d.addSublayer(hi)
+            let c = RowDraw.typingDotCenter(i)
+            d.frame = CGRect(x: c.x - 3.25, y: c.y - 3.25, width: 6.5, height: 6.5)
+            hi.frame = d.bounds
+            dots.append(d)
+        }
         for (l, r) in zip(typingDiscs, RowDraw.typingDiscs) {
             l.actions = noActions
             l.frame = r
@@ -732,7 +746,6 @@ final class RowCell: UICollectionViewCell {
         // A tiled body's container gets only a received thread reply's fade (ledger .bubble: its curve and hold).
         if let c = tiled?.container { for k in c.animationKeys() ?? [] where k.contains(".opacity.") || k.hasPrefix("hold.") { c.removeAnimation(forKey: k) } }
         dots.forEach { $0.sublayers?.first?.removeAllAnimations() }
-        stopTypingSpinner() // cmux: recycle/offscreen rows own no working loop.
         typingInsertedAt = -.infinity
     }
 
@@ -1098,7 +1111,6 @@ final class RowCell: UICollectionViewCell {
         let c = t.fill.cgColor
         for d in typingDiscs { d.backgroundColor = c }
         typingBody.fillColor = c
-        typingSpinner.strokeColor = t.dotLit.cgColor // cmux: keep the typing palette.
         let dim = t.dotDim.cgColor, lit = t.dotLit.cgColor
         for d in dots {
             d.backgroundColor = dim
@@ -1112,7 +1124,7 @@ final class RowCell: UICollectionViewCell {
         // The typing bubble fades in on the row's content (bubble, dots and discs as one layer group: the
         // large disc overlaps the bubble). Other rows keep the layer's own setting.
         contentView.layer.allowsGroupOpacity = on || contentGroupOpacity
-        guard on else { stopTypingSpinner(); return } // cmux: idle rows cannot keep a working loop.
+        guard on else { return }
         if typingContainer.superlayer == nil { contentView.layer.addSublayer(typingContainer) }
         // macOS: scale about RowDraw.typingAnchor (Messages' growth point, near the bubble's upper
         // left). The iOS app (ios/Sources/ChatColumn.swift, typing.pop) scales about the small tail
@@ -1143,8 +1155,7 @@ final class RowCell: UICollectionViewCell {
             typingContainer.insertSublayer(typingClip, at: 0)
         }
 #endif
-        // cmux: use the working spinner in the same bubble and layer order.
-        if typingSpinner.superlayer == nil { typingContainer.addSublayer(typingSpinner) }
+        dots.forEach { if $0.superlayer == nil { typingContainer.addSublayer($0) } }
 #if os(iOS) && !targetEnvironment(macCatalyst)
         let discParent = typingContainer
 #else
@@ -1621,8 +1632,8 @@ final class RowCell: UICollectionViewCell {
             a.isRemovedOnCompletion = false
             a.calculationMode = .linear
             if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
-            // cmux: under Reduce Motion the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
-            else if MessagesLabHomeView.reducesMotion { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
+            // cmux: under Reduce Motion or with Home animations off the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
+            else if MessagesLabHomeView.holdsTypingStill { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
             hi.add(a, forKey: "dots")
         }
     }
@@ -1633,8 +1644,8 @@ final class RowCell: UICollectionViewCell {
     func startTypingBreath(insert: CFTimeInterval) {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard Springs.typingStillPhase == nil else { return }
-        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
-        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
+        // cmux: no breathing under Reduce Motion or with Home animations off, and a running breath stops (cx-sya4n).
+        if MessagesLabHomeView.holdsTypingStill { stopTypingBreath(); return }
         let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
         // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
         // fixed point to b: e x (a - b).
@@ -1736,7 +1747,7 @@ final class RowCell: UICollectionViewCell {
     var needsTypingBreath: Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         // cmux: no breathing under Reduce Motion (cx-sya4n).
-        Springs.typingStillPhase == nil && !MessagesLabHomeView.reducesMotion && typingContainer.animation(forKey: "breath.transform.scale") == nil
+        Springs.typingStillPhase == nil && !MessagesLabHomeView.holdsTypingStill && typingContainer.animation(forKey: "breath.transform.scale") == nil
 #else
         false
 #endif
