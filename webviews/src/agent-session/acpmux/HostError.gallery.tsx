@@ -83,6 +83,14 @@ export default componentEntry<Props>({
         withRetry: true,
       },
     },
+    "timed-out": {
+      props: {
+        message: "acpmux did not answer in time.",
+        initialRetrying: false,
+        withRetry: true,
+      },
+      note: "A daemon restart that still fails after a minute; before that it is the neutral Reconnecting… line.",
+    },
     reconnecting: {
       props: {
         message: "The agent host is unavailable.",
