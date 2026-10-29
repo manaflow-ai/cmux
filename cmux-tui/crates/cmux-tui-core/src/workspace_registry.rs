@@ -2513,6 +2513,7 @@ impl WorkspaceRegistry {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn initialize(
         connection: Connection,
         session_name: String,

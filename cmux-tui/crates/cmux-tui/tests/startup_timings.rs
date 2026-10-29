@@ -168,7 +168,8 @@ fn each_owner_start_records_its_named_startup_steps() {
     let names = step_names(line);
     for expected in [
         "socket.bind",
-        "registry.open",
+        "registry.schema",
+        "registry.integrity_check",
         "restore.snapshot",
         "terminal.adopt_hosts",
         "terminal.respawn_lost",

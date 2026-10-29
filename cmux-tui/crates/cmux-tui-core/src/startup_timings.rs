@@ -92,7 +92,7 @@ impl StartupTimings {
     /// A one-line summary for the log: the total and the slowest laps.
     pub fn summary(&self) -> String {
         let mut slowest = self.steps.clone();
-        slowest.sort_by(|a, b| b.1.cmp(&a.1));
+        slowest.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
         let top = slowest
             .iter()
             .take(3)
