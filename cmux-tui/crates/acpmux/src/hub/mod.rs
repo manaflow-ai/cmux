@@ -32,6 +32,7 @@ pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
 mod fork_at;
+mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
 mod handoff;
@@ -396,6 +397,9 @@ pub struct Hub {
     /// started (`peer_lease.rs`); never saved. Lock order: this, then
     /// `peers`; never `peers` first.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
+    /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
+    pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
     /// Each peer session's events as this daemon saw them, kept on disk
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
@@ -607,6 +611,7 @@ impl Hub {
             remote_sessions: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
+            peer_config_gen: std::sync::atomic::AtomicU64::new(0),
             peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
