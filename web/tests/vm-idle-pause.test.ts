@@ -235,15 +235,21 @@ const tcpRow = (local: string, remote: string, state: string) => `   0: ${local}
 // 10.192.0.5 little-endian, ports 1337 (0539), 3000 (0BB8), 22 (0016).
 const VPC = "0500C00A";
 
-async function runProbeScript(files: Record<string, string>, acpmux: string): Promise<Record<string, unknown>> {
+async function runProbeScript(
+  files: Record<string, string>,
+  acpmux: string,
+  options: { readonly acpmuxStatusError?: string; readonly daemonSocket?: string } = {},
+): Promise<Record<string, unknown>> {
   const root = fakeProc(files);
   writeFileSync(path.join(root, "acpmux.json"), acpmux);
-  writeFileSync(path.join(root, "daemon-socket"), path.join(root, "no-such.sock"));
+  writeFileSync(path.join(root, "acpmux.err"), options.acpmuxStatusError ?? "");
+  writeFileSync(path.join(root, "daemon-socket"), options.daemonSocket ?? path.join(root, "no-such.sock"));
   const result = await runChild("python3", ["-I", "-c", VM_IDLE_PROBE_SCRIPT], {
     env: {
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       CMUX_IDLE_PROC_ROOT: root,
       CMUX_IDLE_ACPMUX: path.join(root, "acpmux.json"),
+      CMUX_IDLE_ACPMUX_ERR: path.join(root, "acpmux.err"),
       CMUX_IDLE_DAEMON_SOCKET_FILE: path.join(root, "daemon-socket"),
       CMUX_IDLE_PRIVATE_ADDRESSES: "10.192.0.5,fd00:7::5",
       CMUX_IDLE_DAEMON_PORT: "1337",
@@ -927,5 +933,106 @@ describe("idle pause SQL", () => {
     expect(row.metadata.cmuxIdleObservation).toBeUndefined();
     expect(row.metadata.cmuxPauseReason).toBeUndefined();
     expect(row.metadata).toMatchObject({ networkIpv4: "10.192.0.5", cmuxIdleProbedAt: T0 + MIN, cmuxLastApiActivityAt: T0 });
+  });
+});
+
+// Production machines bake cmux-tui a9b104f3 (2026-10-14), from before the
+// daemon served `subscribe-activity` and before `cmux-tui acp` existed. Their
+// daemon answers the probe's request with serde's unknown-variant error and
+// their CLI refuses `acp` as an unknown resource scope. Those two answers, and
+// only those, put the probe in legacy mode: it decides from terminals, ssh,
+// inbound connections, CPU and API calls, and says so in its reason. Anything
+// else the daemon or acpmux answers stays unknown and never pauses.
+describe("legacy daemon fallback", () => {
+  const LEGACY_DAEMON_ERROR = "bad request: unknown variant `subscribe-activity`, expected one of `hello`, `list-workspaces`, `attach`";
+
+  async function withDaemonSocket(answer: string, run: (socketPath: string) => Promise<void>) {
+    const dir = mkdtempSync(path.join(tmpdir(), "cmux-idle-sock-"));
+    const socketPath = path.join(dir, "cloud.sock");
+    const server = createServer((conn) => {
+      conn.once("data", () => conn.end(answer));
+    });
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    try {
+      await run(socketPath);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  const idleFiles = {
+    "100/stat": stat(100, "bash", 100, 100, PTS0, 100),
+    "net/tcp": TCP_HEADER + tcpRow(`00000000:0539`, "00000000:0000", "0A"),
+    "net/tcp6": TCP_HEADER,
+  };
+
+  test("a daemon that refuses subscribe-activity as an unknown command reads as legacy", async () => {
+    await withDaemonSocket(JSON.stringify({ id: null, ok: false, error: LEGACY_DAEMON_ERROR }) + "\n", async (socketPath) => {
+      expect((await runProbeScript(idleFiles, "NONE", { daemonSocket: socketPath })).daemon).toEqual({ legacy: true });
+    });
+  });
+
+  test("any other daemon refusal, or garbage, stays unknown", async () => {
+    for (const answer of [
+      JSON.stringify({ id: 1, ok: false, error: "bad request: invalid client_id" }) + "\n",
+      JSON.stringify({ id: 1, ok: false, error: "unknown variant elsewhere" }) + "\n",
+      "not json\n",
+      "",
+    ]) {
+      await withDaemonSocket(answer, async (socketPath) => {
+        expect((await runProbeScript(idleFiles, "NONE", { daemonSocket: socketPath })).daemon).toBeNull();
+      });
+    }
+  });
+
+  test("a CLI without the acp subcommand reads as no acpmux; any other acpmux error stays unknown", async () => {
+    const json = JSON.stringify({ code: "usage.invalid", message: 'unknown resource scope "acp".', details: {}, retryable: false }) + "\n";
+    const human = 'cmux: unknown resource scope "acp". Did you mean `app`?\n';
+    for (const acpmuxStatusError of [json, human]) {
+      expect((await runProbeScript(idleFiles, "ERR", { acpmuxStatusError })).acpmux).toEqual({ busy_sessions: 0, last_updated_at_ms: null });
+    }
+    for (const acpmuxStatusError of ["", "acpmux: permission denied\n", 'unknown resource scope "acpx".\n']) {
+      expect((await runProbeScript(idleFiles, "ERR", { acpmuxStatusError })).acpmux).toBeNull();
+    }
+  });
+
+  test("the probe command keeps acp status errors in English and hands them to the script", () => {
+    const command = vmIdleProbeCommand(["10.192.0.5"]);
+    expect(command).toContain(`LC_ALL=C "$CMUX_TUI_BIN" acp --json daemon status`);
+    expect(command).toContain(`CMUX_IDLE_ACPMUX_ERR="$t.err"`);
+    expect(command).toContain(`rm -f "$t" "$t.err"`);
+  });
+
+  test("the probe line's legacy daemon parses; a legacy machine idle for the whole timeout pauses, tagged", () => {
+    const line = JSON.stringify({ v: 1, daemon: { legacy: true }, acpmux: { busy_sessions: 0, last_updated_at_ms: null }, busy_terminals: 0, ssh_sessions: 0, inbound_connections: 0 });
+    const probe = parseVmIdleProbe(line);
+    expect(probe?.daemon).toBe("legacy");
+    const { pausedAfterMinutes, decision } = runCron(() => probe, 60);
+    expect(pausedAfterMinutes).toBe(30);
+    expect(decision?.reason).toBe("idle_timeout;legacy_daemon");
+  });
+
+  test("on a legacy machine a busy terminal, ssh, an inbound connection, CPU or an API call keeps it awake", () => {
+    const legacy = (overrides: Partial<VmIdleProbe> = {}) => idleProbe({ daemon: "legacy", ...overrides });
+    const previous = { providerVmId: VM, idleSince: T0 - 60 * MIN, observedAt: T0 - 5 * MIN, cpuBusyMs: 1_000 };
+    const decide = (probe: VmIdleProbe, lastApiActivityAt: number | null = null) =>
+      decideVmIdlePause({ providerVmId: VM, minutes: 30, probe, previous, now: T0, lastApiActivityAt });
+    expect(decide(legacy({ busyTerminals: 1 }))).toMatchObject({ pause: false, reason: "active:busy_terminals;legacy_daemon" });
+    expect(decide(legacy({ sshSessions: 1 })).pause).toBe(false);
+    expect(decide(legacy({ inboundConnections: 1 })).pause).toBe(false);
+    expect(decide(legacy({ cpuBusyMs: 1_000 + 5 * MIN })).pause).toBe(false);
+    expect(decide(legacy(), T0 - 10 * MIN)).toMatchObject({ pause: false, reason: "idle;legacy_daemon" });
+    expect(decide(legacy({ cpuBusyMs: 1_000 }))).toMatchObject({ pause: true, reason: "idle_timeout;legacy_daemon" });
+  });
+
+  test("the cron pauses an idle legacy machine through the pause path", async () => {
+    const row = machineRow({
+      providerMetadata: { networkIpv4: "10.192.0.5", cmuxIdleObservation: { providerVmId: VM, idleSince: T0 - 31 * MIN, observedAt: T0 - 5 * MIN } },
+    });
+    const { recorded, layer } = cronFakes([row], () => ({ exitCode: 0, stdout: probeLine({ daemon: { legacy: true } }) }));
+    const summary = await Effect.runPromise(enforceVmIdlePause({ now: () => T0 }).pipe(Effect.provide(layer)));
+    expect(summary).toMatchObject({ checked: 1, paused: 1, unknown: 0 });
+    expect(recorded.paused).toEqual([VM]);
+    expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused", pauseReason: "idle" }]);
   });
 });
