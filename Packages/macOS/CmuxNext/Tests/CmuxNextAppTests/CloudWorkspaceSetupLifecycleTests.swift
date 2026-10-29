@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextActions
 import CmuxNextCloudUI
 import CmuxNextCompat
 import Testing
@@ -18,6 +19,18 @@ struct CloudWorkspaceSetupLifecycleTests {
         creation.opened("workspace")
         let ready = await events.next()
         #expect(ready == .ready)
+    }
+
+    @Test func retryAfterCopyFailureClearsTheFailureOnItsExistingMachine() {
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-copy-retry")
+        let creation = CloudMachineCreation(windowID: nil, session: session)
+        creation.fail(ActionFailure(message: "copy failed"))
+        #expect(creation.stage.failure != nil)
+        creation.restart()
+        #expect(creation.phase == .created)
+        #expect(creation.stageInput.creation == .created)
+        #expect(creation.session === session)
     }
 
     @Test func dismissedAttemptEndsReadinessObservation() async {
