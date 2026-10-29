@@ -4,8 +4,9 @@
 // it shows sends the held prompt after Trust. Before, the send's owner was the selection from
 // before the switch, the refusal was dropped, and Trust left the prompt unsent.
 //
-// The pane runs on its in-page mock daemon (transport "mock"); session/prompt refuses the folder
-// until it is trusted, as acpmux's trust gate does (trust_gate.rs).
+// The pane runs on its in-page mock daemon (transport "mock"); a peer's session/new refuses the
+// folder until it is trusted, as acpmux's trust gate does (trust_gate.rs). The trust decision must
+// stay on that peer, rather than silently reading or writing the local daemon.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -96,28 +97,36 @@ type Actions = Record<string, (params: Record<string, unknown>) => Promise<unkno
 const actions = () => (dom.window as unknown as { cmuxAcpmuxActions?: Actions }).cmuxAcpmuxActions;
 const trustButton = () =>
   dom.window.document.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary") ?? undefined;
-const failedTrustButton = () => dom.window.document.querySelector<HTMLButtonElement>(".cv-user__fix") ?? undefined;
+const trustCard = () => dom.window.document.querySelector<HTMLElement>(".acpmux-trust-ask") ?? undefined;
 
-test("a prompt held by a harness switch and refused for the folder's trust is sent after Trust", async () => {
-  const folder = "/tmp/switch-untrusted-project";
+test("a peer trust refusal reads and clears the peer's TrustAsk after retry", async () => {
+  const folder = "/tmp/peer-untrusted-project";
+  const peer = "pf";
   const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
   const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
   const answer = proto.answer;
   restoreAnswer = () => (proto.answer = answer);
-  let trusted = false;
-  let started!: () => void;
-  const starting = new Promise<void>((done) => (started = done));
-  const prompts: string[] = [];
+  let starts = 0;
+  let peerTrusted = false;
+  const trustGets: Record<string, unknown>[] = [];
+  const trustSets: Record<string, unknown>[] = [];
   proto.answer = async function (this: unknown, method, params) {
-    const meta = (params._meta as { acpmux?: { harness?: string } } | undefined)?.acpmux;
-    // The switch's chat starts only once the prompt is held behind it.
-    if (method === "session/new" && meta?.harness === "codex" && params.cwd === folder) await starting;
-    if (method === "acp.trust.set" && params.cwd === folder) trusted = params.level === "trusted";
-    if (method === "session/prompt") {
-      const text = String((params.prompt as { text?: string }[])?.[0]?.text ?? "");
-      if (text === "hello" && !trusted)
-        throw Object.assign(new Error("Trust this folder first"), { data: { reason: "trust.pending", cwd: folder } });
-      prompts.push(text);
+    const meta = (params._meta as { acpmux?: { harness?: string; peer?: string } } | undefined)?.acpmux;
+    if (method === "session/new" && meta?.peer === peer) {
+      starts += 1;
+      if (starts === 1)
+        throw Object.assign(new Error("Trust this folder first"), {
+          data: { reason: "trust.pending", cwd: folder },
+        });
+    }
+    if (method === "acp.trust.get" && params.cwd === folder) {
+      trustGets.push({ ...params });
+      return { cwd: folder, level: params.peer === peer && peerTrusted ? "trusted" : "unknown", decided: false };
+    }
+    if (method === "acp.trust.set" && params.cwd === folder) {
+      trustSets.push({ ...params });
+      peerTrusted = params.peer === peer && params.level === "trusted";
+      return { cwd: folder, level: peerTrusted ? "trusted" : "unknown", decided: false };
     }
     return answer.call(this, method, params);
   };
@@ -132,7 +141,9 @@ test("a prompt held by a harness switch and refused for the folder's trust is se
             Promise.resolve({
               ok: true,
               value:
-                message.method === "ready" ? { protocolVersion: 1, transport: "mock", machineName: "Mac" } : undefined,
+                message.method === "ready"
+                  ? { protocolVersion: 1, transport: "mock", machineName: "Mac", newSession: true }
+                  : undefined,
             }),
         },
       },
@@ -142,25 +153,17 @@ test("a prompt held by a harness switch and refused for the folder's trust is se
   await act(async () => root!.render(<AcpmuxApp />));
   await until(() => actions()?.["chat.new"] !== undefined, "the pane connected to the mock daemon");
 
-  // Pick another harness: the switch draws the new chat and starts it behind the pane.
+  // Start the destination peer. Its session/new refusal opens the peer's trust question.
   let opened: Promise<unknown> | undefined;
-  await act(
-    async () => void (opened = actions()!["chat.new"]!({ harness: "codex", cwd: folder }).catch(() => undefined)),
-  );
-  // Send while the chat starts: the switch holds the prompt for the session it opens.
-  let sent: Promise<unknown> | undefined;
-  await act(async () => void (sent = actions()!["chat.send"]!({ text: "hello" }).catch(() => undefined)));
-  await act(async () => started());
-  await act(async () => void (await opened));
+  await act(async () => void (opened = actions()!["chat.new"]!({ harness: "fake", cwd: folder, peer }).catch(() => undefined)));
+  await until(() => trustCard() !== undefined, "the peer trust question shows");
+  expect(starts).toBe(1);
+  expect(trustGets).toContainEqual(expect.objectContaining({ cwd: folder, peer }));
 
-  // The session opened, the held prompt went and acpmux refused it for the folder's trust.
-  await until(() => trustButton() !== undefined, "the trust question shows");
-  await until(() => failedTrustButton() !== undefined, "the failed prompt trust card shows");
-  await act(async () => void (await sent));
-  expect(prompts).toEqual([]);
-
+  // This click is the user's gesture. It must save on the peer and retry its refused session/new.
   await act(async () => trustButton()!.click());
-  await until(() => prompts.includes("hello"), "the held prompt went after Trust");
-  expect(prompts.filter((text) => text === "hello")).toEqual(["hello"]);
-  await until(() => failedTrustButton() === undefined, "the failed prompt trust card clears after the retried session starts");
+  await act(async () => void (await opened));
+  await until(() => starts === 2, "the peer session start retried after Trust");
+  await until(() => trustCard() === undefined, "the peer TrustAsk clears after the retried session starts");
+  expect(trustSets).toContainEqual(expect.objectContaining({ cwd: folder, level: "trusted", peer }));
 }, 60_000);
