@@ -177,7 +177,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         let attempt = tokio::select! {
             // Process a server removal first if both events are ready.
             biased;
-            result = connect_once(&config, &tokens, &services, &ice, &mailbox, changes.clone()) => result,
+            result = connect_once(&config, &tokens, &services, &ice, &mailbox) => result,
             Ok(()) = changes.changed() => {
                 ice.invalidate();
                 backoff = Duration::from_secs(1);
@@ -228,7 +228,6 @@ async fn connect_once(
     services: &Arc<ServiceConfig>,
     ice: &IceSource,
     mailbox: &Option<Arc<crate::mailbox::Mailbox>>,
-    mut changes: tokio::sync::watch::Receiver<u64>,
 ) -> Result<String> {
     let token = tokens.access_token().await.context("access token")?;
     let owner = config
@@ -277,15 +276,7 @@ async fn connect_once(
     if let Some(task) = refresher {
         lifetime.tasks.push(task);
     }
-    let reason = tokio::select! {
-        reason = serve_signaling(signaling.clone(), context) => reason,
-        Ok(()) = changes.changed() => {
-            ice.invalidate();
-            signaling.close();
-            "wake or network change".to_owned()
-        }
-    };
-    Ok(reason)
+    Ok(serve_signaling(signaling, context).await)
 }
 
 /// Owns all per-connection work, including when a wake cancels an attempt.
