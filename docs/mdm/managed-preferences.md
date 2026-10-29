@@ -34,6 +34,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.toolbarPosition` | string | `"top"` | `top`, `bottom` | Browser Toolbar Position. Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward. |
 | `tabs.barOrder` | string | `"aboveToolbar"` | `aboveToolbar`, `belowToolbar` | Tab Bar and Browser Toolbar. In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it. |
 | `tabs.toolbarButtons` | array | `[]` | `splitRight`, `splitDown`, `openDiffViewer`, `file.open`, `agentPane.searchChats`, `toggleSplitZoom` | Tab Bar Buttons. Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back. |
+| `appearance.metrics.tabFontSize` | real |  | 10 to 18 | Tab Text Size. Text size of tab titles. Unset, tabs follow the interface size. |
+| `appearance.metrics.tabStripHeight` | real |  | 22 to 44 | Tab Bar Height. Height of a pane's tab bar. Its tabs grow and shrink with it. |
 | `tabs.overflow` | string | `"shrink"` | `shrink`, `scroll` | Tab Overflow. Shrink narrows every tab to the minimum width before the strip scrolls. Scroll keeps tabs wide and scrolls sooner. |
 | `appearance.metrics.tabMaxWidth` | real |  | 120 to 320 | Maximum Tab Width. Widest a tab gets when the strip has room. |
 | `appearance.metrics.tabMinActiveWidth` | real |  | 32 to 320 | Minimum Selected Tab Width. When the strip is crowded, every tab shrinks evenly to this width, and the selected tab stays at least this wide. |

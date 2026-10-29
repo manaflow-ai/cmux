@@ -979,6 +979,13 @@
       "title" : "Sidebar Width",
       "type" : "number"
     },
+    "appearance.metrics.tabFontSize" : {
+      "description" : "Text size of tab titles. Unset, tabs follow the interface size.",
+      "maximum" : 18,
+      "minimum" : 10,
+      "title" : "Tab Text Size",
+      "type" : "number"
+    },
     "appearance.metrics.tabMaxWidth" : {
       "description" : "Widest a tab gets when the strip has room.",
       "maximum" : 320,
@@ -1005,6 +1012,13 @@
       "maximum" : 120,
       "minimum" : 24,
       "title" : "Pinned Tab Width",
+      "type" : "number"
+    },
+    "appearance.metrics.tabStripHeight" : {
+      "description" : "Height of a pane's tab bar. Its tabs grow and shrink with it.",
+      "maximum" : 44,
+      "minimum" : 22,
+      "title" : "Tab Bar Height",
       "type" : "number"
     },
     "appearance.metrics.titlebarHeight" : {
