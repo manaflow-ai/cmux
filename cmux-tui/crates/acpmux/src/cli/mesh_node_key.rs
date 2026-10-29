@@ -113,6 +113,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         crate::config::private_state_dir(dir.path()).unwrap();
         std::fs::write(dir.path().join(KEY_FILE), b"too short").unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(
+            dir.path().join(KEY_FILE),
+            std::os::unix::fs::PermissionsExt::from_mode(0o600),
+        )
+        .unwrap();
         let error = load_or_create_at(dir.path()).unwrap_err().to_string();
         assert_eq!(error, "node key has invalid length");
         assert!(!error.contains("too short"));
