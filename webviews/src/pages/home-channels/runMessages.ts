@@ -53,6 +53,40 @@ function summary(input: Record<string, unknown>): string {
 
 export type RunAgentMessage = { item: AcpmuxActivity; sent: AgentMessage } | { from: string; text: string };
 
+/** One card's classifications. Retain only its current steps; unversioned Cloud steps use
+ * object identity, since a replacement at revision zero can contain a new delivery result. */
+export class RunMessageCache {
+  private entries = new Map<string, { step: HomeRunStep; rev: number; message: RunAgentMessage | undefined }>();
+
+  private runKey?: string;
+
+  classify(
+    steps: readonly HomeRunStep[],
+    runKey?: string,
+  ): {
+    messages: { step: HomeRunStep; message: RunAgentMessage }[];
+    work: HomeRunStep[];
+  } {
+    if (runKey !== this.runKey) {
+      this.entries.clear();
+      this.runKey = runKey;
+    }
+    const next: typeof this.entries = new Map();
+    const messages: { step: HomeRunStep; message: RunAgentMessage }[] = [];
+    const work: HomeRunStep[] = [];
+    for (const step of steps) {
+      const held = this.entries.get(step.id);
+      const cached = held && held.rev === step.rev && (step.rev > 0 || held.step === step);
+      const entry = cached ? held : { step, rev: step.rev, message: stepMessage(step) };
+      next.set(step.id, entry);
+      if (entry.message) messages.push({ step, message: entry.message });
+      else if (step.kind === "tool") work.push(step);
+    }
+    this.entries = next;
+    return { messages, work };
+  }
+}
+
 export function stepMessage(step: HomeRunStep): RunAgentMessage | undefined {
   if (step.kind === "tool") {
     const item = stepActivity(step);

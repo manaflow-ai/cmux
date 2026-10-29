@@ -594,7 +594,7 @@ impl Brain {
             })
             .collect();
         let spawn = format!("s{first}");
-        let record = SpawnRecord {
+        let mut record = SpawnRecord {
             subs: ids
                 .iter()
                 .zip(tasks)
@@ -643,6 +643,17 @@ impl Brain {
                 None => self.state.last_answers.clone(),
             },
         };
+        // Bind projection to this assignment while its originating route is known. Later
+        // standalone subagent runs must not inherit the spawn's route after consumption.
+        for sub in &mut record.subs {
+            sub.answers = record.answers.clone();
+            sub.report_run = record.conversation.as_ref().map(|conversation| {
+                (
+                    conversation.clone(),
+                    record.turn.clone().unwrap_or_else(|| spawn.clone()),
+                )
+            });
+        }
         let queued: Vec<String> = record
             .subs
             .iter()
@@ -1673,6 +1684,30 @@ impl Brain {
         self.save();
     }
 
+    /// Re-queue reports that were persisted as Done before the host reached
+    /// `deliver`. A process exit in that window must not strand the report:
+    /// `spawn_logged` changes the subagent to Reported once the queued turn is
+    /// actually recorded, so replaying here is idempotent across restarts.
+    pub(super) fn redeliver_saved_reports(&mut self) {
+        let spawns: Vec<String> = self
+            .state
+            .spawns
+            .iter()
+            .filter(|(_, record)| {
+                record.subs.iter().any(|sub| {
+                    sub.status == SubStatus::Done
+                        && !sub.stopped
+                        && sub.report.is_some()
+                        && sub.report_run.is_some()
+                })
+            })
+            .map(|(spawn, _)| spawn.clone())
+            .collect();
+        for spawn in spawns {
+            self.deliver(&spawn);
+        }
+    }
+
     /// Display reports on arrival without changing the Chief turn's status. A separate completed
     /// report record stays anchored to the assignment's question even if its original run was pruned.
     /// The owner upserts stable step ids, so a redelivery updates the same row.
@@ -1739,12 +1774,17 @@ impl Brain {
                 self.state.pending_reports.push(pending.clone());
                 self.save();
             }
-            let Some(daemon) = self.daemon.as_mut() else {
-                continue;
-            };
             let mut complete = true;
+            let mut transport_failed = false;
             for chunk in crate::run::chunks(steps) {
-                if let Err(e) = daemon.run_append(&conversation, run.clone(), chunk) {
+                let result = match self.daemon.as_mut() {
+                    Some(daemon) => daemon.run_append(&conversation, run.clone(), chunk),
+                    None => {
+                        complete = false;
+                        break;
+                    }
+                };
+                if let Err(e) = result {
                     if matches!(&e, OpError::Rejected(reason) if reason == "runs_unsupported") {
                         // This port cannot store display-only runs. Delivery to
                         // Chief still proceeds; reconnecting cannot fix it.
@@ -1752,11 +1792,20 @@ impl Brain {
                         break;
                     }
                     complete = false;
+                    if let OpError::Transport(reason) = &e {
+                        transport_failed = true;
+                        (self.log)(&format!(
+                            "appending an agent report failed; reconnecting after transport error: {reason}"
+                        ));
+                    }
                     (self.log)(&format!(
                         "appending an agent report failed; retaining it for reconnect: {e}"
                     ));
                     break;
                 }
+            }
+            if transport_failed {
+                self.drop_daemon();
             }
             if complete {
                 self.state
@@ -1768,9 +1817,9 @@ impl Brain {
     }
 
     pub(super) fn flush_pending_reports(&mut self) -> std::collections::HashSet<String> {
-        let Some(daemon) = self.daemon.as_mut() else {
+        if self.daemon.is_none() {
             return std::collections::HashSet::new();
-        };
+        }
         let pending = std::mem::take(&mut self.state.pending_reports);
         if pending.is_empty() {
             return std::collections::HashSet::new();
@@ -1779,18 +1828,37 @@ impl Brain {
         let mut done = std::collections::HashSet::new();
         for report in pending {
             let mut complete = true;
+            let mut transport_failed = false;
             for chunk in crate::run::chunks(report.steps.clone()) {
-                if let Err(e) = daemon.run_append(&report.conversation, report.run.clone(), chunk) {
+                let result = match self.daemon.as_mut() {
+                    Some(daemon) => {
+                        daemon.run_append(&report.conversation, report.run.clone(), chunk)
+                    }
+                    None => {
+                        complete = false;
+                        break;
+                    }
+                };
+                if let Err(e) = result {
                     if matches!(&e, OpError::Rejected(reason) if reason == "runs_unsupported") {
                         (self.log)("agent report display unavailable: runs unsupported");
                         break;
                     }
                     complete = false;
+                    if let OpError::Transport(reason) = &e {
+                        transport_failed = true;
+                        (self.log)(&format!(
+                            "replaying an agent report failed; reconnecting after transport error: {reason}"
+                        ));
+                    }
                     (self.log)(&format!(
                         "replaying an agent report failed; retaining it: {e}"
                     ));
                     break;
                 }
+            }
+            if transport_failed {
+                self.drop_daemon();
             }
             if complete {
                 done.insert(report_key(&report.conversation, &report.steps));

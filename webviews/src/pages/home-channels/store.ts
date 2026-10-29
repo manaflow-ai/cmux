@@ -505,9 +505,10 @@ export class HomeChannelsStore {
   /** Pages older history (at most LINK_PAGES) until the timeline has FILL_TOP_LEVEL messages
    * to show or the conversation's start is in. */
   private async fillTimeline(id: string, generation: number): Promise<void> {
+    const life = this.life;
     for (let page = 0; page < LINK_PAGES; page += 1) {
       const { selected, messages, hasOlder } = this.snapshot;
-      if (generation !== this.generation || selected !== id || !hasOlder) return;
+      if (generation !== this.generation || life !== this.life || selected !== id || !hasOlder) return;
       if (messages.filter((m) => !threadOf(m)).length >= FILL_TOP_LEVEL) return;
       const before = messages[0]?.seq;
       await this.loadOlder();
@@ -521,15 +522,17 @@ export class HomeChannelsStore {
     if (!this.client || !selected || !hasOlder || loadingOlder) return;
     const before = messages[0]?.seq ?? 1;
     const generation = this.generation;
+    const life = this.life;
     this.set({ loadingOlder: true });
     try {
+      if (this.life !== life) return;
       const older = await this.client.call<HomeHistory>(HomeOps.history, {
         conversation: selected,
         beforeSeq: before,
         limit: PAGE,
       });
       // A reload since (a reconnect) may have moved the window: this page goes before the old one.
-      if (this.snapshot.selected !== selected || this.generation !== generation) return;
+      if (this.snapshot.selected !== selected || this.generation !== generation || this.life !== life) return;
       if ((this.snapshot.messages[0]?.seq ?? 1) !== before) return;
       const merged = mergeMessages(this.snapshot.messages, older.messages, this.snapshot.messages.length + PAGE);
       this.set({
@@ -1110,6 +1113,9 @@ export class HomeChannelsStore {
    * without runs answers nothing: the page shows no run cards. */
   private async loadRuns(conversation: string, messages: readonly HomeMessage[], newest: boolean): Promise<void> {
     if (!this.client) return;
+    // A newest reload with no messages still needs background-run discovery. An empty older
+    // page has no new anchors and must not start an unrelated history scan.
+    if (messages.length === 0 && !newest) return;
     const generation = this.generation;
     const life = this.life;
     const agents = new Set(
@@ -1117,41 +1123,100 @@ export class HomeChannelsStore {
         .filter((participant) => participant.kind === "agent")
         .map((participant) => participant.id),
     );
-    const turns = RunBook.turns(messages, agents);
+    const active = () => generation === this.generation && life === this.life;
     const replyKeys = new Set(
       messages
         .filter((message) => message.clientMessageId && agents.has(message.author))
         .map((message) => `${message.author}\0${message.clientMessageId}`),
     );
-    try {
-      const direct =
-        turns.length > 0 ? (await this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns })).runs : [];
-      // `turns` only finds runs that posted a reply. Silent turns (including a tell/report turn)
-      // are selected by their `answers` message id, so walk the owner's run-history cursor until
-      // the oldest message in this window is covered and every loaded reply has a run. Cloud's
-      // direct lookup can return nothing: a long run can start well before its loaded reply.
-      const unresolvedReplies = new Set(replyKeys);
-      for (const run of direct) {
-        if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
+    const turns = [
+      ...new Set(
+        messages
+          .filter((message) => agents.has(message.author))
+          .flatMap((message) => (message.clientMessageId ? [message.clientMessageId] : [])),
+      ),
+    ];
+    const messageIds = new Set(messages.map((message) => message.id));
+    const unresolvedReplies = new Set(replyKeys);
+    const published = new Map<string, HomeRun>();
+    // With no messages there are no direct answer keys to resolve, but the newest-runs
+    // query still restores background activity when a conversation is reopened.
+    let answersComplete = true;
+    // Publish and hydrate each successful batch before asking for more history. A slow or failed
+    // later page must not hold back the rows already found for the visible conversation.
+    const publish = async (runs: readonly HomeRun[], direct = false) => {
+      if (!active()) return;
+      const fresh: HomeRun[] = [];
+      for (const run of runs) {
+        const reply = run.turn ? `${run.author}\0${run.turn}` : undefined;
+        if (reply) unresolvedReplies.delete(reply);
+        const key = `${run.author}\0${run.id}`;
+        const previous = published.get(key);
+        // Direct queries and history often return the same summary. Invalidate unversioned
+        // cached steps only once per load, otherwise a later duplicate undoes hydration.
+        if (
+          previous &&
+          previous.rev >= run.rev &&
+          previous.updatedAt >= run.updatedAt &&
+          previous.stepCount >= run.stepCount &&
+          previous.status === run.status
+        )
+          continue;
+        published.set(key, run);
+        fresh.push(run);
       }
-      const messageIds = new Set(messages.map((message) => message.id));
+      this.runs.setRuns(fresh);
+      for (const run of fresh) {
+        if (!active()) return;
+        const reply = run.turn ? `${run.author}\0${run.turn}` : undefined;
+        if (direct || run.answers.some((answer) => messageIds.has(answer)) || (reply && replyKeys.has(reply))) {
+          // Cloud has no increasing revision to unlock a failed read. Each fresh lookup is a
+          // retry boundary; mounted cards alone must not retry failures in a loop.
+          if (run.rev === 0) this.failedRuns.delete(`${run.conversation}\0${run.author}\0${run.id}`);
+          await this.loadRunSteps(run);
+        }
+      }
+    };
+    try {
+      for (const [field, ids] of [
+        ["turns", turns],
+        ["answers", [...messageIds]],
+      ] as const) {
+        for (let offset = 0; offset < ids.length; offset += 200) {
+          if (!active()) return;
+          const list: HomeRunList = await this.client
+            .call<HomeRunList>(HomeOps.runs, {
+              conversation,
+              [field]: ids.slice(offset, offset + 200),
+            })
+            .catch(() => ({ runs: [], hasMore: false }));
+          if (!active()) return;
+          if (field === "answers" && list.answersComplete !== true) answersComplete = false;
+          await publish(list.runs, true);
+        }
+      }
+      // Local answer lookups cover silent reports regardless of their assignment's start time.
+      // Cloud lacks direct lookups: scan past the timestamp boundary until loaded reply keys
+      // resolve, while making each page visible immediately.
       const oldestMessageAt = messages.reduce<number | undefined>(
         (oldest, message) => (oldest === undefined ? message.createdAt : Math.min(oldest, message.createdAt)),
         undefined,
       );
-      const history: HomeRun[] = [];
       let beforeStartedAt: number | undefined;
       let page = 0;
       for (;;) {
+        if (!active()) return;
         const params: Record<string, unknown> = { conversation, limit: newest && page === 0 ? 20 : 50 };
         page += 1;
         if (beforeStartedAt !== undefined) params.beforeStartedAt = beforeStartedAt;
-        const list = await this.client.call<HomeRunList>(HomeOps.runs, params);
-        if (generation !== this.generation || life !== this.life) return;
-        history.push(...list.runs);
-        for (const run of list.runs) {
-          if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
+        let list: HomeRunList;
+        try {
+          list = await this.client.call<HomeRunList>(HomeOps.runs, params);
+        } catch {
+          break;
         }
+        if (!active()) return;
+        await publish(list.runs);
         const oldestRun = list.runs.reduce<number | undefined>(
           (oldest, run) => (oldest === undefined ? run.startedAt : Math.min(oldest, run.startedAt)),
           undefined,
@@ -1159,49 +1224,13 @@ export class HomeChannelsStore {
         if (
           !list.hasMore ||
           oldestRun === undefined ||
-          (unresolvedReplies.size === 0 && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)
+          (unresolvedReplies.size === 0 &&
+            (answersComplete || (oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)))
         )
           break;
         // The protocol uses a strict less-than cursor; guard malformed owners that do not move it.
         if (beforeStartedAt !== undefined && oldestRun >= beforeStartedAt) break;
         beforeStartedAt = oldestRun;
-      }
-      if (generation !== this.generation || life !== this.life) return;
-      const byKey = new Map<string, HomeRun>();
-      for (const run of [...history, ...direct]) {
-        const key = `${run.author}\0${run.id}`;
-        const held = byKey.get(key);
-        if (!held || run.rev > held.rev || (run.rev === held.rev && run.stepCount >= held.stepCount))
-          byKey.set(key, run);
-      }
-      const runs = [...byKey.values()];
-      // Message rows also survive completed and silent turns, including after a reload. Avoid
-      // fetching every historical run's tool log: only runs answering a loaded question, direct
-      // reply runs, or still-running work can contribute a row to this window.
-      const directKeys = new Set(direct.map((run) => `${run.author}\0${run.id}`));
-      const newestHistory = new Set(history.slice(0, newest ? 20 : 0).map((run) => `${run.author}\0${run.id}`));
-      const relevantRuns = runs.filter((run) => {
-        const relevant =
-          run.status === "running" ||
-          run.answers.some((answer) => messageIds.has(answer)) ||
-          (run.turn !== undefined && replyKeys.has(`${run.author}\0${run.turn}`)) ||
-          directKeys.has(`${run.author}\0${run.id}`) ||
-          newestHistory.has(`${run.author}\0${run.id}`);
-        return relevant;
-      });
-      this.runs.setRuns(relevantRuns);
-      for (const run of relevantRuns) {
-        if (generation !== this.generation || life !== this.life) return;
-        // Cloud has no increasing revision to unlock a failed read. A fresh history lookup is
-        // a retry boundary; mounted cards alone must not retry the same failure in a loop.
-        if (run.rev === 0) this.failedRuns.delete(`${run.conversation}\0${run.author}\0${run.id}`);
-        // A summary can contribute activity state without any row in the loaded transcript.
-        if (
-          run.answers.some((answer) => messageIds.has(answer)) ||
-          directKeys.has(`${run.author}\0${run.id}`) ||
-          (run.turn !== undefined && replyKeys.has(`${run.author}\0${run.turn}`))
-        )
-          await this.loadRunSteps(run);
       }
     } catch {
       // Runs are display only; a host or owner without them shows plain messages.

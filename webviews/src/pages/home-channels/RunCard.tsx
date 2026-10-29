@@ -5,7 +5,7 @@
 // same here as in the agent pane.
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { RunMessage } from "./RunMessage";
-import { stepActivity, stepMessage } from "./runMessages";
+import { RunMessageCache, stepActivity } from "./runMessages";
 export { stepActivity } from "./runMessages";
 import { AgentNamesContext } from "../../agent-session/acpmux/conversation/agentNames";
 import { ChevronRight } from "../../agent-session/acpmux/conversation/icons";
@@ -137,16 +137,12 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
     if (running) setOpen(true);
   }, [running]);
   // The card shows tool calls only: a thought stays in the run sheet, folded.
-  const { shown, messages } = useMemo(() => {
-    const messages: { step: HomeRunStep; message: NonNullable<ReturnType<typeof stepMessage>> }[] = [];
-    const work: HomeRunStep[] = [];
-    for (const step of steps) {
-      const message = stepMessage(step);
-      if (message) messages.push({ step, message });
-      else if (step.kind === "tool") work.push(step);
-    }
-    return { shown: runBlocks(run, work.slice(-CARD_STEPS)), messages };
-  }, [run, steps]);
+  const [messageCache] = useState(() => new RunMessageCache());
+  const { work, messages } = useMemo(
+    () => messageCache.classify(steps, JSON.stringify([run.conversation, run.author, run.id])),
+    [messageCache, steps, run.conversation, run.author, run.id],
+  );
+  const shown = useMemo(() => (open ? runBlocks(run, work.slice(-CARD_STEPS)) : []), [open, run, work]);
   const count = run.stepCount;
   // Tokens, not dollars: most runs go through a subscription or a router, where the harness's dollar
   // figure (pay-per-token API prices) is not what anyone pays. The run sheet keeps it, labelled.
