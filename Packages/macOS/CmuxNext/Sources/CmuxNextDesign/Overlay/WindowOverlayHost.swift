@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import CmuxNextWakeups
 
 /// The one place app overlays draw above Chromium pages.
 ///
@@ -42,6 +43,12 @@ public final class WindowOverlayHost {
     /// The text selection of a restored text field (making it first responder again selects everything).
     var restoreSelection: [NSValue]?
     var isReordering = false
+    /// Display frames left before a freshly attached panel shows (``revealAfterFirstFrames()``).
+    var revealFramesLeft = 0
+    /// Ticks the reveal on the panel's display link; made on first use.
+    lazy var revealClient = FrameClient(owner: "overlay.panel.reveal", view: panel.overlayContainer) { [weak self] _ in
+        self?.revealTick() ?? false
+    }
     /// The window is closing: nothing takes key status back.
     var isTearingDown = false
     /// Where the app host centers its panel (tests pass an off-screen rect).
@@ -193,8 +200,10 @@ public final class WindowOverlayHost {
             if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
             if panel.parent !== window {
                 window.themeScope.adopt(panel)
+                hideUntilDrawn()
                 window.addChildWindow(panel, ordered: .above)
                 observeWindow(window)
+                revealAfterFirstFrames()
             }
             reassertOrder()
         } else if panel.parent === window {
@@ -300,9 +309,49 @@ public final class WindowOverlayHost {
             panel.orderOut(nil)
         } else {
             layoutAppPanel()
+            let ordersIn = !panel.isVisible
+            if ordersIn { hideUntilDrawn() }
             panel.orderFrontRegardless()
+            if ordersIn { revealAfterFirstFrames() }
         }
         placeAgentCursor()
         onPanelChange?()
+    }
+}
+
+extension WindowOverlayHost {
+    /// Display frames a freshly ordered-in panel stays transparent: the frame that draws this turn's
+    /// commit, and one more, as the window server may composite the window at the refresh it orders in.
+    static let revealFrames = 2
+
+    /// Ordering the panel in shows its window surface at once, and that surface still holds what the
+    /// panel last drew on screen, often a dialog at full opacity, before this turn's commit reaches it:
+    /// one frame of an old dialog and scrim, then the new one fading in from zero (debug.dialog_strip:
+    /// 2 opens in 10 whenever the panel attached fresh, 0 in 20 while it stayed attached). The panel
+    /// orders in transparent and shows once its new content has been drawn.
+    func hideUntilDrawn() {
+        panel.alphaValue = 0
+    }
+
+    /// Shows the panel after ``revealFrames`` display frames; at once when its window is not on a
+    /// screen (nothing composites it, and no display link would tick for it).
+    func revealAfterFirstFrames() {
+        let shown: NSWindow = window ?? panel
+        guard shown.isVisible, shown.screen != nil else { return revealNow() }
+        revealFramesLeft = Self.revealFrames
+        revealClient.activate()
+    }
+
+    /// One display frame of the reveal; false once the panel shows.
+    func revealTick() -> Bool {
+        revealFramesLeft -= 1
+        guard revealFramesLeft <= 0 else { return true }
+        revealNow()
+        return false
+    }
+
+    func revealNow() {
+        revealFramesLeft = 0
+        panel.alphaValue = 1
     }
 }
