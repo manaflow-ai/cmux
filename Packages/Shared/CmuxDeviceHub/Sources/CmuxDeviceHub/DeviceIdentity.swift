@@ -42,6 +42,22 @@ public struct KeychainSoftwareDeviceKeys: DeviceKeyMaterial {
     let signing: P256.Signing.PrivateKey
     let agreement: P256.KeyAgreement.PrivateKey
 
+    init(signing: P256.Signing.PrivateKey, agreement: P256.KeyAgreement.PrivateKey) {
+        self.signing = signing
+        self.agreement = agreement
+    }
+
+    /// The keys from their stored raw forms; nil when either is not a P-256 private key.
+    init?(signingRaw: Data, agreementRaw: Data) {
+        guard let signing = try? P256.Signing.PrivateKey(rawRepresentation: signingRaw),
+              let agreement = try? P256.KeyAgreement.PrivateKey(rawRepresentation: agreementRaw) else { return nil }
+        self.init(signing: signing, agreement: agreement)
+    }
+
+    /// What the Keychain keeps: the two raw private keys.
+    var signingRaw: Data { signing.rawRepresentation }
+    var agreementRaw: Data { agreement.rawRepresentation }
+
     public var signingPublicKey: P256.Signing.PublicKey { signing.publicKey }
     public var agreementPublicKey: P256.KeyAgreement.PublicKey { agreement.publicKey }
 
@@ -164,9 +180,8 @@ extension DeviceIdentity {
            let id = UUID(uuidString: idText),
            let signingRaw = try keychain.read(Self.signingAccount),
            let agreementRaw = try keychain.read(Self.agreementAccount),
-           let signing = try? P256.Signing.PrivateKey(rawRepresentation: signingRaw),
-           let agreement = try? P256.KeyAgreement.PrivateKey(rawRepresentation: agreementRaw) {
-            return DeviceIdentity(deviceID: id, keys: KeychainSoftwareDeviceKeys(signing: signing, agreement: agreement))
+           let keys = KeychainSoftwareDeviceKeys(signingRaw: signingRaw, agreementRaw: agreementRaw) {
+            return DeviceIdentity(deviceID: id, keys: keys)
         }
         let signing = P256.Signing.PrivateKey()
         let agreement = P256.KeyAgreement.PrivateKey()
