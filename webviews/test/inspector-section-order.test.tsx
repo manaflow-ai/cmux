@@ -197,6 +197,28 @@ test("a panel closed while another pane reorders shows that order when it opens 
   await act(async () => again.root.unmount());
 });
 
+test("an order storage refused stays when the panel opens again", async () => {
+  const first = await mount();
+  const setItem = dom.window.Storage.prototype.setItem;
+  dom.window.Storage.prototype.setItem = () => {
+    throw new Error("QuotaExceededError");
+  };
+  try {
+    await act(async () => {
+      handle(first.container, "tasks").dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
+      );
+    });
+    expect(layout(first.container)[2]!.sections).toEqual(["tasks", "subagents"]);
+    await act(async () => first.root.unmount());
+    const again = await mount();
+    expect(layout(again.container)[2]!.sections).toEqual(["tasks", "subagents"]);
+    await act(async () => again.root.unmount());
+  } finally {
+    dom.window.Storage.prototype.setItem = setItem;
+  }
+});
+
 test("a saved order with unknown or missing sections keeps every section once", async () => {
   dom.window.localStorage.setItem(
     ORDER_KEY,

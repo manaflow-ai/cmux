@@ -23,6 +23,8 @@ type Orders = Readonly<Partial<Record<InspectorGroupId, readonly InspectorSectio
 
 let page: Orders = {};
 let loaded = false;
+/// The page's order is newer than storage's: storage is missing or refused the last write.
+let unsaved = false;
 const listeners = new Set<() => void>();
 
 function storage(): Storage | undefined {
@@ -65,13 +67,15 @@ function read(): Orders {
 function onStorage(event: StorageEvent) {
   if (event.key !== ORDER_KEY && event.key !== null) return;
   page = parse(event.newValue ?? storage()?.getItem(ORDER_KEY));
+  unsaved = false;
   for (const listener of listeners) listener();
 }
 
 function subscribe(listener: () => void) {
-  // Unwatched, the page missed other panes' drags: read storage again when it is watched again.
+  // Unwatched, the page missed other panes' drags: read storage again when it is watched again,
+  // unless the page holds an order storage never took.
   if (listeners.size === 0) {
-    loaded = false;
+    if (!unsaved) loaded = false;
     globalThis.addEventListener?.("storage", onStorage);
   }
   listeners.add(listener);
@@ -109,10 +113,13 @@ export function setGroupOrder(group: InspectorGroupId, shown: readonly Inspector
   const next = full.map((id) => (shown.includes(id) ? (queue.shift() ?? id) : id));
   if (next.every((id, at) => id === full[at])) return;
   page = { ...read(), [group]: next };
+  const store = storage();
   try {
-    storage()?.setItem(ORDER_KEY, JSON.stringify(page));
+    store?.setItem(ORDER_KEY, JSON.stringify(page));
+    unsaved = !store;
   } catch {
     // Full or blocked storage: the page's copy holds it.
+    unsaved = true;
   }
   for (const listener of listeners) listener();
 }
@@ -121,4 +128,5 @@ export function setGroupOrder(group: InspectorGroupId, shown: readonly Inspector
 export function resetSectionOrderForTests() {
   page = {};
   loaded = false;
+  unsaved = false;
 }
