@@ -142,8 +142,9 @@ struct SidebarTabGroupControlsTests {
         }
     }
 
-    /// The old spot stays a choice: ⋮ ✕ ⌄ with the status mark on the column.
-    @Test func theMiddleSpotKeepsTheMark() throws {
+    /// The old spot stays a choice: ⋮ ✕ ⌄, the status mark back on the column once the hover ends (Leo 2026-10-28:
+    /// "just don't show the spinner" while hovering, under every spot).
+    @Test func theMiddleSpotHidesTheMarkOnHover() throws {
         try Self.withCloseSpot(.middle) {
             let (_, sidebar, window) = Self.sidebar()
             defer { window.close() }
@@ -153,6 +154,10 @@ struct SidebarTabGroupControlsTests {
             row.isHovered = true
             row.layoutSubtreeIfNeeded()
             #expect(row.closeButton.frame.maxX <= row.disclosureButton.frame.minX + 0.5)
+            let under = SidebarTrailingColumnTests.marks(in: row, named: Self.other.rawValue, list: sidebar.list)
+            #expect(under.isEmpty, "a status mark shows beside the hover controls: \(under.map(\.what))")
+            row.isHovered = false
+            row.layoutSubtreeIfNeeded()
             #expect(!SidebarTrailingColumnTests.marks(in: row, named: Self.other.rawValue, list: sidebar.list).isEmpty)
         }
     }

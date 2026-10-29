@@ -23,6 +23,7 @@ use crate::state::commit::state_not_found;
 use crate::state::prelude::*;
 use crate::state::stash_store as store;
 use crate::state::store::StateCommit;
+use cmux_json::JsonSet as _;
 
 /// Whether `member` is a whole stashed workspace.
 pub(super) fn is_workspace(member: &Value) -> bool {
@@ -205,7 +206,7 @@ impl Mux {
             if tabs.is_empty() {
                 continue;
             }
-            group["tab_ids"] = json!(tabs);
+            group.set("tab_ids", json!(tabs));
             self.reopen_tab_group(actor, &group, true, reopened)?;
         }
         Ok(())
