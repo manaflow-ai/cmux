@@ -484,7 +484,8 @@ impl Hub {
             && !session.replaced.load(std::sync::atomic::Ordering::SeqCst)
             && had_scheduled_retry
         {
-            let marker = active_turn.map_or_else(|| json!({}), |turn_id| json!({"turnId": turn_id}));
+            let marker =
+                active_turn.map_or_else(|| json!({}), |turn_id| json!({"turnId": turn_id}));
             self.append(session, "mux", "auto_resume_stopped", marker);
         }
         let settles = settled_by_stop(pending.as_ref());
