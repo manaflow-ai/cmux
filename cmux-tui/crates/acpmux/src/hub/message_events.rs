@@ -188,6 +188,16 @@ pub(super) fn message_context(
     })
 }
 
+/// The acceptance `_acpmux/prompt_accepted` carries names the message this journal kept, so a
+/// peer forwarding the prompt records its sender's copy only for that message: two sends of one
+/// prompt id (a direct send and its `send_queue` retry) both hear the one acceptance
+/// (`server/peer_forward.rs`).
+pub(super) fn name_message(accepted: &mut Value, message: &MessageContext) {
+    if let Some(fields) = accepted.as_object_mut() {
+        fields.insert("messageId".to_owned(), Value::String(message.message_id.clone()));
+    }
+}
+
 pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &str) {
     if opts.provenance.is_some() {
         return;

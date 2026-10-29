@@ -5,7 +5,8 @@ use super::*;
 use std::sync::atomic::Ordering;
 
 use super::message_events::{
-    embed_message_context, ensure_message_provenance, message_context, record_message_context,
+    embed_message_context, ensure_message_provenance, message_context, name_message,
+    record_message_context,
 };
 
 /// What the agent of `session` is sent for `blocks`: model-sized copies of its large images
@@ -157,9 +158,10 @@ impl Hub {
             let target_id = session.id.clone();
             let hub = self.clone();
             let prior = opts.on_accepted.take();
-            opts.on_accepted = Some(Box::new(move |v| {
+            opts.on_accepted = Some(Box::new(move |mut v| {
                 if let Some(message) = message.as_ref() {
                     record_message_context(&hub, &target_id, message);
+                    name_message(&mut v, message);
                 }
                 if let Some(prior) = prior {
                     prior(v);
@@ -222,10 +224,11 @@ impl Hub {
             let accepted = accepted.clone();
             let hub = self.clone();
             let target_id = session.id.clone();
-            opts.on_accepted = Some(Box::new(move |v| {
+            opts.on_accepted = Some(Box::new(move |mut v| {
                 accepted.store(true, Ordering::SeqCst);
                 if let Some(message) = message.as_ref() {
                     record_message_context(&hub, &target_id, message);
+                    name_message(&mut v, message);
                 }
                 f(v);
             }));
