@@ -228,19 +228,26 @@ async function showTab(name: string) {
 }
 
 
-const leoCatalog = () =>
+
+const opus = [{ id: "claude-opus-5-5", name: "Opus 5.5" }, { id: "claude-sonnet-5-5", name: "Sonnet 5.5" }];
+const leoCatalog = (sr2Family: string, sr2Models: { id: string; name: string }[]) =>
   [
-    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }, { id: "claude-sonnet-5-5", name: "Sonnet 5.5" }] },
-    { id: "claude-sr", name: "claude-sr", family: "claude", models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }, { id: "claude-sonnet-5-5", name: "Sonnet 5.5" }] },
-    { id: "claude-sr2-headless", name: "claude-sr2-headless", family: "claude", models: [] },
+    { id: "claude", name: "Claude Code", family: "claude", models: opus },
+    { id: "claude-sr", name: "claude-sr", family: "claude", models: opus },
+    { id: "claude-sr2-headless", name: "claude-sr2-headless", family: "claude", icon: "claude", models: [] },
+    { id: "claude-sr2", name: "claude-sr2", family: sr2Family, icon: "claude", models: sr2Models },
     { id: "codex", name: "Codex", family: "codex", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }] },
+    { id: "opencode", name: "OpenCode", family: "opencode", models: [{ id: "opencode/big-pickle", name: "Big Pickle" }] },
   ] as Snapshot["catalog"];
 
-for (const running of ["claude", "claude-sr", "claude-sr2-headless"]) {
+for (const [label, family, models] of [
+  ["sameFamilyEmpty", "claude", []],
+  ["ownFamilyEmpty", "claude-sr2", []],
+  ["ownFamilyModels", "claude-sr2", opus],
+] as const)
   for (const started of [0, 1])
-    test(`repro ${running} started=${started}`, async () => {
-      await mount(started, started ? { ready: true } : undefined, running, leoCatalog());
+    test(`repro ${label} started=${started}`, async () => {
+      await mount(started, started ? { ready: true } : undefined, "claude-sr2", leoCatalog(family, [...models]));
       await open();
-      console.log("REPRO", running, started, JSON.stringify(railTabs().map((t) => t.getAttribute("aria-label"))), JSON.stringify(itemsOf(menu()!).map((i) => i.textContent)));
+      console.log("REPRO", label, started, JSON.stringify(railTabs().map((t) => t.getAttribute("aria-label"))), JSON.stringify(itemsOf(menu()!).map((i) => i.textContent)));
     });
-}
