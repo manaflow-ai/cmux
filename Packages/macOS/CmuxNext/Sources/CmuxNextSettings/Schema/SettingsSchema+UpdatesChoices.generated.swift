@@ -16,9 +16,8 @@ public nonisolated enum UpdatesMeteredSetting: String, Sendable, Hashable, CaseI
     case download
 }
 
-/// Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.
+/// Web UI updates between app updates (plans/cmux-next/web-ota.md): the every-merge channel is published for NIGHTLY and tip builds; Release and RC builds ship their own web UI.
 public nonisolated enum UpdatesWebSetting: String, Sendable, Hashable, CaseIterable {
     case everyMerge = "every-merge"
-    case nightly
     case off
 }

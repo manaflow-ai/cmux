@@ -47,6 +47,11 @@ python3 "$PTR" verify --pointer "$TMP/ptr1.json" --keys "$TMP/keys-b.json" 2>/de
   && fail "a pointer verified against another key"
 python3 "$PTR" verify --pointer "$TMP/ptr1.json" --keys "$TMP/keys-a.json" --channel nightly 2>/dev/null \
   && fail "an every-merge pointer verified as nightly"
+# A channel without a publisher is rejected at payload creation, so the app and
+# the workflow cannot drift into advertising an unwritten pointer.
+python3 "$PTR" payload --manifest "$TMP/manifest.json" --abi-file "$TMP/abi.json" --channel nightly \
+  --commit 1111111111111111111111111111111111111111 --committed-at 100 --out "$TMP/nightly-payload" 2>/dev/null \
+  && fail "the unsupported nightly channel produced a payload"
 
 # One changed payload byte (the size) breaks the signature.
 python3 - "$TMP/ptr1.json" "$TMP/tampered.json" <<'PY'

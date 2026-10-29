@@ -4828,7 +4828,6 @@
       "description" : "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with.",
       "enum" : [
         "every-merge",
-        "nightly",
         "off"
       ],
       "title" : "Web UI Updates",

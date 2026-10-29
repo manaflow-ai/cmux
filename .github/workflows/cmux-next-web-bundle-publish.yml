@@ -62,6 +62,12 @@ jobs:
     name: build the web bundles for this source key
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 20
+    env:
+      # These values are part of web-bundle-key.py --source. Changing either
+      # moves the published identity, so write-once R2 objects cannot hide a
+      # toolchain change behind an old manifest.
+      CMUX_WEB_BUN_VERSION: "1.4.4"
+      CMUX_WEB_NODE_VERSION: "24.22.1"
     outputs:
       key: ${{ steps.key.outputs.key }}
       published: ${{ steps.key.outputs.published }}
@@ -77,12 +83,22 @@ jobs:
           key="$(python3 scripts/cmux-next/web-bundle-key.py . --source)"
           [[ "$key" =~ ^[0-9a-f]{64}$ ]]
           echo "key=$key" >> "$GITHUB_OUTPUT"
-          code="$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/$key/manifest.json?verify=$GITHUB_RUN_ID" || true)"
-          if [[ "$code" == 200 ]]; then
+          manifest="$RUNNER_TEMP/web-bundle-manifest.json"
+          code="$(curl -sS -o "$manifest" -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/$key/manifest.json?verify=$GITHUB_RUN_ID" || true)"
+          if [[ "$code" == 200 ]] && python3 - "$manifest" <<'PY'
+          import json, sys
+          manifest = json.load(open(sys.argv[1]))
+          expected = {"bun": "1.4.4", "node": "24.22.1"}
+          raise SystemExit(0 if all(manifest.get(k) == v for k, v in expected.items()) else 1)
+          PY
+          then
             echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "web bundles for $key are already published" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "web bundles for $key are already published with the pinned Bun/Node toolchain" | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
+            if [[ "$code" == 200 ]]; then
+              echo "the existing manifest for $key has a different toolchain; rebuilding" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
           fi
 
       - name: Setup Bun
@@ -214,8 +230,8 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "$SIGNING_KEY" ]]; then
-            echo "::warning::CMUX_WEB_OTA_SIGNING_KEY is not set in the artifacts environment; no web update pointer"
-            exit 0
+            echo "::error::CMUX_WEB_OTA_SIGNING_KEY is required for the production every-merge pointer"
+            exit 1
           fi
           ptr=scripts/cmux-next/web-ota-pointer.py
           keys=Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json

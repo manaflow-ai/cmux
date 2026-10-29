@@ -169,7 +169,7 @@
         },
         {
           "key": "updates.web",
-          "note": "Web UI updates between app updates (plans/cmux-next/web-ota.md): NIGHTLY builds follow the signed channel; Release and RC builds ship their own web UI.",
+          "note": "Web UI updates between app updates (plans/cmux-next/web-ota.md): the every-merge channel is published for NIGHTLY and tip builds; Release and RC builds ship their own web UI.",
           "title": {
             "key": "settings.updates.web",
             "text": "Web UI Updates"
@@ -188,13 +188,6 @@
               }
             },
             {
-              "value": "nightly",
-              "title": {
-                "key": "settings.choice.updatesWebNightly",
-                "text": "With Nightly"
-              }
-            },
-            {
               "value": "off",
               "title": {
                 "key": "settings.choice.updatesWebOff",
@@ -209,7 +202,6 @@
             "ota",
             "hot reload",
             "bundle",
-            "nightly",
             "merge"
           ]
         },

@@ -103,22 +103,6 @@ import Testing
         #expect(store.readState().active == nil)
     }
 
-    @Test func aKeptUpdateFromAnotherChannelIsNotServedAtLaunch() async throws {
-        let root = try WebUpdateStoreTests.scratch()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let (archive, pointer) = try await WebUpdateStoreTests.makeArchive(in: root)
-        let server = Server()
-        server.archive = archive
-        server.pointer = try Self.pointerData(pointer)
-        let store = WebUpdateStore(base: root.appending(path: "store", directoryHint: .isDirectory))
-        await Self.updater(server, store: store).check()
-        // Relaunched following the nightly channel: the every-merge update is not served.
-        let again = Self.updater(server, store: store)
-        again.follow(.nightly)
-        #expect(await again.launchTree() == nil)
-        #expect(store.readState().active == nil)
-    }
-
     @Test func aFailedDownloadIsTriedAgain() async throws {
         let root = try WebUpdateStoreTests.scratch()
         defer { try? FileManager.default.removeItem(at: root) }

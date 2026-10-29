@@ -13,6 +13,10 @@ fields only: the Xcode verify phase runs with a PATH that may lack bun.
 `--inputs` prints the pathspecs the source key hashes, one per line.
 
 Usage: web-bundle-key.py ROOT [--stamp | --verify-stamp | --source | --outputs | --inputs]
+
+The source key includes the pinned Bun and Node toolchain identity. Set CMUX_WEB_BUN_VERSION or
+CMUX_WEB_NODE_VERSION when a workflow computes the key so a toolchain change cannot reuse a
+published manifest for the same sources.
 """
 import hashlib
 import os
@@ -171,8 +175,16 @@ def file_digest(path):
     return h.hexdigest()
 
 
+def toolchain_identity():
+    # Keep these defaults in one place: workflows export the same values before computing keys.
+    bun = os.environ.get("CMUX_WEB_BUN_VERSION", "1.4.4")
+    node = os.environ.get("CMUX_WEB_NODE_VERSION", "24.22.1")
+    return f"bun={bun}\nnode={node}\n"
+
+
 def source_key(root):
     h = hashlib.sha256()
+    h.update(b"web-bundle-toolchain\0" + toolchain_identity().encode())
     for rel in git_files(root, source_inputs(root)):
         path = os.path.join(root, rel)
         # A tracked file deleted in the worktree is listed but absent.

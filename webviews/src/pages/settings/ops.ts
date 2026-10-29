@@ -296,7 +296,7 @@ export type WebUpdateVersion = { commit: string; committed_at: number };
  * swaps in, `refusal` why the newest update was not taken.
  */
 export type WebUpdatesState = {
-  channel: "every-merge" | "nightly" | "off";
+  channel: "every-merge" | "off";
   phase: "idle" | "checking" | "downloading" | "failed";
   served: WebUpdateVersion | null;
   active: WebUpdateVersion | null;

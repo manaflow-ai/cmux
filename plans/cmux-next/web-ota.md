@@ -104,8 +104,9 @@ Web updates start when the app first reads `updates.*`. From then until the chec
 
 ## Setting and controls
 
-`updates.web` in cmux.json (Settings > Updates, "Web UI Updates"): `every-merge` (default),
-`nightly` or `off`. Off returns to the bundled web at the next safe point, and at launch it serves
+`updates.web` in cmux.json (Settings > Updates, "Web UI Updates"): `every-merge` (default) or
+`off`. The nightly channel is not offered until the promoted NEXT nightly has a signed publisher and
+read-back check; no setting value selects an unwritten pointer. Off returns to the bundled web at the next safe point, and at launch it serves
 the bundled web before any page loads. Switching to the other channel returns to the bundled web
 until that channel has an update newer than the last one taken. Only NIGHTLY bundles
 (`com.cmuxterm.app.nightly[.<tag>]`) and the tip app (cmux NEXT DEV with the tip feed stamped in,
@@ -126,9 +127,9 @@ follow-up).
 
 ## Not yet
 
-- **Nightly channel**: `ota/nightly.json` is read but nothing writes it. The nightly train would
-  sign it for the promoted commit's key with the same script. The release-rings lane owns
-  `updates.channel`; the `updates.web` default will follow it (dev to every merge, stable to off).
+- **Nightly channel**: deliberately not offered until the promoted NEXT nightly has a publisher
+  that signs and reads back `ota/nightly.json`. The supported channel matrix is therefore only
+  `every-merge` (plus `off` in the app setting).
 - **Signing key custody**: the private key exists only in the `CMUX_WEB_OTA_SIGNING_KEY` secret
   (no backup; losing it costs one nightly without web updates, never trust). Rotate, as above, to a
   key generated where the Sparkle and notary keys are kept, once that place is named.

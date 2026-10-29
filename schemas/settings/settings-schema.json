@@ -4300,7 +4300,6 @@
     {
       "accepts" : [
         "every-merge",
-        "nightly",
         "off"
       ],
       "agent_refusal" : "network",
@@ -4312,13 +4311,6 @@
             "text" : "Every Merge"
           },
           "value" : "every-merge"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.updatesWebNightly",
-            "text" : "With Nightly"
-          },
-          "value" : "nightly"
         },
         {
           "title" : {
@@ -4349,7 +4341,6 @@
         "ota",
         "hot reload",
         "bundle",
-        "nightly",
         "merge"
       ],
       "kind" : "choice",
