@@ -1,7 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`. `_acpmux/queue_edit`: change a queued prompt before its
 //! turn (`update` its prompt, or its text, which keeps its images; `move` it, `send_now` or
 //! `interrupt`), or `resume` the prompts a failed turn holds (`queue.rs` `pause_queue`; any of
-//! the queue's prompts names it), or `withdraw` a steer the agent has not read yet. Every change is a record in the log, so a new daemon rebuilds
+//! the queue's prompts names it, or none), or `withdraw` a steer the agent has not read yet. Every change is a record in the log, so a new daemon rebuilds
 //! the edited queue (`queue.rs` `restore_queues`), and every client sees it.
 //!
 //! In a chat several people share (`author.rs`), only the person who sent a prompt changes it or
@@ -167,8 +167,8 @@ fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Val
 }
 
 impl Hub {
-    /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, images?, index?}`. Answers
-    /// `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
+    /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, images?, index?}`, where
+    /// `resume` needs no `promptId`. Answers `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
     /// (`sent`: `steer`, `interrupt` or `next`). `ok` is false when the prompt no longer waits.
     pub async fn queue_edit(
         self: &Arc<Self>,
@@ -178,12 +178,15 @@ impl Hub {
         trust_gate: bool,
         device: Option<&str>,
     ) -> Result<Value, RpcError> {
-        let prompt_id = params
-            .get("promptId")
-            .and_then(Value::as_str)
-            .filter(|p| !p.is_empty())
-            .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
         let op = params.get("op").and_then(Value::as_str).unwrap_or_default();
+        // `resume` lets go of the whole queue: it needs no prompt to name it, so the session's own
+        // agent or its coordinator resumes it over the unix socket with only the session.
+        let prompt_id =
+            match params.get("promptId").and_then(Value::as_str).filter(|p| !p.is_empty()) {
+                Some(prompt_id) => prompt_id,
+                None if op == "resume" => "",
+                None => return Err(RpcError::invalid_params("promptId is required")),
+            };
         // A chat in Full access by a machine's setting: that machine only (`full_access_hold`).
         self.full_access_hold(&session.meta(), control, device)?;
         // The queue moves as it is (`transfer_out.rs`).
@@ -194,7 +197,10 @@ impl Hub {
         // `resume` changes no one prompt.
         let author = crate::author::author(params)?;
         let editor = crate::author::editor(author.as_ref());
-        let mut reply = json!({"sessionId": session.id, "promptId": prompt_id, "op": op});
+        let mut reply = json!({"sessionId": session.id, "op": op});
+        if !prompt_id.is_empty() {
+            reply["promptId"] = json!(prompt_id);
+        }
         reply["ok"] = match op {
             "update" => {
                 let edit = Edit::parse(params)?;

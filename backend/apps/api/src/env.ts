@@ -178,6 +178,9 @@ export interface Env {
   readonly STRIPE_CREDITS_WEBHOOK_SECRET?: string
   /** Credits price = provider cost x this margin (default 1, pass-through; 1..10). */
   readonly CHIEF_CREDITS_MARGIN?: string
+  /** Paid model calls one chief may start per minute / per hour (credits.ts chiefCallCap; defaults 120 / 2400; never off). */
+  readonly CHIEF_MODEL_CALLS_PER_MINUTE?: string
+  readonly CHIEF_MODEL_CALLS_PER_HOUR?: string
   /** The least one model call holds, USD (default 0.01): a zero-priced model still needs a positive balance. */
   readonly CHIEF_CREDITS_MIN_RESERVE_USD?: string
   /** "0" turns the credits gate off on development and staging (default on); production ignores it and always enforces. */

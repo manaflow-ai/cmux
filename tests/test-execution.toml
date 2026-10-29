@@ -1811,6 +1811,10 @@ path = "tests/test_release_signer_nightly.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_signer_parity_compare.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_dev_app_linux.py"
 lane = "linux-guard"
 
@@ -2180,7 +2184,19 @@ path = "tests/test_zig_fetch_all.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_runs_on_fallback.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workflow_file_size.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_swift_linux_packages.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_critical_path.py"
 lane = "linux-guard"
 
 [[test]]
