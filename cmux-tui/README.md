@@ -122,3 +122,5 @@ cargo build -p cmux-tui
 python3 scripts/smoke-tui.py
 python3 scripts/smoke-attach.py
 ```
+
+<!-- probe: times the cmux-tui publish chain for lane/nx-publish-runners (never merged) -->
