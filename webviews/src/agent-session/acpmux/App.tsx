@@ -6370,6 +6370,7 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    subsessions: chatSubsessions.rows,
     // acpmux takes the limit only from this Mac's app (a person-proven connection), never a Web one.
     onSetRunningLimit: snapshot.origin === "local" ? setRunningLimit : undefined,
     workflows: inspectorWorkflows,
@@ -9977,6 +9978,7 @@ function AcpmuxPane() {
             tools={chatTools}
             workflows={workflows}
             workflowActionsFor={workflowActionsFor}
+            onOpenWorkflow={revealInspector ? () => revealInspector("tasks") : undefined}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
