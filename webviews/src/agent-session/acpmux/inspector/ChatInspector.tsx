@@ -97,6 +97,8 @@ import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
 import { useUnderInspector } from "./underInspector";
+import { useNativeSessionInfoHost } from "./native/host";
+import { NativeSessionInfo } from "./native/NativeSessionInfo";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -178,6 +180,15 @@ const SIDE_PANEL = ":scope > .acpmux-artifact";
 /// The Inspector starts right below the header: the pane's tab row when the header is in it.
 export function inspectorTopOffset(tabRowHeight: number): string {
   return tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 28px)";
+}
+
+/// Where the App's panel starts below the page's top, CSS pixels: under the pane's tab row when the
+/// header is in it, else under the chat header (`--acpmux-header-height`) at the shell's top.
+function nativeTop(shell: HTMLElement | null | undefined, tabRowHeight: number): number {
+  const shellTop = Math.max(0, shell?.getBoundingClientRect().top ?? 0);
+  if (tabRowHeight > 0) return shellTop + tabRowHeight;
+  const header = shell ? Number.parseFloat(getComputedStyle(shell).getPropertyValue("--acpmux-header-height")) : NaN;
+  return shellTop + (Number.isFinite(header) ? header : 28);
 }
 
 /// The composer's stack height (`.acpmux-dock` in `shell`) while `on`: from the top of its highest
@@ -601,12 +612,17 @@ function InspectorPresence({
   scope?: SubagentScope;
 }) {
   const { width, sections } = useInspectorState(chat);
+  const t = useT();
+  const [gallery, setGallery] = useState(false);
   const display = useChatDisplay();
   const column = chatColumnOf(useChatWidth(), display);
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
-  const presence = usePresence(shown, "right");
-  const drawn = presence.present;
+  // The App draws it (native/model.ts): the page sends what it lists and draws no panel, so it shows
+  // and goes with the toggle, with no presence of the page's own.
+  const native = useNativeSessionInfoHost();
+  const presence = usePresence(shown && !native, "right");
+  const drawn = native ? shown : presence.present;
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side, suppressShiftTransition } = usePaneRoom(shell, drawn, beside);
@@ -719,6 +735,66 @@ function InspectorPresence({
     const opened = Math.max(openedOutputAt.current, openedFolderAt.current);
     if (was && !roomy && Date.now() - opened < SPLIT_SETTLE_MS) onSuppress();
   }, [roomy, openedOutputAt, onSuppress]);
+  if (native)
+    return (
+      <>
+        <NativeSessionInfo
+          shown={drawn}
+          width={width}
+          top={nativeTop(shell, tabRowHeight)}
+          side={side}
+          foot={overChat ? dockHeight : undefined}
+          label={t("chatInspector.title")}
+          title={scope ? scope.agent.name : undefined}
+          summary={summary}
+          machineName={machineName}
+          peerKinds={snapshot.peerKinds}
+          repository={repository}
+          made={made}
+          links={links}
+          artifacts={artifacts}
+          documents={documents}
+          rows={rows}
+          agents={agents}
+          waiting={waiting}
+          statuses={statuses}
+          processes={processes ?? []}
+          listed={registry?.listed ?? false}
+          transcriptTasks={transcriptTasks ?? []}
+          sessions={scope ? [] : (sessions?.list ?? [])}
+          workflows={scope ? [] : (workflows?.list ?? [])}
+          agent={scope?.agent}
+          onOpenSubagent={subagents?.onOpen}
+          onOpenSession={sessions?.onOpen}
+          onSetRunningLimit={onSetRunningLimit}
+          onStopWorkflow={workflows?.onStop}
+          onOpenWorkflowAgent={workflows?.onOpenAgent}
+          onStopProcess={onStopProcess}
+          onOpenOutput={onOpenOutput}
+          onOpenSourceFile={onOpenSourceFile}
+          onOpenUrl={onOpenUrl}
+          onOpenDocument={onOpenDocument}
+          onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
+          onSaveEnvironment={scope ? undefined : onSaveEnvironment}
+          onReconnectMcp={onReconnectMcp}
+          onOpenFolder={openFolder}
+          onShowCall={onShowCall}
+        />
+        {gallery && (
+          <GalleryDialog
+            rows={rows}
+            onClose={() => setGallery(false)}
+            onOpenImage={
+              onOpenImage &&
+              ((src, alt) => {
+                setGallery(false);
+                onOpenImage(src, alt);
+              })
+            }
+          />
+        )}
+      </>
+    );
   if (!drawn) return null;
   return (
     <InspectorPanel

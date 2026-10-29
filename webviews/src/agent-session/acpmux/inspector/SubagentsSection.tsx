@@ -57,7 +57,7 @@ export function subagentCounts(
 
 /// "94 done · 1 failed": the ended row's words, the done ones first as Leo asked for them (its
 /// list below leads with the failed ones).
-function endedCounts(t: Translate, lines: readonly Line[]): string {
+export function endedCounts(t: Translate, lines: readonly Pick<Line, "status">[]): string {
   const count = (status: SubagentStatus) => lines.filter((line) => line.status === status).length;
   return [
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
@@ -69,6 +69,7 @@ function endedCounts(t: Translate, lines: readonly Line[]): string {
 }
 
 /// One line of the list: a subagent or a started chat, as AgentLine draws it.
+export type SubagentLine = Line;
 type Line = {
   key: string;
   identity: string;
@@ -92,6 +93,70 @@ type Line = {
 const live = (status: SubagentStatus) => status === "running" || status === "waiting";
 /// The ended list's order: a failed one first, then a stopped one, then the done ones.
 const ENDED_RANK: Record<SubagentStatus, number> = { failed: 0, stopped: 1, done: 2, running: 3, waiting: 3 };
+
+/// The list's lines: the running ones (waiting chats, then the running subagents nested under their
+/// parents, then the running chats) and the ended ones (failed first, then stopped, then done, each
+/// newest first). The Inspector's own list and the App's (inspector/native/subagents.ts) read it.
+export function subagentLines(
+  t: Translate,
+  agents: readonly Subagent[],
+  waiting: ReadonlySet<string>,
+  sessions: readonly StartedSession[],
+  now: number,
+  onOpen?: (id: string) => void,
+  onOpenSession?: (sessionId: string) => void,
+): { running: Line[]; ended: Line[] } {
+  const agentLine = (agent: Subagent, depth: number): Line => {
+    const status = subagentStatus(agent, waiting);
+    return {
+      key: `agent:${agent.id}`,
+      identity: agent.id,
+      agent,
+      name: agent.name,
+      detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
+      status,
+      state: subagentStateText(t, agent, waiting),
+      working: Boolean(retrying(agent)),
+      time: formatDuration(elapsed(agent, now)),
+      task: agent.task,
+      icon: "agent.session",
+      depth,
+      at: agent.endedAt ?? agent.startedAt,
+      open: onOpen && (() => onOpen(agent.id)),
+    };
+  };
+  const sessionLine = (child: StartedSession): Line => ({
+    key: `session:${child.sessionId}`,
+    identity: child.sessionId,
+    name: child.title,
+    status: sessionStatus(child),
+    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
+    icon: "agent.chat",
+    depth: 0,
+    at: child.createdAt ?? 0,
+    open: onOpenSession && (() => onOpenSession(child.sessionId)),
+  });
+  // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
+  // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
+  // parent), then the running chats.
+  const waitsFirst = (a: Subagent, b: Subagent) =>
+    Number(subagentStatus(b, waiting) === "waiting") - Number(subagentStatus(a, waiting) === "waiting") ||
+    a.startedAt - b.startedAt;
+  const runningAgents = nestAgents(agents.filter((agent) => live(subagentStatus(agent, waiting))).sort(waitsFirst)).map(
+    ({ agent, depth }) => agentLine(agent, depth),
+  );
+  const children = orderedSessions(sessions);
+  const runningLines: Line[] = [
+    ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
+    ...runningAgents,
+    ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
+  ];
+  const endedLines: Line[] = [
+    ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
+    ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
+  ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
+  return { running: runningLines, ended: endedLines };
+}
 
 // Streaming rows/views recreate the folded agents. Compare only the bounded preview's visual
 // inputs so those snapshots do not render its Avatars or hash their tones again. Avatar's harness
@@ -150,55 +215,15 @@ export function SubagentsSection({
   const now = useNow(agents.some(running));
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
-  const agentLine = (agent: Subagent, depth: number): Line => {
-    const status = subagentStatus(agent, waiting);
-    return {
-      key: `agent:${agent.id}`,
-      identity: agent.id,
-      agent,
-      name: agent.name,
-      detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
-      status,
-      state: subagentStateText(t, agent, waiting),
-      working: Boolean(retrying(agent)),
-      time: formatDuration(elapsed(agent, now)),
-      task: agent.task,
-      icon: "agent.session",
-      depth,
-      at: agent.endedAt ?? agent.startedAt,
-      open: onOpen && (() => onOpen(agent.id)),
-    };
-  };
-  const sessionLine = (child: StartedSession): Line => ({
-    key: `session:${child.sessionId}`,
-    identity: child.sessionId,
-    name: child.title,
-    status: sessionStatus(child),
-    ...(({ text, working }) => ({ state: text, working }))(sessionStateText(t, child)),
-    icon: "agent.chat",
-    depth: 0,
-    at: child.createdAt ?? 0,
-    open: onOpenSession && (() => onOpenSession(child.sessionId)),
-  });
-  // The chats waiting on the person lead, then the running subagents in the tray's order (oldest
-  // first, a nested one under its parent; among siblings a waiting one first, so it never leaves its
-  // parent), then the running chats.
-  const waitsFirst = (a: Subagent, b: Subagent) =>
-    Number(subagentStatus(b, waiting) === "waiting") - Number(subagentStatus(a, waiting) === "waiting") ||
-    a.startedAt - b.startedAt;
-  const runningAgents = nestAgents(agents.filter((agent) => live(subagentStatus(agent, waiting))).sort(waitsFirst)).map(
-    ({ agent, depth }) => agentLine(agent, depth),
+  const { running: runningLines, ended: endedLines } = subagentLines(
+    t,
+    agents,
+    waiting,
+    sessions,
+    now,
+    onOpen,
+    onOpenSession,
   );
-  const children = orderedSessions(sessions);
-  const runningLines = [
-    ...children.filter((child) => sessionStatus(child) === "waiting").map(sessionLine),
-    ...runningAgents,
-    ...children.filter((child) => sessionStatus(child) === "running").map(sessionLine),
-  ];
-  const endedLines = [
-    ...agents.filter((agent) => !live(subagentStatus(agent, waiting))).map((agent) => agentLine(agent, 0)),
-    ...children.filter((child) => !live(sessionStatus(child))).map(sessionLine),
-  ].sort((a, b) => ENDED_RANK[a.status] - ENDED_RANK[b.status] || b.at - a.at);
   const shown = more ? runningLines : runningLines.slice(0, SUBAGENTS_SHOWN);
   // Each running line's place in the wave, top to bottom; the ended lines take none.
   const wave = waveIndices(shown, (item) => live(item.status));

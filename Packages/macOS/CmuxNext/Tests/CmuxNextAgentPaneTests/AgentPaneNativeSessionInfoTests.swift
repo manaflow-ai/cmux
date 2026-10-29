@@ -82,12 +82,11 @@ struct AgentPaneNativeSessionInfoTests {
         let full = AgentPaneView.sessionInfoFrame(page: page, info: try Self.model(Self.info(top: 28)), width: 320, zoom: 1, flipped: true)
         #expect(full == CGRect(x: 1000 - 8 - 320, y: 28, width: 320, height: 800 - 28 - 8))
         let zoomed = AgentPaneView.sessionInfoFrame(page: page, info: try Self.model(Self.info(top: 28)), width: 320, zoom: 1.25, flipped: true)
-        #expect(zoomed.height == 800 - 35 - 10)
-        #expect(zoomed.maxX == 1000 - 10)
+        #expect(zoomed == CGRect(x: 1000 - 10 - 400, y: 35, width: 400, height: 800 - 35 - 10))
         let beside = AgentPaneView.sessionInfoFrame(page: page, info: try Self.model(Self.info(side: 300)), width: 320, zoom: 1, flipped: true)
-        #expect(beside.maxX == 1000 - 300 - 8)
+        #expect(beside == CGRect(x: 1000 - 300 - 8 - 320, y: 28, width: 320, height: 800 - 28 - 8))
         let overChat = AgentPaneView.sessionInfoFrame(page: page, info: try Self.model(Self.info(top: 28, foot: 120)), width: 320, zoom: 1, flipped: true)
-        #expect(overChat.maxY == 800 - 120)
+        #expect(overChat == CGRect(x: 1000 - 8 - 320, y: 28, width: 320, height: 800 - 28 - 120))
     }
 
     /// A click in the panel goes to the page as `sessionInfoAction`, the row's own id.
