@@ -38,9 +38,7 @@ await requireBrowserLane("environment-save-recovery.test.ts", async () => {
         await page.goto(
           `http://127.0.0.1:${port}${galleryFrame("agent-pane.environment-save", { variant: "refused", theme })}`,
         );
-        const save = page.locator(
-          '[data-section="environment"] button.acpmux-chat-inspector-link',
-        );
+        const save = page.locator('[data-section="environment"] button.acpmux-chat-inspector-link');
         await save.click();
         await page.waitForFunction(() => {
           const button = document.querySelector<HTMLButtonElement>(
@@ -58,8 +56,8 @@ await requireBrowserLane("environment-save-recovery.test.ts", async () => {
         await save.click();
         await page.waitForFunction(
           () =>
-            document.querySelector('[data-section="environment"] button.acpmux-chat-inspector-link')
-              ?.textContent === "Saved",
+            document.querySelector('[data-section="environment"] button.acpmux-chat-inspector-link')?.textContent ===
+            "Saved",
         );
         expect(await save.isDisabled()).toBe(true);
         expect(await page.locator('[role="alert"]').count()).toBe(0);

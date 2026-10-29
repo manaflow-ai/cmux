@@ -16,8 +16,7 @@ function EnvironmentSave({ failFirst }: Props) {
           machineName="Studio"
           onSave={() => {
             attempts.current++;
-            if (failFirst && attempts.current === 1)
-              return Promise.reject(new Error("Fixture host refused save"));
+            if (failFirst && attempts.current === 1) return Promise.reject(new Error("Fixture host refused save"));
             return Promise.resolve();
           }}
         />

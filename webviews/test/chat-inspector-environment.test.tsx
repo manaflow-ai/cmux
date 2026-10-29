@@ -11,10 +11,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
 import { chatProject, internalFolder } from "../src/agent-session/acpmux/inspector/chatFolders";
-import {
-  EnvironmentSection,
-  environmentToSave,
-} from "../src/agent-session/acpmux/inspector/EnvironmentSection";
+import { EnvironmentSection, environmentToSave } from "../src/agent-session/acpmux/inspector/EnvironmentSection";
 import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
