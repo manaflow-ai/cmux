@@ -40,7 +40,6 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
-import { canonicalHarnesses } from "./canonicalHarnesses";
 import { quantizePickerRail } from "./pickerRailGeometry";
 
 type HarnessChoice = {
@@ -298,7 +297,8 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
 /// The rail's Starred tab (never a harness id).
 const STARRED = "\u0000starred";
 
-/// Build launch entries before folding Claude/Codex variants into their canonical harness tab.
+/// Every harness and every global launch configuration is its own rail tab with its own models
+/// (Claude Code, Claude Code (acp), claude-sr2, Codex, ...), never folded into another tab.
 /// Their model catalogs refresh after selection; do not borrow another account's models.
 function railByHarness(
   list: QuickFamily[],
@@ -906,10 +906,7 @@ export function ModelPicker(props: ModelPickerProps) {
           : {}),
       });
     }
-    const rail = canonicalHarnesses(
-      railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined),
-      current?.id,
-    );
+    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
     if (!harnessFixed) return rail;
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
     // Starred keeps the chat's own models, and another launch profile of any harness forks there.

@@ -312,7 +312,7 @@ const startedFork: ModelPickerProps = {
   fork: { to: () => undefined, ready: true },
 };
 
-const canonicalVariants: ModelPickerProps = {
+const launchProfiles: ModelPickerProps = {
   ...startedFork,
   catalog: [
     ...startedFork.catalog,
@@ -614,12 +614,12 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fork") !== null);
       },
     },
-    "canonical-harnesses-chat": {
-      props: canonicalVariants,
+    "launch-profiles-chat": {
+      props: launchProfiles,
       play: openQuick,
     },
-    "canonical-harnesses-new-chat": {
-      props: { ...canonicalVariants, harnessFixed: false, fork: undefined, onHarness: () => undefined },
+    "launch-profiles-new-chat": {
+      props: { ...launchProfiles, harnessFixed: false, fork: undefined, onHarness: () => undefined },
       play: openQuick,
     },
     // Its Provider row contains signed-in routes, separate from named launch harnesses.

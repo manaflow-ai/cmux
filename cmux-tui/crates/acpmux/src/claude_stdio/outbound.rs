@@ -143,6 +143,7 @@ impl Translator {
                         let val = p.get("value").and_then(Value::as_str).unwrap_or("").to_owned();
                         match cid {
                             "model" => {
+                                let val = super::model_id(&val);
                                 self.pending.lock().await.insert(
                                     id.to_string(),
                                     Pending::Control(Setting::Model, val.clone()),
@@ -237,8 +238,8 @@ impl Translator {
                         let val = p
                             .get("modelId")
                             .and_then(Value::as_str)
-                            .unwrap_or("default")
-                            .to_owned();
+                            .unwrap_or("default");
+                        let val = super::model_id(val);
                         self.pending
                             .lock()
                             .await
