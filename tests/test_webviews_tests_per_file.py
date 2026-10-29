@@ -11,6 +11,7 @@ the real one, so no web test runs here.
 import os
 import json
 import hashlib
+import importlib.util
 import pathlib
 import shutil
 import subprocess
@@ -596,19 +597,40 @@ class ShardHelper(unittest.TestCase):
         self.assertEqual(json.loads((temp / "out.json").read_text()), {"test/a.test.ts": 12, "test/b.test.ts": 3})
 
     def test_the_split_weighs_dev_server_and_alone_files_by_how_few_run_at_once(self):
-        """Eight dev-server files of 8 s share one 8-wide pool: 8 s of shard wall time, as much as
-        one 8 s alone file, not 64 s."""
+        """Seventeen dev-server files of 8 s on one config: one warms alone (8 s), sixteen share the
+        8-wide pool (16 s), 24 s in all; an alone file of 24 s is as much. A seconds-sum split would
+        put 8 dev files beside it (64 + 24 against 72 s)."""
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
-        files = [f"test/dev{index}.test.ts" for index in range(8)] + ["test/alone.test.ts"]
+        files = [f"test/dev{index:02}.test.ts" for index in range(17)] + ["test/alone.test.ts"]
         (temp / "test").mkdir()
         for name in files:
-            (temp / name).write_text("// cmux-web-test-alone\n" if "alone" in name else "dev\n")
+            (temp / name).write_text("// cmux-web-test-alone\n" if "alone" in name else "// vite.config.acpmux-pane.mjs\n")
         (temp / "files").write_bytes(b"".join(name.encode() + b"\0" for name in files))
         (temp / "serial").write_bytes((temp / "files").read_bytes())
-        (temp / "d.json").write_text(json.dumps({name: 8 for name in files}))
+        (temp / "d.json").write_text(json.dumps({**{name: 8 for name in files}, "test/alone.test.ts": 24}))
         split = [subprocess.run([sys.executable, str(SHARDS), "assign", "files", "serial", "d.json", str(n), "2"],
                                 cwd=temp, capture_output=True, check=True).stdout.split(b"\0")[:-1] for n in (1, 2)]
-        self.assertEqual(sorted(len(shard) for shard in split), [1, 8], split)
+        self.assertEqual(sorted(len(shard) for shard in split), [1, 17], split)
+
+    def test_the_plan_counts_each_configs_warming_file_alone(self):
+        """One config with files of 100 s and 20 s: the 20 s file warms alone, then the 100 s one runs
+        on the warm cache. 120 s, not the 100 s of an 8-lane pool."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        spec = importlib.util.spec_from_file_location("webviews_test_shards", SHARDS)
+        shards = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(shards)
+        for name in ("pane-a", "pane-b"):
+            (temp / name).write_text("// vite.config.acpmux-pane.mjs\n")
+        (temp / "gallery-c").write_text("// vite.config.gallery-dev.ts\n")
+        plan = shards.ShardPlan()
+        configs = {name: shards.vite_config(str(temp / name)) for name in ("pane-a", "pane-b", "gallery-c")}
+        self.assertEqual(configs, {"pane-a": "pane", "pane-b": "pane", "gallery-c": "gallery"})
+        plan.add("dev", 100_000, "pane")
+        self.assertEqual(plan.wall(), 100_000)
+        self.assertEqual(plan.wall("dev", 20_000, "pane"), 120_000)
+        plan.add("dev", 20_000, "pane")
+        self.assertEqual(plan.wall("dev", 5_000, "gallery"), 125_000)  # a second config warms alone too
+        self.assertEqual(plan.wall("plain", 30_000), 150_000)
 
 
 class Workflow(unittest.TestCase):
@@ -617,12 +639,13 @@ class Workflow(unittest.TestCase):
         scope = text[text.index("  web-subarea-scope:"):text.index("  web-typecheck:")]
         self.assertIn("restore-keys: webviews-test-durations-", scope)
         self.assertIn("name: webviews-test-durations\n", scope)
+        self.assertIn("overwrite: true", scope[scope.index("name: webviews-test-durations\n"):][:200])
         shard = text[text.index("  react-apps-check-shard:"):text.index("  react-apps-base-check:")]
         download = shard[shard.index("      - name: Download the duration manifest"):]
         download = download[:download.index("\n      - name:", 10)]
         self.assertIn("name: webviews-test-durations\n", download)
         self.assertNotIn("continue-on-error", download)  # a shard never splits without it
-        self.assertNotIn("actions/cache", shard.replace("Cache Bun", "").split("Test webviews")[0].split("Download the duration manifest")[1])
+        self.assertNotIn("webviews-test-durations-", shard.split("Download the duration manifest")[1].split("Test webviews")[0])  # no cache restore
         self.assertIn("CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json", shard)
         self.assertIn("webviews_test_shards.py", shard[shard.index("cp ../scripts/ci/run-webviews-tests.sh"):][:200])
         check = text[text.index("  react-apps-check:"):text.index("  webviews-test-durations:")]

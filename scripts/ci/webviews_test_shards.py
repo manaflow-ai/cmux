@@ -69,35 +69,60 @@ def stable_shard(name: str, count: int) -> int:
     return int.from_bytes(hashlib.sha256(name.encode()).digest()[:8], "big") % count
 
 
+def vite_config(name: str) -> str:
+    """The Vite config whose cache a dev-server file warms, as run-webviews-tests.sh's vite_config reads it."""
+    try:
+        text = Path(name).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "default"
+    for config, marker in (("pane", "vite.config.acpmux-pane.mjs"), ("gallery", "vite.config.gallery-dev.ts"),
+                           ("settings", "vite.config.settings-page.mjs")):
+        if marker in text:
+            return config
+    return "default"
+
+
 class ShardPlan:
-    """One shard's estimated wall time in integer milliseconds: its plain files on PLAIN_AT_ONCE lanes,
-    then its dev-server files on DEV_AT_ONCE lanes, then its alone files one after another, which is
-    how run-webviews-tests.sh runs them. A lane model, not seconds divided by width: a 549 s file in an
-    8-wide pool still takes 549 s (accent-glass-invariants), so its shard needs little else."""
+    """One shard's estimated wall time in integer milliseconds, phase by phase as run-webviews-tests.sh
+    runs them: its plain files on PLAIN_AT_ONCE lanes; one warming file per Vite config, alone, one
+    after another (the config's shortest: files come longest first, so each new file of a config
+    takes over warming and the one it replaces joins the pool); the other dev-server files on
+    DEV_AT_ONCE lanes; then the alone files in series. Lanes, not seconds divided by width: a 549 s
+    file in an 8-wide pool still takes 549 s (accent-glass-invariants)."""
 
     def __init__(self) -> None:
         self.plain = [0] * PLAIN_AT_ONCE
+        self.warm: dict[str, int] = {}
         self.dev = [0] * DEV_AT_ONCE
         self.alone = 0
         self.total = 0
 
-    def wall(self, kind: str = "", cost: int = 0) -> int:
-        plain, dev, alone = max(self.plain), max(self.dev), self.alone
+    @staticmethod
+    def _onto(lanes: list[int], cost: int) -> list[int]:
+        lanes = list(lanes)
+        lanes[lanes.index(min(lanes))] += cost
+        return lanes
+
+    def _after(self, kind: str, cost: int, config: str):
+        plain, warm, dev, alone = self.plain, self.warm, self.dev, self.alone
         if kind == "plain":
-            plain = max(plain, min(self.plain) + cost)
+            plain = self._onto(plain, cost)
         elif kind == "dev":
-            dev = max(dev, min(self.dev) + cost)
+            warm = dict(warm)
+            if config in warm:
+                dev = self._onto(dev, warm[config])  # the longer warming file joins the pool
+            warm[config] = cost
         elif kind == "alone":
             alone += cost
-        return plain + dev + alone
+        return plain, warm, dev, alone
 
-    def add(self, kind: str, cost: int) -> None:
+    def wall(self, kind: str = "", cost: int = 0, config: str = "") -> int:
+        plain, warm, dev, alone = self._after(kind, cost, config)
+        return max(plain) + sum(warm.values()) + max(dev) + alone
+
+    def add(self, kind: str, cost: int, config: str = "") -> None:
+        self.plain, self.warm, self.dev, self.alone = self._after(kind, cost, config)
         self.total += cost
-        if kind == "alone":
-            self.alone += cost
-            return
-        lanes = self.plain if kind == "plain" else self.dev
-        lanes[lanes.index(min(lanes))] += cost
 
 
 def assign(files: list[str], serial: set[str], durations: dict[str, float], count: int) -> list[int]:
@@ -112,10 +137,11 @@ def assign(files: list[str], serial: set[str], durations: dict[str, float], coun
             shards[index] = stable_shard(name, count)
             continue
         kind = ("alone" if runs_alone(name) else "dev") if name in serial else "plain"
-        known.append((round(durations[name] * 1000), name, kind, index))
-    for cost, _, kind, index in sorted(known, key=lambda item: (-item[0], item[1])):
-        target = min(range(count), key=lambda shard: (plans[shard].wall(kind, cost), plans[shard].total, shard))
-        plans[target].add(kind, cost)
+        config = vite_config(name) if kind == "dev" else ""
+        known.append((round(durations[name] * 1000), name, kind, config, index))
+    for cost, _, kind, config, index in sorted(known, key=lambda item: (-item[0], item[1])):
+        target = min(range(count), key=lambda shard: (plans[shard].wall(kind, cost, config), plans[shard].total, shard))
+        plans[target].add(kind, cost, config)
         shards[index] = target
     return shards
 

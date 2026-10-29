@@ -81,6 +81,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: webviews-test-durations
+          # A re-run of the whole run uploads it again; the run's attempts share artifact names.
+          overwrite: true
           path: ${{ runner.temp }}/webviews-durations/manifest.json
           if-no-files-found: error
           # A same-run handoff: the cache keeps the manifest between runs.
