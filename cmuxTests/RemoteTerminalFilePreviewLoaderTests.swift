@@ -115,6 +115,18 @@ import Testing
         #expect(await queries.count == 0)
     }
 
+    @Test func liveDirectoryResolvesRelativeTokensWithoutAReportedDirectory() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transport = PreviewDownloadTransport(files: ["/remote/repo/notes.md": Data("live".utf8)])
+        let result = try await makeLoader(transport: transport, cache: root).load(
+            tokens: ["notes.md"], workingDirectory: nil,
+            liveWorkingDirectory: { "/remote/repo" }
+        )
+        #expect(try String(contentsOf: result, encoding: .utf8) == "live")
+        #expect(await transport.requests.paths == ["/remote/repo/notes.md"])
+    }
+
     @Test func unavailableLiveDirectoryFallsBackToTheReportedDirectory() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
