@@ -141,14 +141,16 @@ fn meta_replay_showing_a_read_chat_once_caught_up_logs_nothing() {
     );
 }
 
-/// A memory store whose first `tail_after` (the catch-up's read of the log) says when it started
-/// and then stays in the read for a second, the window a slow disk read gives.
-struct HeldTail {
+/// A memory store whose `tail_after` (the catch-up's read of the log) records, from inside the
+/// read, whether the session already counts as caught up: what the read-chat fast path in
+/// `seen.rs` reads without the append lock at that moment.
+struct ProbedTail {
     inner: crate::store::MemoryStore,
-    entered: std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    session: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<Session>>>>,
+    caught_up_during_read: std::sync::Arc<std::sync::Mutex<Option<bool>>>,
 }
 
-impl crate::store::Store for HeldTail {
+impl crate::store::Store for ProbedTail {
     fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
         self.inner.list()
     }
@@ -171,11 +173,9 @@ impl crate::store::Store for HeldTail {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord),
     ) -> anyhow::Result<(u64, u64)> {
-        if let Some(entered) = self.entered.lock().unwrap().take() {
-            let _ = entered.send(());
-            // The window only: the assertion reads the end state, which must hold however long
-            // the read takes (a showing that waits for the catch-up waits the whole second).
-            std::thread::sleep(std::time::Duration::from_secs(1));
+        if let Some(session) = self.session.lock().unwrap().as_ref() {
+            let caught_up = session.caught_up.load(std::sync::atomic::Ordering::SeqCst);
+            self.caught_up_during_read.lock().unwrap().get_or_insert(caught_up);
         }
         self.inner.tail_after(id, after, kinds, visit)
     }
@@ -184,16 +184,18 @@ impl crate::store::Store for HeldTail {
     }
 }
 
-/// Third look at the fast path (focused review): while a restart's catch-up reads the log of a
-/// chat whose saved record says read and whose log says unread, a client shows the chat. The
-/// fast path must not take the half-done catch-up as done: showing the chat waits for it, then
-/// clears the replayed mark.
+/// Focused review of 982b5b26222: the read-chat fast path reads `caught_up` without the append
+/// lock, so a session must not count as caught up while its catch-up still reads the log (the
+/// replay is still to come). Checked from inside the read, with no second thread and no timing;
+/// then showing the chat clears the replayed unread mark.
 #[test]
-fn meta_replay_showing_a_chat_while_its_log_is_read_waits_and_clears_the_mark() {
-    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
-    let store = HeldTail {
+fn meta_replay_a_session_is_not_caught_up_while_its_log_is_read() {
+    let probe = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let store = ProbedTail {
         inner: crate::store::MemoryStore::default(),
-        entered: std::sync::Mutex::new(Some(entered_tx)),
+        session: probe.clone(),
+        caught_up_during_read: observed.clone(),
     };
     store.append("s", &rec(1, "status", json!({"status": "idle", "read": false}))).unwrap();
     let mut cfg = crate::config::Config::default();
@@ -202,18 +204,16 @@ fn meta_replay_showing_a_chat_while_its_log_is_read_waits_and_clears_the_mark() 
     let session = hub.make_session(meta());
     session.caught_up.store(false, std::sync::atomic::Ordering::SeqCst);
     hub.sessions.lock().unwrap().insert("s".to_owned(), session.clone());
-    // The restart's catch-up starts and is held inside its read of the log.
-    let loading = {
-        let (hub, session) = (hub.clone(), session.clone());
-        std::thread::spawn(move || hub.catch_up(&session))
-    };
-    entered_rx.recv().unwrap();
-    // A client shows the chat meanwhile.
-    let showing = {
-        let (hub, session) = (hub.clone(), session.clone());
-        std::thread::spawn(move || hub.attach_count(&session, 1, true))
-    };
-    loading.join().unwrap();
-    showing.join().unwrap();
-    assert!(!session.meta.lock().unwrap().unread, "a chat shown during the catch-up stayed unread");
+    *probe.lock().unwrap() = Some(session.clone());
+    hub.catch_up(&session);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        Some(false),
+        "the session counted as caught up while its log was still read"
+    );
+    assert!(session.meta.lock().unwrap().unread, "the replay did not bring back the mark");
+    hub.attach_count(&session, 1, true);
+    assert!(!session.meta.lock().unwrap().unread, "showing the chat left it unread");
+    // The probe holds the session; the hub holds the store: let the cycle go.
+    probe.lock().unwrap().take();
 }
