@@ -125,7 +125,7 @@ struct SidebarWorkspaceTabHierarchyTests {
             #expect(groupedTab.debugIcon == "favicon", "\(c.testDescription): favicon tab lost its favicon")
 
             // Workspace siblings and the shared trailing column retain their established alignment.
-            let workspaceXs = [loose, grouped, nested].map { Self.listX(list, $0, $0.titleFrame.minX) }
+            let workspaceXs = [loose, grouped, nested].map { (workspace: WorkspaceRowView) in Self.listX(list, workspace, workspace.titleFrame.minX) }
             #expect(abs(workspaceXs[1] - workspaceXs[0]) < 0.5,
                     "\(c.testDescription): grouped workspace left its shared workspace column")
             #expect(workspaceXs[2] > workspaceXs[1],
