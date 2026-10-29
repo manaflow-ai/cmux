@@ -10,7 +10,7 @@
   height: auto;
   overflow: visible;
   clip-path: none;
-  padding-block: 2px 6px;
+  padding-block: 0 var(--ds-space-1);
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);

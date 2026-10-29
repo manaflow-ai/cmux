@@ -705,9 +705,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-hint{margin-right:auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-question-actions button:disabled{cursor:default}
 /* A decided ask's record (QuestionCard.tsx AnsweredQuestion, Leo 2026-10-29 after Claude desktop): a compact bordered card, each question in the text colour and the chosen answers in grey under it, then who answered. An ask that ended unanswered is the same card with how it ended in the answer's place. */
-.acpmux-question-answered,.acpmux-question-cancelled{display:flex;flex-direction:column;gap:8px;align-self:flex-start;width:fit-content;min-width:min(100%,320px);max-width:100%;box-sizing:border-box;padding:10px 14px;border:var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);border-radius:12px;background:var(--acpmux-question-bg);color:var(--agent-text);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing);line-height:var(--text-body--line-height)}
-.acpmux-question-cancelled{gap:2px}
-.acpmux-question-answered-item{display:flex;flex-direction:column;gap:2px;min-width:0}
+.acpmux-question-answered,.acpmux-question-cancelled{display:flex;flex-direction:column;gap:var(--ds-space-2);align-self:flex-start;width:fit-content;min-width:min(100%,320px);max-width:100%;box-sizing:border-box;padding:var(--ds-space-2) var(--ds-space-3);border:var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);border-radius:12px;background:var(--acpmux-question-bg);color:var(--agent-text);font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing);line-height:var(--text-body--line-height)}
+.acpmux-question-cancelled{gap:calc(var(--ds-space-1) / 2)}
+.acpmux-question-answered-item{display:flex;flex-direction:column;gap:calc(var(--ds-space-1) / 2);min-width:0}
 .acpmux-question-answered-prompt{overflow-wrap:anywhere}
 .acpmux-question-answered-answer{color:var(--agent-muted);overflow-wrap:anywhere}
 .acpmux-question-answered-by{color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);line-height:16px}
