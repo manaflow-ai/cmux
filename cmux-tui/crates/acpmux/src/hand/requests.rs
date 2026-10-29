@@ -134,6 +134,9 @@ where
             }
         }
     }
+    // Approval may have suspended this request for minutes. A later answer
+    // authorizes this action, never a grant revoked while the owner was away.
+    consent()?;
     let path = paths.first().cloned().unwrap_or_default();
     match action {
         "fs.read" => fsops::read(&path, opt_u(p, "start_line"), opt_u(p, "end_line")),

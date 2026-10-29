@@ -14,6 +14,17 @@ const MAX_TOKEN_BYTES: usize = 512;
 const CREDENTIAL_FILE: &str = "machine-credential.json";
 const CONSENT_FILE: &str = "consent.json";
 const CONSENT_EVENTS_FILE: &str = "consent-refusal.json";
+static CONSENT_HOME: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// A hand later switches config::home to its private agent daemon. Consent
+/// continues to belong to the physical machine's original enrolled state.
+pub(crate) fn retain_machine_consent_home() {
+    let _ = CONSENT_HOME.set(crate::config::home());
+}
+
+fn consent_home() -> PathBuf {
+    CONSENT_HOME.get().cloned().unwrap_or_else(state_dir)
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MachineCredential {
@@ -51,7 +62,7 @@ fn credential_path() -> PathBuf {
     state_dir().join(CREDENTIAL_FILE)
 }
 fn consent_path() -> PathBuf {
-    state_dir().join(CONSENT_FILE)
+    consent_home().join(CONSENT_FILE)
 }
 
 pub fn parse_token_text(text: &str) -> Result<String> {
@@ -118,9 +129,15 @@ fn mesh_relay_configured() -> bool {
 }
 
 fn load() -> Result<Option<MachineCredential>> {
-    let path = credential_path();
-    if !path.exists() {
-        return Ok(None);
+    load_at(&state_dir())
+}
+
+fn load_at(home: &std::path::Path) -> Result<Option<MachineCredential>> {
+    let path = home.join(CREDENTIAL_FILE);
+    match std::fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+        Ok(_) => {}
     }
     let file = crate::config::private_state_file(&path)?;
     Ok(Some(serde_json::from_reader(file).context("read machine credential")?))
@@ -173,6 +190,10 @@ fn join_lock_at(dir: &std::path::Path) -> Result<std::fs::File> {
 #[cfg(not(unix))]
 pub(crate) fn join_lock() -> Result<std::fs::File> {
     anyhow::bail!("machine join requires macOS or Linux")
+}
+
+pub(crate) fn credential_present() -> Result<bool> {
+    load().map(|value| value.is_some()).map_err(|_| store_error().into())
 }
 
 pub(crate) fn already_joined(replace: bool, json_out: bool) -> Result<bool> {
@@ -456,16 +477,32 @@ pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Con
     if granted {
         consent.granted_at = Some(crate::store::now_ms().to_string());
     }
-    crate::config::private_state_dir(&state_dir())?;
+    crate::config::private_state_dir(&consent_home())?;
     crate::config::write_atomic(&consent_path(), &serde_json::to_vec_pretty(&consent)?)?;
     Ok(consent)
 }
 
+/// Required for an enrolled machine or any explicit local consent policy.
+/// Only definite absence of both records preserves pre-enrollment behavior.
+fn consent_required() -> Result<bool> {
+    let joined = load_at(&consent_home())?.is_some();
+    let consent_record = match std::fs::symlink_metadata(consent_path()) {
+        Ok(_) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    Ok(joined || consent_record)
+}
+
+/// External tools query this before every action. Errors require consent and
+/// suppress grants, so unreadable enrollment state never opens an access path.
 pub(crate) fn consent_status() -> Value {
-    let refusal = crate::config::private_state_file(&state_dir().join(CONSENT_EVENTS_FILE))
+    let refusal = crate::config::private_state_file(&consent_home().join(CONSENT_EVENTS_FILE))
         .ok()
         .and_then(|file| serde_json::from_reader::<_, Value>(file).ok());
-    json!({"consent": load_consent(), "lastRefusal": refusal})
+    let required = consent_required();
+    let consent = if required.is_err() { Consent::default() } else { load_consent() };
+    json!({"consentRequired": required.unwrap_or(true), "consent": consent, "lastRefusal": refusal})
 }
 
 pub fn require_consent(surface: &str) -> Result<()> {
@@ -484,12 +521,16 @@ pub fn require_consent(surface: &str) -> Result<()> {
 }
 
 /// Computer Use and other host-control surfaces call this before serving a
-/// joined machine. Unjoined local daemons retain their existing app behavior.
+/// joined machine or one with a local consent record. Only unjoined local
+/// daemons without a consent record retain their existing app behavior.
 pub fn require_joined_consent(surface: &str) -> Result<()> {
-    match load() {
-        Ok(Some(_)) => require_consent(surface),
-        Ok(None) => Ok(()),
-        Err(_) => Err(anyhow!(CONSENT_REQUIRED)),
+    match consent_required() {
+        Ok(false) => Ok(()),
+        Ok(true) => require_consent(surface),
+        Err(_) => {
+            let _ = record_consent_refusal(surface);
+            Err(anyhow!(CONSENT_REQUIRED))
+        }
     }
 }
 
@@ -498,9 +539,9 @@ pub fn require_joined_consent(surface: &str) -> Result<()> {
 /// caller cannot turn a refusal into a grant by editing one JSON object.
 pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
     anyhow::ensure!(matches!(surface, "screen" | "control"), "unknown consent surface");
-    crate::config::private_state_dir(&state_dir())?;
+    crate::config::private_state_dir(&consent_home())?;
     crate::config::write_atomic(
-        &state_dir().join(CONSENT_EVENTS_FILE),
+        &consent_home().join(CONSENT_EVENTS_FILE),
         &serde_json::to_vec(
             &json!({"event":"consent_refused", "code":"consent_required", "surface":surface, "at":crate::store::now_ms()}),
         )?,

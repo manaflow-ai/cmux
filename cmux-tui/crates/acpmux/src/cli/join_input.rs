@@ -1,35 +1,91 @@
 //! The single stdin reader shared by cloud and pairing host joins.
 
-use anyhow::{Context, Result, anyhow};
-use std::io::{IsTerminal, Read};
+#[cfg(test)]
+use anyhow::Context;
+use anyhow::{Result, anyhow};
+use std::io::IsTerminal;
+#[cfg(test)]
+use std::io::Read;
 use zeroize::Zeroizing;
 
 pub const MAX_BYTES: u64 = 4096;
 
 /// Read one join value. Cloud tokens require a newline; legacy pairing tickets
 /// also accept EOF immediately after the ticket. Neither path prints its input.
-pub fn read_stdin_line() -> Result<Zeroizing<String>> {
-    let stdin = std::io::stdin();
-    if stdin.is_terminal() {
-        return Err(crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Usage,
-            "join.malformed",
-            "pass the join value on stdin",
-        )
-        .with_exit(2)
-        .into());
+/// The installer supplies a complete value, then closes its pipe. A fixed
+/// deadline covers the whole read (including slow writers), not each byte.
+pub(crate) fn read_stdin_line(allow_empty: bool) -> Result<Option<Zeroizing<String>>> {
+    let input = std::io::stdin();
+    if input.is_terminal() {
+        return if allow_empty { Ok(None) } else { Err(malformed()) };
     }
-    read_line(stdin.lock()).map_err(|_| {
-        crate::cli::errors::AppError::new(
-            crate::cli::errors::Code::Usage,
-            "join.malformed",
-            "stdin must contain one bounded join value line",
-        )
-        .with_exit(2)
-        .into()
-    })
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        use std::time::{Duration, Instant};
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut bytes = Zeroizing::new(Vec::new());
+        let input = input.lock();
+        let fd = input.as_raw_fd();
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return if bytes.is_empty() && allow_empty { Ok(None) } else { Err(malformed()) };
+            }
+            let mut readiness = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+            // SAFETY: readiness points to one live pollfd; the borrowed stdin
+            // descriptor remains open until this scope ends.
+            let ready = unsafe {
+                libc::poll(&mut readiness, 1, left.as_millis().min(i32::MAX as u128) as _)
+            };
+            if ready < 0 {
+                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(malformed());
+            }
+            if ready == 0 {
+                continue;
+            }
+            let mut chunk = [0u8; 512];
+            // SAFETY: chunk is writable for its entire length and stdin remains locked.
+            let count = unsafe { libc::read(fd, chunk.as_mut_ptr().cast(), chunk.len()) };
+            if count < 0 {
+                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(malformed());
+            }
+            if count == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&chunk[..count as usize]);
+            if bytes.len() as u64 > MAX_BYTES {
+                return Err(malformed());
+            }
+        }
+        if bytes.is_empty() && allow_empty {
+            return Ok(None);
+        }
+        parse_line(&bytes).map(Some).map_err(|_| malformed())
+    }
+    #[cfg(not(unix))]
+    {
+        Err(malformed())
+    }
 }
 
+fn malformed() -> anyhow::Error {
+    crate::cli::errors::AppError::new(
+        crate::cli::errors::Code::Usage,
+        "join.malformed",
+        "stdin must contain one join value within two seconds",
+    )
+    .with_exit(2)
+    .into()
+}
+
+#[cfg(test)]
 pub(crate) fn read_line(input: impl Read) -> Result<Zeroizing<String>> {
     let mut bytes = Zeroizing::new(Vec::new());
     input.take(MAX_BYTES + 1).read_to_end(&mut bytes).context("read join value from stdin")?;

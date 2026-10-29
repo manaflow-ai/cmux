@@ -194,6 +194,9 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
         name: Option<&str>,
         arguments: Value,
     ) -> Result<Value> {
+        if method == "tools/call" {
+            require_tool_consent(name.unwrap_or_default())?;
+        }
         let id = self.next_id;
         self.next_id += 1;
         let mut message = json!({ "id": id, "method": method });
@@ -278,24 +281,23 @@ where
                 "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
             })),
             "ping" => Ok(json!({})),
-            "tools/list" => {
-                if let Err(error) = crate::cli::cloud_join::require_joined_consent("control") {
-                    Err((-32020, error.to_string()))
-                } else {
-                    forward(&mut helper, &connect, "tools/list", None, Value::Null)
-                        .await
-                        .map(tools_list_result)
-                }
-            }
+            "tools/list" => forward(&mut helper, &connect, "tools/list", None, Value::Null)
+                .await
+                .map(tools_list_result),
             "tools/call" => {
-                if let Err(error) = crate::cli::cloud_join::require_joined_consent("control") {
-                    Ok(json!({"content": [{"type": "text", "text": error.to_string()}], "isError": true}))
+                if let Err(error) =
+                    require_tool_consent(message["params"]["name"].as_str().unwrap_or_default())
+                {
+                    Ok(
+                        json!({"content": [{"type": "text", "text": error.to_string()}], "isError": true}),
+                    )
                 } else {
                     let name = message["params"]["name"].as_str().unwrap_or_default().to_owned();
                     let arguments =
                         message["params"].get("arguments").cloned().unwrap_or_else(|| json!({}));
                     Ok(
-                        match forward(&mut helper, &connect, "tools/call", Some(&name), arguments).await
+                        match forward(&mut helper, &connect, "tools/call", Some(&name), arguments)
+                            .await
                         {
                             Ok(result) => call_result(result),
                             Err((_, text)) => {
@@ -314,6 +316,26 @@ where
             }
         };
         write_line(&mut output, &response).await?;
+    }
+    Ok(())
+}
+
+/// The observation-only operations of the pinned upstream driver need screen
+/// consent. Every other operation (including future tools) may both act and
+/// return a post-action screenshot, so it needs both independent grants. An
+/// include_screenshot flag is not a consent bypass: errors may attach captures.
+fn require_tool_consent(name: &str) -> Result<()> {
+    crate::cli::cloud_join::require_joined_consent("screen")?;
+    if !matches!(
+        name,
+        "screenshot"
+            | "get_desktop_state"
+            | "get_window_state"
+            | "get_app_state"
+            | "list_apps"
+            | "list_windows"
+    ) {
+        crate::cli::cloud_join::require_joined_consent("control")?;
     }
     Ok(())
 }

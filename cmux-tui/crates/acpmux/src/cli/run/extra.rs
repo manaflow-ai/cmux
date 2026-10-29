@@ -524,15 +524,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 )
                 .with_exit(5)
             })?;
-            if ticket.is_none() && crate::cli::cloud_join::already_joined(replace, json_out)? {
-                return Ok(());
-            }
             let value = match ticket {
                 Some(value) => {
                     eprintln!("{}", crate::cli::pairing::ARGV_TICKET_WARNING);
                     zeroize::Zeroizing::new(value)
                 }
-                None => crate::cli::join_input::read_stdin_line()?,
+                None => {
+                    let joined = !replace && crate::cli::cloud_join::credential_present()?;
+                    match crate::cli::join_input::read_stdin_line(joined)? {
+                        Some(value) => value,
+                        None => {
+                            crate::cli::cloud_join::already_joined(false, json_out)?;
+                            return Ok(());
+                        }
+                    }
+                }
             };
             if value.starts_with("cmj_") {
                 let token = crate::cli::cloud_join::parse_token_text(&value).map_err(|_| {
