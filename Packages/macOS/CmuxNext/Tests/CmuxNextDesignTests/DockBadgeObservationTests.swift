@@ -16,6 +16,7 @@ struct DockBadgeObservationTests {
         // NSKeyValueObservation alone does not keep its observed object alive.
         source = nil
         #expect(observed != nil)
+        try #require(observed != nil)
         let receiver = Task {
             var iterator = policies.makeAsyncIterator()
             return await iterator.next()
