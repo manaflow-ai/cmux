@@ -1771,14 +1771,18 @@ async fn queue_ops_edits_survive_a_daemon_crash() {
     assert_eq!(order, ["q-2", "q-1"]);
 }
 
-/// A queue edit is answered only once its record is written (trains 333 and 338: the crash test
-/// above lost an answered reorder and edit when the daemon died before its log writer wrote them).
-/// `ACPMUX_TEST_LOG_WRITE_DELAY_MS` holds every log write, so the daemon dies with the records
-/// still queued unless the answer waited for them.
-#[tokio::test]
-async fn an_answered_queue_edit_survives_a_crash_right_after_its_answer() {
+/// The test pattern of the rule "an acpmux request answers only after what it wrote is on disk"
+/// (`hub/request_writes.rs`; trains 333 and 338 lost an answered queue edit). The daemon runs
+/// with `ACPMUX_TEST_LOG_WRITE_DELAY_MS` (debug builds only): every log write is held, so a
+/// daemon killed right after an answer loses the change unless the answer waited for its
+/// records. Two prompts wait behind a gated turn; `change` makes requests and must be kept
+/// after a SIGKILL right after its answers; returns the restarted daemon's attach.
+async fn answered_change_survives_a_crash(
+    tag: &str,
+    change: impl AsyncFnOnce(&mut Rpc, &str),
+) -> (Daemon, String, PathBuf, Value) {
     let slow = [("ACPMUX_TEST_LOG_WRITE_DELAY_MS", "400")];
-    let mut daemon = Daemon::with_env("qedit-slow", "approve-all", &slow);
+    let mut daemon = Daemon::with_env(tag, "approve-all", &slow);
     let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
     for (id, text) in [("q-1", "one"), ("q-2", "two")] {
         client
@@ -1792,27 +1796,50 @@ async fn an_answered_queue_edit_survives_a_crash_right_after_its_answer() {
         });
     }
     let mut rpc = daemon.rpc().await;
-    let edit = |op: &str, id: &str, extra: Value| {
-        let mut p = json!({"sessionId": session, "promptId": id, "op": op});
-        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-        p
-    };
-    rpc.call("_acpmux/queue_edit", edit("move", "q-2", json!({"index": 0}))).await;
-    rpc.call("_acpmux/queue_edit", edit("update", "q-1", json!({"text": "one edited"}))).await;
+    change(&mut rpc, &session).await;
     // At once after the answers: what they acknowledged must be on disk already.
     daemon.sigkill();
     drop((client, rpc));
     daemon.start();
-
     let mut rpc = daemon.rpc().await;
     let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
-    let queue = attached["session"]["queue"].as_array().expect("queue").clone();
-    let ids: Vec<&str> = queue.iter().filter_map(|q| q["promptId"].as_str()).collect();
-    assert_eq!(ids, ["q-2", "q-1"], "an answered reorder was lost in the crash: {attached:#}");
-    assert_eq!(
-        queue[1]["prompt"], "one edited",
-        "an answered edit was lost in the crash: {attached:#}"
-    );
+    (daemon, session, gate, attached)
+}
+
+fn queued_ids(attached: &Value) -> Vec<String> {
+    let queue = attached["session"]["queue"].as_array().cloned().unwrap_or_default();
+    queue.iter().filter_map(|q| q["promptId"].as_str().map(str::to_owned)).collect()
+}
+
+#[tokio::test]
+async fn an_answered_queue_edit_survives_a_crash_right_after_its_answer() {
+    let (_daemon, _session, gate, attached) =
+        answered_change_survives_a_crash("qedit-slow", async |rpc, session| {
+            let edit = |op: &str, id: &str, extra: Value| {
+                let mut p = json!({"sessionId": session, "promptId": id, "op": op});
+                p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+                p
+            };
+            rpc.call("_acpmux/queue_edit", edit("move", "q-2", json!({"index": 0}))).await;
+            rpc.call("_acpmux/queue_edit", edit("update", "q-1", json!({"text": "one edited"})))
+                .await;
+        })
+        .await;
+    assert_eq!(queued_ids(&attached), ["q-2", "q-1"], "an answered reorder was lost: {attached:#}");
+    let queue = attached["session"]["queue"].as_array().expect("queue");
+    assert_eq!(queue[1]["prompt"], "one edited", "an answered edit was lost: {attached:#}");
+    std::fs::write(&gate, b"go").unwrap();
+}
+
+#[tokio::test]
+async fn an_answered_queue_removal_survives_a_crash_right_after_its_answer() {
+    let (_daemon, _session, gate, attached) =
+        answered_change_survives_a_crash("qrm-slow", async |rpc, session| {
+            rpc.call("_acpmux/queue_remove", json!({"sessionId": session, "promptId": "q-1"}))
+                .await;
+        })
+        .await;
+    assert_eq!(queued_ids(&attached), ["q-2"], "an answered removal was lost: {attached:#}");
     std::fs::write(&gate, b"go").unwrap();
 }
 
