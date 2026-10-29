@@ -111,6 +111,7 @@ fn is_test_panic_thread(thread: &str) -> bool {
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 
 pub async fn run(opts: DaemonOptions) -> Result<()> {
+    crate::cli::cloud_join::retain_own_machine_consent_requirement()?;
     // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
     // daemon must not die when its launcher or a client goes away mid-write:
     // a closed pipe is an ordinary write error here.
