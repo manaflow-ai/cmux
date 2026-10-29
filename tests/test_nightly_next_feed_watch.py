@@ -932,6 +932,38 @@ class ActiveRunReadTests(unittest.TestCase):
         self.assertEqual(gh.asked, [1])
 
 
+class SupportedFeedRecoveryTests(unittest.TestCase):
+    def test_only_next_is_watched_and_recovered_even_when_its_feeds_are_unreadable(self):
+        for unreadable in (False, True):
+            with self.subTest(unreadable=unreadable):
+                def read(url):
+                    if unreadable:
+                        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+                    return NEWEST
+
+                with unittest.mock.patch.object(watch, "read_feed", side_effect=read) as reads, \
+                        unittest.mock.patch.object(watch, "fetch_feed", return_value="") as fetches, \
+                        unittest.mock.patch.object(watch.GitHub, "call", return_value={}) as api, \
+                        unittest.mock.patch.object(watch, "starvation_dispatch", return_value="stubbed") as dispatch, \
+                        unittest.mock.patch.object(watch, "legacy_lag", return_value=(123, "behind")), \
+                        unittest.mock.patch.object(watch, "legacy_rerun", return_value="retried") as legacy, \
+                        unittest.mock.patch.object(watch, "oldest_waiting_push", return_value=None), \
+                        unittest.mock.patch.object(watch.GitHub, "runs", return_value=[]), \
+                        unittest.mock.patch.object(watch, "sync_issue", return_value="synced"), \
+                        unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+                    self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 1)
+
+                self.assertEqual(reads.call_args_list, [unittest.mock.call(url) for url in watch.NEXT_FEED_URLS])
+                self.assertEqual(api.call_args_list, [unittest.mock.call("GET", "/releases/tags/nightly-next")])
+                dispatch.assert_called_once()
+                self.assertEqual(dispatch.call_args.kwargs["branch"], "feat-cmux-next")
+                self.assertEqual(dispatch.call_args.kwargs["workflow"], "nightly-next-tick.yml")
+                self.assertEqual(dispatch.call_args.kwargs["feed_unknown"], unreadable)
+                self.assertEqual(fetches.call_args_list, [unittest.mock.call(watch.FEED_URL),
+                                                         unittest.mock.call(watch.LEGACY_FEED_URL)])
+                legacy.assert_called_once_with(unittest.mock.ANY, 123)
+
+
 class HealBeforeAlarmTests(unittest.TestCase):
     """Every scheduled run from 01:35Z to 04:52Z on 2026-10-26 hit a 403 in the
     alarm path and returned before the guards ran, so the feed sat four hours
