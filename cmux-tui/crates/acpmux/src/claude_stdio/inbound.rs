@@ -683,8 +683,8 @@ impl Translator {
                 if !abandoned.is_empty()
                     && (cancelled_compaction
                         || next_unread
-                        || (!self.turn_output.load(Ordering::SeqCst)
-                            && !(sub == "success"
+                        || !(self.turn_output.load(Ordering::SeqCst)
+                            || (sub == "success"
                                 && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                                 && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0))))
                 {
