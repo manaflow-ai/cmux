@@ -242,6 +242,12 @@ class PlanTests(unittest.TestCase):
                                           job(B16, created=40, name="lint")])
         self.assertIsNone(self.plan(runs, jobs)[0].why_not)
 
+    def test_gated_and_unknown_run_states_never_move(self) -> None:
+        for status in ("waiting", "pending", "requested", None, "unknown"):
+            with self.subTest(status=status):
+                runs, jobs = self.inventory(run(1, status=status), [job(B16, created=40)])
+                self.assertTrue(all(d.why_not for d in self.plan(runs, jobs)))
+
     def test_a_running_sibling_holds_the_run(self) -> None:
         runs, jobs = self.inventory(run(1), [job(B16, created=40), ran(STD, 30)])
         self.assertTrue(all(d.why_not for d in self.plan(runs, jobs)))
@@ -415,6 +421,24 @@ class RedispatchTests(unittest.TestCase):
         self.assertEqual(github.calls, [])
         self.assertIn("nightly, DEV or promote run that has started", results[1])
         self.assertEqual(saved.history, [])
+
+    def test_a_run_that_reaches_a_gate_after_planning_is_never_cancelled(self) -> None:
+        queued = run(1)
+        planner = PlanTests()
+        runs, jobs = planner.inventory(queued, [job(B16, created=40)])
+        decisions = planner.plan(runs, jobs)
+        self.assertEqual(len(decisions), 1)
+        self.assertIsNone(decisions[0].why_not)
+        # A downstream job may remain queued without a runner while the run waits for an environment or
+        # another gate. Its stale queued job must not authorize cancelling that now-gated run.
+        for status in ("waiting", "pending", "requested", None, "unknown"):
+            with self.subTest(status=status):
+                github = FakeGitHub()
+                github.add(queued, jobs[1], status=status)
+                (results, _), saved = self.move(github, decisions)
+                self.assertEqual(github.calls, [])
+                self.assertEqual(saved.history, [])
+                self.assertIn(f"{status or 'in an unknown state'} now", results[1])
 
     def test_recheck_keeps_runs_that_moved_or_got_served(self) -> None:
         for jobs, state_, why in (([ran(B16, 0.5, name="lint")], {}, "running"),
