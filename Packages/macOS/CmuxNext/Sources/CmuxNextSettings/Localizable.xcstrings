@@ -83391,127 +83391,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."
+            "value": "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "المكان الذي يضع فيه Cmd-N وزر + وواجهة سطر الأوامر مساحة العمل الجديدة في الشريط الجانبي. تبقى مساحات العمل المثبتة فوقها."
+            "value": "المكان الذي يضع فيه Cmd-N وزر + وواجهة سطر الأوامر مساحة العمل الجديدة في الشريط الجانبي. مساحة العمل التي تُنشأ في مجموعة تذهب إلى المكان نفسه داخل تلك المجموعة. تبقى مساحات العمل المثبتة فوقها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdje Cmd-N, dugme + i CLI stavljaju novi radni prostor na bočnoj traci. Prikačeni radni prostori ostaju iznad njega."
+            "value": "Gdje Cmd-N, dugme + i CLI stavljaju novi radni prostor na bočnoj traci. Radni prostor napravljen u grupi ide na isto mjesto unutar te grupe. Prikačeni radni prostori ostaju iznad njega."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvor Cmd-N, knappen + og CLI'en placerer et nyt arbejdsområde i sidepanelet. Fastgjorte arbejdsområder bliver over det."
+            "value": "Hvor Cmd-N, knappen + og CLI'en placerer et nyt arbejdsområde i sidepanelet. Et arbejdsområde, der laves i en gruppe, kommer samme sted i den gruppe. Fastgjorte arbejdsområder bliver over det."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wo Cmd-N, die Schaltfläche + und die CLI einen neuen Arbeitsbereich in der Seitenleiste ablegen. Angeheftete Arbeitsbereiche bleiben darüber."
+            "value": "Wo Cmd-N, die Schaltfläche + und die CLI einen neuen Arbeitsbereich in der Seitenleiste ablegen. Ein in einer Gruppe erstellter Arbeitsbereich kommt an dieselbe Stelle innerhalb dieser Gruppe. Angeheftete Arbeitsbereiche bleiben darüber."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dónde colocan Cmd-N, el botón + y la CLI un nuevo espacio de trabajo en la barra lateral. Los espacios de trabajo fijados quedan encima."
+            "value": "Dónde colocan Cmd-N, el botón + y la CLI un nuevo espacio de trabajo en la barra lateral. Un espacio de trabajo creado en un grupo va al mismo lugar dentro de ese grupo. Los espacios de trabajo fijados quedan encima."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Où Cmd-N, le bouton + et la CLI placent un nouvel espace de travail dans la barre latérale. Les espaces de travail épinglés restent au-dessus."
+            "value": "Où Cmd-N, le bouton + et la CLI placent un nouvel espace de travail dans la barre latérale. Un espace de travail créé dans un groupe va au même endroit dans ce groupe. Les espaces de travail épinglés restent au-dessus."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dove Cmd-N, il pulsante + e la CLI mettono un nuovo spazio di lavoro nella barra laterale. Gli spazi di lavoro fissati restano sopra."
+            "value": "Dove Cmd-N, il pulsante + e la CLI mettono un nuovo spazio di lavoro nella barra laterale. Uno spazio di lavoro creato in un gruppo va nello stesso punto all’interno di quel gruppo. Gli spazi di lavoro fissati restano sopra."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd-N、+ ボタン、CLI で作成した新しいワークスペースをサイドバーのどこに置くか。ピン留めしたワークスペースはその上に残ります。"
+            "value": "Cmd-N、+ ボタン、CLI で作成した新しいワークスペースをサイドバーのどこに置くか。グループ内で作成したワークスペースは、そのグループ内の同じ位置に置かれます。ピン留めしたワークスペースはその上に残ります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កន្លែងដែល Cmd-N ប៊ូតុង + និង CLI ដាក់កន្លែងធ្វើការថ្មីនៅក្នុងរបារចំហៀង។ កន្លែងធ្វើការដែលបានខ្ទាស់នៅខាងលើវា។"
+            "value": "កន្លែងដែល Cmd-N ប៊ូតុង + និង CLI ដាក់កន្លែងធ្វើការថ្មីនៅក្នុងរបារចំហៀង។ កន្លែងធ្វើការដែលបង្កើតក្នុងក្រុម ទៅកន្លែងដដែលនៅក្នុងក្រុមនោះ។ កន្លែងធ្វើការដែលបានខ្ទាស់នៅខាងលើវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-N, + 버튼, CLI가 새 워크스페이스를 사이드바의 어디에 둘지 정합니다. 고정된 워크스페이스는 그 위에 남습니다."
+            "value": "Cmd-N, + 버튼, CLI가 새 워크스페이스를 사이드바의 어디에 둘지 정합니다. 그룹 안에서 만든 워크스페이스는 그 그룹 안의 같은 위치에 놓입니다. 고정된 워크스페이스는 그 위에 남습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvor Cmd-N, +-knappen og CLI-en legger et nytt arbeidsområde i sidefeltet. Festede arbeidsområder blir over det."
+            "value": "Hvor Cmd-N, +-knappen og CLI-en legger et nytt arbeidsområde i sidefeltet. Et arbeidsområde som lages i en gruppe, havner på samme sted i den gruppen. Festede arbeidsområder blir over det."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdzie Cmd-N, przycisk + i CLI umieszczają nowy obszar roboczy na pasku bocznym. Przypięte obszary robocze zostają nad nim."
+            "value": "Gdzie Cmd-N, przycisk + i CLI umieszczają nowy obszar roboczy na pasku bocznym. Obszar roboczy utworzony w grupie trafia w to samo miejsce wewnątrz tej grupy. Przypięte obszary robocze zostają nad nim."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Onde Cmd-N, o botão + e a CLI colocam um novo espaço de trabalho na barra lateral. Os espaços de trabalho fixados ficam acima dele."
+            "value": "Onde Cmd-N, o botão + e a CLI colocam um novo espaço de trabalho na barra lateral. Um espaço de trabalho criado em um grupo vai para o mesmo lugar dentro desse grupo. Os espaços de trabalho fixados ficam acima dele."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Куда Cmd-N, кнопка + и CLI помещают новое рабочее пространство на боковой панели. Закреплённые рабочие пространства остаются выше."
+            "value": "Куда Cmd-N, кнопка + и CLI помещают новое рабочее пространство на боковой панели. Рабочее пространство, созданное в группе, попадает на то же место внутри этой группы. Закреплённые рабочие пространства остаются выше."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ตำแหน่งที่ Cmd-N ปุ่ม + และ CLI วางพื้นที่ทำงานใหม่ในแถบด้านข้าง พื้นที่ทำงานที่ปักหมุดจะอยู่ด้านบน"
+            "value": "ตำแหน่งที่ Cmd-N ปุ่ม + และ CLI วางพื้นที่ทำงานใหม่ในแถบด้านข้าง พื้นที่ทำงานที่สร้างในกลุ่มจะไปอยู่ตำแหน่งเดียวกันภายในกลุ่มนั้น พื้นที่ทำงานที่ปักหมุดจะอยู่ด้านบน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-N, + düğmesi ve CLI'nin yeni bir çalışma alanını kenar çubuğunda nereye koyduğu. Sabitlenmiş çalışma alanları üstünde kalır."
+            "value": "Cmd-N, + düğmesi ve CLI'nin yeni bir çalışma alanını kenar çubuğunda nereye koyduğu. Bir grupta oluşturulan çalışma alanı, o grubun içinde aynı yere gider. Sabitlenmiş çalışma alanları üstünde kalır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Куди Cmd-N, кнопка + і CLI додають новий робочий простір на бічній панелі. Закріплені робочі простори залишаються вище."
+            "value": "Куди Cmd-N, кнопка + і CLI додають новий робочий простір на бічній панелі. Робочий простір, створений у групі, потрапляє на те саме місце всередині цієї групи. Закріплені робочі простори залишаються вище."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nơi Cmd-N, nút + và CLI đặt không gian làm việc mới trong thanh bên. Các không gian làm việc đã ghim vẫn ở phía trên."
+            "value": "Nơi Cmd-N, nút + và CLI đặt không gian làm việc mới trong thanh bên. Không gian làm việc tạo trong một nhóm sẽ ở cùng vị trí bên trong nhóm đó. Các không gian làm việc đã ghim vẫn ở phía trên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-N、+ 按钮和 CLI 将新工作区放在侧边栏中的位置。已固定的工作区保持在其上方。"
+            "value": "Cmd-N、+ 按钮和 CLI 将新工作区放在侧边栏中的位置。在群组中创建的工作区放在该群组内的同一位置。已固定的工作区保持在其上方。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cmd-N、+ 按鈕和 CLI 將新工作區放在側邊欄中的位置。已釘選的工作區保持在其上方。"
+            "value": "Cmd-N、+ 按鈕和 CLI 將新工作區放在側邊欄中的位置。在群組中建立的工作區放在該群組內的同一位置。已釘選的工作區保持在其上方。"
           }
         }
       }
