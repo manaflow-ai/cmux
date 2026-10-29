@@ -59,7 +59,7 @@ struct DragOutWindowTransferTests {
             let newWindowId = try #require(app.moveSurfaceToNewWindow(panelId: panel.id))
             defer { app.discardMainWindowWithoutClosedHistory(windowId: newWindowId) }
             let target = try #require(app.tabManagerFor(windowId: newWindowId)?.selectedWorkspace)
-            #expect(target.panels.count == 1)
+            #expect(target.panels.count == 1, "panels=\(target.panels.map { "\($0.key.uuidString.prefix(4)):\(type(of: $0.value))" }) moved=\(panel.id.uuidString.prefix(4))")
             #expect(target.panels[panel.id] as? TerminalPanel === panel)
             #expect(panel.surface === surface)
             #expect(!manager.tabs.contains(where: { $0.id == workspace.id }))
@@ -82,7 +82,7 @@ struct DragOutWindowTransferTests {
             #expect(target.panels[browser.id] as? BrowserPanel === browser)
             #expect(browser.webView === webView)
             #expect(source.panels[browser.id] == nil)
-            #expect(target.panels.count == 1)
+            #expect(target.panels.count == 1, "panels=\(target.panels.map { "\($0.key.uuidString.prefix(4)):\(type(of: $0.value))" }) moved=\(browser.id.uuidString.prefix(4))")
         }
     }
 
