@@ -103,12 +103,15 @@ struct AgentChatDestinationsTests {
 struct AgentChatDestinationActionTests {
     @Test(arguments: [false, true])
     func cloudPlacementUsesWindowFocusBeforeDaemonRecency(away: Bool) async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await AgentChatActionFixture.withApp { services, _ in
             let window = try #require(services.windows.active)
             let localWorkspace = window.state.workspaceID
             let session = AgentChatDestinationsTests.focusedCloud(services)
             window.state.machineID = session.machineID
             window.state.workspaceID = "focused-project"
+            // A workspace switch updates this selection before the mounted content/focus
+            // topology catches up. Its remembered pane must beat the old workspace's focus.
+            #expect(window.state.focus.state.topology.workspace != "focused-project")
             window.state.focus.send(.restoredPane("pane:21", workspace: "focused-project"))
             if away {
                 window.state.machineID = MachineRegistry.localID
@@ -123,7 +126,7 @@ struct AgentChatDestinationActionTests {
 
     @Test(arguments: ["local", "This Mac", "dev-box"])
     func aLocalOrPeerDestinationWorksWhileARemoteDaemonIsActive(host: String) async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await AgentChatActionFixture.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "destination-from-remote")
             try #require(services.agentTabs.canHostChat)
             let remote = MachineIconTests.cloudMachine(services, id: "vm-current-chat")
@@ -134,14 +137,10 @@ struct AgentChatDestinationActionTests {
             let invocation = ActionInvocation(arguments: ["host": .string(host), "cwd": .string("/tmp")], origin: .cli)
             let result = await AgentHandlers.createOnHost(host, invocation: invocation,
                 destinations: AgentChatDestinationsTests.source, context: AppActionContext(services: services))
-            _ = try result.get()
-            try await PasswordManagerRouteTests.until {
-                PasswordManagerRouteTests.tabs(services).contains { !before.contains($0.id) }
-            }
-            let created = try #require(PasswordManagerRouteTests.tabs(services).first { !before.contains($0.id) })
+            let created = try await AgentChatActionFixture.created(in: services, after: before, fields: result.get())
             let view = try #require(services.agentTabs.view(for: created.id))
             let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
-            let handshake = try #require(reply["value"] as? [String: Any])
+            let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
             #expect(handshake["cwd"] as? String == "/tmp")
             #expect(handshake["peer"] as? String == (host == "dev-box" ? host : nil))
             #expect(remote.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).isEmpty)
@@ -150,7 +149,7 @@ struct AgentChatDestinationActionTests {
 
     @Test(arguments: [false, true])
     func aLocalDestinationTitleCreatesALocalChat(targeted: Bool) async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await AgentChatActionFixture.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "local-destination-fixture")
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
             let pane = try #require(services.windows.active?.focusedPane)
@@ -161,11 +160,7 @@ struct AgentChatDestinationActionTests {
                 arguments: ["host": .string(source.local.title), "cwd": .string("/tmp")], origin: .cli)
             let result = await AgentHandlers.createOnHost(source.local.title, invocation: invocation,
                 destinations: source, context: AppActionContext(services: services))
-            _ = try result.get()
-            try await PasswordManagerRouteTests.until {
-                PasswordManagerRouteTests.tabs(services).contains { !before.contains($0.id) }
-            }
-            let created = try #require(PasswordManagerRouteTests.tabs(services).first { !before.contains($0.id) })
+            let created = try await AgentChatActionFixture.created(in: services, after: before, fields: result.get())
             let view = try #require(services.agentTabs.view(for: created.id))
             let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
             let handshake = try #require(reply["value"] as? [String: Any], "\(reply)")
@@ -177,7 +172,7 @@ struct AgentChatDestinationActionTests {
 
     @Test(arguments: [false, true], [ActionOrigin.cli, .mcp])
     func peerCreationKeepsTheRequestedFolderAndPicks(targeted: Bool, origin: ActionOrigin) async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await AgentChatActionFixture.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "destination-action-fixture")
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
             let pane = try #require(services.windows.active?.focusedPane)
@@ -188,11 +183,7 @@ struct AgentChatDestinationActionTests {
                             "harness": .string("fake"), "model": .string("fixture-model")], origin: origin)
             let result = await AgentHandlers.createOnHost("dev-box", invocation: invocation,
                 destinations: AgentChatDestinationsTests.source, context: AppActionContext(services: services))
-            _ = try result.get()
-            try await PasswordManagerRouteTests.until {
-                PasswordManagerRouteTests.tabs(services).contains { !before.contains($0.id) }
-            }
-            let created = try #require(PasswordManagerRouteTests.tabs(services).first { !before.contains($0.id) })
+            let created = try await AgentChatActionFixture.created(in: services, after: before, fields: result.get())
             #expect(pane.pane.tabs.contains { $0.id == created.id }, "the peer chat keeps the requested local pane")
             let view = try #require(services.agentTabs.view(for: created.id))
             let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
@@ -208,7 +199,7 @@ struct AgentChatDestinationActionTests {
 
     @Test(arguments: ["missing", "build-box", "cloud-machine:vm-paused", "cloud-machine:vm-ready"])
     func unavailableDestinationsNeverCreateALocalFallback(host: String) async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await AgentChatActionFixture.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "destination-refusal-fixture")
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
             let invocation = ActionInvocation(arguments: ["host": .string(host), "cwd": .string("/tmp")], origin: .cli)
@@ -224,7 +215,7 @@ struct AgentChatDestinationActionTests {
     }
 
     @Test func theBoundPaletteChooserCreatesAChatThroughTheCanonicalAction() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await AgentChatActionFixture.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "palette-destination-fixture")
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
             let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
@@ -232,12 +223,8 @@ struct AgentChatDestinationActionTests {
             let run = RegistryControlBridge(registry: services.registry).performActionTracked(
                 ControlActionRequest(actionID: "palette.newAgentChatOn",
                                      arguments: ["host": .string("local")], origin: ActionOrigin.cli.rawValue))
-            #expect(run.outcome == .ran, "\(run.outcome)")
-            for work in run.work { #expect(await work.value == nil) }
-            try await PasswordManagerRouteTests.until {
-                PasswordManagerRouteTests.tabs(services).contains { !before.contains($0.id) }
-            }
-            let created = try #require(PasswordManagerRouteTests.tabs(services).first { !before.contains($0.id) })
+            let fields = try await AgentChatActionFixture.finish(run)
+            let created = try await AgentChatActionFixture.created(in: services, after: before, fields: fields)
             #expect(created.agentSession != nil)
         }
     }

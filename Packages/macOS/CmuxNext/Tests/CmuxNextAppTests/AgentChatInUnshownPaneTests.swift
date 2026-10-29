@@ -74,20 +74,19 @@ struct AgentChatInUnshownPaneTests {
     /// The action's explicit folder reaches the created tab, rather than being dropped by the
     /// untargeted/targeted open paths. This observes the store's created tab after the action.
     @Test func aTargetedChatKeepsTheRequestedCwd() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await AgentChatActionFixture.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-23016-cwd")
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
             let window = try #require(services.windows.active)
             let pane = try #require(window.focusedPane)
-            let before = Set(pane.pane.tabs.map(\.id))
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
             let run = RegistryControlBridge(registry: services.registry).performActionTracked(
                 ControlActionRequest(actionID: "palette.newAgentChat", target: ControlTargetRef(kind: "pane", id: pane.paneKey),
                                      arguments: ["cwd": .string("/tmp")], origin: ActionOrigin.cli.rawValue)
             )
-            #expect(run.outcome == .ran, "\(run.outcome)")
-            try await PasswordManagerRouteTests.until({ pane.pane.tabs.contains { !before.contains($0.id) } },
-                                                      report: { "tabs did not grow from \(before)" })
-            let created = try #require(pane.pane.tabs.first { !before.contains($0.id) })
+            let fields = try await AgentChatActionFixture.finish(run)
+            let created = try await AgentChatActionFixture.created(in: services, after: before, fields: fields)
+            #expect(pane.pane.tabs.contains { $0.id == created.id })
             // Automation keeps the tab unselected. Instantiate its actual page and ask the
             // same ready request as the webview; existingView alone never mounts an unseen tab.
             let view = try #require(services.agentTabs.view(for: created.id))
@@ -99,17 +98,15 @@ struct AgentChatInUnshownPaneTests {
     }
 
     @Test func anUntargetedChatKeepsTheRequestedCwd() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await AgentChatActionFixture.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-23016-cwd-untargeted")
             try #require(services.agentTabs.canHostChat, "this build has no agent page")
-            let window = try #require(services.windows.active)
-            let pane = try #require(window.focusedPane)
-            let before = Set(pane.pane.tabs.map(\.id))
-            #expect(services.registry.perform("palette.newAgentChat", invocation: ActionInvocation(
-                arguments: ["cwd": .string("/tmp")], origin: .cli)))
-            try await PasswordManagerRouteTests.until({ pane.pane.tabs.contains { !before.contains($0.id) } },
-                                                      report: { "tabs did not grow from \(before)" })
-            let created = try #require(pane.pane.tabs.first { !before.contains($0.id) })
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            let run = RegistryControlBridge(registry: services.registry).performActionTracked(
+                ControlActionRequest(actionID: "palette.newAgentChat", arguments: ["cwd": .string("/tmp")],
+                                     origin: ActionOrigin.cli.rawValue))
+            let fields = try await AgentChatActionFixture.finish(run)
+            let created = try await AgentChatActionFixture.created(in: services, after: before, fields: fields)
             // Automation keeps the tab unselected. Instantiate its actual page and ask the
             // same ready request as the webview; existingView alone never mounts an unseen tab.
             let view = try #require(services.agentTabs.view(for: created.id))
