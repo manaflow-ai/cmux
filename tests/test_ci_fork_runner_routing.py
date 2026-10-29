@@ -122,6 +122,50 @@ TRUSTED_RUNNER_JOBS = (
     ("web-complexity-trusted.yml", "complexity"),
 )
 
+# A job that holds a GitHub App private key (a `create-github-app-token` step or a
+# `private-key:`) must run where no repository variable can move it to a reused machine,
+# where the key could outlive the job; and such a job, with a token that can write
+# variables, must not pick its own runner. So its runs-on is a literal Blacksmith label
+# (behind the fork branch at most) or the exact CI_TRUSTED_RUNNER selector, which admits
+# only ephemeral labels. #27022 let CI_CONTROL_RUNNER move the overflow watch, which
+# mints GLAEDA_ROUTE_APP_KEY; LINUX_RUNNER moved a dozen more such jobs.
+APP_KEY_MARKER = re.compile(r"create-github-app-token@|^\s*private-key:", re.MULTILINE)
+APP_KEY_LITERAL_RUNNER = re.compile(
+    r"^(?:blacksmith-[a-z0-9-]+"
+    r"|\$\{\{ github\.repository_owner != 'manaflow-ai' && '(?:ubuntu-24\.04|macos-\d+)' \|\| "
+    # While the overflow switch's record exists, a larger literal Blacksmith size: the variable
+    # only chooses between two literal labels.
+    r"(?:vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-[a-z0-9-]+' \|\| )?'blacksmith-[a-z0-9-]+' \}\})$"
+)
+# (workflow, job) -> why its runner may come from elsewhere. Exact jobs only.
+APP_KEY_RUNNER_EXCEPTIONS = {
+    ("nightly.yml", "generate-nightly-deltas"):
+        "pick-classic-sign-runner's output, which names only Blacksmith macOS labels "
+        "(classic_nightly_build_runner.py), else the literal Blacksmith fallback",
+    ("dogfood-artifact-publish.yml", "capture"):
+        "open: CMUX_BOT_APP_KEY runs on blacksmith-6vcpu-macos-15 unless CI_PAID_MACOS_OVERFLOW is 1, then "
+        "on MACOS_RUNNER_DISPLAY; the overflow switch sets both (to the owned GUI pool) in a Blacksmith "
+        "outage, so the key can reach a reused mini; fix: mint the token in a separate job",
+}
+
+
+def app_key_jobs() -> list[tuple[str, str, str]]:
+    """(workflow, job, runs-on) for every job that holds a GitHub App private key."""
+    found = []
+    for path in sorted(WORKFLOWS.glob("*.y*ml")):
+        text = path.read_text(encoding="utf-8")
+        jobs = re.search(r"(?ms)^jobs:\n(.*)", text)
+        if jobs is None:
+            continue
+        for block in re.finditer(r"(?ms)^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  \S|\Z)", jobs.group(1)):
+            body = block.group(2)
+            if not APP_KEY_MARKER.search(body):
+                continue
+            runs_on = re.search(r"(?m)^    runs-on:\s*(.*?)\s*(?:#.*)?$", body)
+            found.append((path.name, block.group(1), runs_on.group(1) if runs_on else ""))
+    return found
+
+
 # A fork pull request into manaflow-ai runs with repository_owner ==
 # 'manaflow-ai', so the owner branches above do not catch it. Before any
 # repository variable or pool picker output can pick a runner, it must take
@@ -1043,6 +1087,34 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 runs_on = [line for line in block.group(1).splitlines() if re.match(r"^    runs-on:", line)]
                 self.assertEqual(len(runs_on), 1, runs_on)
                 self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
+
+    def test_a_job_with_an_app_key_runs_where_no_variable_can_move_it(self) -> None:
+        jobs = app_key_jobs()
+        names = {(workflow, job) for workflow, job, _ in jobs}
+        # Not vacuous: the overflow watch and the queue janitor mint GLAEDA_ROUTE_APP_KEY.
+        self.assertIn(("ci-cloud-overflow-probe.yml", "watch"), names)
+        self.assertIn(("ci-queue-janitor.yml", "sweep"), names)
+        for key in APP_KEY_RUNNER_EXCEPTIONS:
+            self.assertIn(key, names, f"stale exception {key}")
+        for workflow, job, runs_on in jobs:
+            if (workflow, job) in APP_KEY_RUNNER_EXCEPTIONS:
+                continue
+            with self.subTest(workflow=workflow, job=job):
+                self.assertTrue(APP_KEY_LITERAL_RUNNER.match(runs_on) or runs_on == TRUSTED_RUNNER_EXPRESSION,
+                                f"{workflow}:{job} holds an App key on a movable runner: {runs_on}")
+
+    def test_the_app_key_runner_rule_refuses_a_variable(self) -> None:
+        fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+        for refused in (f"${{{{ {fork}vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        "${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}",
+                        f"${{{{ {fork}vars.CI_CLOUD_OVERFLOW_SAVED && vars.LINUX_RUNNER || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}",
+                        "glaeda-std-xcode-26.6", "ubuntu-24.04"):
+            self.assertIsNone(APP_KEY_LITERAL_RUNNER.match(refused), refused)
+        for allowed in ("blacksmith-6vcpu-macos-26", f"${{{{ {fork}'blacksmith-4vcpu-ubuntu-2404' }}}}",
+                        f"${{{{ {fork}vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || "
+                        "'blacksmith-4vcpu-ubuntu-2404' }}"):
+            self.assertIsNotNone(APP_KEY_LITERAL_RUNNER.match(allowed), allowed)
 
     def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
         self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
