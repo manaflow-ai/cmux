@@ -125,7 +125,7 @@ struct PageFactory {
             return await services.joinConsent.set(surface, on: on)
         }
         provider.personBacksGesture = { [weak services] uptime in services?.personInput.backs(uptime) ?? false }
-        // Touch ID or the password, when the click turning Full access or Dedicated agent machine on was not the HID system's.
+        // Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs.
         provider.ownerConfirm = LocalDeviceOwnerAuthenticator()
         provider.setMachineVmHost = { [weak services] id, on in
             guard let services else { return nil }
