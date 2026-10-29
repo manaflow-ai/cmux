@@ -12,7 +12,9 @@ from pathlib import Path
 import shutil
 import shlex
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 
 
@@ -614,8 +616,12 @@ cat > node_modules/.bin/vp <<'VP'
         import next_batch
         files = [path for path in subprocess.run(["git", "ls-files", "-z"], cwd=SOURCE, check=True,
                                                  capture_output=True, text=True).stdout.split("\0") if path]
-        attributes = subprocess.run(["git", "check-attr", "merge", "--stdin", "-z"], cwd=SOURCE, check=True,
-                                    input="\0".join(files), capture_output=True, text=True).stdout.split("\0")
+        # The paths go through a file, never `input=`: a pipe write can block for good (scripts/cmux-next/git_batch.py).
+        with tempfile.TemporaryFile() as paths:
+            paths.write("\0".join(files).encode())
+            paths.seek(0)
+            attributes = subprocess.run(["git", "check-attr", "merge", "--stdin", "-z"], cwd=SOURCE, check=True,
+                                        stdin=paths, capture_output=True, text=True).stdout.split("\0")
         kept = [path for path, _, value in zip(attributes[0::3], attributes[1::3], attributes[2::3])
                 if value == "cmux-generated-v1"]
         self.assertTrue(kept)
@@ -1003,6 +1009,34 @@ cat > node_modules/.bin/vp <<'VP'
         result = self.install(plain)
 
         self.assertNotEqual(result.returncode, 0)
+
+    def test_an_install_behind_a_held_lock_gives_up_and_names_the_holder(self):
+        """2026-10-28 (a803, a817, about 25 agents): a refresh stuck holding install.lock made every install and
+        push behind it wait for good, naming pid 85305, the last installer's pid left in the file and long gone.
+        An install now waits a bounded time, then fails naming the process that holds the lock."""
+        self.assertEqual(self.install().returncode, 0)
+        lock_path = self.common_dir() / "cmux-git-hooks" / "install.lock"
+        lock_path.write_text("85305\n")  # the stale pid text of a finished install
+        holder = subprocess.Popen(
+            [sys.executable, "-I", "-c",
+             "import fcntl, os, sys, time\n"
+             "fd = os.open(sys.argv[1], os.O_RDWR)\nfcntl.flock(fd, fcntl.LOCK_EX)\n"
+             "print('held', flush=True)\ntime.sleep(120)\n", str(lock_path)],
+            stdout=subprocess.PIPE, text=True, start_new_session=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        self.env["CMUX_HOOKS_INSTALL_LOCK_WAIT_SECONDS"] = "2"
+        started = time.monotonic()
+        try:
+            result = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True,
+                                    timeout=30)
+        except subprocess.TimeoutExpired:
+            self.fail("the install waited past 30 s for a lock another process holds")
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"pid {holder.pid}", result.stderr)
+        self.assertNotIn("85305", result.stderr)
 
 
 if __name__ == "__main__":

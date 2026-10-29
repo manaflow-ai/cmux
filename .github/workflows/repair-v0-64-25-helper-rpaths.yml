@@ -58,14 +58,79 @@ jobs:
             --require-signed
           echo "dmg_sha256=$(shasum -a 256 "$root/cmux-macos.dmg" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
+  # Leo, 2026-10-28: the release signing jobs may run on our own Macs ("we can just read the code").
+  # Picks repair's runner (scripts/ci/signing_runner.py): a drained owned Mac on attempt 1 while
+  # vars.CI_SIGN_OWNED is 1, held whole for the job (its claim step), else the Blacksmith macOS label
+  # whose queue moves, and the other size for a re-run. The routing App key stays in this Linux job's
+  # routing environment and is minted only on the refs the release environment allows (main, rc/**, v* tags), so
+  # no other branch's picker code ever holds it; actions: read is the queue janitor's pool snapshot. A failed pick reads as
+  # success, and repair then falls back to Blacksmith 6 vCPU.
+  pick-sign-runner:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    environment: ci-routing-agent
+    continue-on-error: true
+    # Checkout, then the token mints 1 + 1 and the pick 3.
+    timeout-minutes: 8
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      owned: ${{ steps.pick.outputs.owned }}
+      runner: ${{ steps.pick.outputs.runner }}
+      alternate: ${{ steps.pick.outputs.alternate }}
+    steps:
+      - name: Checkout the picker
+        if: github.repository_owner == 'manaflow-ai'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: github.repository == 'manaflow-ai/cmux' && vars.CI_SIGN_OWNED == '1' && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.run_attempt == 1 && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/rc/') || startsWith(github.ref, 'refs/tags/v'))
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Pick the signing runner
+        id: pick
+        if: github.repository_owner == 'manaflow-ai'
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          ENABLED: ${{ vars.CI_SIGN_OWNED }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          OWNED_LABELS: ${{ vars.CI_SIDE_LANE_RUNNER }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 scripts/ci/signing_runner.py
+
   repair:
-    needs: verify-shipped
+    needs: [verify-shipped, pick-sign-runner]
     permissions:
       contents: write
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned && fromJSON(needs.pick-sign-runner.outputs.owned) || github.run_attempt > 1 && needs.pick-sign-runner.outputs.alternate || needs.pick-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     env:
       TARGET_TAG: v0.64.25
@@ -74,11 +139,28 @@ jobs:
       DMG_PATH: ${{ github.workspace }}/cmux-macos.dmg
       APPCAST_PATH: ${{ github.workspace }}/appcast.xml
     steps:
+      # First, before the checkout's token or any secret: on an owned Mac this job holds the whole
+      # mini (glaeda's exclusive class) or fails here (tests/test_ci_signing_owned_mac.py CLAIM_GATE).
+      - name: Hold the whole Mac before any credential
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ] && [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+            echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; its re-run takes Blacksmith."
+            exit 1
+          fi
+
       - name: Checkout repair tooling
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           submodules: false
+
+      # Before any secret: the same check again, and a signing keychain a killed job left is removed.
+      - name: Claim the whole Mac for signing
+        run: ./scripts/ci/signing-runner-claim.sh
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh

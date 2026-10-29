@@ -34,16 +34,21 @@
    its body scroll (Leo, 2026-10-26: "It's still just this constrained height for, like, no reason at
    all"). It is still a card that floats, never a column: with little to show it ends right after its
    last section, with no fixed or minimum height (Leo, 2026-10-22: "the card should just end when there's
-   no more content to show"; chat-inspector-overlay-toggle.test.ts). */
+   no more content to show"; chat-inspector-overlay-toggle.test.ts). A card under it (the computer use
+   live preview, underInspector.ts) keeps its room and the gap at the foot: --acpmux-inspector-under-room,
+   which that card publishes on the shell while it shows. */
 .acpmux-chat-inspector[data-placement] {
-  max-height: calc(100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset));
+  max-height: calc(
+    100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset) - var(--acpmux-inspector-under-room, 0px)
+  );
   border-radius: var(--acpmux-inspector-panel-radius);
 }
 /* Lying over the chat's column (the chat cannot move left for it), it stops above the composer's stack
    (ChatInspector.tsx inspectorOverChat, --acpmux-inspector-foot), so it never covers the composer. */
 .acpmux-chat-inspector[data-placement="overlay"][data-over-chat] {
   max-height: calc(
-    100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-foot, 0px) - var(--acpmux-inspector-inset)
+    100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-foot, 0px) - var(--acpmux-inspector-inset) -
+      var(--acpmux-inspector-under-room, 0px)
   );
 }
 /* Pushing: a flex item that keeps its own height at the top, its margins the floating card's place. */

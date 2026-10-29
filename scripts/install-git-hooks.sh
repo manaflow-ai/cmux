@@ -72,10 +72,40 @@ lock = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o644)  # not inheritable (PEP
 try:
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
-    holder = os.pread(lock, 32, 0).decode(errors="replace").strip() or "unknown"
-    print(f"install-git-hooks: another install holds {lock_path} (pid {holder}); waiting for it to finish.",
+    # The holder is whoever has the file open now (a push refresh writes no pid), never the pid text a
+    # finished install left in it: on 2026-10-28 that named pid 85305, gone for hours, while a stuck refresh held it.
+    try:
+        found = subprocess.run(["/usr/sbin/lsof", "-t", "--", lock_path], capture_output=True, text=True,
+                               stdin=subprocess.DEVNULL, timeout=10).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        found = []
+    pids = [p for p in found if p != str(os.getpid())]
+    holder = ", ".join(pids) or "unknown"
+    try:
+        wait = float(os.environ.get("CMUX_HOOKS_INSTALL_LOCK_WAIT_SECONDS") or 300)
+    except ValueError:
+        wait = 300.0
+    print(f"install-git-hooks: another process holds {lock_path} (pid {holder}); waiting for it to finish (up to {wait:g}s).",
           file=sys.stderr, flush=True)
-    fcntl.flock(lock, fcntl.LOCK_EX)
+
+    def gave_up(number, frame):
+        raise TimeoutError
+
+    signal.signal(signal.SIGALRM, gave_up)
+    signal.setitimer(signal.ITIMER_REAL, wait)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+    except TimeoutError:
+        details = []
+        for pid in pids:
+            line = subprocess.run(["ps", "-o", "pid=,etime=,command=", "-p", pid], capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL).stdout.strip()
+            details.append(line[:200] or pid)
+        print(f"install-git-hooks: gave up after {wait:g}s: pid {holder} still holds {lock_path}; the hooks were "
+              "not installed. The holder: " + ("; ".join(details) or "unknown") + ". Stop it if it is stuck "
+              "(a push refresh stuck before 9af05f03147 is), then run this again.", file=sys.stderr, flush=True)
+        sys.exit(1)
+    signal.setitimer(signal.ITIMER_REAL, 0)
 os.ftruncate(lock, 0)
 os.pwrite(lock, f"{os.getpid()}\n".encode(), 0)
 # The lock must outlive the child: Ctrl-C reaches the child through the process group of the terminal, and a

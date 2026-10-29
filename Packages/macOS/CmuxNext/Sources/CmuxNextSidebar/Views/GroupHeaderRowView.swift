@@ -29,7 +29,8 @@ final class GroupHeaderRowView: SidebarRowView {
     let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     /// A collapsed group's member count, after the name.
     private let count = SidebarRowView.label(font: SidebarStyle.headerFont)
-    private let chevron = DecorativeImageView()
+    /// The disclosure chevron: one glyph that turns as the group opens and closes (Lawrence msg 15763).
+    private let chevron = DisclosureChevronView()
     /// The members' roll-up, in the sidebar's status colors (Lawrence msg 11983).
     private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
     /// The spinner's slot: it fades and collapses its width as loading starts and stops (u-group-header-detail).
@@ -67,6 +68,8 @@ final class GroupHeaderRowView: SidebarRowView {
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
     private var chevronIcon: IconName = .disclosureExpanded
+    /// The header has shown a group since it was made or recycled: its first show takes the chevron's angle at once.
+    private var configuredOnce = false
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     /// Arrow keys stopped here (`SidebarListView+GroupKeys`): a focus ring, not a selection.
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsLayout = true; needsDisplay = true } } }
@@ -117,6 +120,8 @@ final class GroupHeaderRowView: SidebarRowView {
         isKeyboardFocused = false
         isEditing = false
         collapsed = false
+        configuredOnce = false
+        chevron.setOpen(true, animated: false)
         activityEnding = false
         activity.configure(.idle)
         onMore = nil
@@ -154,7 +159,10 @@ final class GroupHeaderRowView: SidebarRowView {
         collapsed = row.isCollapsed
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
-        chevron.image = NSImage.icon(chevronIcon, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))
+        // One right-pointing glyph turned a quarter turn when open: a user's fold turns it as the rows slide.
+        chevron.setImage(NSImage.icon(.disclosureCollapsed, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2)))
+        chevron.setOpen(!collapsed, animated: animated && configuredOnce)
+        configuredOnce = true
         // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
         let status = collapsed && details.otherStates ? group.aggregateActivity : rollUp ?? group.statusRollUp(collapsed: collapsed)
         if status.isVisible {
