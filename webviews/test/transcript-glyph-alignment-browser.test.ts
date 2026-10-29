@@ -39,21 +39,21 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
     page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>("[data-glyph-row]")].map((row) => {
         const text = row.querySelector<HTMLElement>(".cv-tool__text, .cv-worked__label, .cv-received__name, .acpmux-chat-inspector-row__name");
-        const glyph = row.querySelector<HTMLElement>(".cv-tool__icon, .cv-worked__glyph, .cv-received__icon, .acpmux-row-glyph");
-        if (!glyph) throw new Error(`missing glyph for ${row.dataset.glyphRow}`);
-        const glyphBox = glyph.getBoundingClientRect();
+        const glyphs = [...row.querySelectorAll<HTMLElement>(".cv-tool__icon svg, .cv-command__ok, .cv-command__time, .cv-tool__chevron svg, .cv-worked__chevron, .cv-received__icon svg, .acpmux-row-glyph")];
+        if (!glyphs.length) throw new Error(`missing glyph for ${row.dataset.glyphRow}`);
         const lineBox = (text ?? row).getBoundingClientRect();
-        return { kind: row.dataset.glyphRow, delta: Math.abs((lineBox.top + lineBox.bottom) / 2 - (glyphBox.top + glyphBox.bottom) / 2) };
+        const lineCenter = (lineBox.top + lineBox.bottom) / 2;
+        return { kind: row.dataset.glyphRow, deltas: glyphs.map((glyph) => { const box = glyph.getBoundingClientRect(); return Math.abs(lineCenter - (box.top + box.bottom) / 2); }) };
       }),
     );
 
   const measureFooter = async (page: Page) =>
     page.evaluate(() => {
-      const time = document.querySelector<HTMLElement>("[data-footer-time]")!;
+      const time = document.querySelector<HTMLElement>("[data-footer-row] .cv-message-footer-row .cv-user__time")!;
       const timeBox = time.getBoundingClientRect();
       const center = (box: DOMRect) => (box.top + box.bottom) / 2;
-      return [...document.querySelectorAll<SVGElement>("[data-footer-glyph] svg")].map((glyph) => ({
-        kind: glyph.parentElement?.getAttribute("data-footer-glyph"),
+      return [...document.querySelectorAll<SVGElement>("[data-footer-row] .cv-message-footer-row .cv-iconbtn svg")].map((glyph) => ({
+        kind: glyph.parentElement?.getAttribute("aria-label") ?? "action",
         delta: Math.abs(center(glyph.getBoundingClientRect()) - center(timeBox)),
       }));
     });
@@ -66,9 +66,10 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
         // Add `capture=before` when collecting the synthetic baseline alongside this after-state capture.
         await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}&height=${height}&capture=after`);
         await page.locator("[data-glyph-row]").first().waitFor();
+        await page.locator('[data-glyph-row="tool"]').hover();
         const rows = await measure(page);
         expect(rows).toHaveLength(4);
-        for (const row of rows) expect(row.delta, `${theme}/${height}/${row.kind}`).toBeLessThanOrEqual(0.5);
+        for (const row of rows) for (const delta of row.deltas) expect(delta, `${theme}/${height}/${row.kind}`).toBeLessThanOrEqual(0.5);
         const footer = await measureFooter(page);
         expect(footer).toHaveLength(3);
         for (const glyph of footer) expect(glyph.delta, `${theme}/${height}/footer/${glyph.kind}`).toBeLessThanOrEqual(0.5);

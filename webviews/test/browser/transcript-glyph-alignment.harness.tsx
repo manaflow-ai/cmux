@@ -5,7 +5,11 @@ import "../../src/agent-session/acpmux/conversation/conversation.css";
 import "../../src/agent-session/acpmux/inspector/inspector.css";
 import type { CSSProperties } from "react";
 import { Icon } from "../../src/agent-session/acpmux/icons/Icon";
-import { Check, ChevronRight, Copy, Retry, TerminalSquare } from "../../src/agent-session/acpmux/conversation/icons";
+import { ToolRow } from "../../src/agent-session/acpmux/conversation/ToolRow";
+import { WorkedFor } from "../../src/agent-session/acpmux/conversation/TurnRows";
+import { PromptActions } from "../../src/agent-session/acpmux/conversation/MessageActions";
+import { TurnActionsContext } from "../../src/agent-session/acpmux/conversation/turnActions";
+import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 
 const themes = {
   dark: { page: "#202124", text: "#f5f5f1", muted: "#c9c9c4", soft: "#95958f" },
@@ -16,19 +20,15 @@ function FixtureRow({ kind, height }: { kind: string; height: number }) {
   const rowStyle = { height: `${height}px` };
   if (kind === "tool") {
     return (
-      <div className="cv-tool" data-glyph-row={kind} style={rowStyle}>
-        <span className="cv-tool__icon"><TerminalSquare size={16} /></span>
-        <span className="cv-tool__text">Ran echo focused checks</span>
-        <span className="cv-command__meta" data-footer-glyph="check"><Check size={14} className="cv-command__ok" /><span className="cv-command__time">6.0s</span></span>
-        <span className="cv-tool__chevron" aria-hidden="true"><ChevronRight size={14} /></span>
+      <div className="fixture-tool" data-glyph-row={kind} style={rowStyle}>
+        <ToolRow item={{ kind: "tool", text: "", tool: { id: "fixture-check", title: "echo focused checks", kind: "execute", status: "completed", command: "echo focused checks", startedAt: 1000, endedAt: 7000 } }} />
       </div>
     );
   }
   if (kind === "worked") {
     return (
-      <div className="cv-worked" data-glyph-row={kind} style={rowStyle}>
-          <span className="cv-worked__glyph"><TerminalSquare size={16} /></span>
-        <span className="cv-worked__label">Worked for</span>
+      <div data-glyph-row={kind} style={rowStyle}>
+        <WorkedFor row={{ id: "worked-fixture", kind: "worked", at: 1000, durationMs: 6000, status: "completed" } as unknown as AcpmuxRow} expanded={false} onToggle={() => undefined} />
       </div>
     );
   }
@@ -53,20 +53,8 @@ function FixtureRow({ kind, height }: { kind: string; height: number }) {
 }
 
 function FooterRow({ height }: { height: number }) {
-  return (
-    <div className="cv-message-footer-row" data-footer-row="true" style={{ height: `${height}px` }}>
-      <time className="cv-user__time" data-footer-time="true">12s</time>
-      <button type="button" className="cv-iconbtn" data-footer-glyph="copy" aria-label="Copy">
-        <Copy size={16} />
-      </button>
-      <button type="button" className="cv-iconbtn" data-footer-glyph="retry" aria-label="Retry">
-        <Retry size={16} />
-      </button>
-      <button type="button" className="cv-iconbtn cv-turn-retry-menu" data-footer-glyph="chevron" aria-label="More models">
-        <ChevronRight size={16} />
-      </button>
-    </div>
-  );
+  const row = { id: "footer-fixture", kind: "user", at: Date.now(), text: "Synthetic sent message", resend: "Synthetic sent message" } as unknown as AcpmuxRow;
+  return <div data-footer-row="true" style={{ height: `${height}px` }}><TurnActionsContext.Provider value={{ retry: () => undefined, retryWith: { models: [{ id: "model-a", name: "Model A" }, { id: "model-b", name: "Model B" }], current: "model-a", retry: () => undefined } }}><PromptActions row={row} text="Synthetic sent message" /></TurnActionsContext.Provider></div>;
 }
 
 function App() {
@@ -111,6 +99,9 @@ function App() {
         [data-capture="before"] .cv-message-footer-row > :is(.cv-user__time, .cv-turn-time) { height: 20px; }
         [data-capture="before"] .cv-message-footer-row .cv-iconbtn { width: 20px; height: 20px; }
         [data-capture="before"] .cv-message-footer-row .cv-iconbtn.cv-turn-retry-menu { width: 20px; }
+        .glyph-alignment-fixture .fixture-tool > .cv-tool,
+        .glyph-alignment-fixture [data-glyph-row="worked"] > .cv-worked { height: 100%; }
+        .glyph-alignment-fixture [data-footer-row] > .cv-user__actions { height: 100%; align-items: center; }
       `}</style>
       <FixtureRow kind="tool" height={height} />
       <FixtureRow kind="worked" height={height} />
