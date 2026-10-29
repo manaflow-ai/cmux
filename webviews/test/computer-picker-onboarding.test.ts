@@ -44,6 +44,10 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
           const cloud = menu.getByRole("button", { name: "New Cloud Machine…", exact: true });
           await add.waitFor();
           expect(await add.isVisible()).toBe(true);
+          console.log(
+            "CLOUD_DEBUG",
+            await cloud.evaluate((el) => ({ html: el.outerHTML, rect: el.getBoundingClientRect().toJSON() })),
+          );
           expect(await cloud.isVisible()).toBe(true);
           expect(await page.locator(".acpmux-env-popover").count()).toBe(0);
           const artifacts = process.env.CMUX_COMPUTER_SETUP_ARTIFACTS;
