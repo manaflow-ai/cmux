@@ -1799,6 +1799,31 @@ async fn dispatch_request(
             hub.set_rules(&s, rules);
             Ok(hub.session_summary(&s))
         }
+        method::MUX_SET_TURN_CAP => {
+            let s = hub.resolve(session_key(&params)?)?;
+            if let Some(value) = params.get("turnCapMs") {
+                // The person's: the app, or the local socket with no agent behind it. A
+                // session's agent never lifts a cap, its own or another's.
+                if !conn.is_person() && (conn.origin != Origin::Local || conn.caller().is_some()) {
+                    return Err(crate::hub::person::person_required(
+                        "changing a session's turn cap",
+                    ));
+                }
+                let cap = match value {
+                    Value::Null => None,
+                    v => Some(v.as_u64().ok_or_else(|| {
+                        RpcError::invalid_params("turnCapMs must be a whole number of ms or null")
+                    })?),
+                };
+                hub.set_turn_cap(&s, cap);
+            }
+            let meta = s.meta();
+            Ok(json!({
+                "sessionId": s.id,
+                "turnCapMs": meta.turn_cap_ms,
+                "effectiveTurnCapMs": crate::hub::turn_cap::turn_cap_ms(&meta),
+            }))
+        }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             // A restart reads the chat logs after its ready line: the queue, turn and status

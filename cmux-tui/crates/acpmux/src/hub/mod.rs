@@ -121,6 +121,7 @@ mod store_load;
 mod stream;
 mod tags;
 mod tap;
+pub(crate) mod turn_cap;
 mod titles;
 mod tool_paths;
 mod tools;
@@ -1081,6 +1082,8 @@ impl Hub {
             stalled_gen: AtomicU64::new(0),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
+            turn_cap_noticed: StdMutex::new(None),
+            turn_cap_timer: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
