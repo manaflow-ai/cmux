@@ -215,9 +215,11 @@ impl Hub {
             }
         }
 
-        let Some(retry) = retry.filter(|r| {
-            r.attempt > 0 && r.attempt <= MAX_ATTEMPTS as u64 && !r.prompt_id.is_empty()
-        }) else {
+        // Validate against the durable schedule's configured attempt count. The
+        // default delay count is not a ceiling on explicitly configured retries.
+        let Some(retry) =
+            retry.filter(|r| r.attempt > 0 && r.attempt <= r.of && !r.prompt_id.is_empty())
+        else {
             return;
         };
         if control == Control::Web && (ended || floor_cancelled) {
@@ -503,6 +505,7 @@ mod tests {
             (vec![], "original", None),
             (vec![10_000], "original~resume-1", None),
             (vec![10_000, 60_000], "original~resume-1", Some(2)),
+            (vec![60_000; 5], "original~resume-4", Some(5)),
         ] {
             let (hub, session) = idle_chat();
             hub.config.write().await.auto_resume_delays_ms = Some(delays.clone());
@@ -519,6 +522,11 @@ mod tests {
                         row["retry"]["nextAt"],
                         ended_at + staggered(delays[attempt - 1], &session.id)
                     );
+                    // The next daemon reads the persisted schedule rather than
+                    // synthesizing it. Both paths honor its configured attempt count.
+                    let (again, session) = restart(&hub, &session).await;
+                    again.restore_auto_resume(&session);
+                    assert_eq!(again.session_summary(&session)["retry"], row["retry"]);
                 }
                 None => {
                     assert_eq!(row["retry"], Value::Null);
