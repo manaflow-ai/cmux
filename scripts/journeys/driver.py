@@ -536,7 +536,8 @@ class Journey:
         term = self.need_term()
         # The tty first, on its own line; the neutral prompt is written only after the shell ran it.
         self.tty_probes += 1
-        tty_file = Path(f"/tmp/jr-tty-{self.nonce}-{self.tty_probes}")
+        # In the journey's own output dir (the capture slot's, removed with the slot), never /tmp.
+        tty_file = self.out / f"tty-{self.tty_probes}.txt"
         if tty_file.exists():
             tty_file.unlink()
         self.app.cmux("terminal", term, "write", "--text", TTY_PROBE.format(tty_file=shlex.quote(str(tty_file))))

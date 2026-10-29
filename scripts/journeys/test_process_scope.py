@@ -94,7 +94,8 @@ class ProcessPresentBindsTheJourneysTerminal(unittest.TestCase):
         self.assertEqual(j.binds["shell"]["pid"], 230, detail)
         # The tty goes on its own line first; the neutral prompt line itself is written unchanged after it.
         self.assertEqual([text for _, text in host.writes][1::2], [D.NEUTRAL_PROMPT, D.NEUTRAL_PROMPT])
-        self.assertTrue(all(text.startswith("tty >| /tmp/") for _, text in host.writes[0::2]), host.writes)
+        self.assertTrue(all(text.startswith(f"tty >| {self.out.name}/tty-") for _, text in host.writes[0::2]), host.writes)
+        self.assertEqual(list(Path(self.out.name).glob("tty-*")), [])
         # Ctrl+D ends the second tab's shell: process_gone holds.
         del host.table[230]
         holds, detail = j.evaluate("process_gone", "shell", {})
@@ -117,7 +118,7 @@ class ProcessPresentBindsTheJourneysTerminal(unittest.TestCase):
         j.term = "term_b"
         self.assertEqual(j.step_neutral_prompt({"tty_timeout": 0.1})["tty"], "ttys005")
         self.assertEqual(j.ttys, {"term_b": "ttys005"})
-        self.assertEqual(list(Path("/tmp").glob(f"jr-tty-{j.nonce}-*")), [])
+        self.assertEqual(list(Path(self.out.name).glob("tty-*")), [])
 
     def test_a_terminal_with_an_unknown_tty_never_binds_a_guess(self):
         host = Host(write_tty=False)
