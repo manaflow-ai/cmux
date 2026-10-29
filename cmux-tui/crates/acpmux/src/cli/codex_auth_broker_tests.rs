@@ -210,10 +210,11 @@ async fn owner_stop_unlocks_when_a_detached_child_keeps_the_lock_fd() {
         r#"#!/usr/bin/env python3
 import json, os, subprocess, sys
 
+fd_root = '/dev/fd' if sys.platform == 'darwin' else '/proc/self/fd'
 lock_fd = None
-for fd in os.listdir('/proc/self/fd'):
+for fd in os.listdir(fd_root):
     try:
-        if os.path.basename(os.readlink('/proc/self/fd/' + fd)) == 'broker.lock':
+        if os.path.basename(os.readlink(fd_root + '/' + fd)) == 'broker.lock':
             lock_fd = int(fd)
             break
     except OSError:
