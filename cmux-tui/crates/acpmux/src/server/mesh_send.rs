@@ -23,7 +23,8 @@ fn idempotency_key(id: &str) -> String {
     if fits {
         id.to_owned()
     } else {
-        format!("p:{}", &crate::sha256::sha256_hex(id.as_bytes())[..40])
+        let digest = crate::sha256::sha256_hex(id.as_bytes());
+        format!("p:{}", digest.get(..40).unwrap_or(&digest))
     }
 }
 

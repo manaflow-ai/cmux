@@ -228,7 +228,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::Ls { status, pending, tag, limit, fields, since } => {
+        Command::Ls { status, pending, tag, limit, fields, since, with_tools } => {
             let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
             let selected = limit.is_some() || fields.is_some() || since_ms.is_some();
             let fields = fields.as_deref().map(parse_fields).transpose()?;
@@ -237,11 +237,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // possible; a `--since` filter must run before the limit, so that combination reads
             // the complete list and applies both filters locally.
             let daemon_limit = limit.filter(|_| status.is_none() && !pending && tag.is_none());
-            let params = if since_ms.is_none() {
+            let mut params = if since_ms.is_none() {
                 daemon_limit.map_or_else(|| json!({}), |n| json!({"limit": n}))
             } else {
                 json!({})
             };
+            if with_tools {
+                params["withTools"] = json!(true);
+            }
             let mut v = client.request(method::MUX_SESSIONS, params).await?;
             if status.is_some() || pending || tag.is_some() || selected {
                 let mut sessions = match v.get_mut("sessions") {
@@ -549,13 +552,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 } else if first.is_some() {
                     println!(
                         "reused {name} ({}): it had no prompt yet, so its first prompt is queued",
-                        &session_id[..8.min(session_id.len())]
+                        session_id.get(..8).unwrap_or(session_id)
                     );
                 } else {
                     println!(
                         "reused {name} ({}): it already runs, so the prompt was not sent again; \
                          use `acpmux send {name}` to give it more",
-                        &session_id[..8.min(session_id.len())]
+                        session_id.get(..8).unwrap_or(session_id)
                     );
                 }
                 return Ok(());
@@ -1165,12 +1168,13 @@ fn parse_duration_ms(text: &str) -> Result<u64> {
             ))
             .into());
         }
-        let number: u64 = rest[..digits].parse().map_err(|_| {
+        let (number_text, after_number) = rest.split_at_checked(digits).unwrap_or((rest, ""));
+        let number: u64 = number_text.parse().map_err(|_| {
             errors::AppError::usage(format!(
                 "invalid --since duration {text:?}; use values such as 30m or 24h"
             ))
         })?;
-        rest = &rest[digits..];
+        rest = after_number;
         let unit_len = rest.chars().next().map_or(0, char::len_utf8);
         let unit = rest.get(..unit_len).unwrap_or("");
         let multiplier = match unit {
@@ -1193,7 +1197,7 @@ fn parse_duration_ms(text: &str) -> Result<u64> {
             .ok_or_else(|| {
                 errors::AppError::usage(format!("--since duration {text:?} is too large"))
             })?;
-        rest = &rest[unit_len..];
+        rest = rest.get(unit_len..).unwrap_or("");
     }
     Ok(total)
 }

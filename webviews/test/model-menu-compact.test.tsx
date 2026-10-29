@@ -310,7 +310,9 @@ test("the optional reasoning slider replaces Effort's levels only when enabled",
   const effort = await openSub("Effort");
   expect(effort.querySelector(".acpmux-effort-range")).not.toBeNull();
   expect(effort.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
-  expect(doc().activeElement?.classList.contains("acpmux-effort-range")).toBe(true);
+  // EffortTrack transfers focus on the next animation frame, after Base UI positions the popup.
+  await act(async () => await new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve())));
+  expect(doc().activeElement).toBe(effort.querySelector(".acpmux-effort-range"));
 });
 
 test("a number key picks that model in place", async () => {
@@ -490,20 +492,19 @@ test("the current machine profile keeps its compact model list without a rail", 
   expect(modelNames(menu()!)).toContain("Machine model");
 });
 
-test("More models is a submenu: the harness's other models, then Add harness…", async () => {
+test("Add harness… is the last item in the harness strip, outside More models", async () => {
   const { added } = await mount({ routes: [] });
   await open();
   const top = modelNames(menu()!);
   const more = await openSub("More models");
   const rows = itemsOf(more);
-  expect(rows.at(-1)).toBe("Add harness…");
-  expect(rows.length).toBeGreaterThan(1);
+  expect(rows).not.toContain("Add harness…");
+  expect(rows.length).toBeGreaterThan(0);
   // Only models the top list does not already show.
-  expect(rows.slice(0, -1).some((row) => top.includes(row ?? ""))).toBe(false);
+  expect(rows.some((row) => top.includes(row ?? ""))).toBe(false);
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
-  const add = [...more.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-    (item) => item.textContent?.trim() === "Add harness…",
-  )!;
+  const add = menu()!.querySelector<HTMLButtonElement>(".acpmux-quick-rail-add")!;
+  expect(add.getAttribute("aria-label")).toBe("Add harness…");
   await act(async () => add.click());
   await settle();
   expect(added).toEqual(["add"]);
@@ -542,7 +543,7 @@ test("the rail tab and the typed filter survive the composer re-rendering", asyn
   for (const letter of "hai") await key(letter);
   await rerender();
   await settle();
-  expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“hai”");
+  expect(field()!.value).toBe("hai");
 });
 
 test("typing keeps keyboard focus in the menu when the focused row goes away", async () => {
@@ -564,7 +565,7 @@ test("typing keeps keyboard focus in the menu when the focused row goes away", a
   expect(doc().activeElement).toBe(field());
   await typeIn("ha");
   await settle();
-  expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“ha”");
+  expect(field()!.value).toBe("ha");
 });
 
 // Lawrence 2026-10-22, on the model menu: "spacing + needs search". The menu opens with a search
@@ -577,7 +578,7 @@ test("the menu opens with a search field that has the keyboard", async () => {
   expect(doc().activeElement).toBe(field());
 });
 
-test("the search field filters every harness's models and names each row's harness", async () => {
+test("the search field filters every harness's models and heads each harness's matches with its name", async () => {
   await mount({ routes: [] });
   await open();
   await typeIn("gpt");
@@ -585,8 +586,14 @@ test("the search field filters every harness's models and names each row's harne
   const rows = modelRows(menu()!);
   expect(rows.length).toBeGreaterThan(0);
   expect(modelNames(menu()!).every((name) => name.toLowerCase().includes("gpt"))).toBe(true);
-  // A wider live catalog can match GPT models from several harnesses; each row must name its own.
-  expect(rows.every((row) => !!row.querySelector(".acpmux-quick-value")?.textContent?.trim())).toBe(true);
+  // A wider live catalog can match GPT models from several harnesses; each row sits under its own.
+  const tabs = new Set(railTabs().map((tab) => tab.getAttribute("aria-label")));
+  for (const row of rows) {
+    const heading = row.closest(".ui-menu-group")?.querySelector(".ui-menu-group-label")?.textContent ?? "";
+    expect(tabs.has(heading)).toBe(true);
+  }
+  // Lawrence, via Leo 2026-10-28: no tab stays lit while the matches are every harness's.
+  expect(railTabs().filter((tab) => tab.getAttribute("aria-pressed") === "true")).toHaveLength(0);
   await typeIn("");
   await settle();
   expect(modelNames(menu()!).some((name) => name.toLowerCase().includes("opus"))).toBe(true);
@@ -604,6 +611,16 @@ test("the search reads an effort word as the full picker does, and Enter lands t
   await settle();
   expect(menu()).toBeNull();
   expect(sent).toContainEqual({ method: "effort", value: "high" });
+});
+
+// Review of #27303: a started chat's menu has no harness rail, so its empty search never says to
+// browse by harness.
+test("a started chat's empty search says what to do without naming a harness list", async () => {
+  await mount({ routes: [] }, { turnCount: 1 });
+  await open();
+  await typeIn("zzzz");
+  await settle();
+  expect(menu()!.querySelector(".acpmux-quick-note")?.textContent).toBe("No models match “zzzz”. Try part of a name.");
 });
 
 test("a started chat's search field filters its own models in place, without opening the full picker", async () => {
@@ -641,7 +658,7 @@ test("while filtering, a digit narrows the list instead of picking a row", async
   await settle();
   expect(menu()).not.toBeNull();
   expect(sent.filter((entry) => entry.method === "model")).toHaveLength(0);
-  expect(menu()!.querySelector(".ui-menu-group-label")?.textContent).toBe("“gpt 5”");
+  expect(field()!.value).toBe("gpt 5");
 });
 
 // A digit narrows a filter, so the filtered rows show no number to press.
@@ -739,7 +756,7 @@ test("a switch acpmux refuses is named on the Provider row", async () => {
   expect(itemsOf(menu()!).some((row) => row === "ProviderCouldn’t switch account")).toBe(true);
 });
 
-test("Cmd-Ctrl-M over the compact menu uses the same picker component as its click", async () => {
+test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", async () => {
   await mount({ routes: [] });
   await open();
   expect(menu()).not.toBeNull();
@@ -754,8 +771,8 @@ test("Cmd-Ctrl-M over the compact menu uses the same picker component as its cli
     );
   });
   await settle();
-  expect(menu()).not.toBeNull();
-  expect(doc().querySelector(".acpmux-mp")).toBeNull();
+  expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
+  expect(menu()).toBeNull();
 });
 
 // Leo 2026-10-19: a started chat's menu drew a rail of its one harness, then offered Add harness….
@@ -778,21 +795,21 @@ test("a started chat's compact menu has no harness rail and no Add harness…", 
   expect(added).toEqual([]);
 });
 
-// Tabs show only their own model rows. The browser geometry test covers the fixed rail width
-// and visible-height changes, which JSDOM cannot measure.
-test("rail tabs replace their visible rows and reset a scrolled list", async () => {
+// Tabs replace their visible rows while the rail itself stays in place.
+test("rail tabs replace their visible content", async () => {
   await mount({ routes: [] }, { fast: true });
   await open();
   const body = () => menu()!.querySelector<HTMLElement>(".acpmux-quick-body")!;
   const counts: number[] = [];
   const modelLists: string[][] = [];
-  for (const name of railTabs().map((tab) => tab.getAttribute("aria-label")!)) {
+  for (const name of railTabs()
+    .filter((tab) => !tab.classList.contains("acpmux-quick-rail-add"))
+    .map((tab) => tab.getAttribute("aria-label")!)) {
     const tab = railTabs().find((each) => each.getAttribute("aria-label") === name)!;
     await act(async () => tab.click());
     await settle();
     expect(tab.getAttribute("aria-pressed"), name).toBe("true");
-    const visibleModels = modelNames(menu()!);
-    modelLists.push(visibleModels);
+    modelLists.push(modelNames(menu()!));
     counts.push(body().querySelectorAll('[role^="menuitem"]').length);
   }
   expect(modelLists.some((models) => models.length > 0)).toBe(true);
@@ -812,18 +829,15 @@ test.each([{ turnCount: 0 }, { turnCount: 2 }, { folderProfile: true, currentFol
     await open();
     expect(menu()!.textContent).not.toMatch(/Model\s*·\s*this session/i);
     expect(menu()!.querySelector(".ui-menu-group-label")).toBeNull();
-    const more = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-      item.textContent?.startsWith("More models"),
-    );
-    expect(more).toBeDefined();
-    await act(async () => more!.click());
+    await act(async () => {
+      dom.window.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+      );
+    });
     await settle();
-    // More models opens the full picker for chats and expands in place on New Tab; either
-    // entry uses the same header-free model data and model-selection callbacks.
     const full = doc().querySelector<HTMLElement>(".acpmux-mp");
-    const surface = full ?? menu();
-    expect(surface).not.toBeNull();
-    expect(surface!.textContent).not.toMatch(/Model\s*·\s*this session/i);
+    expect(full).not.toBeNull();
+    expect(full!.textContent).not.toMatch(/Model\s*·\s*this session/i);
   },
 );
 
@@ -869,65 +883,12 @@ test.each([
   ).toBe(false);
   // A typed search keeps the footer where it is.
   if (field()) {
-    await typeIn("opus 5.5 high");
+    await typeIn("opus");
     await settle();
     expect(menu()!.lastElementChild?.classList.contains("acpmux-quick-update")).toBe(true);
   }
   await act(async () => menu()!.querySelector<HTMLElement>(".acpmux-quick-update [role^='menuitem']")!.click());
   await settle();
   expect(updated).toBe(1);
-  expect(menu()).toBeNull();
-});
-
-test("IME keyCode 229 on the shortcut-opened compact picker does not pick or close", async () => {
-  const { sent } = await mount({ routes: [] });
-  await act(async () => {
-    dom.window.dispatchEvent(
-      new dom.window.KeyboardEvent("keydown", {
-        key: "m",
-        metaKey: true,
-        ctrlKey: true,
-        bubbles: true,
-      }),
-    );
-  });
-  await settle();
-  expect(field()).not.toBeNull();
-  await typeIn("opus 5.5 high");
-  await settle();
-  const composingCommit = new dom.window.KeyboardEvent("keydown", {
-    key: "Enter",
-    keyCode: 229,
-    bubbles: true,
-    cancelable: true,
-  });
-  await act(async () => field()!.dispatchEvent(composingCommit));
-  expect(composingCommit.defaultPrevented).toBe(false);
-  expect(sent).toHaveLength(0);
-  expect(menu()).not.toBeNull();
-
-  await keyIn(field()!, "Enter");
-  await settle();
-  expect(sent.length).toBeGreaterThan(0);
-  expect(menu()).toBeNull();
-});
-
-test("Cmd-Ctrl-M closes the expanded picker through the same button path", async () => {
-  await mount({ routes: [] }, { turnCount: 2 });
-  await open();
-  await openSub("More models");
-  expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
-  await act(async () => {
-    dom.window.dispatchEvent(
-      new dom.window.KeyboardEvent("keydown", {
-        key: "m",
-        metaKey: true,
-        ctrlKey: true,
-        bubbles: true,
-      }),
-    );
-  });
-  await settle();
-  expect(doc().querySelector(".acpmux-mp")).toBeNull();
   expect(menu()).toBeNull();
 });
