@@ -128,6 +128,15 @@ def check_mode(mode, hosting):
     return code == 0 and bool(rows) and all(r.get("ok") for r in rows), facts
 
 
+def bench_env(mode):
+    """The bench's environment: an in-process mode's launches start with every switch layer hosting needs as the
+    verify set them (each bench launch starts from a fresh tag state, so the verify's local choices are gone)."""
+    hosting, _ = MODES[mode]
+    if hosting not in ("on", "off"):
+        return None
+    return {**os.environ, cef_track_a.LOCAL_FEATURES_ENV: cef_track_a.local_features_env(hosting)}
+
+
 def bench_command(bench, out, mode=None):
     common = [sys.executable, os.path.join(HERE, "pane-perf-terminal.py"), "--app", opts.app, "--tag", opts.tag,
               "--out", out, "--actions", opts.actions, "--rounds", str(opts.rounds), "--json", os.path.join(out, "report.json")]
@@ -229,7 +238,7 @@ def main(argv=None):
             command = bench_command(bench, out, mode)
             print(f"== {mode} {bench}: {' '.join(command)}", flush=True)
             with open(os.path.join(out, "log.txt"), "w") as log:
-                code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
+                code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT, env=bench_env(mode))
             report = load(os.path.join(out, "report.json")) or {}
             rows = [{"layout": r.get("layout"), "action": r.get("action"), **{k: r.get(k) for k in KEYS}}
                     for r in report.get("summary") or []]

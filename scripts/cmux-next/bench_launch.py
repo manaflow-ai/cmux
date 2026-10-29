@@ -1188,6 +1188,29 @@ def crash_summary(path, lines=40):
     return "\n".join(text.splitlines()[:lines])
 
 
+def tag_state_root(tag):
+    """A tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity daemonStateDirectory's
+    parent; its `tui` holds the daemon's saved sessions and their workspaces, `features` its local feature choices)."""
+    base = os.environ.get("BENCH_LAUNCH_STATE_BASE") or os.path.join(account_home(), "Library/Application Support/cmux")
+    return os.path.join(base, "tags", tag)
+
+
+# Extra local feature choices for every BenchApp of this process tree, `name=on,name=off` (a driver that launches
+# other benches, for example cef-resize-sync-bench.py's layer hosting modes, sets it for them). An explicit
+# `local_features` choice wins.
+LOCAL_FEATURES_ENV = "BENCH_LAUNCH_LOCAL_FEATURES"
+
+
+def local_features_from_env(environ=None):
+    """``LOCAL_FEATURES_ENV`` as {name: bool}; entries that are not `name=on` or `name=off` are ignored."""
+    choices = {}
+    for entry in (os.environ if environ is None else environ).get(LOCAL_FEATURES_ENV, "").split(","):
+        name, _, value = entry.strip().partition("=")
+        if name and value in ("on", "off"):
+            choices[name] = value == "on"
+    return choices
+
+
 def write_local_features(root, features):
     """Sets `features` ({name: bool}) in `<root>/features/local-overrides.json`, the Labs page's local feature choices
     (FeatureLocalOverrides.fileName in SidebarSnapshotFile.buildDirectory, the tag's state folder), over the choices
@@ -1218,8 +1241,8 @@ class BenchApp:
     `env` adds to (and overrides) BASE_ENV; `args` are launch arguments after the binary (for this process only,
     for example `-AppleShowScrollBars Always`, which AppKit reads into NSArgumentDomain); `pass_fds` are descriptors the
     app inherits (subprocess.Popen pass_fds; a bench's CMUX_NEXT_LAUNCH_MARKS_FD pipe), read at each launch, so a
-    relaunch may pass a new pipe; `local_features` ({name: bool}) are written as the tag's Labs local feature
-    choices before each spawn, after the fresh state (``write_local_features``); `config` is written as the app's
+    relaunch may pass a new pipe; `local_features` ({name: bool}, over ``LOCAL_FEATURES_ENV``'s) are written as the
+    tag's Labs local feature choices before each spawn, after the fresh state (``write_local_features``); `config` is written as the app's
     cmux.json; `window` is
     (x, y, width, height) or None; `screen` is CMUX_NEXT_TEST_WINDOW_SCREEN (`0` = the main display).
     `session` reads whether this account has a GUI session (default ``gui_session``, read at each launch;
@@ -1244,7 +1267,7 @@ class BenchApp:
                  lab_check=None, pass_fds=(), local_features=None, own_responsibility=False):
         self.args = tuple(args)
         self.own_responsibility = own_responsibility
-        self.local_features = dict(local_features or {})
+        self.local_features = {**local_features_from_env(), **dict(local_features or {})}
         self.pass_fds = tuple(pass_fds)
         self.perf_session = perf_session or os.environ.get(LAB_SESSION) or "light"
         host_file = os.environ.get(LAB_HOST_FILE)
@@ -1435,10 +1458,8 @@ class BenchApp:
         return self
 
     def state_root(self):
-        """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
-        daemonStateDirectory's parent; its `tui` holds the daemon's saved sessions and their workspaces)."""
-        base = os.environ.get("BENCH_LAUNCH_STATE_BASE") or os.path.join(account_home(), "Library/Application Support/cmux")
-        return os.path.join(base, "tags", self.tag)
+        """The tag's saved state (``tag_state_root``)."""
+        return tag_state_root(self.tag)
 
     def start_fresh(self):
         """Every bench launch starts from an empty saved session for its tag (2026-10-24: STRESS refused "the app

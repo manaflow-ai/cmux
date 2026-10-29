@@ -7,8 +7,12 @@ or bench on such a pin measures nothing: it is skipped, not failed. cef-layer-ve
 SKIP_EXIT, and its callers (cef-layer-ab.py, cef-resize-sync-bench.py, cef-pin-staging.sh,
 split-spring-terminal.py --suite=cef-resize-sync) report that exit as a skip, never as red.
 
-From fork API 34 a page that still does not host is a real failure (`valid`: hosting_without_track_a), for example
-with the feature `cefResizeFence` off.
+Every switch the feature needs (``FEATURES``): `cefLayerHosting` itself, and `cefResizeFence`, without which the app
+makes no resize fence call (CEFLayerHosting.Fork: `resizeFence` is nil while it is off, so Track A lacks
+`.resizeFence`). Mode on turns both on and mode off both off, as the tag's local feature choices
+(bench_launch.write_local_features: cef-layer-verify.py writes them before its launch; the benches after it get them
+through BenchApp's ``LOCAL_FEATURES_ENV``, since each bench launch starts from a fresh tag state). From fork API 34 a
+page that still does not host is a real failure (`valid`: hosting_without_track_a).
 
 Under the perf-lab runner a bench that skipped a mode adds NEED to the runner's probe file (``report_lab_skip``), so
 run_story.py reads the run as not-measurable (the build lacks a need), never as a failed run.
@@ -21,6 +25,10 @@ SKIP_EXIT = 3
 RESIZE_FENCE_FORK_API = 32
 EMBEDDER_VISIBILITY_FORK_API = 34
 TRACK_A_FORK_API = max(RESIZE_FENCE_FORK_API, EMBEDDER_VISIBILITY_FORK_API)
+# Every switch layer hosting on needs: the feature and the resize fence calls of its Track A.
+FEATURES = ("cefLayerHosting", "cefResizeFence")
+# BenchApp's extra local feature choices (bench_launch.LOCAL_FEATURES_ENV), as `name=on,name=off`.
+LOCAL_FEATURES_ENV = "BENCH_LAUNCH_LOCAL_FEATURES"
 # The need a skipped run lacks, in the perf-lab probe file's `missing` list.
 NEED = f"cef-fork-api>={TRACK_A_FORK_API}"
 # The perf-lab runner's probe file (bench_launch.LAB_PROBE_OUT, run_story.PROBE_FILE).
@@ -33,6 +41,16 @@ def skip_reason(mode, fork_api):
     if mode != "on" or not fork_api or fork_api >= TRACK_A_FORK_API:
         return None
     return f"skipped: needs CEF API >= {TRACK_A_FORK_API}, pin has {fork_api}"
+
+
+def mode_features(mode):
+    """The local feature choices of a layer hosting `mode` ("on" or "off"): every switch in FEATURES on or off."""
+    return {name: mode == "on" for name in FEATURES}
+
+
+def local_features_env(mode):
+    """``LOCAL_FEATURES_ENV``'s value for `mode`: what a bench launch after the verify starts with."""
+    return ",".join(f"{name}={'on' if on else 'off'}" for name, on in mode_features(mode).items())
 
 
 def exit_code(rows, skipped):

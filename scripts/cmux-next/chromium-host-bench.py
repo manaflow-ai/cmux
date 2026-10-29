@@ -3,6 +3,7 @@
 
 Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHosting` (the feature
 `cefLayerHosting`'s local override: a pane's page hosts where the app makes every Track A call for the fork) on, and
+`cefResizeFence` on (a local feature choice: the resize fence calls of Track A), and
 measures the same probe page twice. Chromium tabs stay in cmux (`browserHost.tabs` off) except with `--modes profiles`,
 `--modes tcc`, `--modes agentcdp` and `--kill-host`, which need them in the host: profiles, tcc and agentcdp run in a launch without the in-process rows
 (inproc, --baseline, --stress), and
@@ -234,6 +235,7 @@ import argparse, base64, json, os, pathlib, signal, struct, subprocess, sys, tem
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
+import cef_track_a  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_agent_cdp  # noqa: E402
 import chromium_host_baseline  # noqa: E402
@@ -936,8 +938,9 @@ def main():
         tcc_seed = seed_tcc_keychain(tcc_keychain)
     # tccd charges a privacy request to its process's responsible process: for the tcc rows that must be cmux, as
     # when a person opens it, not this script's ssh or runner.
+    # Every switch layer hosting needs (cef_track_a.FEATURES), so an in-process page hosts where the fork has Track A.
     app = BenchApp(opts.app, out=opts.out, env=env, build_config=opts.build_config, perf_session=opts.session,
-                   own_responsibility=tcc_keychain is not None)
+                   own_responsibility=tcc_keychain is not None, local_features=cef_track_a.mode_features("on"))
     APP_LOG["path"] = app.log_path
     try:
         RESULT["build"] = build_config(app.app, app.binary, opts.build_config)

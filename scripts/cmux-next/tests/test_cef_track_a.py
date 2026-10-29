@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Layer hosting on, on a pin below the fork API of every Track A call, is a skip, not a failure (cef_track_a.py).
 
-cef-layer-verify.py --mode on exits 3 there; cef-resize-sync-bench.py, cef-pin-staging.sh and split-spring-terminal.py
+Mode on turns on every switch the feature needs (cefLayerHosting and cefResizeFence) as the tag's local feature
+choices, for the verify and for every bench launch after it, so from API 34 the bench measures the real feature.
+cef-layer-verify.py --mode on exits 3 below API 34; cef-resize-sync-bench.py, cef-pin-staging.sh and split-spring-terminal.py
 --suite=cef-resize-sync read that exit as a skip; a real failure beside it still fails them. Under the perf-lab
 runner a skipped bench marks its run not-measurable.
 
@@ -67,6 +69,28 @@ class Decision(unittest.TestCase):
         script = (HERE / "cef-pin-staging.sh").read_text()
         self.assertIn(f"skip_exit={cef_track_a.SKIP_EXIT} ", script)
 
+    def test_mode_on_asks_for_every_switch_the_feature_needs_and_mode_off_for_none(self):
+        self.assertEqual(cef_track_a.mode_features("on"), {"cefLayerHosting": True, "cefResizeFence": True})
+        self.assertEqual(cef_track_a.mode_features("off"), {"cefLayerHosting": False, "cefResizeFence": False})
+        self.assertEqual(cef_track_a.local_features_env("on"), "cefLayerHosting=on,cefResizeFence=on")
+
+    def test_the_features_are_declared(self):
+        for name in cef_track_a.FEATURES:
+            self.assertTrue((ROOT / "schemas/features/features.d" / f"{name}.json").is_file(), name)
+
+    def test_a_bench_launch_takes_the_env_choices_under_its_own(self):
+        import bench_launch
+        self.assertEqual(bench_launch.LOCAL_FEATURES_ENV, cef_track_a.LOCAL_FEATURES_ENV)
+        env = {cef_track_a.LOCAL_FEATURES_ENV: cef_track_a.local_features_env("on") + ",bad,x=maybe"}
+        self.assertEqual(bench_launch.local_features_from_env(env), {"cefLayerHosting": True, "cefResizeFence": True})
+        self.assertEqual(bench_launch.local_features_from_env({}), {})
+        out = tempfile.mkdtemp(prefix="cef-track-a-app-")
+        self.addCleanup(shutil.rmtree, out, True)
+        os.environ[cef_track_a.LOCAL_FEATURES_ENV] = cef_track_a.local_features_env("on")
+        self.addCleanup(os.environ.pop, cef_track_a.LOCAL_FEATURES_ENV, None)
+        app = bench_launch.BenchApp(os.path.join(out, "cmux DEV t.app"), out=out, local_features={"cefResizeFence": False})
+        self.assertEqual(app.local_features, {"cefLayerHosting": True, "cefResizeFence": False})
+
     def test_a_lab_skip_adds_the_need_and_keeps_the_launchs_answer(self):
         out = tempfile.mkdtemp(prefix="cef-track-a-")
         self.addCleanup(shutil.rmtree, out, True)
@@ -98,20 +122,24 @@ class ResizeSyncBench(unittest.TestCase):
         with open(self.tunables, "w") as f:
             json.dump({"version": 1, "values": {}}, f)
         self.off_fails = False
+        self.fork_api = 30
         self.recorded = []
         self.benches = []
+        self.bench_features = {}  # mode -> the local feature choices its bench launches start with
 
-        def call(command, stdout=None, stderr=None):
+        def call(command, stdout=None, stderr=None, env=None):
             out = command[command.index("--out") + 1]
             if command[1].endswith("cef-layer-verify.py"):
                 mode = command[command.index("--mode") + 1]
-                skipped = cef_track_a.skip_reason(mode, 30)
+                skipped = cef_track_a.skip_reason(mode, self.fork_api)
                 ok = not (mode == "off" and self.off_fails)
                 with open(os.path.join(out, f"verify-{mode}.json"), "w") as f:
                     json.dump({"rows": [{"check": "arm", "ok": ok}], "skipped": skipped,
-                               "facts": {"fork_api": 30, "tunables_file": self.tunables}}, f)
+                               "facts": {"fork_api": self.fork_api, "tunables_file": self.tunables}}, f)
                 return cef_track_a.exit_code([{"ok": ok}], skipped)
             self.benches.append(Path(out).parent.name)
+            import bench_launch
+            self.bench_features[Path(out).parent.name] = bench_launch.local_features_from_env(env or {})
             run = {"layout": "1x2", "action": "split", "round": 0, "commit_p95_ms": 4.0, "commit_max_ms": 6.0,
                    "missed": 0, "frames_p95_ms": 8.3, "frames_p99_ms": 9.0, "frames_max_ms": 10.0,
                    "layout_p95_ms": 1.0, "refresh_ms": 8.3, "frame_intervals_ms": [8.3]}
@@ -161,6 +189,15 @@ class ResizeSyncBench(unittest.TestCase):
         self.assertEqual(code, cef_track_a.SKIP_EXIT)
         with open(probe) as f:
             self.assertEqual(json.load(f)["missing"], [cef_track_a.NEED])
+
+    def test_from_api_34_mode_on_measures_with_every_switch_the_feature_needs(self):
+        self.fork_api = 34
+        code, summary, _ = self.main()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.benches, ["off", "on", "on0"])
+        both = {"cefLayerHosting": True, "cefResizeFence": True}
+        self.assertEqual(self.bench_features, {"off": {"cefLayerHosting": False, "cefResizeFence": False},
+                                               "on": both, "on0": both})
 
     def test_mode_off_alone_exits_0(self):
         code, _, _ = self.main("off")

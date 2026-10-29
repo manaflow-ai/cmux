@@ -131,8 +131,10 @@ for mode in opts.modes.split(","):
         os.makedirs(out, exist_ok=True)
         command = bench_command(bench, out)
         print(f"== {mode} {bench}: {' '.join(command)}", flush=True)
+        # Every switch layer hosting needs, as the verify set them: each bench launch starts from a fresh tag state.
+        env = {**os.environ, cef_track_a.LOCAL_FEATURES_ENV: cef_track_a.local_features_env(mode)}
         with open(os.path.join(out, "log.txt"), "w") as log:
-            code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
+            code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT, env=env)
         rows = headline(bench, out)
         # A report is the result (exit 1 with one is the bench's own budget miss). No report is no result,
         # whatever the exit code: the app never came up, or the bench crashed.

@@ -48,7 +48,7 @@ class HostModes(unittest.TestCase):
         self.recorded = []
         bench = self.bench
 
-        def call(command, stdout=None, stderr=None):
+        def call(command, stdout=None, stderr=None, env=None):
             self.commands.append(command)
             out = command[command.index("--out") + 1]
             mode = Path(out).parent.name
@@ -116,11 +116,11 @@ class HostModes(unittest.TestCase):
 
         original = self.bench.subprocess.call
 
-        def call(command, stdout=None, stderr=None):
+        def call(command, stdout=None, stderr=None, env=None):
             mode = Path(command[command.index("--out") + 1]).parent.name
             with open(tunables) as f:
                 seen.setdefault(mode, json.load(f)["values"])
-            return original(command, stdout, stderr)
+            return original(command, stdout, stderr, env)
 
         self.bench.check_mode = check_mode
         self.bench.subprocess.call = call

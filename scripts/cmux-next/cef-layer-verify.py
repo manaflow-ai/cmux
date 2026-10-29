@@ -10,6 +10,10 @@ in a Chromium tab and checks:
                   (`valid`: hosting_without_track_a)
   --mode off      the feature off: no page hosts
 
+Each mode sets every switch the feature needs (cef_track_a.FEATURES: cefLayerHosting and cefResizeFence, whose
+resize fence calls are part of Track A) as the tag's local feature choices before each launch
+(bench_launch.write_local_features), and cefLayerHosting's tunable as below.
+
 On a pin below the fork API of every Track A call (cef_track_a.py: 34) mode on cannot host a page, so it measures
 nothing: once the probe page loads, the check stops, prints "skipped: needs CEF API >= 34, pin has N", records it as
 `skipped` in verify-on.json and exits 3 (cef_track_a.SKIP_EXIT), never 1. A failed row before that still exits 1.
@@ -22,7 +26,7 @@ Input is real HID events (CGEventPost: the pointer moves on the fleet host), bec
 WindowServer still routes the mouse and keys to the transparent page window; debug.mouse would post into the cmux
 window and skip that. The python process needs the host's event-posting permission (a FAIL row says so).
 
-  arm         features.list resolves the layer hosting feature as the mode sets it (source `local`)
+  arm         features.list resolves cefLayerHosting and cefResizeFence as the mode sets them (source `local`)
   valid       the page is Chromium: debug.cef shows no `unavailable` and no `fallback`, and in mode on
               windows.fork_api >= 26 (below 26 the app never hosts, so an "on" number would be an "off" number) and
               debug.cef tracker.hosting_without_track_a == 0 (the app makes every Track A call for this fork)
@@ -69,6 +73,7 @@ import argparse, ctypes, glob, json, os, pathlib, signal, socket, struct, subpro
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cef_track_a  # noqa: E402
+from bench_launch import tag_state_root, write_local_features  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -94,7 +99,8 @@ CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
 KEY = "browserResize.layerHosting"  # feature cefLayerHosting's local override
-FEATURES = {KEY: "cefLayerHosting"}
+# Every switch the mode sets, as the tag's local feature choices (features.list source `local`).
+LOCAL_FEATURES = cef_track_a.mode_features(opts.mode)
 # Each mode's tunables: written before the app starts (the features resolve once, at launch).
 ARMS = {"on": {KEY: True}, "off": {KEY: False}}
 ARM = ARMS[opts.mode]
@@ -325,13 +331,13 @@ def write_build_tunables(path, values):
 
 
 def check_arm():
-    """arm: the launch resolved the layer hosting feature as this mode's tunable sets it (features.list)."""
+    """arm: the launch resolved every switch layer hosting needs as this mode sets it (features.list)."""
     listed = rpc("features.list") or {}
     rows = {f.get("name"): f for f in listed.get("features") or [] if isinstance(f, dict)}
     got = {name: {"state": (rows.get(name) or {}).get("state"), "source": (rows.get(name) or {}).get("source")}
-           for name in FEATURES.values()}
+           for name in LOCAL_FEATURES}
     FACTS["features"] = got
-    want = {FEATURES[key]: "on" if value else "off" for key, value in ARM.items()}
+    want = {name: "on" if value else "off" for name, value in LOCAL_FEATURES.items()}
     row("arm", all(got[name]["state"] == state for name, state in want.items()),
         {"want": want, "got": got, "error": listed.get("error")})
 
@@ -416,6 +422,7 @@ def launch(name):
     if opts.tunables == "scratch":
         env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = TUNABLES
     os.makedirs(opts.out, exist_ok=True)
+    FACTS["local_features_file"] = write_local_features(tag_state_root(TAG), LOCAL_FEATURES)
     log = open(os.path.join(opts.out, f"app-{TAG}-{opts.mode}-{name}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
