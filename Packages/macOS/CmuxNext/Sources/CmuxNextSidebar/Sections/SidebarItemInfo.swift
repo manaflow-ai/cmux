@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 public import CmuxNextDesign
 public import CmuxNextIcons
 public import Foundation
@@ -83,6 +84,13 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// the same session does not change color between launches or machines.
     public static func stableAgentColor(for id: String) -> GroupColor {
         GroupColor.unset(id: id)
+    }
+
+    /// The `brand` for a session's harness id (`codex`, `claude-sr`, `acp:gemini`): its catalog brand
+    /// (`codex` draws the OpenAI mark), nil when the catalog has no mark for it. A raw harness id is not
+    /// a brand id, so passing it straight to `brand` drew the generic glyph for Codex (Leo 2026-10-29).
+    public static func agentBrand(forHarness harness: String?) -> String? {
+        AgentBrandCatalog.brand(for: harness)?.rawValue
     }
 }
 

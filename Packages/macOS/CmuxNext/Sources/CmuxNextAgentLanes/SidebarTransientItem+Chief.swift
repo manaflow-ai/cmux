@@ -37,7 +37,8 @@ extension SidebarTransientItem {
         var items: [SidebarTransientItem] = []
         var previous = LayoutItemRef.builtIn(.chief)
         for lane in subagents where showsIdle || lane.state != .idle {
-            var row = SidebarItemInfo(title: lane.subagentTitle, symbol: "person.crop.circle", brand: lane.harness)
+            var row = SidebarItemInfo(title: lane.subagentTitle, symbol: "person.crop.circle",
+                                      brand: SidebarItemInfo.agentBrand(forHarness: lane.harness))
             row.agentColor = SidebarItemInfo.stableAgentColor(for: lane.id)
             if row.title.isEmpty { row.accessibilityTitle = ChiefToolStrings.subagent }
             row.activity = activity(of: lane.state)

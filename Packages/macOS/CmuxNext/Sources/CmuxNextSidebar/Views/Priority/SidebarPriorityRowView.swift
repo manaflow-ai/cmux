@@ -60,7 +60,7 @@ final class SidebarPriorityRowView: NSView {
         self.entry = entry
         title.stringValue = entry.title
         let markSize = SidebarStyle.kindGlyphSize
-        let brandMark = entry.harness.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: markSize) }
+        let brandMark = entry.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: markSize) }
         hasBrandMark = brandMark != nil
         agentIcon.image = brandMark ?? NSImage.icon(symbol: "person.crop.circle", size: markSize)
         placeLabel.stringValue = [entry.project, entry.machine].compactMap(\.self).joined(separator: " · ")

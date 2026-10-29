@@ -1,4 +1,7 @@
 import AppKit
+import CmuxAgentBrands
+import CmuxNextAgentActivity
+@testable import CmuxNextAgentLanes
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Foundation
@@ -29,7 +32,7 @@ struct SidebarAgentIdentityTests {
     }
 
     @Test func aPriorityRowDrawsItsAgentMarkOnTheSidebarColumns() throws {
-        let row = priorityRow(SidebarPriorityEntry(id: "chat", title: "Fix the build", state: .idle, harness: "unknown-harness",
+        let row = priorityRow(SidebarPriorityEntry(id: "chat", title: "Fix the build", state: .idle, brand: nil,
                                                    agentColor: SidebarItemInfo.stableAgentColor(for: "chat")))
         let mark = try #require(row.subviews.compactMap { $0 as? DecorativeImageView }.first)
         #expect(mark.image != nil, "an unknown harness still draws a mark")
@@ -37,6 +40,27 @@ struct SidebarAgentIdentityTests {
         #expect(abs(mark.frame.midX - SidebarStyle.iconColumnCenterX(leading: inset)) < 0.5)
         let title = try #require(row.subviews.compactMap { $0 as? ChromeLabel }.first { $0.stringValue == "Fix the build" })
         #expect(abs(title.frame.minX - SidebarStyle.leadingTextX(leading: inset)) < 0.5)
+    }
+
+    /// A harness id is not a brand id: `codex` draws the OpenAI mark only after the catalog maps it, so a raw
+    /// `codex` reached the rows as no brand and drew the generic glyph beside Claude's mark.
+    @Test func codexAndClaudeSessionsResolveToTheirOwnMarks() throws {
+        let codex = try #require(SidebarItemInfo.agentBrand(forHarness: "codex"))
+        let claude = try #require(SidebarItemInfo.agentBrand(forHarness: "claude"))
+        #expect(codex != claude)
+        #expect(AgentBrandCatalog.templateImage(brand: codex, size: SidebarStyle.kindGlyphSize) != nil)
+        #expect(SidebarItemInfo.agentBrand(forHarness: "unknown-harness") == nil)
+        let lanes = [("a", "codex"), ("b", "claude")].map { id, harness in
+            AgentActivityLane(id: id, name: id, title: "Task " + id, peer: nil, parent: nil, state: .input,
+                              since: Date(), error: nil, harness: harness)
+        }
+        let entries = AgentPriorityRanking().entries(lanes, marks: .init(), now: Date())
+        #expect(Set(entries.compactMap(\.brand)) == [codex, claude])
+        let chief = lanes.map { lane in
+            AgentActivityLane(id: "id-optchat-sub-6b68ac4a-" + lane.id, name: "optchat-sub-6b68ac4a-" + lane.id, title: lane.title,
+                              peer: nil, parent: "optchat-chief:6b68ac4a", state: .working, since: nil, error: nil, harness: lane.harness)
+        }
+        #expect(Set(SidebarTransientItem.chiefSubagents(lanes: chief, showsIdle: true).compactMap(\.info.brand)) == [codex, claude])
     }
 
     @Test func aPriorityRowDrawsNoStatusWords() {
