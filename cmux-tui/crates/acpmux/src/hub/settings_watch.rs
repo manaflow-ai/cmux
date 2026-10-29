@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`. The cmux settings file watched for the
-//! start-mode setting (`agents.defaultPermissionMode`, `start_mode.rs`):
+//! start-mode setting (`agents.defaultPermissionMode`, `start_mode.rs`) and the
+//! cmux router's start model (`agents.modelRouter.model`, which reloads the catalog):
 //! when its value changes, local `_acpmux/watch` connections get
 //! `_acpmux/start_mode_changed`, so a pending chat's start-mode chip asks
 //! acpmux again only then, never each time its pane is shown again. Any
@@ -75,6 +76,9 @@ impl Hub {
             Some(watch.clone());
         // The value the watchers' last answer was based on.
         let mut last = super::start_mode::setting_snapshot();
+        // The cmux router profile's start model (`agents.modelRouter.model`): a change rebuilds
+        // the catalog, so the next new chat on `cmux` starts on it.
+        let mut last_router = crate::config::cmux_router_model_setting();
         let (signal, mut wake) = tokio::sync::mpsc::unbounded_channel::<()>();
         let hub = Arc::downgrade(self);
         let task = handle.spawn(async move {
@@ -85,11 +89,27 @@ impl Hub {
                 if let Some(hub) = hub.upgrade() {
                     hub.subsession_runs.wake();
                 }
-                let Ok(now) =
-                    tokio::task::spawn_blocking(super::start_mode::setting_snapshot).await
+                let Ok((now, router)) = tokio::task::spawn_blocking(|| {
+                    (
+                        super::start_mode::setting_snapshot(),
+                        crate::config::cmux_router_model_setting(),
+                    )
+                })
+                .await
                 else {
                     break;
                 };
+                if router != last_router {
+                    last_router = router;
+                    if let Some(hub) = hub.upgrade()
+                        && let Err(e) = hub.reload_catalog().await
+                    {
+                        tracing::warn!(
+                            "model router setting: catalog reload failed: {}",
+                            e.message
+                        );
+                    }
+                }
                 if now == last {
                     continue;
                 }
