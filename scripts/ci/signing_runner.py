@@ -143,6 +143,16 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
             f"`{name}` on {mini}, which runs no job now ({len(drained)} drained mini(s))")
 
 
+PAGE = 100  # per_page of every listing owned_signing_jobs reads
+
+
+def more_than_one_page(total: Any, listed: Sequence[Any]) -> bool:
+    """A listing has a second page only when this one is full and GitHub counts more. A short page is the whole
+    list: GitHub's total_count can run ahead of the runs it lists (run 40913618519's pick, 2026-10-29 16:54Z, failed
+    closed on "more waiting runs than one page lists" while nightly.yml had no waiting run at all)."""
+    return len(listed) >= PAGE and int(total or 0) > len(listed)
+
+
 def owned_signing_jobs(read: Callable[[str], Any]) -> int:
     """How many signing jobs (SIGNING_JOBS) are queued or running on an owned Mac now: pinned by a
     `glaeda-runner-<name>` label, which only the owned pick adds to a signing job's runs-on. `read` GETs a path
@@ -165,7 +175,7 @@ def owned_signing_jobs(read: Callable[[str], Any]) -> int:
         for status in ACTIVE_RUN_STATUSES:
             page = read(f"/actions/workflows/{workflow}/runs?status={status}&per_page=100")
             runs = page.get("workflow_runs") or []
-            if int(page.get("total_count") or 0) > len(runs):
+            if more_than_one_page(page.get("total_count"), runs):
                 raise RuntimeError(f"{workflow} has more {status} runs than one page lists")
             for run in runs:
                 if run["id"] in seen:
@@ -173,7 +183,7 @@ def owned_signing_jobs(read: Callable[[str], Any]) -> int:
                 seen.add(run["id"])
                 listed = read(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
                 jobs = listed.get("jobs") or []
-                if int(listed.get("total_count") or 0) > len(jobs):
+                if more_than_one_page(listed.get("total_count"), jobs):
                     raise RuntimeError(f"run {run['id']} has more jobs than one page lists")
                 for job in jobs:
                     name = str(job.get("name") or "").split(" (", 1)[0]

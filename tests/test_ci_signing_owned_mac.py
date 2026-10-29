@@ -559,15 +559,22 @@ class SigningOwnedMacTests(unittest.TestCase):
         self.assertEqual(signing_runner.owned_pick(env, read, flaky)[0], "", "persistent 5xx fails closed")
         held[:] = kept
 
-        def truncated(path: str) -> dict:
+        def lagging(path: str) -> dict:  # total_count ahead of a short page: the page is the whole list
             if "/runs?" in path:
                 return {"total_count": 101, "workflow_runs": [{"id": 7}]}
+            return {"total_count": 3, "jobs": []}
+
+        self.assertTrue(signing_runner.owned_pick(env, read, lagging)[0], "a short page is never a truncated one")
+
+        def truncated(path: str) -> dict:
+            if "/runs?" in path:
+                return {"total_count": 101, "workflow_runs": [{"id": n} for n in range(100)]}
             return {"jobs": []}
 
         self.assertEqual(signing_runner.owned_pick(env, read, truncated)[0], "", "a listing past one page fails closed")
 
         def many_jobs(path: str) -> dict:
-            return jobs(path) if "/runs?" in path else {"total_count": 150, "jobs": []}
+            return jobs(path) if "/runs?" in path else {"total_count": 150, "jobs": [{"name": "x"}] * 100}
 
         self.assertEqual(signing_runner.owned_pick(env, read, many_jobs)[0], "", "so does a job list past one page")
         order: list[str] = []
