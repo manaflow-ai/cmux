@@ -735,9 +735,11 @@ impl Hub {
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
-            hub.watch_transfers();
+            if !loading {
+                hub.watch_transfers();
+                hub.watch_orphans();
+            }
             hub.watch_titles();
-            hub.watch_orphans();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -1392,8 +1394,7 @@ impl Hub {
 
     /// Lists the temporary folders of sessions this daemon no longer has
     /// (`agent/session_tmp.rs`) and removes them on a thread of their own.
-    /// The daemon calls it before its socket serves, so no session starts
-    /// between the list and the store it is checked against.
+    /// The daemon calls it after metadata loads and before startup releases spawns.
     #[cfg(unix)]
     pub fn sweep_session_tmp(&self) {
         let metas: Vec<_> = self.sessions().iter().map(|session| session.meta()).collect();
