@@ -562,7 +562,6 @@ mod tests {
     /// with output that is not Codex's "Not logged in".
     #[cfg(unix)]
     fn fake_codex(test: &str, args: &str, home: &str, out: &str, code: i32) -> String {
-        use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("acpmux-login-{test}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("codex");
@@ -572,8 +571,7 @@ mod tests {
              echo \"unexpected: $* (CODEX_HOME=${{CODEX_HOME-}})\"; exit 2\nfi\n\
              echo '{out}'\nexit {code}\n"
         );
-        std::fs::write(&path, script).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_exec::write_executable(&path, script);
         path.to_string_lossy().into_owned()
     }
 

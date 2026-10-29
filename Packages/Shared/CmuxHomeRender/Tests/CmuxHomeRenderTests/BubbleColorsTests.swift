@@ -59,6 +59,20 @@ import Testing
         }
     }
 
+    /// Automatic text on a chosen bubble is black or white, whichever has more contrast (user
+    /// 2026-10-28: the theme's grey raised only to 4.5:1 read dim on navy), on my bubbles and theirs.
+    @Test(arguments: ["#FFD60A", "#1C2A4A", "#0A84FF", "#34C759", "#E5E5EA", "#3A3A3C", "#FF2D55"])
+    func automaticTextIsTheStrongerOfBlackAndWhite(_ hex: String) throws {
+        let fill = try #require(HomeColor(hex: hex))
+        let white = HomeColor.gray255(255), black = HomeColor.gray255(0)
+        let best = fill.contrast(with: white) >= fill.contrast(with: black) ? white : black
+        for (name, p) in Self.palettes() {
+            let q = p.applying(HomeBubbleColors(sent: fill, received: fill))
+            #expect(q.outgoingText == best, "\(name) \(hex): my text \(q.outgoingText.hex), want \(best.hex)")
+            #expect(q.incomingText == best, "\(name) \(hex): their text \(q.incomingText.hex), want \(best.hex)")
+        }
+    }
+
     @Test func aChatsColorsGoOverTheDefaultForEveryChat() throws {
         let green = try #require(HomeColor(hex: "#34C759")), black = try #require(HomeColor(hex: "000000"))
         let chat = HomeBubbleColors(sent: green)
