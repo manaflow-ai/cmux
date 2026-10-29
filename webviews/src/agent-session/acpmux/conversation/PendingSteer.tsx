@@ -15,7 +15,7 @@ import { TurnActionsContext } from "./turnActions";
 /// is `_acpmux/queue_edit` `send_now` with the steer's own promptId; it answers false once the
 /// steer was read. The X is the page's `unsteer` (`takeBackSteer`), where the chat offers it.
 /// Queue controls replace normal hover actions until Send now is accepted or the agent reads it;
-/// Copy stays beside them, so a waiting steer can be copied as any message can (Leo, 2026-10-29:
+/// Copy stays after them, so a waiting steer can be copied as any message can (Leo, 2026-10-29:
 /// "i feel like im frequently missing the copy/whatever buttons on these steers").
 /// A refusal keeps the controls available. Accepted delivery removes them in the same render.
 export function PendingSteer({
@@ -34,52 +34,55 @@ export function PendingSteer({
   const [sentNow, setSentNow] = useState(false);
   const promptId = row.steerPromptId;
   // The transcript virtualizes rows: a remount must not offer an accepted send again.
-  if (!waiting || sentNow || (promptId && sentNowIds.has(promptId))) return children ?? null;
+  if (!waiting || sentNow || (promptId && sentNowIds.has(promptId)))
+    return children ?? null;
   if (!promptId) return null;
   const busy = sending;
   return (
-    <div className="cv-user__pending">
+    <>
+      <div className="cv-user__pending">
+        {promptId && (
+          <button
+            type="button"
+            className="cv-user__send-now"
+            // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
+            title={t("steer.sendNowHelp")}
+            disabled={busy}
+            onClick={() => {
+              setSending(true);
+              void send(promptId, { op: "send_now" })
+                .catch(() => false)
+                .then((sent) => {
+                  if (!sent) return;
+                  sentNowIds.add(promptId);
+                  setSentNow(true);
+                })
+                .finally(() => setSending(false));
+            }}
+          >
+            {t("steer.sendNow")}
+          </button>
+        )}
+        {promptId && unsteer && (
+          <button
+            type="button"
+            className="cv-user__take-back"
+            aria-label={t("composer.queueEditMessage")}
+            title={t("composer.queueEditMessage")}
+            disabled={busy}
+            onClick={() => {
+              setSending(true);
+              void unsteer(row)
+                .catch(() => false)
+                .finally(() => setSending(false));
+            }}
+          >
+            <Close size={13} />
+          </button>
+        )}
+      </div>
       {row.text?.trim() && <MessageCopy text={row.text} />}
-      {promptId && (
-        <button
-          type="button"
-          className="cv-user__send-now"
-          // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
-          title={t("steer.sendNowHelp")}
-          disabled={busy}
-          onClick={() => {
-            setSending(true);
-            void send(promptId, { op: "send_now" })
-              .catch(() => false)
-              .then((sent) => {
-                if (!sent) return;
-                sentNowIds.add(promptId);
-                setSentNow(true);
-              })
-              .finally(() => setSending(false));
-          }}
-        >
-          {t("steer.sendNow")}
-        </button>
-      )}
-      {promptId && unsteer && (
-        <button
-          type="button"
-          className="cv-user__take-back"
-          aria-label={t("composer.queueEditMessage")}
-          title={t("composer.queueEditMessage")}
-          disabled={busy}
-          onClick={() => {
-            setSending(true);
-            void unsteer(row)
-              .catch(() => false)
-              .finally(() => setSending(false));
-          }}
-        >
-          <Close size={13} />
-        </button>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -90,7 +93,10 @@ const sentNowIds = new Set<string>();
 /// Whether the chat's X takes a waiting steer back (`_acpmux/steer_withdraw`): only acpmux's Claude
 /// Code adapter does. acpmux's `backgroundsWork` marks a chat that runs it, whatever its family is
 /// named (Leo's claude-sr2); `steering` alone does not, as other ACP agents steer too.
-export function takesSteersBack(summary: { backgroundsWork?: boolean } | undefined, connected: boolean): boolean {
+export function takesSteersBack(
+  summary: { backgroundsWork?: boolean } | undefined,
+  connected: boolean,
+): boolean {
   return connected && summary?.backgroundsWork === true;
 }
 
@@ -104,7 +110,10 @@ export async function takeBackSteer(
   io: {
     withdraw: (promptId: string) => Promise<boolean>;
     attachments: (rowId: string) => Promise<ComposerAttachment[]>;
-    draft?: (rowId: string, text: string) => Promise<{ input: string; attachments: ComposerAttachment[] }>;
+    draft?: (
+      rowId: string,
+      text: string,
+    ) => Promise<{ input: string; attachments: ComposerAttachment[] }>;
     restore: (text: string, attachments: ComposerAttachment[]) => void;
   },
 ): Promise<boolean> {
@@ -112,12 +121,23 @@ export async function takeBackSteer(
   if (!promptId || row.steer !== "waiting") return false;
   const text = row.resend ?? row.text ?? "";
   const draft = await (
-    io.draft ? io.draft(row.id, text) : io.attachments(row.id).then((attachments) => ({ input: text, attachments }))
+    io.draft
+      ? io.draft(row.id, text)
+      : io
+          .attachments(row.id)
+          .then((attachments) => ({ input: text, attachments }))
   ).catch(() => undefined);
   const attachments = draft?.attachments;
   // An image acpmux could not give back is left out of what it read: the steer stays then too.
-  const images = attachments?.filter((attachment) => attachment.kind === "image").length ?? 0;
-  if (!draft || images < (row.images?.length ?? 0) || !(await io.withdraw(promptId))) return false;
+  const images =
+    attachments?.filter((attachment) => attachment.kind === "image").length ??
+    0;
+  if (
+    !draft ||
+    images < (row.images?.length ?? 0) ||
+    !(await io.withdraw(promptId))
+  )
+    return false;
   io.restore(draft.input, draft.attachments);
   return true;
 }
