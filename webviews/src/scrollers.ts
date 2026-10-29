@@ -95,8 +95,12 @@ export function followShownScrollerFade(element: HTMLElement): () => void {
     const step = (now: number) => {
       const t = Math.min(1, Math.max(0, (now - start) / ms));
       if (t >= 1) return settle();
-      // Ease out, as the pane's other fades (--agent-ease-out).
-      ink = from + (to - from) * (1 - (1 - t) * (1 - t));
+      // A fade in eases out, as the pane's other fades (--agent-ease-out). A fade out eases in and
+      // out: eased out, three quarters of the ink went in the first half and the thumb read as
+      // vanishing at once (Leo 2026-10-29: "the scroll thumb should fade instead of disappearing
+      // instantly").
+      const eased = to > from ? 1 - (1 - t) * (1 - t) : t * t * (3 - 2 * t);
+      ink = from + (to - from) * eased;
       element.style.setProperty("--cmux-shown-scroller-ink", `${ink.toFixed(2)}%`);
       frame = view.requestAnimationFrame(step);
     };
