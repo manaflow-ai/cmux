@@ -114,7 +114,11 @@ impl serde::Serialize for MaskedInput<'_> {
             Value::Object(values) => {
                 let mut map = serializer.serialize_map(Some(values.len()))?;
                 for (key, value) in values {
-                    map.serialize_entry(&masked_scan(key), &MaskedInput(value))?;
+                    let value = match value {
+                        Value::String(text) => Value::String(masked_field(key, text)),
+                        _ => value.clone(),
+                    };
+                    map.serialize_entry(&masked_scan(key), &MaskedInput(&value))?;
                 }
                 map.end()
             }
@@ -161,6 +165,15 @@ fn masked_scan(value: &str) -> String {
         .last()
         .unwrap_or(0);
     safe_tool_text(&value[..end], end < value.len(), MAX_TOOL_SCAN_BYTES)
+}
+
+/// Give scalar values their object-key context before scanning. A decoded
+/// `password` value may contain quotes that JSON escaping would otherwise
+/// hide from the assignment rule.
+fn masked_field(key: &str, value: &str) -> String {
+    let assignment = format!("{key}={value}");
+    let masked = crate::secret_scan::mask(&assignment);
+    masked.strip_prefix(&format!("{key}=")).unwrap_or(&masked).to_owned()
 }
 
 /// Like the hand-off preview, discard the word crossing the scan boundary: its partial
@@ -622,6 +635,17 @@ mod tests {
             assert!(masked.contains("[secret]"), "{masked}");
             assert!(masked.contains("./deploy"), "{masked}");
         }
+    }
+
+    #[test]
+    fn restart_inputs_keep_password_field_context_when_masking_structured_input() {
+        let password = "open_sesame42";
+        let masked = input_prefix(&json!({
+            "rawInput": {"password": format!("\"{password}\"")}
+        }))
+        .unwrap();
+        assert!(!masked.contains(password), "structured password leaked: {masked}");
+        assert!(masked.contains("[secret]"), "{masked}");
     }
 
     #[test]
