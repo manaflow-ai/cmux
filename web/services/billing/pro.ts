@@ -798,9 +798,15 @@ export async function hasStripeCustomerForTeam(stackTeamId: string): Promise<boo
   }
 }
 
-/** Reads a billing team's Stripe customer and newest Team subscription. */
+/**
+ * Reads a billing team's Stripe customer and newest Team subscription.
+ * `preferActive` names an active row when one exists, for labels that must
+ * describe the subscription that grants access; without it the row is the
+ * portal's recovery row (pickPortalMetadataRow).
+ */
 export async function stripeBillingStatusForTeam(
   stackTeamId: string,
+  options: { readonly preferActive?: boolean } = {},
 ): Promise<StripeBillingStatus> {
   try {
     const db = cloudDb();
@@ -838,7 +844,10 @@ export async function stripeBillingStatusForTeam(
       orderedSubscriptionQuery.limit(10),
       hasActiveTeamSubscriptionForTeam(stackTeamId),
     ]);
-    const subscription = pickPortalMetadataRow(subscriptionRows);
+    const activeRow = options.preferActive
+      ? subscriptionRows.find((row) => (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status))
+      : undefined;
+    const subscription = activeRow ?? pickPortalMetadataRow(subscriptionRows);
     return stripeBillingStatusFromRows(
       customerRows[0]?.id ?? null,
       subscription,
