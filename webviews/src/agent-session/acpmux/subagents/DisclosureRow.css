@@ -41,16 +41,12 @@
   white-space: nowrap;
   font-weight: 500;
 }
-.cv-disclosure__prefix,
 .cv-disclosure__meta,
 .cv-disclosure__status {
   flex: none;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
-}
-.cv-disclosure__prefix {
-  font-weight: 400;
 }
 .cv-disclosure__meta::before,
 .cv-disclosure__status::before {

@@ -41,6 +41,7 @@ import {
   type QueueEdit,
   nextDrawnRow,
   isBeforeFooter,
+  hasReplyActions,
   isLastFooter,
   isContinuationFooter,
   QUEUED_MESSAGE,
@@ -137,11 +138,11 @@ import { createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import {
-  audioAttachment,
   linkAttachment,
   linkItems,
   type ComposerAttachment,
   type DroppedKind,
+  recordingAttachment,
   recordingLeftOutNotice,
 } from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
@@ -163,6 +164,12 @@ import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
 import { droppedPaths } from "./composer/intakeFiles";
 import { useToolCards } from "./toolCards/toolCardStore";
+import {
+  COMPUTER_USE_PREVIEW_RESERVE,
+  useComputerUsePreview,
+  useComputerUsePreviewRoom,
+} from "./computerUse/computerUsePreview";
+import { ComputerUsePreviewCard } from "./computerUse/ComputerUsePreviewCard";
 import { PermissionCard } from "./PermissionCard";
 import { cardTakesShortcuts } from "./permissionKeys";
 import { QuestionCard } from "./question/QuestionCard";
@@ -252,7 +259,7 @@ import {
 } from "./conversation/bareReferences";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
+import { PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
@@ -507,6 +514,8 @@ type NativeRegistry = Record<string, MeasurableRenderer>;
 type OpenDiff = (rowId: string, path?: string, opener?: HTMLElement) => void;
 type RowProps = {
   row: AcpmuxRow;
+  /// Whether a reply draws its own action row (model.ts `hasReplyActions`, from the row after it).
+  replyActions?: boolean;
   sessionId?: string;
   onToggleActivity: (id: string) => void;
   expanded: boolean;
@@ -919,7 +928,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
-  function MessageRow({ row, githubRepository }: RowProps) {
+  function MessageRow({ row, replyActions, githubRepository }: RowProps) {
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
@@ -1032,7 +1041,7 @@ const MessageRow = memo(
         </div>
       );
     }
-    return (
+    const reply = (
       <RevealedMarkdown
         text={row.text ?? ""}
         streaming={row.streaming === true}
@@ -1040,10 +1049,20 @@ const MessageRow = memo(
         messageAt={row.at}
       />
     );
+    // A finished reply its turn's footer does not serve keeps its own action row, whatever follows
+    // it (model.ts hasReplyActions).
+    if (!replyActions) return reply;
+    return (
+      <>
+        {reply}
+        <ReplyActions row={row} />
+      </>
+    );
   },
   (previous, next) =>
     previous.row.id === next.row.id &&
     previous.row.version === next.row.version &&
+    previous.replyActions === next.replyActions &&
     previous.githubRepository === next.githubRepository,
 );
 
@@ -1454,9 +1473,11 @@ const defaultRegistry: NativeRegistry = {
 };
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
-type DrawnHeight = { sessionId?: string; version: number; width: number; height: number };
+/// `actions`: whether a reply drew its own action row then (model.ts `hasReplyActions`); a drawn
+/// height taken without it, or with it, is stale once the row after the reply changes that.
+type DrawnHeight = { sessionId?: string; version: number; width: number; height: number; actions?: boolean };
 /// `height` is undefined for a row the page has not laid out (drawnHeightOf).
-type ReportDrawn = (id: string, version: number, height: number | undefined) => void;
+type ReportDrawn = (id: string, version: number, height: number | undefined, actions?: boolean) => void;
 
 /// A mounted row's drawn height, or undefined when the page has not laid it out (an undisplayed
 /// transcript, or a DOM without layout): such a box has no client rects. A laid-out row that draws
@@ -1504,7 +1525,8 @@ function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
     old.sessionId === entry.sessionId &&
     old.version === entry.version &&
     old.width === entry.width &&
-    old.height === entry.height
+    old.height === entry.height &&
+    Boolean(old.actions) === Boolean(entry.actions)
   );
 }
 
@@ -1594,6 +1616,7 @@ const RowFrame = React.memo(function RowFrame({
   joinsPrevious,
   joinsNext,
   beforeFooter,
+  replyActions,
   lastFooter,
   continuationFooter,
   lastTurn,
@@ -1624,6 +1647,9 @@ const RowFrame = React.memo(function RowFrame({
   joinsNext: boolean;
   /// A reply right over its turn's footer: the footer hugs it (`--cv-meta-gap`), as a meta row.
   beforeFooter: boolean;
+  /// Whether the row (a reply) draws its own action row (model.ts `hasReplyActions`): its height
+  /// depends on it, so the frame redraws and measures again when it changes.
+  replyActions: boolean;
   /// The chat's last footer: it ends at the message gap, so no band sits over the composer.
   lastFooter: boolean;
   /// The next drawn turn belongs to this same assistant: half the normal turn gap.
@@ -1697,10 +1723,12 @@ const RowFrame = React.memo(function RowFrame({
         row.id,
         row.version,
         acpmuxPerf.timed("row.measure", () => drawnHeightOf(node)),
+        replyActions,
       );
   }, [
     row.id,
     row.version,
+    replyActions,
     rowWidth,
     expanded,
     joinsPrevious,
@@ -1887,6 +1915,10 @@ const OPEN_AT_PAGE_MS = 1500;
 const OPEN_AT_SEEK_MS = 8000;
 /// How soon the transcript asks again for an older page after an ask that brought nothing.
 const OLDER_RECHECK_MS = 500;
+/// How near the first loaded row, in viewports, the view asks for the next older page: far enough
+/// ahead that a page read from acpmux lands before a fast scroll up reaches the top (two viewports
+/// was a fraction of a second of a flick).
+const OLDER_AHEAD_VIEWPORTS = 6;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
 /// above the `inset` px at its foot that the bottom stack covers.
 function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
@@ -2036,6 +2068,7 @@ export function VirtualTranscript({
   onColdOpenShown,
   afterLatest,
   showMinimap = true,
+  endReserve = 0,
 }: {
   rows: readonly AcpmuxRow[];
   sessionId?: string;
@@ -2107,6 +2140,9 @@ export function VirtualTranscript({
   /// The focused chat's palette action can hide this pane's rail without changing the configured
   /// minimap experiment or any other pane's layout.
   showMinimap?: boolean;
+  /// Room the column keeps at its right for the computer use live preview (`--cv-inset-end`,
+  /// computerUse/computerUsePreview.ts): rows are laid out that much narrower.
+  endReserve?: number;
 }) {
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
@@ -2350,8 +2386,8 @@ export function VirtualTranscript({
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
-  const rowWidthRef = useRef(transcriptRowWidth(width));
-  rowWidthRef.current = transcriptRowWidth(width);
+  const rowWidthRef = useRef(transcriptRowWidth(width, undefined, endReserve));
+  rowWidthRef.current = transcriptRowWidth(width, undefined, endReserve);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   // Keyboard focus is a roving tab stop. A range is kept as stable row ids rather than DOM nodes
@@ -2447,7 +2483,7 @@ export function VirtualTranscript({
   const onOlderShown = useCallback((id: string) => olderRows.current?.shown(id), []);
   useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
-    (id, version, drawnHeight) => {
+    (id, version, drawnHeight, actions) => {
       // A row not laid out (hidden, or no layout at all) has no height yet; 0 is one (drawnHeightOf).
       if (drawnHeight !== undefined)
         pendingDrawn.current.set(id, {
@@ -2455,6 +2491,7 @@ export function VirtualTranscript({
           version,
           width: rowWidthRef.current,
           height: drawnHeight,
+          ...(actions ? { actions } : {}),
         });
     },
     [sessionId],
@@ -2504,8 +2541,17 @@ export function VirtualTranscript({
             const targets = (entries ?? []).map((entry) => entry.target as HTMLElement);
             const measure = () => {
               for (const target of targets) {
-                const row = rowsRef.current[Number(target.getAttribute("aria-posinset")) - 1];
-                if (row && row.id === target.dataset.rowId) reportDrawn(row.id, row.version, drawnHeightOf(target));
+                const shown = rowsRef.current;
+                const index = Number(target.getAttribute("aria-posinset")) - 1;
+                const row = shown[index];
+                // With the frame's own flag: a height reported without it is taken for a stale one.
+                if (row && row.id === target.dataset.rowId)
+                  reportDrawn(
+                    row.id,
+                    row.version,
+                    drawnHeightOf(target),
+                    hasReplyActions(row, nextDrawnRow(shown, index)),
+                  );
               }
             };
             measure();
@@ -2738,7 +2784,7 @@ export function VirtualTranscript({
     const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId || lookChanged;
     if (rowHeights.current.registry !== registry || lookChanged)
       rowHeights.current = { registry, heights: new WeakMap() };
-    const rowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth, chatLook));
+    const rowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth, chatLook), endReserve);
     const last = lastEstimate.current;
     const layout = layoutConversation(
       rows,
@@ -2751,11 +2797,11 @@ export function VirtualTranscript({
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, width, chatWidth, chatLook]);
+  }, [rows, registry, sessionId, width, chatWidth, chatLook, endReserve]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const rowWidth = transcriptRowWidth(width);
+    const rowWidth = transcriptRowWidth(width, undefined, endReserve);
     const last = lastPlaced.current;
     // The ids flushed into `drawn` since the last placement; kept until `drawn` itself changes.
     const drawnChanged = drawn !== last?.drawn;
@@ -2774,6 +2820,17 @@ export function VirtualTranscript({
     ) {
       const limit = Math.min(rows.length, last.rows.length);
       while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
+      // A row after the kept ones can give the last kept reply its own action row (a steer or a
+      // message after it): that reply is placed again, as layoutConversation estimates it again.
+      let reply = kept - 1;
+      while (reply >= 0 && rows[reply]!.incoming?.kind === "hidden") reply -= 1;
+      if (
+        reply >= 0 &&
+        rows[reply]!.kind === "assistant" &&
+        hasReplyActions(rows[reply]!, nextDrawnRow(rows, reply)) !==
+          hasReplyActions(last.rows[reply]!, nextDrawnRow(last.rows, reply))
+      )
+        kept = reply;
       if (changed.size > 0) {
         let found = 0;
         const from = Math.max(0, last.first - DRAWN_SEARCH_ROWS);
@@ -2802,8 +2859,17 @@ export function VirtualTranscript({
             // of the drawn text, and its drawn height then pulled the view back a line or more at
             // every chunk (agent-pane-chat-column.test.ts under load). Growth comes from what is drawn.
             (index) => {
-              const known = drawn.get(rows[index].id);
-              return known && known.sessionId === sessionId && known.width === rowWidth ? known.height : undefined;
+              const row = rows[index]!;
+              const known = drawn.get(row.id);
+              if (!known || known.sessionId !== sessionId || known.width !== rowWidth) return undefined;
+              // A reply drawn before (or after) the row that gives it its own action row: its estimate
+              // holds until it is drawn again (`hasReplyActions` reads only the next drawn row).
+              if (
+                row.kind === "assistant" &&
+                Boolean(known.actions) !== hasReplyActions(row, nextDrawnRow(rows, index))
+              )
+                return undefined;
+              return known.height;
             },
             last && kept > 0 ? { layout: last.layout, kept } : undefined,
           );
@@ -2820,7 +2886,7 @@ export function VirtualTranscript({
       held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, width, chatLook]);
+  }, [estimated, drawn, registry, rows, sessionId, width, chatLook, endReserve]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
@@ -3918,7 +3984,7 @@ export function VirtualTranscript({
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
   useLayoutEffect(markTurns, [markTurns, rows, range.first, range.last]);
-  // Older history pages in before the reader reaches it: whenever the view is within two viewports
+  // Older history pages in before the reader reaches it: whenever the view is within six viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
   // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
@@ -3941,7 +4007,7 @@ export function VirtualTranscript({
       olderLoadRequested.current = undefined;
       return;
     }
-    if (node.scrollTop >= node.clientHeight * 2) {
+    if (node.scrollTop >= node.clientHeight * OLDER_AHEAD_VIEWPORTS) {
       // Allow the next visit to the threshold to request the next page, even when the first row
       // did not change while the reader was away from the top.
       olderLoadRequested.current = undefined;
@@ -4075,6 +4141,7 @@ export function VirtualTranscript({
                 rows.slice(first, last).map((row, index) => {
                   const absoluteIndex = first + index;
                   const next = nextDrawnRow(rows, absoluteIndex);
+                  const actions = hasReplyActions(row, next);
                   const kind = rowKind(row);
                   const Component = registry[kind] ?? NoticeRow;
                   const isExpanded = expanded.has(row.id);
@@ -4088,13 +4155,14 @@ export function VirtualTranscript({
                       joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       beforeFooter={isBeforeFooter(row, next)}
+                      replyActions={actions}
                       lastFooter={isLastFooter(row, next)}
                       continuationFooter={isContinuationFooter(row, next)}
                       lastTurn={row.lastTurn === true}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
-                      rowWidth={transcriptRowWidth(width)}
+                      rowWidth={transcriptRowWidth(width, undefined, endReserve)}
                       expanded={isExpanded}
                       observer={observer}
                       report={reportDrawn}
@@ -4116,6 +4184,7 @@ export function VirtualTranscript({
                     >
                       <Component
                         row={row}
+                        replyActions={actions}
                         sessionId={sessionId}
                         onToggleActivity={toggleRow}
                         onOpenDiff={onOpenDiff}
@@ -6279,7 +6348,6 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
-    subsessions: chatSubsessions.rows,
     // acpmux takes the limit only from this Mac's app (a person-proven connection), never a Web one.
     onSetRunningLimit: snapshot.origin === "local" ? setRunningLimit : undefined,
     workflows: inspectorWorkflows,
@@ -6769,14 +6837,19 @@ function AcpmuxPane() {
       return newTabDictationField.current ?? prompt.current;
     },
   }).current;
+  /// The chat's agent runs on this Mac (`localCwd`, set below each render): it can open a long
+  /// recording's file.
+  const chatIsLocal = useRef(false);
   const dictation = useDictation(dictationTarget, callNative, {
     accepts: snapshot.summary?.promptCapabilities?.audio === true,
     attach: (audio) => {
-      const recording = audioAttachment(audio, translate("dictation.recording"));
+      const recording = recordingAttachment(audio, translate("dictation.recording"), chatIsLocal.current);
       if (recording) composerHandle.current?.attach(recording);
-      else directClient.current?.notice(translate(recordingLeftOutNotice("tooLarge")));
+      else directClient.current?.notice(translate(recordingLeftOutNotice(audio.path ? "elsewhere" : "tooLarge")));
     },
     omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
+    chat: () => sessionIdRef.current,
+    elsewhere: () => directClient.current?.notice(translate("dictation.recordingOtherChat")),
   });
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -6841,10 +6914,16 @@ function AcpmuxPane() {
       }, 0),
     );
   }, [showsWhatItIs, drewKeptTail]);
+  const summary = snapshot.summary;
+  const localCwd =
+    summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   const composerSnapshot = useMemo(() => {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
     if (snapshot.summary) enabledCmuxActions.add("status");
-    if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
+    if (forkable && forkSeq !== undefined) {
+      enabledCmuxActions.add("fork");
+      if (localCwd !== undefined && !quick) enabledCmuxActions.add("side");
+    }
     if (continueAvailable) enabledCmuxActions.add("continue");
     // A side session asks nothing aside: its composer answers in it.
     if (opensSideSessions && snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
@@ -6856,7 +6935,18 @@ function AcpmuxPane() {
         ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
       ];
     return withDraftFolder(withCommands, projectDraft);
-  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, opensSideSessions, isSideSession, startingRows]);
+  }, [
+    snapshot,
+    projectDraft,
+    continueAvailable,
+    forkable,
+    forkSeq,
+    opensSideSessions,
+    isSideSession,
+    startingRows,
+    localCwd,
+    quick,
+  ]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -8211,10 +8301,8 @@ function AcpmuxPane() {
   const runHeaderActionRef = useRef(runHeaderAction);
   runHeaderActionRef.current = runHeaderAction;
   // A remote or cloud chat's folder is not on this Mac; its terminal opens in the pane's folder.
-  const summary = snapshot.summary;
-  const localCwd =
-    summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   instructionsFolder.current = localCwd;
+  chatIsLocal.current = localCwd !== undefined;
   // Another chat or folder: an instructions notice was about the one before.
   useEffect(() => setInstructionsFailure(undefined), [snapshot.sessionId, localCwd]);
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
@@ -8883,6 +8971,13 @@ function AcpmuxPane() {
     [replaying],
   );
   const toolCards = useToolCards();
+  const computerUsePreview = useComputerUsePreview();
+  // The live preview card shows beside the column, which keeps its room, in a pane wide enough. With
+  // the Inspector open it sits under the Inspector's card instead (inspector/underInspector.ts), whose
+  // shift or push keeps the chat clear of both: the column keeps no room of its own.
+  const previewRoom = useComputerUsePreviewRoom();
+  const previewShown = computerUsePreview !== null && previewRoom && !quick && !diffView && !inspectorOpen;
+  const previewBeside = previewShown && !inspector.shown;
   // What the chat waits on the person for: the running turn's line says it, never "Thinking".
   const waiting = chatWaitsOn({
     trust: trustAsk.ask,
@@ -8929,6 +9024,7 @@ function AcpmuxPane() {
                                                 <VirtualTranscript
                                                   rows={transcriptRows}
                                                   sourceRows={childRows ? undefined : sourceRows}
+                                                  endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
                                                   working={snapshot.isWorking}
                                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                                   jumpButton={!quick}
@@ -9440,6 +9536,11 @@ function AcpmuxPane() {
                 started.then((side) => postNative("chat.sideChat", { sessionId: side }).catch(fail), fail);
                 return started;
               }
+              if (command.action === "side") {
+                if (!forkable || forkSeq === undefined || args?.trim()) return false;
+                ignoreFailure(callNative("chat.side", { throughSeq: forkSeq }));
+                return true;
+              }
               if (command.action === "fork") {
                 if (!forkable || forkSeq === undefined || args?.trim()) return false;
                 ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
@@ -9870,6 +9971,7 @@ function AcpmuxPane() {
             key={snapshot.sessionId}
             card={summaryCard}
             rows={snapshot.rows}
+            cwd={snapshot.summary?.cwd}
             changes={quick ? undefined : lastChanges}
             onOpenChanges={toggleLastChanges}
             onOpenOutput={quick ? undefined : openOutput}
@@ -9887,7 +9989,6 @@ function AcpmuxPane() {
             tools={chatTools}
             workflows={workflows}
             workflowActionsFor={workflowActionsFor}
-            onOpenWorkflow={revealInspector ? () => revealInspector("tasks") : undefined}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -9920,6 +10021,7 @@ function AcpmuxPane() {
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
           data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
+          data-cu-preview={previewBeside ? "" : undefined}
         >
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
@@ -10246,6 +10348,13 @@ function AcpmuxPane() {
                 {snapshot.peerCopy?.offline && (
                   <PeerCopyBanner copy={snapshot.peerCopy} machine={peerMachine.state} onResume={peerMachine.resume} />
                 )}
+                {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
+                    mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
+                <ComputerUsePreviewCard
+                  preview={previewShown ? computerUsePreview : null}
+                  onOpen={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "open" }))}
+                  onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
+                />
                 {snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}

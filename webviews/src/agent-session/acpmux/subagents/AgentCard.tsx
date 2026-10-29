@@ -8,7 +8,7 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { SUBSESSION_STATE_LABEL, type SubsessionState } from "./subsessions";
-import { DisclosureRow } from "./DisclosureRow";
+import { DisclosureRow, type DisclosureRowProps } from "./DisclosureRow";
 import "./AgentCard.css";
 
 export type AgentCardProps = {
@@ -35,8 +35,10 @@ export type AgentCardProps = {
   openLabel?: string;
   /// Draw this card as a one-line transcript disclosure with its children in a panel.
   disclosure?: boolean;
-  /// Optional localized prefix for the disclosure line (for example, "Started").
-  disclosurePrefix?: ReactNode;
+  disclosureKey?: string;
+  findItems?: DisclosureRowProps["findItems"];
+  /// The complete localized disclosure label, with its name in the locale's word order.
+  disclosureLabel?: ReactNode;
   children?: ReactNode;
 };
 
@@ -54,7 +56,9 @@ export function AgentCard({
   onOpen,
   openLabel,
   disclosure = false,
-  disclosurePrefix,
+  disclosureKey,
+  findItems,
+  disclosureLabel,
   children,
 }: AgentCardProps) {
   const t = useT();
@@ -70,6 +74,8 @@ export function AgentCard({
     const liveDetail = state === "input" || state === "failed" || slot ? doing : undefined;
     return (
       <DisclosureRow
+        disclosureKey={disclosureKey ?? `subsession:${sessionId ?? name}`}
+        findItems={findItems}
         icon={
           avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
@@ -79,12 +85,7 @@ export function AgentCard({
             <Icon name="agent.session" size={16} />
           )
         }
-        label={
-          <>
-            {disclosurePrefix && <span className="cv-disclosure__prefix">{disclosurePrefix}</span>}
-            {name}
-          </>
-        }
+        label={disclosureLabel ?? name}
         meta={model}
         status={
           stateText && (

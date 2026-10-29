@@ -11,8 +11,15 @@ import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
 import { AgentCard } from "../subagents/AgentCard";
 import { DisclosureRow } from "../subagents/DisclosureRow";
-import { SubsessionContext, useSenderChat, useSubsessionInfo, waitingLine } from "../subagents/subsessions";
+import {
+  SubsessionContext,
+  useSenderChat,
+  useSubsessionInfo,
+  useSubsessionInfos,
+  waitingLine,
+} from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { useFindReveal } from "./chatFind";
 import { Spinner } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
@@ -22,6 +29,7 @@ import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subs
 import "./SubsessionCallCard.css";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
+const toolActivity = (tool: Tool): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool });
 
 export type StartedGroupEntry = {
   call: Extract<SubsessionCall, { tool: "start" }>;
@@ -55,14 +63,43 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
   const names = entries.map(
     ({ call }) => call.name ?? (call.sessionId ? shortId(call.sessionId) : t("subsession.startingBare")),
   );
-  const running = entries.some(({ call }) => call.running);
+  const ids = useMemo(() => entries.map(({ call }) => call.sessionId), [entries]);
+  const children = useSubsessionInfos(ids);
+  const findItems = useMemo(() => entries.map(({ tool }) => toolActivity(tool)), [entries]);
+  let working = false;
+  let waiting = 0;
+  let failed = 0;
+  let done = 0;
+  for (const [index, child] of children.entries()) {
+    const phase = child && sessionRetry(child);
+    if (child?.slot || child?.state === "input") waiting++;
+    else if (phase?.kind === "retrying" || phase?.kind === "settling" || child?.state === "working") working = true;
+    else if (child?.state === "failed") failed++;
+    else if (child?.state === "done") done++;
+    else if (entries[index]?.call.running) working = true;
+  }
+  const status = [
+    waiting ? t("summary.subagents.waiting", { n: waiting }) : undefined,
+    failed ? t("summary.subagents.failed", { n: failed }) : undefined,
+    working ? t("subsession.state.working") : undefined,
+    children.length > 0 && done === children.length ? t("subagents.state.completed") : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <DisclosureRow
+      disclosureKey={`subsession-group:${entries[0]?.tool.id}`}
+      findItems={findItems}
       icon={<Icon name="agent.session" size={16} />}
-      label={t("subsession.started", {
-        name: `${t("turn.working.sessions", { n: entries.length })}: ${names.join(", ")}`,
-      })}
-      status={running ? <Spinner size={12} loading /> : undefined}
+      label={t("subsession.startedGroup", { n: entries.length, names: names.join(", ") })}
+      status={
+        status ? (
+          <>
+            {working && <Spinner size={12} loading />}
+            {status}
+          </>
+        ) : undefined
+      }
     >
       {entries.map(({ call, tool }, index) => (
         <StartedCard key={tool.id || index} call={call} tool={tool} />
@@ -83,13 +120,34 @@ function RunningLine({ children }: { children: ReactNode }) {
   );
 }
 
+/// The card's line for a session not waiting: what it does now, or, failed, why. Only a `doing` line
+/// that repeats the prompt shown under the card is left out; an error always stays, even one that
+/// starts like the prompt (Codex review of #27240), and stands in for a `doing` line left out.
+export function sessionLine(
+  doing: string | undefined,
+  error: string | undefined,
+  failed: boolean,
+  shown?: string,
+): string | undefined {
+  const step = doing && !(shown && repeatsPrompt(doing, shown)) ? doing : undefined;
+  return step ?? (failed ? error : undefined);
+}
+
 /// Whether a session's `doing` line only repeats the start of the prompt shown under it: acpmux
 /// names a new session from its prompt, so its first line is that prompt's opening words, often cut
 /// with an ellipsis. Compared on words, ignoring whitespace, case and a trailing ellipsis.
 export function repeatsPrompt(line: string, prompt: string): boolean {
+  // The line as it came first: a prompt may itself start with "Working on:". Then without acpmux's
+  // own prefix for a session with no step yet, "Working on: <prompt, cut>" (hub/subsession_send.rs).
+  const bare = line.replace(/^\s*Working on:\s*/iu, "");
+  return startsPrompt(line, prompt) || (bare !== line && startsPrompt(bare, prompt));
+}
+
+/// Whether `line` is the start of `prompt`, word for word, ignoring case and whitespace. Only a line
+/// that says it is cut (it ends in an ellipsis) may stop mid-word, so a real step ("Fix bug") never
+/// hides behind its prompt ("Fix bugs ...").
+function startsPrompt(line: string, prompt: string): boolean {
   const ellipsis = /(?:\.\.\.|\u2026)\s*$/u;
-  // Only a line that says it is cut (it ends in an ellipsis) may end mid-word; any other line must
-  // match the prompt's words exactly, so a real step ("Fix bug") never hides behind its prompt ("Fix bugs …").
   const cut = ellipsis.test(line);
   const words = (text: string) => text.replace(ellipsis, "").toLowerCase().split(/\s+/u).filter(Boolean);
   const head = words(line);
@@ -103,6 +161,7 @@ export function repeatsPrompt(line: string, prompt: string): boolean {
 
 /// The live card of sub-session `sessionId`, with what the call knew of it until the list has it.
 function SessionCard({
+  tool,
   sessionId,
   name,
   harness,
@@ -110,9 +169,11 @@ function SessionCard({
   fallback,
   shown,
   disclosure = false,
-  disclosurePrefix,
+  disclosureKey,
+  started = false,
   children,
 }: {
+  tool: Tool;
   /// The prompt the card shows under its header (a start's preview): a `doing` line that only
   /// repeats its start is left out, so the same words never show twice (Leo 2026-10-29).
   shown?: string;
@@ -123,11 +184,13 @@ function SessionCard({
   /// Its state as the call read it, for a session the list does not have.
   fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
   disclosure?: boolean;
-  disclosurePrefix?: ReactNode;
+  disclosureKey?: string;
+  started?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
   const live = useSubsessionInfo(sessionId);
+  const findItems = useMemo(() => [toolActivity(tool)], [tool]);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
   // The card's retry, as every surface reads it (retryState.ts ``sessionRetry``): while acpmux
@@ -137,8 +200,7 @@ function SessionCard({
   const state = retry ? "working" : (live?.state ?? fallback?.state);
   const waiting = live ? live.waiting : fallback?.waiting;
   // A failed one says why (acpmux's lane error), a retry acpmux refused included.
-  const line = waiting ? waitingLine(t, waiting) : (live?.doing ?? (state === "failed" ? live?.error : undefined));
-  const doing = !waiting && line && shown && repeatsPrompt(line, shown) ? undefined : line;
+  const doing = waiting ? waitingLine(t, waiting) : sessionLine(live?.doing, live?.error, state === "failed", shown);
   return (
     <AgentCard
       name={live?.name ?? name}
@@ -151,7 +213,9 @@ function SessionCard({
       doing={doing}
       queued={live?.queued}
       disclosure={disclosure}
-      disclosurePrefix={disclosurePrefix}
+      disclosureKey={disclosureKey}
+      findItems={findItems}
+      disclosureLabel={started ? t("subsession.started", { name: live?.name ?? name }) : undefined}
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
       {children}
@@ -161,8 +225,10 @@ function SessionCard({
 
 function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "start" }>; tool: Tool }) {
   const t = useT();
+  const promptFindId = useId();
   return (
     <SessionCard
+      tool={tool}
       sessionId={call.sessionId}
       name={call.name ?? (call.sessionId ? shortId(call.sessionId) : t("subsession.startingBare"))}
       harness={call.harness}
@@ -171,14 +237,15 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
       fallback={call.running ? { state: "working" } : undefined}
       shown={call.prompt}
       disclosure={true}
-      disclosurePrefix={call.name ? t("subsession.started", { name: "" }).trim() : undefined}
+      disclosureKey={`subsession-start:${tool.id}`}
+      started
     >
       {call.prompt && (
-        <div className="cv-subsession__markdown selectable">
+        <div className="cv-subsession__markdown selectable" data-find-primary={promptFindId}>
           <Markdown commits="quiet">{call.prompt}</Markdown>
         </div>
       )}
-      <Raw tool={tool} />
+      <Raw tool={tool} promptFindId={call.prompt ? promptFindId : undefined} />
     </SessionCard>
   );
 }
@@ -190,6 +257,10 @@ export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);
+  useFindReveal(
+    useMemo((): AcpmuxActivity[] => [{ kind: "note", text }], [text]),
+    () => setOpen(true),
+  );
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   useLayoutEffect(() => {
@@ -229,15 +300,24 @@ export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
 }
 
 /// The call's request and response as the generic MCP row shows them, behind "Raw".
-function Raw({ tool }: { tool: Tool }) {
+function Raw({ tool, promptFindId }: { tool: Tool; promptFindId?: string }) {
+  const [open, setOpen] = useState(false);
+  const [reveal, setReveal] = useState(0);
+  useFindReveal(
+    useMemo(() => [toolActivity(tool)], [tool]),
+    () => {
+      setOpen(true);
+      setReveal((value) => value + 1);
+    },
+  );
   return (
-    <RawToggle>
-      <McpDetails tool={tool} />
+    <RawToggle open={open} onOpenChange={setOpen}>
+      <McpDetails tool={tool} reveal={reveal} promptFindId={promptFindId} />
     </RawToggle>
   );
 }
 
-function McpDetails({ tool, reveal = 0 }: { tool: Tool; reveal?: number }) {
+function McpDetails({ tool, reveal = 0, promptFindId }: { tool: Tool; reveal?: number; promptFindId?: string }) {
   const id = useId();
   const call = useMemo(() => mcpCall(tool), [tool]);
   if (!call) return null;
@@ -249,6 +329,7 @@ function McpDetails({ tool, reveal = 0 }: { tool: Tool; reveal?: number }) {
       output={tool.output}
       strip={false}
       reveal={reveal}
+      requestFindAlternatives={promptFindId ? { prompt: promptFindId } : undefined}
     />
   );
 }
@@ -306,12 +387,14 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
     <div className="cv-subsession__cards">
       {call.sessions.map((session) => (
         <SessionCard
+          tool={tool}
           key={session.sessionId}
           sessionId={session.sessionId}
           name={session.name ?? shortId(session.sessionId)}
           harness={session.harness}
           fallback={session}
           disclosure
+          disclosureKey={`subsession-result:${tool.id}:${session.sessionId}`}
         >
           {session.reply && session.state !== "working" && <Cut text={session.reply} />}
         </SessionCard>

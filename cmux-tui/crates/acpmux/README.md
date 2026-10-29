@@ -176,6 +176,24 @@ work but are hidden from help.
 
 `--json` on any command prints the raw response.
 
+Session controls work across configured peers without a shell on the target host:
+
+```sh
+acpmux new --host worker -m codex -n review -d
+acpmux resolve worker/review
+acpmux session resume worker/review  # release held queued prompts
+acpmux retry worker/review           # retry its failed last turn
+acpmux session cancel worker/review  # cancel its running turn
+acpmux session stop worker/review    # stop its agent; keep the session
+```
+
+Use the stable `sessionId` from `resolve`, a unique name or prefix, or `HOST/NAME`.
+Resume, retry, cancel and stop refuse ambiguous matches, including a local and remote
+session with the same name, and list qualified IDs to select from. Once resolved, a control
+keeps the owning peer and session ID even if another host has a copy of that session.
+The target daemon decides which start policy and controls the caller may use; a peer link
+does not grant app-only permissions.
+
 ## Orchestrating agents from scripts
 
 Every command takes `--json` before it for machine output; errors then go to stderr as one
