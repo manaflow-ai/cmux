@@ -49,7 +49,6 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
     try {
       await mkdir(path.dirname(artifact), { recursive: true });
       const report = { tolerance, measuredAt: new Date().toISOString(), records, fixtureErrors };
-      console.log(`GRID_LINES_JSON=${JSON.stringify(report)}`);
       await writeFile(artifact, JSON.stringify(report, null, 2) + "\n");
       console.log(
         "| Surface / variant | Theme / width | Level | Line | Expected | Measured | Delta | Diagnostic |\n|---|---|---|---|---:|---:|---:|---|",
@@ -103,7 +102,7 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
           } finally {
             await page.close();
           }
-          records.push({
+          const record = {
             surface: scene.surface,
             level: scene.level,
             entry: scene.entry,
@@ -112,7 +111,12 @@ await requireBrowserLane("browser/grid-lines.test.ts", async () => {
             width,
             scheme,
             lines,
-          });
+          };
+          records.push(record);
+          // Emit before assertions so failed scenes and truncated runs retain measurements.
+          console.log(
+            `GRID_LINES_JSON=${JSON.stringify({ tolerance, measuredAt: new Date().toISOString(), records: [record] })}`,
+          );
           for (const line of lines.filter(problem)) {
             const detail = `${line.line} expected ${number(line.expected)} got ${number(line.actual)} (delta ${number(line.delta)}); ${scheme}/${width}${line.diagnostic ? `; ${line.diagnostic}` : ""}`;
             console.warn(
