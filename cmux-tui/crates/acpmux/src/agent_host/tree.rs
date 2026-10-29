@@ -308,10 +308,23 @@ mod census_tests {
     #[test]
     fn argv_reads_a_live_process() {
         let mut child = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
-        let got = super::argv(child.id());
+        let got = settled(|| super::argv(child.id()).filter(|a| a.len() == 2));
         let _ = child.kill();
         let _ = child.wait();
         assert_eq!(got.unwrap(), ["/bin/sleep", "30"]);
+    }
+
+    /// `read` once the new child has finished its exec: a read right after `spawn` can still see
+    /// it mid-exec (a CI run read no executable once). At most 2 s, then the last answer.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn settled<T>(read: impl Fn() -> Option<T>) -> Option<T> {
+        for _ in 0..100 {
+            if let Some(v) = read() {
+                return Some(v);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        read()
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -323,7 +336,13 @@ mod census_tests {
             .arg("30")
             .spawn()
             .unwrap();
-        let (exe, argv) = (super::exe(child.id()), super::argv(child.id()));
+        let pid = child.id();
+        let argv = settled(|| {
+            super::argv(pid).filter(|a| a.first().is_some_and(|w| w == "/opt/fake-server"))
+        });
+        let real = std::fs::canonicalize("/bin/sleep").unwrap();
+        let same = |e: &std::path::PathBuf| std::fs::canonicalize(e).ok().as_ref() == Some(&real);
+        let exe = settled(|| super::exe(pid).filter(same));
         #[cfg(target_os = "linux")]
         let why = std::fs::read_link(format!("/proc/{}/exe", child.id()));
         #[cfg(not(target_os = "linux"))]
@@ -331,9 +350,7 @@ mod census_tests {
         let _ = child.kill();
         let _ = child.wait();
         assert_eq!(argv.unwrap(), ["/opt/fake-server", "30"]);
-        let exe = exe.unwrap_or_else(|| panic!("exe not read: {why:?}"));
-        let real = std::fs::canonicalize("/bin/sleep").unwrap();
-        assert_eq!(std::fs::canonicalize(&exe).unwrap(), real);
+        assert!(exe.is_some(), "exe not read as /bin/sleep: {why:?}");
     }
 
     #[test]
