@@ -935,15 +935,25 @@ impl Peer {
         self: &Arc<Self>,
         out_rx: &mut mpsc::Receiver<Outbound>,
     ) -> Result<LinkEnd, String> {
-        // Explicit static credentials let the encrypted mesh connect without
-        // SSH. No application privilege follows from the WireGuard key alone.
+        // An SSH peer may source this launch's application credentials over
+        // SSH. Resolve them before WG too, or a remote-origin handshake can
+        // reread a newer peer token and reconnect forever with the old one.
+        let ssh_tokens = if self.wireguard.get().is_some() && self.ssh_parts().is_some() {
+            Some(self.remote_tokens_settled().await?)
+        } else {
+            None
+        };
+        let credentials = ssh_tokens
+            .as_ref()
+            .map(|(token, peer)| (token.as_str(), peer.as_deref()))
+            .or_else(|| self.token.as_deref().map(|token| (token, self.peer_token.as_deref())));
         if let Some((transport, address)) = self.wireguard.get()
-            && let Some(token) = self.token.as_deref()
+            && let Some((token, peer_token)) = credentials
         {
             let req = self.ws_request(
                 &format!("ws://localhost:{}", address.port()),
                 Some(token),
-                self.peer_token.as_deref(),
+                peer_token,
             )?;
             let opening = async {
                 let stream = transport.connect(*address).await.map_err(|e| e.to_string())?;
@@ -961,13 +971,17 @@ impl Peer {
                 result = tokio::time::timeout(self.timings.connect, opening) => result,
             };
             if let Ok(Ok((ws, _))) = opened {
-                *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = self.peer_token.clone();
+                *self.presented.lock().unwrap_or_else(|e| e.into_inner()) =
+                    peer_token.map(str::to_owned);
                 return self.serve(ws, out_rx).await;
             }
             tracing::debug!(peer = %self.name, "WireGuard unavailable; trying the configured peer route");
         }
         if self.ssh_parts().is_some() {
-            let (token, peer_token) = self.remote_tokens_settled().await?;
+            let (token, peer_token) = match ssh_tokens {
+                Some(tokens) => tokens,
+                None => self.remote_tokens_settled().await?,
+            };
             *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = peer_token.clone();
             let (stream, remote_port) = self.open_tunnel().await?;
             let req = self.ws_request(

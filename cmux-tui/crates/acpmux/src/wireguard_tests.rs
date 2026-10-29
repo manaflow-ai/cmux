@@ -272,7 +272,10 @@ fn loopback_throughput_and_shutdown() {
         let local = a.local_addr();
         a.shutdown().await;
         assert!(UdpSocket::bind(local).await.is_ok(), "shutdown must release UDP");
-        assert!(!matches!(tokio::time::timeout(BOUND, stream.read_u8()).await, Ok(Ok(_))));
+        let closed = tokio::time::timeout(BOUND, stream.read_u8())
+            .await
+            .expect("shutdown must resolve a pending stream read");
+        assert!(closed.is_err(), "shutdown must end the stream");
         b.shutdown().await;
         echo.abort();
         let _ = echo.await;
