@@ -430,6 +430,15 @@ button.cv-subagent > :last-child {
   --acpmux-tray-time-width: 52px;
   --acpmux-tray-status-width: 96px;
   --acpmux-tray-stop-width: 24px;
+  /* One grid for the header, the lines and View all (Leo, 2026-10-29: "You did this alignment in a
+     completely fucked up way. There's this right indent for no reason."): the same inset at both
+     ends, the leading icon's column, and one trailing track, so every chevron sits on one x. The
+     stop button's track is there only while a line has a stop button. */
+  --acpmux-tray-inset: 8px;
+  --acpmux-tray-icon: 14px;
+  --acpmux-tray-gap: 8px;
+  --acpmux-tray-lead: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-icon) + var(--acpmux-tray-gap));
+  --acpmux-tray-trail: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-stop-width) + var(--acpmux-tray-gap));
   box-sizing: border-box;
   padding: 0;
   overflow: hidden;
@@ -449,9 +458,18 @@ button.cv-subagent > :last-child {
   display: flex;
   flex-direction: column;
 }
+.acpmux-running-tray:not(:has(.acpmux-agent-line__stop-slot > *)) {
+  --acpmux-tray-trail: var(--acpmux-tray-inset);
+}
 .acpmux-running-tray__head,
 .acpmux-running-tray__finished {
   flex: none;
+  padding-left: var(--acpmux-tray-inset);
+  padding-right: var(--acpmux-tray-trail);
+}
+/* View all's words start on the names' column, under the lines' icons. */
+.acpmux-running-tray__finished {
+  padding-left: var(--acpmux-tray-lead);
 }
 /* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
    the stack never scrolls the transcript. */
@@ -509,19 +527,11 @@ button.cv-subagent > :last-child {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.acpmux-running-tray__stop-slot {
-  box-sizing: border-box;
-  flex: 0 0 var(--acpmux-tray-stop-width);
-  min-width: var(--acpmux-tray-stop-width);
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-}
 .acpmux-running-tray .acpmux-agent-line__stop-slot {
   box-sizing: border-box;
   position: absolute;
   top: 0;
-  right: 8px;
+  right: var(--acpmux-tray-inset);
   bottom: 0;
   width: var(--acpmux-tray-stop-width);
   min-width: var(--acpmux-tray-stop-width);
@@ -569,7 +579,8 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
   /* Reserve the final track while keeping the stop control outside the button. */
-  padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
+  padding-left: var(--acpmux-tray-inset);
+  padding-right: var(--acpmux-tray-trail);
 }
 .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop {
   position: static;
@@ -595,8 +606,15 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-chat-inspector-stop):enabled {
   cursor: pointer;
 }
-/* What the line is ("Command", "Subagent"), dim before its name. */
+/* What the line is, dim before its name: "Command" in words, a subagent by its icon. */
 .acpmux-agent-line__kind {
+  margin-right: 6px;
+  color: var(--agent-muted);
+}
+.acpmux-agent-line__kind-icon {
+  display: inline-flex;
+  flex: none;
+  align-self: center;
   margin-right: 6px;
   color: var(--agent-muted);
 }

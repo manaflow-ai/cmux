@@ -414,7 +414,6 @@ describe("the tray", () => {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
       expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")).not.toBeNull();
       expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__status")).not.toBeNull();
-      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__stop-slot")).not.toBeNull();
       const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
       expect(lines).toHaveLength(2);
       expect(lines.every((line) => line.querySelector(".acpmux-agent-line__time"))).toBe(true);
@@ -642,14 +641,22 @@ describe("a tray line says what it is and what a click does", () => {
     }
   });
 
-  test("a subagent leads with Subagent and ends in a chevron", async () => {
+  // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add
+  // the icon when it's in here."
+  test("a subagent leads with its icon, not the word, keeps its spinner and ends in a chevron", async () => {
     const items = trayItems([agent("Reviewer", { startedAt: Date.now(), action: "Read src/app.ts" })], [], NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
       const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
-      expect(line.querySelector(".acpmux-agent-line__kind")?.textContent).toBe("Subagent");
+      expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
+      expect(line.textContent).not.toContain("Subagent");
+      const kind = line.querySelector<HTMLElement>(".acpmux-agent-line__kind-icon");
+      expect(kind?.getAttribute("aria-label")).toBe("Subagent");
+      expect(kind?.querySelector("svg")).not.toBeNull();
+      // The working-state mark stays a spinner, before the subagent's icon.
+      expect(line.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner")).not.toBeNull();
       expect(line.querySelector(".acpmux-summary-agent__name")?.textContent).toBe("Reviewer");
       expect(line.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
     } finally {
