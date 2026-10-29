@@ -4,7 +4,7 @@
 // ones as compact status cards), chats the agent started under Subagents with their state,
 // and the header's counts. An empty chat's card draws one quiet line and Attach files or folders,
 // not a "None" under every title.
-import type { ComponentProps, CSSProperties } from "react";
+import { useState, type ComponentProps, type CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
 import { GALLERY_NOW } from "../../../gallery/clock";
@@ -22,8 +22,8 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
-  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions"
-> & { tabRowHeight?: number; preview?: boolean; inspectorPush?: boolean };
+  "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions" | "tools"
+> & { tabRowHeight?: number; preview?: boolean; inspectorPush?: boolean; popover?: boolean };
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -38,7 +38,9 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, popover, ...props }: Props) {
+  const [shown, setShown] = useState(true);
+  const control = popover ? { ...card, column: false, shown, close: () => setShown(false) } : card;
   return (
     <div
       className="acpmux-shell"
@@ -65,7 +67,7 @@ function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: 
             <header className="acpmux-header" data-tab-row={tabRowHeight ? "" : undefined}>
               <div />
               <div className="acpmux-header-tools">
-                <SummaryButton card={card} />
+                <SummaryButton card={control} />
               </div>
             </header>
           </div>
@@ -97,7 +99,7 @@ function GallerySummaryCard({ tabRowHeight, preview, inspectorPush, ...props }: 
         />
       ) : inspectorPush ? null : (
         <SummaryCard
-          card={card}
+          card={control}
           subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: none }}
           onOpenOutput={none}
           {...props}
@@ -196,6 +198,20 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/inspector/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
+    "nested-sources-menu": {
+      note: "Sources opens inside the floating Summary card. Dismissing or picking in the menu leaves the card open.",
+      props: {
+        popover: true,
+        rows: [],
+        onAttach: none,
+        tools: {
+          rows: [
+            { id: "mcp:docs", name: "Documentation", kind: "mcp", source: "claude", enabled: true, canToggle: true },
+          ],
+          set: async () => "now",
+        },
+      },
+    },
     "preview-tab-row": {
       note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
       props: { tabRowHeight: 32, preview: true, rows: [] },
