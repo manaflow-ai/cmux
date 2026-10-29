@@ -294,19 +294,3 @@ fn a_failed_write_leaves_no_temp_file() {
     assert_eq!(temps(kind.parent().unwrap()), Vec::<String>::new());
     assert_eq!(std::fs::read_to_string(&kind).unwrap(), "owner\n");
 }
-
-#[test]
-fn an_attached_app_is_not_a_session_but_its_input_and_live_agents_are() {
-    // The Mac app stays attached for days: attachment alone must not keep the machine awake.
-    let attached = activity_from_daemon(&json!({
-        "attached_clients": 2, "live_agents": 0, "last_user_input_at_ms": null, "last_agent_action_at_ms": null
-    }));
-    assert_eq!(attached.active_sessions, Some(0));
-    let typing = activity_from_daemon(&json!({
-        "attached_clients": 1, "live_agents": 0, "last_user_input_at_ms": 1_700_000_000_000_u64
-    }));
-    assert_eq!(typing.active_sessions, Some(0));
-    assert_eq!(typing.last_user_input_at, Some(1_700_000_000_000));
-    let agent = activity_from_daemon(&json!({ "attached_clients": 1, "live_agents": 3 }));
-    assert_eq!(agent.active_sessions, Some(3));
-}

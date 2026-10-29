@@ -265,15 +265,12 @@ impl ActivityChange {
 }
 
 /// The daemon's activity (`subscribe-activity`) as a report change:
-/// sessions = live agents; only positive times count. An attached client is
-/// not a session: the Mac app stays attached for days and re-attaches after
-/// every daemon restart, so it would keep an idle machine running forever.
-/// A person's use of it shows as `last_user_input_at`.
+/// sessions = attached clients + live agents; only positive times count.
 pub fn activity_from_daemon(a: &Value) -> ActivityChange {
     let count = |key: &str| a[key].as_u64().unwrap_or(0);
     let time = |key: &str| a[key].as_u64().filter(|ms| *ms > 0);
     ActivityChange {
-        active_sessions: Some(count("live_agents")),
+        active_sessions: Some(count("attached_clients") + count("live_agents")),
         last_user_input_at: time("last_user_input_at_ms"),
         last_agent_action_at: time("last_agent_action_at_ms"),
     }
