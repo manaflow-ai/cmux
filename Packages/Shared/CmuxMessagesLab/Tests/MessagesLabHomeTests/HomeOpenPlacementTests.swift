@@ -24,6 +24,16 @@ import Testing
         return view
     }
 
+    /// The chat's view closes, as Home drops it for another Chief's (its pane stays in the window).
+    private func close(_ view: MessagesLabHomeView, in rig: HomeChatRig) {
+        view.stop()
+        if rig.window.contentView === view {
+            rig.window.contentView = NSView(frame: view.frame)
+        } else {
+            view.removeFromSuperview()
+        }
+    }
+
     /// Waits for the off-main measure a width change starts (`measureWindow`), then lays out again.
     private func settle(_ view: MessagesLabHomeView) async {
         for _ in 0..<200 {
@@ -56,8 +66,7 @@ import Testing
     @Test func aChatOpensAtItsNewestMessage() async throws {
         let rig = try await HomeChatRig(history: 300)
         defer { rig.stop() }
-        rig.view.stop()
-        rig.view.removeFromSuperview()
+        close(rig.view, in: rig)
 
         let view = try await open(rig)
         defer { view.stop() }
@@ -67,13 +76,11 @@ import Testing
     @Test func aChatLeftAtTheBottomOpensAtTheBottomWithWhatCameMeanwhile() async throws {
         let rig = try await HomeChatRig(history: 300)
         defer { rig.stop() }
-        rig.view.stop()
-        rig.view.removeFromSuperview()
+        close(rig.view, in: rig)
 
         let first = try await open(rig)
         try expectAtNewest(first, "the first view")
-        first.stop()
-        first.removeFromSuperview()
+        close(first, in: rig)
         // Another Chief was shown while this one answered.
         #expect(await rig.post("\(HomeChatRig.tag) while you were away", key: IdempotencyKey("away")))
 
@@ -88,15 +95,13 @@ import Testing
     @Test func aChatLeftScrolledUpOpensWhereThePersonWasReading() async throws {
         let rig = try await HomeChatRig(history: 300)
         defer { rig.stop() }
-        rig.view.stop()
-        rig.view.removeFromSuperview()
+        close(rig.view, in: rig)
 
         let first = try await open(rig)
         try scrollUp(first, by: 2400)
         let left = try #require(first.controller.demo?.anchorProbe)
         #expect(first.controller.store?.state.ui.scroll.pinnedToBottom == false)
-        first.stop()
-        first.removeFromSuperview()
+        close(first, in: rig)
 
         let again = try await open(rig)
         defer { again.stop() }
