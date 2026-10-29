@@ -139,7 +139,7 @@ impl FinishedMemo {
     pub(crate) fn lock_dir(&self) -> Option<PathBuf> {
         self.path
             .as_ref()
-            .and_then(Path::parent)
+            .and_then(|path| path.parent())
             .map(Path::to_path_buf)
             .or_else(crate::Store::default_dir)
     }
