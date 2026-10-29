@@ -295,6 +295,9 @@ def run_gh_pr_create(rid, sid):
 
 def handle_prompt(rid, params):
     sid = params["sessionId"]
+    # Model a harness that scopes an interrupt to the prompt it is processing.
+    if os.environ.get("FAKE_RESET_CANCEL_ON_PROMPT") == "1":
+        cancelled.discard(sid)
     blocks = params.get("prompt", [])
     text = "".join(b.get("text", "") for b in blocks)
     if text.startswith("envs:"):

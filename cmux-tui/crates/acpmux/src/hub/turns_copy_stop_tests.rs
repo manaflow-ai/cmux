@@ -50,6 +50,85 @@ fn stopped(r: Result<Value, RpcError>) {
     assert_eq!(e.data.as_ref().map(|d| d["reason"].clone()), Some(json!("stopped")), "{e:?}");
 }
 
+/// A forced compaction Stop can finish while its session-wide cancel is still waiting
+/// for writer capacity. Continue may start a logical turn, but its prompt must reach the
+/// harness after that cancel, never before it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
+    let (hub, s) = chat(&["FAKE_RESET_CANCEL_ON_PROMPT=1"], false).await;
+    let mut events = hub.subscribe();
+    let running = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt(&s, vec![json!({"type": "text", "text": "deaf-to-cancel"})], "test", false)
+                .await
+        })
+    };
+    tokio::time::timeout(WAIT, async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.record.msg["params"]["update"]["content"]["text"] == "running" {
+                break;
+            }
+        }
+    })
+    .await
+    .expect("the first prompt reached the harness");
+    s.compacting.store(true, std::sync::atomic::Ordering::SeqCst);
+    let old_turn = s.turn().unwrap().turn_id;
+    let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
+    let (release, release_rx) = tokio::sync::oneshot::channel();
+    *hub.cancel_write_seam.lock().unwrap() = Some((arrived_tx, release_rx));
+    let cancel = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move { hub.cancel(&s).await })
+    };
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(2), running)
+        .await
+        .expect("Stop must settle before its writer is released")
+        .unwrap()
+        .unwrap();
+    assert_eq!(result["_meta"]["acpmux"]["cancelForced"], true);
+
+    let (accepted_tx, accepted) = tokio::sync::oneshot::channel();
+    let next = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            let opts = PromptOptions {
+                on_accepted: Some(Box::new(move |v| { let _ = accepted_tx.send(v); })),
+                ..Default::default()
+            };
+            hub.prompt_with(&s, vec![json!({"type": "text", "text": "slow"})], "test", false, opts)
+                .await
+        })
+    };
+    let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
+    assert_ne!(accepted["turnId"], old_turn);
+    // Give the unfixed path time to deliver the new prompt before releasing the delayed
+    // cancel. With ordering in place this event cannot arrive until release.
+    let _ = tokio::time::timeout(Duration::from_millis(200), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.record.msg["params"]["update"]["content"]["text"] == "tick0 " {
+                break;
+            }
+        }
+    })
+    .await;
+    release.send(()).unwrap();
+    tokio::time::timeout(WAIT, cancel).await.unwrap().unwrap().unwrap();
+    let result = tokio::time::timeout(WAIT, next).await.unwrap().unwrap().unwrap();
+    assert_eq!(result["stopReason"], "end_turn", "the old cancel reached the new turn: {result}");
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let cancel = events.iter().find(|e| e.dir == "out" && e.kind == "session/cancel").unwrap();
+    let next = events.iter().find(|e| {
+        e.dir == "out" && e.kind == "session/prompt"
+            && e.msg["params"]["prompt"].to_string().contains("slow")
+    }).unwrap();
+    assert!(cancel.seq < next.seq, "the new prompt overtook the old cancel");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_stop_while_a_turns_copies_are_made_keeps_its_prompt_from_the_agent() {
     let (hub, s) = chat(&[], false).await;

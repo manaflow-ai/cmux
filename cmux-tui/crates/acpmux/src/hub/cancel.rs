@@ -84,6 +84,14 @@ impl Hub {
             }
             Self::force_cancel(session, turn);
         }
+        #[cfg(test)]
+        {
+            let seam = self.cancel_write_seam.lock().unwrap().take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         let sent = child
             .notify(method::SESSION_CANCEL, json!({"sessionId": sid}))
             .await
