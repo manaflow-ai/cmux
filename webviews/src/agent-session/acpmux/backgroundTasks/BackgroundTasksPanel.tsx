@@ -10,10 +10,11 @@
 // "N finished", folded, the latest first, each with how long it took.
 //
 // Opening an agent or a task drills into that agent's transcript in place (SubagentTranscript.tsx),
-// with a back chevron, and draws on the click: the transcript is the subagent's view acpmux already
+// with a back chevron (an agent opened from a transcript stacks, and Back steps out one at a time),
+// and draws on the click: the transcript is the subagent's view acpmux already
 // streamed into the chat's snapshot (`subagentViews`), so nothing waits on the daemon (Leo,
-// 2026-10-29: "i also like the way it just loads in the subagent stuff instantly :("). Back returns
-// to the list where it was scrolled.
+// 2026-10-29: "i also like the way it just loads in the subagent stuff instantly :("). The list
+// stays mounted under it, so Back returns to it as it was: scrolled, folded and opened the same.
 //
 // What runs turns the shared spinner, never a pulsing dot. Its one clock ticks each second only
 // while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops with the panel.
@@ -31,7 +32,7 @@ import {
   type BackgroundTask,
   type StopTarget,
 } from "./backgroundTasks";
-import { SubagentTranscript } from "./SubagentTranscript";
+import { NestedAgents, SubagentTranscript } from "./SubagentTranscript";
 import "./backgroundTasks.css";
 
 /// Whether this chat's subagents stop on their own (Claude Code's do; App.tsx `stopsSubagents`): a
@@ -83,51 +84,42 @@ export function BackgroundTasksPanel({
   const t = useT();
   const live = anyRunning(groups);
   const now = useNow(live);
-  const [drill, setDrill] = useState<Drill | undefined>(initialDrill);
+  // The drill-ins, deepest last: an agent opened from another's transcript stacks on it, and Back
+  // steps out one at a time, to the list last.
+  const [stack, setStack] = useState<Drill[]>(() => (initialDrill ? [initialDrill] : []));
+  const drill = stack.at(-1);
   const list = useRef<HTMLDivElement>(null);
   const listScroll = useRef(0);
-  // Back puts the list where it was before the paint, so it never jumps.
+  // The list stays mounted (hidden) under a transcript, so its open groups, folds and Show more
+  // stay as they were; Back puts its scroll where it was before the paint, so it never jumps.
   useLayoutEffect(() => {
     if (!drill && list.current) list.current.scrollTop = listScroll.current;
   }, [drill]);
   const open = (next: Drill) => {
-    listScroll.current = list.current?.scrollTop ?? 0;
-    setDrill(next);
+    if (!drill) listScroll.current = list.current?.scrollTop ?? 0;
+    setStack((now) => [...now, next]);
+  };
+  const back = () => setStack((now) => now.slice(0, -1));
+  const nested = {
+    open: (agentId: string) => open({ agentId }),
+    stop: (agentId: string, name: string) => (
+      <StopSlot target={{ kind: "agent", id: agentId }} name={name} onStop={onStop} />
+    ),
   };
   const finished = useMemo(() => finishedGroupIds(groups), [groups]);
   const drilled = drill && agentOf(groups, drill.agentId);
-  if (drill) {
-    const name = drilled?.name ?? drill.agentId;
-    return (
-      <StopsAgents.Provider value={stopsAgents}>
-        <PanelFrame
-          title={name}
-          back={() => setDrill(undefined)}
-          backLabel={t("backgroundTasks.back")}
-          expanded={expanded}
-          onExpand={onExpand}
-          onClose={onClose}
-        >
-          <SubagentTranscript
-            key={drill.agentId}
-            rows={views?.[drill.agentId] ?? []}
-            running={drilled?.state === "running"}
-            anchor={drill.rowId}
-          />
-        </PanelFrame>
-      </StopsAgents.Provider>
-    );
-  }
   return (
     <StopsAgents.Provider value={stopsAgents}>
       <PanelFrame
-        title={t("backgroundTasks.title")}
-        clear={finished.length > 0 ? () => onClearFinished(finished) : undefined}
+        title={drill ? (drilled?.name ?? drill.agentId) : t("backgroundTasks.title")}
+        back={drill ? back : undefined}
+        backLabel={t("backgroundTasks.back")}
+        clear={!drill && finished.length > 0 ? () => onClearFinished(finished) : undefined}
         expanded={expanded}
         onExpand={onExpand}
         onClose={onClose}
       >
-        <div ref={list} className="acpmux-bg__list" data-look={look}>
+        <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
           {groups.length === 0 ? (
             <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
           ) : (
@@ -146,6 +138,16 @@ export function BackgroundTasksPanel({
             ))
           )}
         </div>
+        {drill && (
+          <NestedAgents.Provider value={nested}>
+            <SubagentTranscript
+              key={`${stack.length}:${drill.agentId}`}
+              rows={views?.[drill.agentId] ?? []}
+              running={drilled?.state === "running"}
+              anchor={drill.rowId}
+            />
+          </NestedAgents.Provider>
+        )}
       </PanelFrame>
     </StopsAgents.Provider>
   );

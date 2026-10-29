@@ -11,9 +11,10 @@
 //   in a layout effect, before the frame paints; older rows mount a window at a time as the reader
 //   scrolls up to the top sentinel, with the scroll offset held so nothing moves;
 // - while the reader is at the bottom, a new row keeps them there.
-// The sentinel's IntersectionObserver is the one observer here: it disconnects once every row is
+// The sentinels' IntersectionObservers (one above the mounted rows, one below a window opened around
+// a task) are the only observers here: each disconnects when it fires, once every row on its side is
 // mounted, and on unmount.
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Markdown } from "../conversation/Markdown";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
@@ -28,12 +29,18 @@ const OUTPUT_CHARS = 4000;
 /// How close to the bottom counts as at the bottom, in px.
 const BOTTOM_SLACK = 24;
 
-/// Where the first mounted row is: the newest window, or one that holds the anchor row.
-export function windowStart(rows: readonly AcpmuxRow[], anchor?: string): number {
+/// The rows mounted at first, bounded at both ends: `end` undefined follows the newest row (the
+/// newest window, which grows as rows arrive); a window around an anchor row ends WINDOW rows on, so
+/// opening a task early in a long transcript mounts no more than one window either way.
+export type Range = { start: number; end?: number };
+
+export function windowRange(rows: readonly AcpmuxRow[], anchor?: string): Range {
   const newest = Math.max(0, rows.length - WINDOW);
-  if (anchor === undefined) return newest;
-  const at = rows.findIndex((row) => row.id === anchor);
-  return at < 0 ? newest : Math.min(newest, Math.max(0, at - Math.floor(WINDOW / 4)));
+  const at = anchor === undefined ? -1 : rows.findIndex((row) => row.id === anchor);
+  if (at < 0) return { start: newest };
+  const start = Math.min(newest, Math.max(0, at - Math.floor(WINDOW / 4)));
+  const end = start + WINDOW;
+  return end >= rows.length ? { start } : { start, end };
 }
 
 export function SubagentTranscript({
@@ -48,12 +55,14 @@ export function SubagentTranscript({
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
-  const [start, setStart] = useState(() => windowStart(rows, anchor));
+  const bottom = useRef<HTMLDivElement>(null);
+  const [range, setRange] = useState(() => windowRange(rows, anchor));
   const atBottom = useRef(anchor === undefined);
   const grown = useRef<number | undefined>(undefined);
   const placed = useRef(false);
-  const first = Math.min(start, Math.max(0, rows.length - 1));
-  const shown = rows.slice(first);
+  const first = Math.min(range.start, Math.max(0, rows.length - 1));
+  const last = range.end === undefined || range.end >= rows.length ? undefined : range.end;
+  const shown = rows.slice(first, last);
 
   // Before the first paint: at the bottom, or the opened task's row in view.
   useLayoutEffect(() => {
@@ -72,26 +81,40 @@ export function SubagentTranscript({
       grown.current = undefined;
       return;
     }
-    if (atBottom.current) view.scrollTop = view.scrollHeight;
+    if (atBottom.current && last === undefined) view.scrollTop = view.scrollHeight;
   });
 
-  // Scrolling up to the sentinel mounts the window before it.
+  // Scrolling up to the top sentinel mounts the window before it, holding the scroll; scrolling
+  // down to the bottom one (a window around an anchor) mounts the window after it, and the one
+  // that reaches the newest row follows it from then on.
   useEffect(() => {
     const view = scroller.current;
-    const sentinel = top.current;
-    if (!view || !sentinel || first === 0 || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        observer.disconnect();
+    if (!view || typeof IntersectionObserver === "undefined") return;
+    const observers: IntersectionObserver[] = [];
+    const watch = (sentinel: HTMLElement | null, margin: string, grow: () => void) => {
+      if (!sentinel) return;
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) return;
+          observer.disconnect();
+          grow();
+        },
+        { root: view, rootMargin: margin },
+      );
+      observer.observe(sentinel);
+      observers.push(observer);
+    };
+    if (first > 0)
+      watch(top.current, "200px 0px 0px 0px", () => {
         grown.current = view.scrollHeight;
-        setStart(Math.max(0, first - WINDOW));
-      },
-      { root: view, rootMargin: "200px 0px 0px 0px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [first]);
+        setRange((now) => ({ ...now, start: Math.max(0, first - WINDOW) }));
+      });
+    if (last !== undefined)
+      watch(bottom.current, "0px 0px 200px 0px", () =>
+        setRange((now) => (last + WINDOW >= rows.length ? { start: now.start } : { ...now, end: last + WINDOW })),
+      );
+    return () => observers.forEach((observer) => observer.disconnect());
+  }, [first, last, rows.length]);
 
   return (
     <div
@@ -106,7 +129,8 @@ export function SubagentTranscript({
       {shown.map((row) => (
         <TranscriptRow key={row.id} row={row} version={row.version} />
       ))}
-      {running && (
+      {last !== undefined && <div ref={bottom} className="acpmux-bg__sentinel" aria-hidden="true" />}
+      {running && last === undefined && (
         <div className="acpmux-bg__working">
           <Spinner size={14} loading />
         </div>
@@ -134,9 +158,12 @@ const TranscriptRow = memo(
       return (
         <div data-row-id={row.id}>
           {(row.subagents ?? []).map((agent) => (
-            <p key={agent.id} className="acpmux-bg__line">
-              {agent.task?.trim() || agent.name}
-            </p>
+            <NestedAgent
+              key={agent.id}
+              id={agent.id}
+              name={agent.task?.trim() || agent.name}
+              running={agent.state === "running"}
+            />
           ))}
         </div>
       );
@@ -156,6 +183,33 @@ const TranscriptRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.version === b.version,
 );
+
+/// What a nested agent's line in a transcript does (BackgroundTasksPanel.tsx provides it): it opens
+/// that agent's own transcript, and while it runs it carries the agent's stop button, so an agent at
+/// any depth opens and stops from the panel.
+export const NestedAgents = createContext<{
+  open?(agentId: string): void;
+  stop?(agentId: string, name: string): ReactNode;
+}>({});
+
+function NestedAgent({ id, name, running }: { id: string; name: string; running: boolean }) {
+  const { open, stop } = useContext(NestedAgents);
+  return (
+    <div className="acpmux-bg__task" data-state={running ? "running" : "done"}>
+      <button type="button" className="acpmux-bg__task-open" disabled={!open} onClick={() => open?.(id)}>
+        {running ? (
+          <Spinner size={10} loading />
+        ) : (
+          <span className="acpmux-bg__disclosure" aria-hidden="true">
+            <Icon name="disclosure.collapsed" size={10} row />
+          </span>
+        )}
+        <span className="acpmux-bg__label">{name}</span>
+      </button>
+      {running && stop?.(id, name)}
+    </div>
+  );
+}
 
 function Thought({ text }: { text: string }) {
   const t = useT();

@@ -287,6 +287,10 @@
   border-radius: 8px;
   color: var(--agent-muted);
 }
+.acpmux-bg__list[hidden] {
+  display: none;
+}
+
 .acpmux-bg__list[data-look="flat"] .acpmux-bg__tasks {
   padding-left: 8px;
 }

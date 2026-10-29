@@ -11,8 +11,9 @@
 //   - after: the agent's line in the Background tasks panel, which draws its transcript in place
 //     from the snapshot (SubagentTranscript.tsx).
 //
-// Each sample clicks in the page and stops the clock once the content is in the DOM, counting the
-// frames that passed without it: zero frames means the content paints on the click's own frame. The
+// Each sample clicks in the page, lets React's microtask commit run, and stops the clock once the
+// content is in the DOM, counting the frames that passed without it: zero frames means the content
+// is committed before the next frame, so it paints on the click's own frame. The
 // panel must have its content in under one frame (FRAME_MS) at the median and on every sample's
 // first frame.
 //
@@ -93,6 +94,9 @@ await requireBrowserLane("background-tasks-drill-perf.test.ts", async () => {
           await frame();
           const start = performance.now();
           button.click();
+          // React commits a click's update in a microtask after the handler returns, before the
+          // frame paints: let those run before looking, so batching is not counted as a frame.
+          for (let tick = 0; tick < 8 && !document.querySelector(shown); tick += 1) await Promise.resolve();
           // Frames that passed with the content still missing: 0 is the click's own frame.
           let waited = 0;
           while (!document.querySelector(shown) && waited < 600) {
