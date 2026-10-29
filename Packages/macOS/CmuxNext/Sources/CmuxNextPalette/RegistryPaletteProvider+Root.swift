@@ -19,7 +19,7 @@ extension RegistryPaletteProvider {
         "revealWorkspaceInFinder", "newWorkspaceGroup", "groupSelectedWorkspaces", "workspace.selectLastUsed", "markWorkspaceDone",
         "reconnectWorkspace", "saveLayoutTemplate", "palette.layout.open", "space.new", "space.switch",
         "splitLeft", "splitUp", "renamePane", "focusLeft", "focusRight",
-        "focusUp", "focusDown", "focusNextPane", "focusPreviousPane", "newColumn",
+        "focusUp", "focusDown", "focusNextPane", "focusPreviousPane", "newColumn", "newColumnLeft",
         "newRow", "layout.undo", "toggleCanvasLayout", "duplicateTab", "reloadTab",
         "palette.toggleTabPin", "newSurface", "nextSurface", "prevSurface", "focusLocation",
         "tab.muteAudio", "tab.unmuteAudio", "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab",

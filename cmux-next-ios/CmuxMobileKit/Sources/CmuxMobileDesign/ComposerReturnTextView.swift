@@ -14,6 +14,11 @@ open class ComposerReturnTextView: UITextView {
     public var onSend: (() -> Void)?
     /// Whether the edit menu offers New Line (for a composer whose Return sends).
     public var offersNewLineMenuItem = false
+    /// Set by a composer that takes attachments: the edit menu's Paste and
+    /// Command-V hand it a copied image or file instead of pasting text (a
+    /// plain text view offers no Paste for an image at all). The paste is the
+    /// person's own action, so reading the pasteboard then asks nothing.
+    public var onPasteAttachments: (() -> Void)?
 
     private let placeholderLabel = UILabel()
     /// Set while this view inserts its own line break, so the delegate's
@@ -114,8 +119,26 @@ open class ComposerReturnTextView: UITextView {
         case #selector(hardwareReturn), #selector(hardwareShiftReturn), #selector(hardwareOptionReturn):
             // Composing text: Return commits the candidate (the input method's).
             return isEditable && markedTextRange == nil
+        case #selector(paste(_:)) where pastesAttachments:
+            return isEditable
         default:
             return super.canPerformAction(action, withSender: sender)
+        }
+    }
+
+    // MARK: Paste
+
+    /// An image or a copied file leads the pasteboard, for a composer that
+    /// takes attachments (`composerPastesAttachments`).
+    private var pastesAttachments: Bool {
+        onPasteAttachments != nil && UIPasteboard.general.composerPastesAttachments
+    }
+
+    override open func paste(_ sender: Any?) {
+        if pastesAttachments, let onPasteAttachments {
+            onPasteAttachments()
+        } else {
+            super.paste(sender)
         }
     }
 

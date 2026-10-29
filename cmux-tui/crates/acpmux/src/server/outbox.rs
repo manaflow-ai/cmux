@@ -15,7 +15,8 @@
 //! person's resume runs it, so it is never sent again from here.
 //!
 //! `send_status {deliveryId, waitMs?}` answers the delivery's state, after waiting up to
-//! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle.
+//! `waitMs` (at most [`MAX_STATUS_WAIT_MS`]) for it to settle. A target no one here resolves goes
+//! to the mesh hub when the relay is on, and its status is the hub's receipt (`mesh_send.rs`).
 
 use crate::no_panic::JsonExt;
 use std::time::Duration;
@@ -25,7 +26,7 @@ use crate::hub::outbox::{Delivery, State};
 
 /// What an attempt that did not deliver leaves the delivery as.
 #[derive(Debug, PartialEq)]
-enum Next {
+pub(super) enum Next {
     /// Tried again after the next delay.
     Retry,
     /// A refusal: failed, with its error.
@@ -69,6 +70,14 @@ pub(super) async fn handle(
         && hub.resolve_remote(&target).is_none()
         && hub.peer_down_for(&target).is_none()
     {
+        // With the mesh relay on, the team hub may know a name nothing here or on a peer matches
+        // (`mesh_send.rs`); a name several sessions here or on peers match stays this daemon's
+        // refusal (`Hub::mesh_may_route`).
+        if let Some(mesh) = hub.mesh.get()
+            && hub.mesh_may_route(&target)
+        {
+            return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
+        }
         return Err(RpcError::invalid_params(format!("no session: {target}"))
             .with_data(json!({"reason": "no_session", "session": target})));
     }
@@ -149,6 +158,11 @@ async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
 async fn status(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
+    if id.starts_with(super::mesh_send::PREFIX)
+        && let Some(mesh) = hub.mesh.get()
+    {
+        return super::mesh_send::status(mesh, id).await;
+    }
     let wait = params.get("waitMs").and_then(Value::as_u64).unwrap_or(0).min(MAX_STATUS_WAIT_MS);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(wait);
     loop {
@@ -194,7 +208,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         {
             mux.insert("resend".into(), json!(true));
         }
-        match attempt_once(hub, delivery.caller.as_deref(), request).await {
+        match attempt_once(hub, delivery.caller.as_deref(), request, Origin::Local).await {
             Ok(accepted) => {
                 hub.outbox.update(id, |d| {
                     d.state = State::Delivered;
@@ -238,12 +252,29 @@ async fn forget_attachments(path: std::path::PathBuf) {
     let _ = tokio::task::spawn_blocking(move || std::fs::remove_file(path)).await;
 }
 
-/// One attempt: the target's acceptance, or the error and whether to try again.
-async fn attempt_once(
+/// One attempt: the target's acceptance, or the error and whether to try again. It runs on a
+/// connection of `origin`: the unix socket's for a send here, a peer's for a message the mesh
+/// relay delivers (`mesh_relay.rs`), so each is held to its origin's rules.
+pub(super) async fn attempt_once(
     hub: &Arc<Hub>,
     caller: Option<&str>,
     request: Value,
+    origin: Origin,
 ) -> Result<Value, (String, Next)> {
+    let target = request.get("sessionId").and_then(Value::as_str).unwrap_or_default();
+    let summary = hub
+        .resolve(target)
+        .ok()
+        .map(|session| hub.session_summary(&session))
+        .or_else(|| hub.resolve_remote(target).map(|(_, _, summary)| summary));
+    if let Some(summary) = summary {
+        let config = hub.config.read().await.machine_wake.clone();
+        if let Some(config) = config
+            && let Err(error) = crate::machine_wake::wake(&config, &summary).await
+        {
+            return Err((format!("machine wake failed: {error}"), Next::Retry));
+        }
+    }
     let prompt_id = request
         .pointer("/_meta/acpmux/promptId")
         .and_then(Value::as_str)
@@ -251,7 +282,7 @@ async fn attempt_once(
         .to_owned();
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut out_rx) = mpsc::channel(1024);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
     let mut hello = json!({
         "protocolVersion": 1,
         "clientCapabilities": {},

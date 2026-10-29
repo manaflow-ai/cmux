@@ -218,6 +218,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// place left or right in one commit. Without it only a one-pane column
     /// moves, through `swap-pane`.
     case columnMove = "column-move-v1"
+    /// `new-pane-right {side: "left"}`: New Column Left opens the column before the pane's
+    /// column. Without it New Column Left is refused.
+    case columnLeft = "column-left-v1"
     /// `move-tab-to-column` `respawn`: a pane's only tab moves into a new
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
@@ -298,6 +301,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// that machine. A Cloud VM's daemon then starts a chat only on `vm_kind: "owner"`, never on
     /// its own `owner` record (the agents there keep sudo).
     case agentSessionStartVMKind = "agent-session-start-vm-kind-v1"
+    /// `agent-session-trust` takes `vm_kind`, as `agent-session-start` does: a Cloud VM's daemon
+    /// records folder trust only on `vm_kind: "owner"`.
+    case agentSessionTrustVMKind = "agent-session-trust-vm-kind-v1"
     /// `agent-session-children`: an attached chat's daemon lists the chats its session started on
     /// that machine and streams their changes, and a listed child opens in a tab of that machine
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
@@ -503,13 +509,14 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserHostProvider, .frontendBrowserActivate, .frontendBrowserInsertAfter, .loopbackForward,
              .browserRuntime, .notificationSource, .terminalShellArgs, .terminalFrontendShellIntegration,
              .launchSnapshot, .profiles, .personalRemoteLocalhost, .sessionIdentity, .remoteTerminalTabs,
-             .dockColumns, .edgeDocks, .dockColumnRole, .pinnedDock, .pinnedDockAlone, .rows, .columnMove,
+             .dockColumns, .edgeDocks, .dockColumnRole, .pinnedDock, .pinnedDockAlone, .rows, .columnMove, .columnLeft,
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
              .chiefLive, .cloudChiefLive, .conversationRuns, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionChildren, .agentSessionPresence, .pageTabs,
+             .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionTrustVMKind,
+             .agentSessionChildren, .agentSessionPresence, .pageTabs,
              .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
