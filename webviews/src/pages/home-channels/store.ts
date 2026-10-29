@@ -1064,6 +1064,7 @@ export class HomeChannelsStore {
         turns.length > 0
           ? ((await this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns }).catch(() => ({ runs: [], hasMore: false }))).runs)
           : [];
+      if (generation !== this.generation || life !== this.life) return;
       const messageIds = new Set(messages.map((message) => message.id));
       const answerRuns: HomeRun[] = [];
       const answerIds = [...messageIds];
@@ -1072,11 +1073,16 @@ export class HomeChannelsStore {
           conversation,
           answers: answerIds.slice(offset, offset + 200),
         }).catch(() => ({ runs: [], hasMore: false }));
+        if (generation !== this.generation || life !== this.life) return;
         answerRuns.push(...page.runs);
       }
+      if (generation !== this.generation || life !== this.life) return;
       const directRuns = [...direct, ...answerRuns];
       this.runs.setRuns(directRuns);
-      for (const run of directRuns) await this.loadRunSteps(run);
+      for (const run of directRuns) {
+        if (generation !== this.generation || life !== this.life) return;
+        await this.loadRunSteps(run, generation, life);
+      }
       const unresolvedReplies = new Set(
         messages
           .filter((message) => message.clientMessageId && agents.has(message.author))
@@ -1096,7 +1102,6 @@ export class HomeChannelsStore {
       const history: HomeRun[] = [];
       let beforeStartedAt: number | undefined;
       let page = 0;
-      const maxHistoryPages = 20;
       for (;;) {
         const params: Record<string, unknown> = { conversation, limit: newest && page === 0 ? 20 : 50 };
         page += 1;
@@ -1120,8 +1125,7 @@ export class HomeChannelsStore {
         if (
           !list.hasMore ||
           oldestRun === undefined ||
-          (page > 0 && unresolvedReplies.size === 0 && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt) ||
-          page >= maxHistoryPages
+          (page > 0 && unresolvedReplies.size === 0 && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)
         )
           break;
         // The protocol uses a strict less-than cursor; guard malformed owners that do not move it.
@@ -1161,7 +1165,7 @@ export class HomeChannelsStore {
           run.answers.some((answer) => messageIds.has(answer)) ||
           directKeys.has(`${run.author}\0${run.id}`)
         )
-          await this.loadRunSteps(run);
+          await this.loadRunSteps(run, generation, life);
       }
     } catch {
       // Runs are display only; a host or owner without them shows plain messages.
@@ -1169,7 +1173,12 @@ export class HomeChannelsStore {
   }
 
   /** Reads every step of a run from its owner (pages of steps by revision). */
-  loadRunSteps = async (run: HomeRun): Promise<void> => {
+  loadRunSteps = async (run: HomeRun, expectedGeneration?: number, expectedLife?: number): Promise<void> => {
+    if (
+      (expectedGeneration !== undefined && expectedGeneration !== this.generation) ||
+      (expectedLife !== undefined && expectedLife !== this.life)
+    )
+      return;
     const key = `${run.conversation}\0${run.author}\0${run.id}`;
     const readKey = `${this.generation}\0${this.life}\0${key}`;
     if (!this.client || this.loadingRuns.has(readKey)) return;
@@ -1187,7 +1196,13 @@ export class HomeChannelsStore {
     this.loadingRuns.add(readKey);
     try {
       await previous;
-      if (generation !== this.generation || life !== this.life) return;
+      if (
+        generation !== this.generation ||
+        life !== this.life ||
+        (expectedGeneration !== undefined && expectedGeneration !== this.generation) ||
+        (expectedLife !== undefined && expectedLife !== this.life)
+      )
+        return;
       // The local owner pages by revision; a Cloud brain (keyed by its Chief) by seq.
       let afterRev = 0;
       let afterSeq = 0;

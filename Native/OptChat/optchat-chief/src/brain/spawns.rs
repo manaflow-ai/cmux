@@ -1668,6 +1668,7 @@ impl Brain {
                 continue;
             };
             let mut complete = true;
+            let mut transport_failed = false;
             for chunk in crate::run::chunks(steps) {
                 if let Err(e) = daemon.run_append(&conversation, run.clone(), chunk) {
                     if matches!(&e, OpError::Rejected(reason) if reason == "runs_unsupported") {
@@ -1677,11 +1678,20 @@ impl Brain {
                         break;
                     }
                     complete = false;
+                    if let OpError::Transport(reason) = &e {
+                        transport_failed = true;
+                        (self.log)(&format!(
+                            "appending an agent report failed; reconnecting after transport error: {reason}"
+                        ));
+                    }
                     (self.log)(&format!(
                         "appending an agent report failed; retaining it for reconnect: {e}"
                     ));
                     break;
                 }
+            }
+            if transport_failed {
+                self.drop_daemon();
             }
             if complete {
                 self.state
@@ -1704,6 +1714,7 @@ impl Brain {
         let mut done = std::collections::HashSet::new();
         for report in pending {
             let mut complete = true;
+            let mut transport_failed = false;
             for chunk in crate::run::chunks(report.steps.clone()) {
                 if let Err(e) = daemon.run_append(&report.conversation, report.run.clone(), chunk) {
                     if matches!(&e, OpError::Rejected(reason) if reason == "runs_unsupported") {
@@ -1711,11 +1722,20 @@ impl Brain {
                         break;
                     }
                     complete = false;
+                    if let OpError::Transport(reason) = &e {
+                        transport_failed = true;
+                        (self.log)(&format!(
+                            "replaying an agent report failed; reconnecting after transport error: {reason}"
+                        ));
+                    }
                     (self.log)(&format!(
                         "replaying an agent report failed; retaining it: {e}"
                     ));
                     break;
                 }
+            }
+            if transport_failed {
+                self.drop_daemon();
             }
             if complete {
                 done.insert(report_key(&report.conversation, &report.steps));
