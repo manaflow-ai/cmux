@@ -39,14 +39,18 @@ import Testing
         #expect(HistogramID.Command.allCases.allSatisfy { rig.samples($0) == nil })
     }
 
-    /// Cmd-W's window ends on a stall tick before it counts a frame, so it reports nothing; an unrelated window 300 ms
-    /// later on the same scheduler must not record for Cmd-W.
-    @Test func aWindowThatCountsNoFrameRecordsNothingForItsCommand() {
+    /// Cmd-W's window ends on a tick with no vsyncs while its link is stopped, before it counts a frame, so it reports
+    /// nothing; an unrelated window 300 ms later on the same scheduler must not record for Cmd-W. (A stall tick while
+    /// the link still runs keeps the window and counts the gap as drops: FrameSequenceTrackerTests.)
+    @Test func aWindowThatCountsNoFrameRecordsNothingForItsCommand() throws {
         let rig = CommitWindowRig()
         let scheduler = rig.makeScheduler()
         rig.commit("closeTab", at: 20.3)
-        scheduler.frameDidFire(timestamp: CommitWindowRig.base + 20.6 * CommitWindowRig.interval)  // no vsync: a stall tick
-        #expect(!scheduler.sequences.isCommitWindowOpen, "the stall tick did not end the window")
+        let link = try #require(rig.lastLink, "the commit window made no link")
+        link.isPaused = true
+        scheduler.frameDidFire(timestamp: CommitWindowRig.base + 20.6 * CommitWindowRig.interval)  // no vsync, link stopped
+        link.isPaused = false
+        #expect(!scheduler.sequences.isCommitWindowOpen, "the tick with the link stopped did not end the window")
         rig.commit("splitRight", .pointer, at: 38.3)
         rig.tick(scheduler, at: [39, 41, 44])
         #expect(rig.ends == 1)
@@ -105,6 +109,8 @@ private final class CommitWindowRig {
     let current = CurrentScheduler()
     /// Commit windows that closed with a report (any scheduler of the rig).
     private(set) var ends = 0
+    /// The fake link the newest scheduler made last.
+    private(set) var lastLink: CommitWindowLink?
     private var windows: ActionCommitWindows?
 
     init() {
@@ -118,7 +124,11 @@ private final class CommitWindowRig {
 
     /// A scheduler on a fake link of its own clock, now the one the person acts in.
     func makeScheduler() -> FrameScheduler {
-        let scheduler = FrameScheduler.testing(clock: ManualClock(), mediaTime: { [now] in now.value }) { _ in CommitWindowLink() }
+        let scheduler = FrameScheduler.testing(clock: ManualClock(), mediaTime: { [now] in now.value }) { [weak self] _ in
+            let link = CommitWindowLink()
+            self?.lastLink = link
+            return link
+        }
         current.scheduler = scheduler
         return scheduler
     }

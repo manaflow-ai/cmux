@@ -99,7 +99,11 @@ import Testing
         rig.fireAndRun()
         #expect(coordinator.limitLevel == .critical, "the cancelled hold still raised the limits")
         #expect(cache.limits == [100, 0])
-        #expect(!slicer.hasPendingSlice, "a level its consumers are already at asked for a release")
+        // The way back up to critical is an escalation, so its pass relieves the heap once (the release sink's
+        // contract): that slice may be asked for, but it calls no consumer already at its limit.
+        slicer.drain()
+        #expect(cache.releasePasses == 1, "a level its consumers are already at asked for a release")
+        #expect(!slicer.hasPendingSlice, "the relief pass asked for another slice")
         withExtendedLifetime(registration) {}
     }
 

@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Darwin
 import Dispatch
+import Foundation
 import Testing
 
 /// MayBlockRunner (plans/cmux-next/chrome-parity/p02-threads.md, task 014): the Compat seam that modules below
@@ -17,13 +18,27 @@ import Testing
         }
     }
 
+    /// The dispatch class of a child process's `QualityOfService`.
+    static func qosClass(_ qos: QualityOfService) -> DispatchQoS.QoSClass {
+        switch qos {
+        case .userInteractive: .userInteractive
+        case .userInitiated: .userInitiated
+        case .utility: .utility
+        case .background: .background
+        case .default: .default
+        @unknown default: .unspecified
+        }
+    }
+
     @Test func everyLevelMapsToTheWorkPriorityOfTheSameNameAndQoS() {
         #expect(MayBlockPriority.allCases.map { WorkPriority($0) } == WorkPriority.allCases)
         for priority in MayBlockPriority.allCases {
             let work = WorkPriority(priority)
             #expect("\(work)" == "\(priority)")
             #expect(work.rawValue == priority.rawValue)
-            #expect(work.qos == priority.qos)
+            // A spawn of the level (MayBlockPriority.qos) runs at the child QoS of the same name; a lane item runs
+            // at the lane QoS, which is userInitiated for userVisible too (threading-model.md, "QoS and task priority").
+            #expect(Self.qosClass(work.processQoS) == priority.qos.qosClass)
         }
     }
 
@@ -42,7 +57,7 @@ import Testing
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
         #expect(seen.queue.hasPrefix("test.mbr.files.\(WorkPriority(priority))."), "ran on \(seen.queue)")
-        #expect(seen.qos == priority.qos.qosClass.rawValue)
+        #expect(seen.qos == WorkPriority(priority).qos.qosClass.rawValue)
     }
 
     @Test func runFilesAndRunSystemUseTheirLanesAndReturnTheResult() async throws {

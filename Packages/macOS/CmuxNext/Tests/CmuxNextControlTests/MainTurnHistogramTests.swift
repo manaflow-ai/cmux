@@ -88,6 +88,8 @@ import Testing
         let clock = CountingUptime()
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false),
                                           uptime: clock.read)
+        // The init reads the clock once (the creation time start(measuringSinceCreation:) measures from).
+        let readsBeforeHeartbeats = clock.reads
         watchdog.mainAsleep.store(false, ordering: .releasing)
         clock.advance(by: 3_000_000)
         watchdog.heartbeat(.beforeWaiting) // no wake seen: not a turn
@@ -106,7 +108,7 @@ import Testing
         #expect(snapshot.counts[MainTurnHistogram.bucket(forNanos: 4_400_000)] == 1)
         #expect(snapshot.maxNanos == 4_400_000)
         // One clock read per heartbeat: the histogram adds none.
-        #expect(clock.reads == 6)
+        #expect(clock.reads - readsBeforeHeartbeats == 6)
     }
 
     /// Queueing is the event's OS time to the stamp its dispatch took (the turn meter's input span),

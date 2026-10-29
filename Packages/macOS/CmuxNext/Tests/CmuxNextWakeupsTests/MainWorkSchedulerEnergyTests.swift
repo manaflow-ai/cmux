@@ -7,7 +7,10 @@ import Testing
 struct MainWorkSchedulerEnergyTests {
     @Test func theWakeQueueFollowsTheSchedulersPolicy() {
         let work = MainWorkScheduler(budget: MainFrameBudget())
-        #expect(work.energy.observerCount == 1, "the wake queue observes this scheduler's source")
+        // Two observers: the wake queue and the scheduler's own frame scheduler, whose ambient clients follow the
+        // same policy (FrameScheduler+Energy.swift).
+        #expect(work.energy.observerCount == 2, "the wake queue and the scheduler's frames observe this scheduler's source")
+        #expect(work.frames.energy === work.energy)
         #expect(work.wakeUps.count == 0)
     }
 

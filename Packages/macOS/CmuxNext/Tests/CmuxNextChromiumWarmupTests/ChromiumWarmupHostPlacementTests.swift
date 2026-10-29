@@ -63,7 +63,8 @@ import Testing
     }
 
     /// The person typing does not hold the host's start: its step runs in the next idle period, even a
-    /// short one between frames.
+    /// short one between frames, and starts Chromium in that step's own turn (`initializeLoaded`, after
+    /// `libraryLoadEnded`), not through the launch start's awaited `warmStart`.
     @Test func theHostStartWaitsForNoInputQuietOrLongSlot() async {
         let engine = FakeWarmupEngine(running: false)
         let warmup = warmup(engine)
@@ -76,8 +77,8 @@ import Testing
         let at = (idle.now - .milliseconds(10)).components
         input.deliver(InputEventRecord(type: .keyDown, timestamp: Double(at.seconds) + Double(at.attoseconds) * 1e-18))
         idle.runPeriod(mayOverrun: false)
-        for _ in 0..<1_000 where engine.warmStarts.isEmpty { await Task.yield() }
-        #expect(engine.warmStarts == ["newTabMenu"])
+        #expect(engine.initializes == ["newTabMenu"], "the host start did not run in its idle step's turn")
+        #expect(engine.warmStarts.isEmpty, "the idle step started Chromium through the launch start")
         #expect(idle.afters.isEmpty, "the host start waited for the input quiet")
         warmup.stop()
     }
@@ -96,6 +97,7 @@ import Testing
         idle.runPeriod()
         for _ in 0..<100 { await Task.yield() }
         #expect(engine.warmStarts.isEmpty)
+        #expect(engine.initializes.isEmpty, "the in-process start ran inside the input quiet")
         #expect(idle.afters.map(\.owner) == ["ChromiumWarmup.quiet"])
         warmup.stop()
     }
