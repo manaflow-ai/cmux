@@ -79,3 +79,48 @@ fn persisted_three_failure_projection_restores_and_clears_on_success() {
     drop(store);
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn a_long_failure_log_restores_from_a_bounded_window_and_saves_it() {
+    let root = PathBuf::from("/tmp").join(format!("acpmux-stuck-window-{}", uuid::Uuid::now_v7()));
+    let id = "01a15800-0000-7000-8000-000000000043";
+    std::fs::create_dir_all(&root).unwrap();
+    let mut config: Config = serde_json::from_value(json!({})).unwrap();
+    config.store.mode = StoreMode::Local;
+    let failures = 40;
+    {
+        let store = acpmux::store::open(&config.store, &root).unwrap();
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": META_SCHEMA, "id": id, "name": "window", "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+            "lastSeq": failures, "eventCount": failures
+        }))
+        .unwrap();
+        for seq in 1..=failures {
+            let msg = json!({"status": "failed", "errorText": "HTTP 503 unavailable"});
+            let record = EventRecord {
+                seq,
+                at: seq * 100,
+                dir: "mux".into(),
+                kind: "turn_result".into(),
+                msg,
+                host_seq: None,
+            };
+            store.append(id, &record).unwrap();
+        }
+        store.save(&meta).unwrap();
+        store.flush().unwrap();
+    }
+    let hub = Hub::new(config.clone(), acpmux::store::open(&config.store, &root).unwrap());
+    let restored = hub.session_summary(&hub.resolve(id).unwrap());
+    assert_eq!(restored["state"], "stuck", "{restored}");
+    // Only the newest RESTORE_RESULTS results are read: the streak reads as starting there.
+    let window_start = failures - acpmux::session_liveness::RESTORE_RESULTS as u64 + 1;
+    assert_eq!(restored["stuckSince"], (window_start + 2) * 100, "{restored}");
+    drop(hub);
+
+    let saved = acpmux::store::open(&config.store, &root).unwrap().load(id).unwrap().unwrap();
+    assert_eq!(saved.harness_failures.through_seq, failures, "the rebuilt projection is saved");
+    assert!(saved.harness_failures.stuck().is_some());
+    let _ = std::fs::remove_dir_all(root);
+}

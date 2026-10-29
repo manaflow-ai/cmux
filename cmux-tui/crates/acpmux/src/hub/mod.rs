@@ -858,10 +858,13 @@ impl Hub {
                 let success =
                     record.msg["status"] == "completed" && record.msg["stopReason"] != "cancelled";
                 results.push(record);
-                !success
+                // A success settles everything before it; the bounded window settles the rest
+                // (a streak older than it reads as starting at the window's oldest result).
+                !success && results.len() < crate::session_liveness::RESTORE_RESULTS
             },
         );
-        if restored.is_ok() {
+        let rebuilt = restored.is_ok() && !results.is_empty();
+        if rebuilt {
             let mut meta = session.meta.lock().unwrap();
             for record in results.into_iter().rev() {
                 meta.harness_failures.observe(&record.msg, record.seq, record.at);
@@ -878,6 +881,10 @@ impl Hub {
             // in that tail, so a client reads the log for it instead of trusting the saved one.
             meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
+        }
+        // Kept, so the next start scans only past what this one read.
+        if rebuilt {
+            self.save_meta(session);
         }
     }
 

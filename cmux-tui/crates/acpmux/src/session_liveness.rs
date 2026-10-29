@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 const FAILED_ATTEMPTS: u32 = 3;
+/// At most this many turn results are read back to rebuild a projection an older daemon
+/// never saved: a long run of failures costs one bounded read, and the rebuilt one is saved.
+pub const RESTORE_RESULTS: usize = 32;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
