@@ -113,6 +113,13 @@ fn no_arguments(args: &[String]) -> Result<(), Refusal> {
 struct HumanGuide {
     title: &'static str,
     steps: &'static [&'static str],
+    action: Option<HumanGuideAction>,
+}
+
+#[derive(serde::Serialize)]
+struct HumanGuideAction {
+    id: &'static str,
+    title: &'static str,
 }
 
 /// One setup task as `list` names it.
@@ -162,6 +169,7 @@ const TASKS: &[Task] = &[
                 "Open the model picker and choose + to see Harnesses. Install a provider, then use Sign In and finish its browser or terminal instructions.",
                 "Run cmux setup harness to check the result. Follow the recovery it reports for that profile; unknown sign-in evidence does not confirm a working account.",
             ],
+            action: None,
         }),
     },
     Task {
@@ -191,14 +199,16 @@ const TASKS: &[Task] = &[
         check: &["cmux accounts list --json"],
         apply: &["cmux cloud sign-in"],
         person: Some("the cmux sign-in in the browser"),
-        prompt: "Check and recover my sign-ins: run `cmux accounts list --json`. If cmux is signed out, run `cmux cloud sign-in` and tell me to finish it in the browser; if the command or browser reports offline or Cloud unavailable, stop and tell me to reconnect before retrying. If a provider is missing or expired, open Settings > Accounts and use Sign In or Re-authenticate (or run `cmux accounts reauth --provider PROVIDER`), then run the list again. If I picked the wrong cmux account, use Switch Account in Settings > Accounts and verify the masked account; if a saved key is missing or unreadable, use Add Key there and save or send it without printing the secret. Tell me which providers remain unavailable and never claim an unknown or Keychain-backed sign-in is valid.",
+        prompt: "Check and recover my sign-ins: run `cmux accounts list --json`. If cmux is signed out, run `cmux cloud sign-in` and tell me to finish it in the browser; if the command or browser reports offline or Cloud unavailable, stop and tell me to reconnect before retrying. If a provider is missing or expired, open Settings > Accounts and use Sign In or Re-authenticate (or run `cmux accounts reauth --provider PROVIDER`), then run the list again. If I picked the wrong cmux account, use Switch Account in Settings > Accounts and verify the masked account; if a saved key is missing or unreadable, use Add Key there and save or send it without printing the secret. Tell me which providers remain unavailable and never claim an unknown or Keychain-backed sign-in is valid. To connect GitHub, run `cmux accounts github-connect` and let me review the cmux GitHub App repositories and permissions in GitHub. If it reports pending, finish the browser flow; verify the connection in Settings > Accounts before claiming it is connected. This does not configure another machine.",
         guide: Some(HumanGuide {
             title: "Recover a sign-in",
             steps: &[
                 "Open Settings > Accounts. Use Sign In for a missing provider or Re-authenticate for an expired one, then check again.",
                 "For the wrong cmux account, use Switch Account and check the masked address. For a missing or unreadable saved key, use Add Key; never paste the secret into a chat.",
                 "If the command or browser reports offline, reconnect before retrying. If Cloud is unavailable, retry when the service returns; local work can continue.",
+                "Connect the cmux GitHub App, then review its repositories and permissions in GitHub. Finish any browser approval and check Settings > Accounts for the result. This does not configure another machine.",
             ],
+            action: Some(HumanGuideAction { id: "accounts.githubConnect", title: "Connect GitHub" }),
         }),
     },
     Task {
@@ -216,6 +226,7 @@ const TASKS: &[Task] = &[
                 "For an existing SSH machine, run cmux setup machine HOST. If the connection fails, use the SSH command it reports. Do not enter a password into an agent chat.",
                 "Run cmux setup status for the current checks and recovery steps. A detected credential is not proof that it is valid or belongs to the intended account.",
             ],
+            action: None,
         }),
     },
     Task {
@@ -584,7 +595,7 @@ mod tests {
             .iter()
             .filter_map(|task| {
                 let guide = task["guide"].as_object()?;
-                Some(json!({"id": task["id"], "title": guide["title"], "steps": guide["steps"]}))
+                Some(json!({"id": task["id"], "title": guide["title"], "steps": guide["steps"], "action": guide["action"]}))
             })
             .collect::<Vec<_>>();
         assert_eq!(bundled, json!(expected));

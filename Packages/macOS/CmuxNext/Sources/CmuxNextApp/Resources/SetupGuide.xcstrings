@@ -209,6 +209,58 @@
         "vi": {"stringUnit":{"state":"translated","value":"Nếu lệnh hoặc trình duyệt báo ngoại tuyến, hãy kết nối lại trước khi thử lại. Nếu Cloud không khả dụng, thử lại khi dịch vụ hoạt động trở lại; bạn vẫn có thể tiếp tục làm việc cục bộ."}}
       }
     },
+    "setupGuide.accounts.3": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit":{"state":"translated","value":"Connect the cmux GitHub App, then review its repositories and permissions in GitHub. Finish any browser approval and check Settings > Accounts for the result. This does not configure another machine."}},
+        "de": {"stringUnit":{"state":"translated","value":"Verbinde die cmux-GitHub-App und überprüfe anschließend ihre Repositories und Berechtigungen in GitHub. Schließe alle Bestätigungen im Browser ab und prüfe unter Einstellungen > Accounts das Ergebnis. Damit wird keine andere Maschine eingerichtet."}},
+        "fr": {"stringUnit":{"state":"translated","value":"Connectez l’application GitHub cmux, puis vérifiez ses dépôts et ses autorisations dans GitHub. Terminez toute approbation dans le navigateur et vérifiez le résultat dans Réglages > Comptes. Cela ne configure pas une autre machine."}},
+        "ar": {"stringUnit":{"state":"translated","value":"اربط تطبيق cmux على GitHub، ثم راجع مستودعاته وأذوناته في GitHub. أكمل أي موافقة في المتصفح وتحقق من النتيجة في الإعدادات > الحسابات. هذا لا يهيئ جهازًا آخر."}},
+        "es": {"stringUnit":{"state":"translated","value":"Conecta la aplicación de cmux para GitHub y revisa sus repositorios y permisos en GitHub. Completa cualquier aprobación en el navegador y comprueba el resultado en Ajustes > Cuentas. Esto no configura otra máquina."}},
+        "zh-Hant": {"stringUnit":{"state":"translated","value":"連結 cmux GitHub App，然後在 GitHub 中檢查其儲存庫和權限。完成瀏覽器中的任何核准，並在「設定」>「帳號」查看結果。這不會設定另一部機器。"}},
+        "zh-Hans": {"stringUnit":{"state":"translated","value":"连接 cmux GitHub App，然后在 GitHub 中检查其存储库和权限。完成浏览器中的任何批准，并在“设置”>“账户”查看结果。这不会配置另一台机器。"}},
+        "ko": {"stringUnit":{"state":"translated","value":"cmux GitHub 앱을 연결한 다음 GitHub에서 저장소와 권한을 검토하세요. 브라우저에서 필요한 승인을 완료하고 설정 > 계정에서 결과를 확인하세요. 다른 머신은 구성하지 않습니다."}},
+        "ja": {"stringUnit":{"state":"translated","value":"cmux GitHub App を接続し、GitHub でリポジトリと権限を確認します。ブラウザーで必要な承認を完了し、「設定」>「アカウント」で結果を確認してください。別のマシンは設定されません。"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Povežite cmux GitHub aplikaciju, a zatim pregledajte njene repozitorije i dozvole na GitHubu. Završite odobrenje u pregledaču i provjerite rezultat u Postavke > Nalozi. Ovo ne podešava drugu mašinu."}},
+        "da": {"stringUnit":{"state":"translated","value":"Forbind cmux GitHub-appen, og gennemgå derefter dens arkiver og tilladelser på GitHub. Afslut eventuel godkendelse i browseren, og kontrollér resultatet under Indstillinger > Konti. Dette konfigurerer ikke en anden maskine."}},
+        "it": {"stringUnit":{"state":"translated","value":"Collega l’app GitHub di cmux, quindi controlla i relativi repository e permessi su GitHub. Completa le eventuali approvazioni nel browser e verifica il risultato in Impostazioni > Account. Questa operazione non configura un altro computer."}},
+        "km": {"stringUnit":{"state":"translated","value":"ភ្ជាប់កម្មវិធី cmux GitHub បន្ទាប់មកពិនិត្យឃ្លាំង និងសិទ្ធិរបស់វានៅក្នុង GitHub។ បញ្ចប់ការអនុម័តណាមួយក្នុងកម្មវិធីរុករក ហើយពិនិត្យលទ្ធផលនៅ ការកំណត់ > គណនី។ វាមិនកំណត់រចនាសម្ព័ន្ធម៉ាស៊ីនផ្សេងទៀតទេ។"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Koble til cmux GitHub-appen, og gå deretter gjennom repositoriene og tillatelsene i GitHub. Fullfør eventuell godkjenning i nettleseren, og sjekk resultatet under Innstillinger > Kontoer. Dette konfigurerer ikke en annen maskin."}},
+        "pl": {"stringUnit":{"state":"translated","value":"Połącz aplikację cmux GitHub, a następnie sprawdź jej repozytoria i uprawnienia w GitHub. Dokończ ewentualne zatwierdzenie w przeglądarce i sprawdź wynik w Ustawienia > Konta. Nie konfiguruje to innej maszyny."}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Conecte o app cmux do GitHub e revise seus repositórios e permissões no GitHub. Conclua qualquer aprovação no navegador e verifique o resultado em Ajustes > Contas. Isso não configura outra máquina."}},
+        "ru": {"stringUnit":{"state":"translated","value":"Подключите приложение cmux GitHub, затем проверьте его репозитории и разрешения в GitHub. Завершите все подтверждения в браузере и проверьте результат в «Настройки» > «Учетные записи». Это не настраивает другой компьютер."}},
+        "th": {"stringUnit":{"state":"translated","value":"เชื่อมต่อแอป cmux GitHub จากนั้นตรวจสอบที่เก็บและสิทธิ์ของแอปใน GitHub ดำเนินการอนุมัติในเบราว์เซอร์ให้เสร็จ แล้วตรวจสอบผลลัพธ์ที่การตั้งค่า > บัญชี ขั้นตอนนี้ไม่ได้กำหนดค่าเครื่องอื่น"}},
+        "tr": {"stringUnit":{"state":"translated","value":"cmux GitHub uygulamasını bağlayın, ardından GitHub’da depolarını ve izinlerini inceleyin. Tarayıcıdaki onayları tamamlayın ve sonucu Ayarlar > Hesaplar’da kontrol edin. Bu işlem başka bir makineyi yapılandırmaz."}},
+        "uk": {"stringUnit":{"state":"translated","value":"Підключіть застосунок cmux GitHub, а потім перегляньте його репозиторії та дозволи в GitHub. Завершіть усі підтвердження у браузері й перевірте результат у «Параметри» > «Облікові записи». Це не налаштовує іншу машину."}},
+        "vi": {"stringUnit":{"state":"translated","value":"Kết nối ứng dụng cmux GitHub, sau đó xem xét các kho lưu trữ và quyền của ứng dụng trên GitHub. Hoàn tất mọi phê duyệt trong trình duyệt và kiểm tra kết quả tại Cài đặt > Tài khoản. Thao tác này không cấu hình máy khác."}}
+      }
+    },
+    "setupGuide.accounts.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit":{"state":"translated","value":"Connect GitHub"}},
+        "de": {"stringUnit":{"state":"translated","value":"GitHub verbinden"}},
+        "fr": {"stringUnit":{"state":"translated","value":"Connecter GitHub"}},
+        "ar": {"stringUnit":{"state":"translated","value":"ربط GitHub"}},
+        "es": {"stringUnit":{"state":"translated","value":"Conectar GitHub"}},
+        "zh-Hant": {"stringUnit":{"state":"translated","value":"連結 GitHub"}},
+        "zh-Hans": {"stringUnit":{"state":"translated","value":"连接 GitHub"}},
+        "ko": {"stringUnit":{"state":"translated","value":"GitHub 연결"}},
+        "ja": {"stringUnit":{"state":"translated","value":"GitHub を接続"}},
+        "bs": {"stringUnit":{"state":"translated","value":"Poveži GitHub"}},
+        "da": {"stringUnit":{"state":"translated","value":"Forbind GitHub"}},
+        "it": {"stringUnit":{"state":"translated","value":"Collega GitHub"}},
+        "km": {"stringUnit":{"state":"translated","value":"ភ្ជាប់ GitHub"}},
+        "nb": {"stringUnit":{"state":"translated","value":"Koble til GitHub"}},
+        "pl": {"stringUnit":{"state":"translated","value":"Połącz GitHub"}},
+        "pt-BR": {"stringUnit":{"state":"translated","value":"Conectar GitHub"}},
+        "ru": {"stringUnit":{"state":"translated","value":"Подключить GitHub"}},
+        "th": {"stringUnit":{"state":"translated","value":"เชื่อมต่อ GitHub"}},
+        "tr": {"stringUnit":{"state":"translated","value":"GitHub’ı bağla"}},
+        "uk": {"stringUnit":{"state":"translated","value":"Підключити GitHub"}},
+        "vi": {"stringUnit":{"state":"translated","value":"Kết nối GitHub"}}
+      }
+    },
     "setupGuide.cloud_machine.title": {
       "extractionState": "manual",
       "localizations": {

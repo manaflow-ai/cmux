@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxTheme
@@ -17,15 +18,37 @@ import Testing
             let scroll = try #require(view.subviews.first as? NSScrollView)
             let document = try #require(scroll.documentView)
             let labels = document.subviews.compactMap { $0 as? NSTextField }
-            #expect(labels.count == 12)
-            for (first, second) in zip(labels, labels.dropFirst()) {
+            #expect(labels.count == 13)
+            let rows = document.subviews
+            for (first, second) in zip(rows, rows.dropFirst()) {
                 #expect(first.frame.maxY <= second.frame.minY)
             }
-            #expect(labels.allSatisfy { $0.frame.minX >= 0 && $0.frame.maxX <= document.bounds.width })
-            #expect(try #require(labels.last).frame.maxY <= document.bounds.height)
+            #expect(rows.allSatisfy { $0.frame.minX >= 0 && $0.frame.maxX <= document.bounds.width })
+            #expect(try #require(rows.last).frame.maxY <= document.bounds.height)
             if width == 680 { wideHeight = document.bounds.height }
             else { #expect(document.bounds.height > wideHeight) }
         }
+    }
+
+    @Test func githubActionRequiresThePersonClick() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "accounts.githubConnect" })
+        let registry = ActionRegistry(catalog: [descriptor])
+        var origins: [ActionOrigin] = []
+        registry.bindEffect("accounts.githubConnect", effect: { invocation in
+            origins.append(invocation.origin)
+            return .done
+        })
+        let page = SetupGuidePage(registry: registry)
+        let view = page.makeView(for: "", in: nil)
+        view.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
+        view.layoutSubtreeIfNeeded()
+        let scroll = try #require(view.subviews.first as? NSScrollView)
+        let document = try #require(scroll.documentView)
+        let button = try #require(document.subviews.compactMap { $0 as? NSButton }.first)
+        #expect(origins.isEmpty)
+        #expect(button.accessibilityIdentifier() == "setup-guide-accounts-action")
+        button.performClick(nil)
+        #expect(origins == [.user])
     }
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
