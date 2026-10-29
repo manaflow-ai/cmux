@@ -3776,8 +3776,7 @@ export class AcpmuxDirectClient {
   /// set `interrupting`), or this pane's Stop, pressed before the event. Else unknown.
   private stopAffectsRunningTurn(): boolean {
     return (
-      this.stopAfterSeq !== undefined &&
-      (this.runningTurnId === undefined || this.stopTurnId === this.runningTurnId)
+      this.stopAfterSeq !== undefined && (this.runningTurnId === undefined || this.stopTurnId === this.runningTurnId)
     );
   }
 

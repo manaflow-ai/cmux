@@ -95,9 +95,10 @@ function fakeDaemon(history: ReturnType<typeof record>, page = history.length, o
       });
     }
   };
-  const lag = () => socket.onmessage?.({
-    data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [CHAT] } }),
-  });
+  const lag = () =>
+    socket.onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [CHAT] } }),
+    });
   return { open, push, sent, lag };
 }
 
@@ -607,7 +608,9 @@ for (const mode of ["loadOlder", "lag"])
         expect(working()).toBe(!expired);
         if (mode === "loadOlder") await client.loadOlder();
         else {
-          const settled = new Promise<void>((resolve) => { resynced = resolve; });
+          const settled = new Promise<void>((resolve) => {
+            resynced = resolve;
+          });
           daemon.lag();
           await settled;
         }
@@ -620,7 +623,9 @@ for (const mode of ["loadOlder", "lag"])
           expect(notices()).toHaveLength(1);
         }
         expect(working()).toBe(false);
-        daemon.push(record([["mux", "turn_result", { status: "cancelled", turnId: "turn-current", cancelForced: true }]], 6));
+        daemon.push(
+          record([["mux", "turn_result", { status: "cancelled", turnId: "turn-current", cancelForced: true }]], 6),
+        );
         expect(notices()).toHaveLength(1);
       } finally {
         client.close();
