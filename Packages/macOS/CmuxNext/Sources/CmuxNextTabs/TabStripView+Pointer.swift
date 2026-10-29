@@ -195,9 +195,8 @@ extension TabStripView {
             let inside = isInNewTabButton(point)
             newTabButton.isPressed = inside
             if !inside {
-                // Leaving + cancels the long-press gesture. Keep the release from
-                // creating a tab or allowing the 450 ms task to present a menu.
-                pressedNewTab = false
+                // Leaving + cancels the hold. A later release inside still
+                // performs the ordinary click, without restarting the timer.
                 _ = newTabHold.end()
             }
             return
