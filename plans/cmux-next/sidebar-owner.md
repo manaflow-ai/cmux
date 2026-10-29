@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-29: the tab tuck holds its sampled starting opacity until its explicitly timed fade begins.
+  Display-rate frames at nightly source `316bd521` showed a folding line blank for one frame before
+  reappearing dimmed; backwards fill prevents that model-opacity flash. The spring, early-fade
+  threshold, duration and row layout stay the same. Leo: "fade it a bit faster or a bit earlier in
+  the movement, so that it looks like, you know, it, like, tucks under rather than it tucks over".
+
 Owner: the sidebar-owner agent (Chief subagent, Oct 23 2026, "one new agent that owns everything about
 sidebar from now on"). Scope: workspace and group rows, nested groups, the group rail, the hover card,
 the row close (X), unread dots, densities, drag and reorder, the Home/pinned band, and sidebar
