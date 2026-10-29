@@ -132,6 +132,17 @@ describe("closed model picker catalog work", () => {
       expect(sonnet).toBeDefined();
       await act(async () => sonnet!.click());
       expect(picked).toEqual(["sonnet"]);
+      await settle();
+      // Closing retains the initialized list through its exit; reopening still owns selection.
+      await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+      await settle();
+      const reopened = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitemradio"],[role="option"]')];
+      const opus = reopened.find((item) => item.textContent?.includes("Opus 5.5"));
+      expect(opus).toBeDefined();
+      const reopenedSonnet = reopened.find((item) => item.textContent?.includes("Sonnet 5.5"));
+      expect(reopenedSonnet).toBeDefined();
+      await act(async () => reopenedSonnet!.click());
+      expect(picked).toEqual(["sonnet", "sonnet"]);
     });
   }
 });
