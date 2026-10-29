@@ -6,13 +6,15 @@
 # Callers: nightly_next_cancelled_tip.sh (the tip's push run) and nightly_next_stuck_run.sh (a
 # dispatch on nightly-next it cancelled). Needs gh (GH_TOKEN with actions: write) and python3.
 #
-# A re-run of failed jobs keeps pick-nightly-build-runner's outputs from the earlier attempt, so
+# A re-run of failed jobs keeps the runner picker's outputs from the earlier attempt, so
 # the jobs that take their runner from that pick take its Blacksmith label again (nightly.yml takes
 # the owned pick only when it was made for the run's own attempt). That is right after a refusal,
 # and wrong when the earlier attempt's label was in outage. So the attempt's jobs that ended
 # cancelled or failed with no runner ever assigned (on any label: macOS, Linux or owned) are read,
-# and when one of them takes its runner from the picker, pick-nightly-build-runner is re-run instead
-# (GitHub re-runs a job and every job that needs it), so the picker chooses fresh. That is done only
+# and when one of them takes its runner from a picker job's outputs, that picker is re-run instead
+# (GitHub re-runs a job and every job that needs it), so the picker chooses fresh. The picker is read
+# from nightly.yml at the run's head (the job whose outputs those jobs' runs-on read), never a fixed
+# name. That is done only
 # when scripts/ci/nightly_repick.py (owned_pool_rescue.repick_job(), the rescue's own rule) finds it
 # safe: every failed job needs the picker, and a finished job it would build again uploads only with
 # `overwrite: true`. A whole re-run is never sent: it would repeat jobs whose fixed-name uploads then
@@ -62,12 +64,12 @@ if [[ -n "$unserved" ]]; then
   first="$(head -n1 <<<"$unserved")"
   if [[ -n "$picker" ]]; then
     if GH_BUDGET_WAIT_ATTEMPTS=1 gh api -X POST "repos/$repo/actions/jobs/$picker/rerun" >/dev/null; then
-      echo "::notice title=nightly-next tick::$what ended cancelled (attempt $attempt) with ${first%%$'\t'*} never served on ${first#*$'\t'}; re-ran pick-nightly-build-runner and every job that needs it, so the runner picker chooses fresh"
+      echo "::notice title=nightly-next tick::$what ended cancelled (attempt $attempt) with ${first%%$'\t'*} never served on ${first#*$'\t'}; re-ran its runner picker (job $picker) and every job that needs it, so the picker chooses fresh"
       exit 0
     fi
     # Refused: the failed jobs below. If the job re-run did start, the run is no longer
     # finished and GitHub refuses that re-run in turn.
-    echo "$what: the re-run of pick-nightly-build-runner was refused; re-running the failed jobs"
+    echo "$what: the re-run of its runner picker (job $picker) was refused; re-running the failed jobs"
   else
     echo "$what: ${first%%$'\t'*} was never served on ${first#*$'\t'}, but the picker is not re-run ($(head -n1 "$scratch/why" 2>/dev/null)); re-running the failed jobs, whose runs-on is evaluated again"
   fi

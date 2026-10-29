@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print the id of a nightly-next attempt's pick-nightly-build-runner job when re-running it is safe.
+"""Print the id of a nightly attempt's runner-picker job when re-running it is useful and safe.
 
     nightly_repick.py NIGHTLY_YML JOBS_JSONL [UNSERVED_NAMES]
 
@@ -7,16 +7,21 @@ NIGHTLY_YML is nightly.yml at the run's head; JOBS_JSONL is the attempt's jobs, 
 (`gh api --paginate .../attempts/N/jobs --jq '.jobs[]'`), the jobs it kept from earlier attempts
 included. Prints the job id, or nothing, and why on stderr. Always exits 0 once its arguments read:
 the caller (scripts/ci/nightly_next_rerun.sh) then re-runs the attempt's failed jobs instead.
-The rule is owned_pool_rescue.repick_job()'s, so the tick and the owned-pool rescue decide alike.
+The safety rule is owned_pool_rescue.repick_job()'s, so the tick and the owned-pool rescue decide alike.
 
-UNSERVED_NAMES, when given, lists the jobs of the attempt that ended with no runner, one name a line.
-The picker is then re-run only when one of them takes its runner from the picker's outputs: a job whose
-runs-on does not read the picker (a Linux control job on a runner variable or a literal label) gets
-nothing from a fresh pick, and a re-run of the failed jobs evaluates its runs-on again anyway.
+The picker is not a fixed job name: it is read from the workflow. UNSERVED_NAMES lists the jobs of the
+attempt that ended with no runner, one name a line, and the pickers are the jobs whose outputs those
+jobs' runs-on use as the label (`needs.<picker>.outputs.*`, not in a comparison). nightly.yml at the
+run's head names it (nightly-next's file calls it pick-nightly-build-runner, main's
+pick-nightly-app-runner), so a rename never turns the repick off silently. A job whose runs-on reads no picker (a Linux control job on
+a runner variable or a literal label) gets nothing from a fresh pick, and a re-run of the failed jobs
+evaluates its runs-on again anyway. Without UNSERVED_NAMES the picker is
+owned_pool_rescue.NIGHTLY_BUILD_PICKER, as before.
 """
 from __future__ import annotations
 
 import json
+import re
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -25,22 +30,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import owned_pool_rescue  # noqa: E402
 import owned_pool_sources  # noqa: E402
 
-PICKER_OUTPUTS = f"needs.{owned_pool_rescue.NIGHTLY_BUILD_PICKER}.outputs"
+# An output a runs-on uses as its label (`needs.pick.outputs.cloud || ...`), not one it only compares
+# (`needs.decide.outputs.fast_build != 'true'`): the job that makes it picks the runner.
+NEEDS_OUTPUTS = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.[A-Za-z0-9_-]+(?![A-Za-z0-9_-])(?!\s*[!=]=)")
 
 
-def picked_by_picker(workflow: str, names: list[str]) -> tuple[bool, str]:
-    """(whether any of the named jobs takes its runs-on from the picker's outputs, why)."""
+def workflow_jobs(workflow: str) -> dict[str, Mapping]:
+    document = owned_pool_sources._load(workflow)
+    return {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
+
+
+def pickers_of(workflow: str, names: list[str]) -> tuple[list[str], str]:
+    """(the workflow jobs whose outputs the runs-on of any named job reads, in workflow order; why)."""
     try:
-        document = owned_pool_sources._load(workflow)
+        spec = workflow_jobs(workflow)
     except Exception as error:  # noqa: BLE001 - an unreadable file keeps the re-run of failed jobs
-        return False, f"the workflow file could not be read ({type(error).__name__})"
-    spec = {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
+        return [], f"the workflow file could not be read ({type(error).__name__})"
+    found: list[str] = []
     for key, job in spec.items():
         pattern = owned_pool_rescue._job_name_pattern(key, job)
-        if PICKER_OUTPUTS in str(job.get("runs-on") or "") and any(pattern.fullmatch(name) for name in names):
-            return True, f"{key} takes its runner from {owned_pool_rescue.NIGHTLY_BUILD_PICKER}"
-    return False, (f"no job left without a runner ({', '.join(names)}) takes its runner from "
-                   f"{owned_pool_rescue.NIGHTLY_BUILD_PICKER}")
+        if not any(pattern.fullmatch(name) for name in names):
+            continue
+        for picker in NEEDS_OUTPUTS.findall(str(job.get("runs-on") or "")):
+            if picker in spec and picker not in found:
+                found.append(picker)
+    if not found:
+        return [], f"no job left without a runner ({', '.join(names)}) takes its runner from a picker job's outputs"
+    return found, f"{', '.join(found)} picks the runner of a job left without one"
 
 
 def main(argv: list[str]) -> int:
@@ -49,16 +65,22 @@ def main(argv: list[str]) -> int:
         return 2
     workflow = Path(argv[1]).read_text()
     jobs = [json.loads(line) for line in Path(argv[2]).read_text().splitlines() if line.strip()]
+    candidates = [owned_pool_rescue.NIGHTLY_BUILD_PICKER]
     if len(argv) == 4:
         names = [line.strip() for line in Path(argv[3]).read_text().splitlines() if line.strip()]
-        picked, why = picked_by_picker(workflow, names)
-        if not picked:
+        candidates, why = pickers_of(workflow, names)
+        if not candidates:
             print(why, file=sys.stderr)
             return 0
-    picker, why = owned_pool_rescue.repick_job(workflow, jobs)
-    print(why, file=sys.stderr)
-    if picker is not None:
-        print(picker)
+    reasons = []
+    for key in candidates:
+        picker, why = owned_pool_rescue.repick_job(workflow, jobs, key)
+        if picker is not None:
+            print(why, file=sys.stderr)
+            print(picker)
+            return 0
+        reasons.append(why)
+    print("; ".join(reasons), file=sys.stderr)
     return 0
 
 

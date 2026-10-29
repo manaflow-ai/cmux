@@ -2748,9 +2748,10 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
 NIGHTLY_BUILD_PICKER = "pick-nightly-build-runner"
 
 
-def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]]) -> tuple[int | None, str]:
-    """(the id of this attempt's NIGHTLY_BUILD_PICKER job, when re-running it and the jobs that need it
-    re-runs everything a re-run of failed jobs would and nothing that could break, or None, why).
+def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]],
+               picker_key: str = NIGHTLY_BUILD_PICKER) -> tuple[int | None, str]:
+    """(the id of this attempt's PICKER_KEY job (NIGHTLY_BUILD_PICKER unless named), when re-running it
+    and the jobs that need it re-runs everything a re-run of failed jobs would and nothing that could break, or None, why).
 
     `jobs` is the attempt's whole job list, the jobs a re-run kept from earlier attempts included (the picker
     is one after a re-run of failed jobs). Every failed, timed-out or cancelled job in it must need the
@@ -2764,8 +2765,8 @@ def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]]) -> tuple[i
     except Exception as error:  # noqa: BLE001 - an unreadable file keeps the re-run of failed jobs
         return None, f"the workflow file could not be read ({type(error).__name__})"
     spec = {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
-    if NIGHTLY_BUILD_PICKER not in spec:
-        return None, f"the workflow has no {NIGHTLY_BUILD_PICKER} job"
+    if picker_key not in spec:
+        return None, f"the workflow has no {picker_key} job"
     needs: dict[str, set[str]] = {}
     for key, job in spec.items():
         wanted = job.get("needs") or []
@@ -2789,13 +2790,13 @@ def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]]) -> tuple[i
         return {key for key, pattern in patterns.items() if pattern.fullmatch(name)}
 
     current = list(jobs)
-    pickers = [job for job in current if keys(job) == {NIGHTLY_BUILD_PICKER}]
+    pickers = [job for job in current if keys(job) == {picker_key}]
     if len(pickers) != 1 or not pickers[0].get("id"):
-        return None, f"this attempt has no single {NIGHTLY_BUILD_PICKER} job"
+        return None, f"this attempt has no single {picker_key} job"
     picker = pickers[0]
     if picker.get("status") != "completed":
-        return None, f"{NIGHTLY_BUILD_PICKER} has not finished"
-    under = descendants(NIGHTLY_BUILD_PICKER)
+        return None, f"{picker_key} has not finished"
+    under = descendants(picker_key)
     failed = [job for job in current if job is not picker and job.get("status") == "completed"
               and job.get("conclusion") in ("failure", "timed_out", "cancelled")]
     if not failed:
@@ -2804,7 +2805,7 @@ def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]]) -> tuple[i
     for job in failed:
         found = keys(job)
         if not found or not found <= under:
-            return None, f"{job.get('name') or job.get('id')} does not need {NIGHTLY_BUILD_PICKER}"
+            return None, f"{job.get('name') or job.get('id')} does not need {picker_key}"
         failed_keys |= found
     retried = failed_keys.union(*(descendants(key) for key in failed_keys))
     for job in current:
@@ -2818,7 +2819,7 @@ def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]]) -> tuple[i
                 if str((step.get("with") or {}).get("overwrite", "")).strip().lower() != "true":
                     return None, (f"{job.get('name') or key} would upload "
                                   f"{(step.get('with') or {}).get('name') or 'an artifact'} again without overwrite")
-    return int(picker["id"]), f"every failed job of this attempt needs {NIGHTLY_BUILD_PICKER}"
+    return int(picker["id"]), f"every failed job of this attempt needs {picker_key}"
 
 
 def rerun_failed_or_repick(api: GitHub, target: Target, sleep: Callable[[float], None],

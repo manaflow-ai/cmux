@@ -57,6 +57,7 @@ PICKER = {"id": 901, "name": "pick-nightly-build-runner", "status": "completed",
 
 # A runs-on that takes the picker's label, as nightly.yml's build jobs do.
 PICKED = "${{ needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26' }}"
+NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 
 
 def workflow(overwrite: bool = True) -> str:
@@ -189,7 +190,33 @@ class CancelledTip(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(calls[-2:], ["run rerun 40340830337 --failed -R o/r", "attempts=1"])
                 self.assertFalse(any("-X POST" in call for call in calls), calls)
-                self.assertIn("takes its runner from pick-nightly-build-runner", result.stdout)
+                self.assertIn("takes its runner from a picker job's outputs", result.stdout)
+
+    def test_the_picker_is_read_from_the_workflow_not_a_fixed_name(self):
+        # Rename the picker (main's nightly.yml calls it pick-nightly-app-runner): the repick follows.
+        renamed = workflow().replace("pick-nightly-build-runner", "pick-nightly-app-runner")
+        picker = {**PICKER, "name": "pick-nightly-app-runner"}
+        result, calls = self.run_script("40340830337 completed cancelled 1\n", JOBS=page(picker, unserved()),
+                                        WORKFLOW=renamed)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[-2:], ["api -X POST repos/o/r/actions/jobs/901/rerun", "attempts=1"])
+        self.assertIn("re-ran its runner picker (job 901)", result.stdout)
+
+    def test_the_real_nightly_workflow_names_a_picker_for_its_app_build(self):
+        # The repick reads nightly.yml for the job whose outputs the build's runs-on reads; if a rename
+        # or a rewrite ever leaves no such job, this fails instead of the repick going quiet.
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import nightly_repick  # noqa: PLC0415
+
+        text = NIGHTLY.read_text()
+        jobs = nightly_repick.workflow_jobs(text)
+        pickers, why = nightly_repick.pickers_of(text, ["build-nightly-app"])
+        self.assertTrue(pickers, why)
+        for picker in pickers:
+            self.assertIn(picker, jobs)
+            self.assertIn("outputs", jobs[picker], f"{picker} has no outputs")
+            self.assertTrue(picker.startswith("pick-"), picker)
+        self.assertIn(pickers[0], str(jobs["build-nightly-app"].get("needs")))
 
     def test_a_building_tip_is_left_alone(self):
         result, calls = self.run_script("41 in_progress - 2\n40340830337 completed cancelled 1\n")

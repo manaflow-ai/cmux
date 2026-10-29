@@ -31,7 +31,7 @@
 # still not finished, or that can no longer be read, is left for the next tick. After the cancel:
 #   - the tip's push run below MAX_ATTEMPTS (default 3, as in nightly_next_cancelled_tip.sh) is
 #     re-run by the next tick step, nightly_next_cancelled_tip.sh;
-#   - a dispatch on nightly-next below MAX_ATTEMPTS is re-run here through the same
+#   - a dispatch of the tip on nightly-next below MAX_ATTEMPTS is re-run here through the same
 #     nightly_next_rerun.sh: the build picker when a job without a runner takes its label from
 #     the pick, else the failed and cancelled jobs;
 #   - a run of the tip at MAX_ATTEMPTS (push or dispatch) gets a fresh run instead: nightly.yml is
@@ -204,7 +204,7 @@ while read -r id event sha attempt; do
     fi
   elif [[ "$event" == push && -n "$tip_run" ]]; then
     echo "nightly-next run $id: the tip's run; the next step re-runs it so its runners are picked fresh"
-  elif [[ "$event" == workflow_dispatch ]] && (( attempt < max_attempts )); then
+  elif [[ "$event" == workflow_dispatch && -n "$tip_run" ]] && (( attempt < max_attempts )); then
     bash "$here/nightly_next_rerun.sh" "$repo" "$id" "$attempt" "$sha" "nightly-next dispatch $id" </dev/null \
       || warn "the re-run of run $id was refused"
   else

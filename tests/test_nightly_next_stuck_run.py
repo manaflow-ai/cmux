@@ -309,6 +309,19 @@ class StuckRun(unittest.TestCase):
             "api -X POST repos/o/r/actions/runs/2/cancel", "api -X POST repos/o/r/actions/runs/4/cancel"])
         self.assertFalse(any("runs/5" in call or "runs/6" in call for call in calls), calls)
 
+    def test_an_older_commits_run_is_never_re_run(self):
+        # A dispatch or push of an older commit, stuck, is cancelled (the tip builds) and never
+        # re-run or replaced, below the attempt cap and at it.
+        for event in ("push", "workflow_dispatch"):
+            for attempt in (1, 3):
+                with self.subTest(event=event, attempt=attempt):
+                    result, calls = self.run_script(
+                        {7: [STUCK_DECIDE]}, next_runs=[run(7, event=event, sha="0" * 40, attempt=attempt)])
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(self.writes(calls), ["api -X POST repos/o/r/actions/runs/7/cancel"])
+                    self.assertFalse(any("/attempts/" in call or "contents/" in call for call in calls), calls)
+                    self.assertIn("not re-run", result.stdout)
+
     def test_a_tip_run_out_of_attempts_gets_a_fresh_run_instead_of_staying_stranded(self):
         for event in ("push", "workflow_dispatch"):
             with self.subTest(event=event):
