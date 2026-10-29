@@ -39,14 +39,17 @@ type Snapshot = { width: ChatWidth; scale: number };
 
 const readUIScale = (): number => {
   if (typeof document === "undefined") return 1;
-  const computedStyle =
-    typeof window !== "undefined" && typeof window.getComputedStyle === "function"
-      ? window.getComputedStyle(document.documentElement)
-      : undefined;
-  const value = Number.parseFloat(
-    document.documentElement.style.getPropertyValue("--cmux-ui-scale") ||
-      computedStyle?.getPropertyValue("--cmux-ui-scale"),
-  );
+  const root = document.documentElement;
+  const inline = root?.style?.getPropertyValue?.("--cmux-ui-scale") ?? "";
+  let computed = "";
+  if (!inline && typeof window !== "undefined" && typeof window.getComputedStyle === "function" && root) {
+    try {
+      computed = window.getComputedStyle(root).getPropertyValue("--cmux-ui-scale");
+    } catch {
+      // Test DOM shims may expose a document without a usable computed-style implementation.
+    }
+  }
+  const value = Number.parseFloat(inline || computed);
   return Number.isFinite(value) && value > 0 ? value : 1;
 };
 
