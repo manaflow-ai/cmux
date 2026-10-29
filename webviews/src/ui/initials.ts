@@ -1,5 +1,14 @@
-const segmenter =
-  typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : undefined;
+function makeSegmenter(): Intl.Segmenter | undefined {
+  try {
+    return typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+      ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const segmenter = makeSegmenter();
 
 function* characters(text: string): IterableIterator<string> {
   if (segmenter) {
