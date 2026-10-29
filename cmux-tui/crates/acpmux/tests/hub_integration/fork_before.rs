@@ -113,7 +113,14 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
     seed.shutdown_all().await;
     let mut c = connect(&hub).await;
     let params = boundary(&id, "first", "lost-reply");
-    let a = c.request(FORK_OP, params.clone()).await.unwrap();
+    let mut concurrent = connect(&hub).await;
+    let (a, raced) = tokio::join!(
+        c.request(FORK_OP, params.clone()),
+        concurrent.request(FORK_OP, params.clone())
+    );
+    let a = a.unwrap();
+    assert_eq!(a["sessionId"], raced.unwrap()["sessionId"]);
+    drop(concurrent);
     // Drop the first transport, as if its response never reached the caller.
     drop(c);
     let mut c = connect(&hub).await;
