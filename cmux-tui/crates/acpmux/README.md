@@ -953,6 +953,18 @@ picking one starts the session there. Peers reconnect with backoff, the tunnel i
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
 
+### GitHub on an added machine
+
+A machine can use the Mac's `gh` login without one of its own (`src/github_broker.rs`). An agent
+session there asks its daemon over the unix socket for `_acpmux/github_action` (read a repository
+or a pull request, open an issue, comment on one, open a draft pull request); the daemon sends it
+up the link the Mac opened to it, and the Mac runs one fixed `gh` command and answers with its
+output. No token reaches the machine. The Mac serves only a peer whose saved config has
+`githubBroker: true` (`peer_add` takes it, over the unix socket only); `"githubBroker": false` in
+`config.json` with `acpmux daemon reload` takes it back at once. Each decision is a
+`github_broker_action` event on the agent's session (action, repository, branch, number and
+outcome; never a title, body or output) and a log line on the Mac.
+
 `acpmux host status` (also the hidden `peer status` alias, with `--json`) is the check to run before remote work
 and after a peer request fails. It asks every connected peer `_acpmux/host_health` at once,
 with 5 s each, and lists this machine first. Each row has:

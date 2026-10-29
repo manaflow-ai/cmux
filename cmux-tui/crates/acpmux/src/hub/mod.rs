@@ -88,6 +88,7 @@ pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
 mod git_watch;
+mod github_owner;
 mod lane_reports;
 mod offer_results;
 mod offers;
@@ -400,6 +401,8 @@ pub struct Hub {
     /// Moves on with each `peer_add` (under the config lock): a reload whose file read began
     /// before one leaves the saved peers' boundaries and GitHub lending as that add left them.
     pub(super) peer_config_gen: std::sync::atomic::AtomicU64,
+    /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
+    pub(super) github_owners: github_owner::Owners,
     /// Each peer session's events as this daemon saw them, kept on disk
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
@@ -612,6 +615,7 @@ impl Hub {
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
+            github_owners: Default::default(),
             peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
