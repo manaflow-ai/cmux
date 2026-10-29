@@ -90,6 +90,8 @@ final class SettingsPageProvider: PageProvider {
     /// Full access or Dedicated agent machine on when the click behind it was not the HID system's
     /// (``personTurnsOn(_:_:_:)``); nil, never.
     var ownerConfirm: (any DeviceOwnerAuthenticating)?
+    /// Whether the HID system's click skips that confirm (``PersonGatePolicy``).
+    var gatePolicy = PersonGatePolicy.hidOrConfirm
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
     var spentFullAccessGesture: TimeInterval?

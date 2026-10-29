@@ -6,6 +6,14 @@ import Foundation
 /// machine (this Mac's chats run there without the sandbox). An agent that drives this Mac's screen
 /// must not be able to turn either on for itself.
 extension SettingsPageProvider {
+    /// When an on asks for Touch ID or the password (``personTurnsOn(_:_:_:)``).
+    enum PersonGatePolicy {
+        /// The HID system's click turns it on with no prompt; any other input asks.
+        case hidOrConfirm
+        /// Every on asks, the HID system's click included (if a poster can forge the HID source fields).
+        case alwaysConfirm
+    }
+
     enum WideningSwitch {
         case fullAccess, vmHost
 
@@ -23,7 +31,8 @@ extension SettingsPageProvider {
     /// SECURITY: an on needs the person's own click or key in the Settings page, spent once (the host's
     /// record, never the page's word), and that input must be the person's own:
     /// - the HID system's (``PersonInputLedger``, `personBacksGesture`): it turns the switch on with no
-    ///   prompt, as before;
+    ///   prompt, as before, under ``PersonGatePolicy/hidOrConfirm`` (`gatePolicy`, the default); under
+    ///   ``PersonGatePolicy/alwaysConfirm`` it asks too;
     /// - anything else (Screen Sharing, Universal Control, the Accessibility Keyboard, or a click another
     ///   process posted, the way a computer-use agent clicks): the person confirms with Touch ID or the
     ///   login password (`ownerConfirm`), which a posted click cannot answer. Only a confirm that
@@ -38,7 +47,7 @@ extension SettingsPageProvider {
         guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
               event != spentFullAccessGesture else { throw refusal }
         spentFullAccessGesture = event
-        if personBacksGesture?(event) == true { return }
+        if gatePolicy == .hidOrConfirm, personBacksGesture?(event) == true { return }
         guard !confirmingOwner, let ownerConfirm else { throw refusal }
         confirmingOwner = true
         defer { confirmingOwner = false }
