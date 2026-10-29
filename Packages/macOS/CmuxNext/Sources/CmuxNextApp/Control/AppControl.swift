@@ -270,7 +270,7 @@ final class AppControl {
             // Every Chromium page's origin, hidden state and renderer client ids (bench_power.py loaded).
             .mainActor("debug.cef_pages") { [weak services] _ in
                 guard let services else { return .value(.null) }
-                return .value(DebugCEFPages.report(services))
+                return .value(debugCEFPagesReport(services))
             },
             // Chromium process failures, restart state, crash reports.
             .mainActor("debug.crashes") { [weak services] _ in
