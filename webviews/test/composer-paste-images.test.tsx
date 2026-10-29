@@ -28,6 +28,8 @@ const keys = [
   "requestAnimationFrame",
   "cancelAnimationFrame",
   "localStorage",
+  "createImageBitmap",
+  "OffscreenCanvas",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -55,6 +57,7 @@ beforeAll(() => {
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     localStorage: window.localStorage,
+    ...imageEngine(),
   });
   host = window.document.getElementById("root")!;
 });
@@ -106,6 +109,31 @@ const PNG = Uint8Array.from([
   0xe0,
   ...Array(504).fill(7),
 ]);
+/// The engine's image decoder and canvas, which jsdom lacks. Every attached image is decoded and
+/// re-encoded to strip its metadata (composer/imageWork.ts prepareImage, since #24652); with no
+/// engine to draw it is no image. This one reads the file's bytes as a real decode does, and each
+/// canvas encodes back to the screenshot's own PNG.
+function imageEngine() {
+  return {
+    createImageBitmap: async (source: Blob) => {
+      await source.arrayBuffer();
+      return { width: 640, height: 480, close() {} };
+    },
+    OffscreenCanvas: class {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return { drawImage() {}, fillRect() {}, fillStyle: "" };
+      }
+      async convertToBlob({ type }: { type: string }) {
+        return new Blob([PNG], { type });
+      }
+    },
+  };
+}
+
 const pngBase64 = btoa(String.fromCharCode(...PNG));
 const dataUri = `data:image/png;base64,${pngBase64}`;
 /// What Chrome's Copy Image (or a copied transcript image) puts on the clipboard beside the file.
