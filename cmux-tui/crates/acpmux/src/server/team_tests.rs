@@ -287,3 +287,90 @@ async fn team_legacy_routes_share_authorization_and_status_is_scoped() {
     let refused = owner.call(method::MUX_SEND_STATUS, status).await;
     assert_eq!(refused["error"]["data"]["reason"], "team_messaging_disabled", "{refused}");
 }
+
+fn legacy_team_send(key: &str) -> Value {
+    json!({"request": {
+        "sessionId": "@team/reviewer",
+        "prompt": [{"type": "text", "text": "hello"}],
+        "_meta": {"acpmux": {"promptId": key, "fromAgent": OWN, "resend": true}}
+    }})
+}
+
+#[tokio::test]
+async fn retry_keys_are_stable_per_proven_sender_and_shared_by_both_send_routes() {
+    let (hub, fake) = setup(true);
+    // Include keys the legacy mesh route would otherwise normalize differently.
+    for key in ["same-retry-key", "x", "retry with spaces"] {
+        let mut sender_keys = Vec::new();
+        for identity in [Some((OWN, true)), Some((OTHER, true)), None] {
+            let start = fake.sent.lock().unwrap().len();
+            let mut first = Rpc::connect(&hub, Origin::Local, identity).await;
+            let sent = first
+                .call(
+                    method::MUX_TEAM_SEND,
+                    json!({
+                        "to": "@team/reviewer", "body": "hello", "idempotencyKey": key,
+                        "from": {"sessionId": OWN}, "sender": OWN
+                    }),
+                )
+                .await;
+            assert!(sent.get("error").is_none(), "{sent}");
+            // Retry on a fresh authenticated connection: connection ids must not
+            // change the namespace, and the legacy path must use the same key.
+            let mut reconnected = Rpc::connect(&hub, Origin::Local, identity).await;
+            let again = reconnected
+                .call(
+                    method::MUX_TEAM_SEND,
+                    json!({
+                        "to": "@team/reviewer", "body": "hello", "idempotencyKey": key
+                    }),
+                )
+                .await;
+            assert!(again.get("error").is_none(), "{again}");
+            let legacy = reconnected.call(method::MUX_SEND_QUEUE, legacy_team_send(key)).await;
+            assert!(legacy.get("error").is_none(), "{legacy}");
+            let sent = fake.sent.lock().unwrap();
+            assert_eq!(sent.len(), start + 3);
+            let assigned = &sent[start].idempotency_key;
+            assert_ne!(assigned, key, "a raw caller-selected key is not namespaced");
+            assert_eq!(assigned, &sent[start + 1].idempotency_key);
+            assert_eq!(assigned, &sent[start + 2].idempotency_key);
+            sender_keys.push(assigned.clone());
+        }
+        assert_eq!(
+            sender_keys.iter().collect::<std::collections::BTreeSet<_>>().len(),
+            3,
+            "the owner and both agent sessions must have separate retry namespaces"
+        );
+    }
+}
+
+#[tokio::test]
+async fn legacy_team_send_records_sender_ownership_for_status_after_reconnection() {
+    let (hub, fake) = setup(true);
+    // The fake hub resolves to OWN; OTHER may read that receipt only after it
+    // actually sends, regardless of the fromAgent hint in the request.
+    let status = json!({"deliveryId": format!("mesh:{OWN_MESSAGE}")});
+    let mut sender = Rpc::connect(&hub, Origin::Local, Some((OTHER, true))).await;
+    let refused = sender.call(method::MUX_SEND_STATUS, status.clone()).await;
+    assert_eq!(refused["error"]["data"]["reason"], "team.forbidden", "{refused}");
+    let queued = sender.call(method::MUX_SEND_QUEUE, legacy_team_send("outgoing-retry")).await;
+    assert_eq!(queued["result"]["deliveryId"], format!("mesh:{OWN_MESSAGE}"), "{queued}");
+    {
+        let sent = fake.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].from.session_id.as_deref(), Some(OTHER));
+    }
+    drop(sender);
+    let mut reconnected = Rpc::connect(&hub, Origin::Local, Some((OTHER, true))).await;
+    let delivered = reconnected.call(method::MUX_SEND_STATUS, status).await;
+    assert_eq!(delivered["result"]["status"], "delivered", "{delivered}");
+    assert_eq!(delivered["result"]["target"], "@member/coordinator", "{delivered}");
+    // Sender status ownership does not grant recipient read/ack authority.
+    for method in [method::MUX_TEAM_READ, method::MUX_TEAM_ACK] {
+        let refused = reconnected.call(method, json!({"id": OWN_MESSAGE})).await;
+        assert_eq!(refused["error"]["data"]["reason"], "team.forbidden", "{refused}");
+    }
+    assert!(fake.reads.lock().unwrap().is_empty());
+    assert!(fake.acknowledgements.lock().unwrap().is_empty());
+}
