@@ -1048,14 +1048,10 @@ button.acpmux-chat-inspector-scope__parent:focus-visible {
   border-radius: var(--acpmux-inspector-card-radius);
 }
 .acpmux-chat-inspector-scope__glyph {
+  display: inline-flex;
   flex: none;
   margin-top: 2px;
   color: var(--agent-muted);
-}
-/* With no harness mark, the subagent's own stable tone (agentTones.ts), as its line in Subagents. */
-.acpmux-chat-inspector-scope__glyph[data-agent-tone] {
-  display: inline-flex;
-  color: var(--agent-tone-ink);
 }
 .acpmux-chat-inspector-scope__text {
   flex: 1 1 auto;

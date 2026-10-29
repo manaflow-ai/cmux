@@ -28,7 +28,8 @@ import { subagentStateText, subagentStatus, type SubagentStatus } from "../summa
 import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { InspectorFold } from "./InspectorSection";
-import { AgentMark, hasAgentMark } from "../../shared/AgentMark";
+import { AgentMark } from "../../shared/AgentMark";
+import { TonedIcon } from "../subagents/TonedIcon";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -109,10 +110,14 @@ const EndedAvatars = memo(
               <Avatar agent={item.agent} />
             ) : (
               <span className="cv-subagent-avatar" data-state={item.status}>
-                {item.mark && hasAgentMark(item.mark) ? (
-                  <AgentMark agent={item.mark} size={14} />
+                {item.mark ? (
+                  <AgentMark
+                    agent={item.mark}
+                    size={14}
+                    fallback={<TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />}
+                  />
                 ) : (
-                  <Icon name={item.icon} size={14} />
+                  <TonedIcon name={item.icon} size={14} tone={agentTone(item.identity)} />
                 )}
               </span>
             )}

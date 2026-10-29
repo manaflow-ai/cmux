@@ -4,15 +4,18 @@
 // else, you can just randomize the colors or something." Each line draws its harness's mark (the
 // picker's own AgentMark): another family's agent its harness, the chat's own subagents the chat's,
 // a started chat its own. A line with no mark keeps the icon in a stable tone of its own id
-// (agentTones.ts), so the same agent is the same color on every render.
+// (agentTones.ts), so the same agent is the same color on every render. The icon is AgentMark's
+// fallback, so a harness acpmux has no drawable icon for (a glyph) still shows it.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ChildSessionRows } from "../src/agent-session/acpmux/inspector/ChildSessionRows";
 import { SubagentsSection } from "../src/agent-session/acpmux/inspector/SubagentsSection";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
+import { rowIconSize } from "../src/agent-session/acpmux/icons/iconSize";
 import { agentTone } from "../src/agent-session/acpmux/subagents/agentTones";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { AgentMark } from "../src/agent-session/shared/AgentMark";
+import { rememberHarnessIcons } from "../src/agent-session/shared/harnessIcons";
 
 const agent = (id: string, harness?: string): Subagent => ({
   id,
@@ -32,15 +35,13 @@ const session = (sessionId: string, harness?: string): StartedSession => ({
   ...(harness ? { harness } : {}),
 });
 
-/// Each icon span's inner markup and tone, in order.
+/// Each icon span's inner markup, and the tone of the icon it falls back to, in order.
 const icons = (html: string) =>
-  [
-    ...html.matchAll(
-      /<span class="acpmux-lineage__icon[^"]*"[^>]*?(?: data-agent-tone="(\d)")?>(.*?)<\/span><span class="acpmux-summary-text/g,
-    ),
-  ].map((match) => ({ tone: match[1], inner: match[2]! }));
+  [...html.matchAll(/<span class="acpmux-lineage__icon[^"]*"[^>]*>(.*?)<\/span><span class="acpmux-summary-text/g)].map(
+    (match) => ({ inner: match[1]!, tone: /class="acpmux-toned-icon" data-agent-tone="(\d)"/.exec(match[1]!)?.[1] }),
+  );
 
-const mark = (harness: string) => renderToStaticMarkup(<AgentMark agent={harness} size={12} />);
+const mark = (harness: string) => renderToStaticMarkup(<AgentMark agent={harness} size={rowIconSize(12)} />);
 
 test("a subagent line draws its harness's mark: another family's its own, the chat's own the chat's", () => {
   const html = renderToStaticMarkup(
@@ -79,4 +80,24 @@ test("a chat the agent started draws its own harness's mark, else its icon in it
   );
   expect(rows).toContain(mark("codex"));
   expect(rows).toContain(`data-agent-tone="${agentTone("plain-child")}"`);
+});
+
+test("a harness with no drawable mark (a glyph icon) keeps the toned icon, and takes its icon once acpmux sends one", () => {
+  rememberHarnessIcons([{ id: "glyph-harness", iconSpec: { kind: "glyph", name: "terminal", source: "default" } }]);
+  const render = () =>
+    renderToStaticMarkup(
+      <SubagentsSection
+        agents={[agent("helper", "glyph-harness")]}
+        waiting={new Set()}
+        sessions={[session("late-child", "late-harness")]}
+      />,
+    );
+  const [helper, child] = icons(render());
+  expect(helper?.tone).toBe(String(agentTone("helper")));
+  expect(child?.tone).toBe(String(agentTone("late-child")));
+
+  rememberHarnessIcons([{ id: "late-harness", iconSpec: { kind: "emoji", text: "🦊", source: "profile" } }]);
+  const [, late] = icons(render());
+  expect(late?.inner).toContain("🦊");
+  expect(late?.tone).toBeUndefined();
 });

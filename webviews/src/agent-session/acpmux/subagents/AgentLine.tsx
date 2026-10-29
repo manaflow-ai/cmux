@@ -12,13 +12,14 @@
 // subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
 import type { ReactNode } from "react";
-import { AgentMark, hasAgentMark, knownMark } from "../../shared/AgentMark";
+import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
 import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import { TonedIcon } from "./TonedIcon";
 import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
@@ -91,8 +92,8 @@ export function AgentLine({
   trayColumns?: boolean;
 }) {
   const shimmer = waveProps(wave);
-  const named = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
-  const brand = named && hasAgentMark(named) ? named : undefined;
+  const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
+  const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
   const button = (
     <button
       type="button"
@@ -111,14 +112,13 @@ export function AgentLine({
         className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
         style={shimmer.style}
         data-state={status}
-        data-agent-tone={brand || tone === undefined ? undefined : tone}
       >
         {working ? (
           <Spinner size={iconSize} loading />
         ) : brand ? (
-          <AgentMark agent={brand} size={iconSize} />
+          <AgentMark agent={brand} size={iconSize} fallback={glyph} />
         ) : (
-          <Icon name={icon} size={iconSize} row />
+          glyph
         )}
       </span>
       <span className="acpmux-summary-text">
