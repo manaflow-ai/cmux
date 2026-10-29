@@ -467,7 +467,8 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
     .filter((probe) => !isHiddenByUser(entry.id, probe.id, join) && !hiddenReleases.has(probe.id))
     .map((probe) => probedModel(probe, entry.id, join, kin?.id));
   for (const model of listed) {
-    if (!userDeclaresModel(model.id, entry.id, kin?.id ?? entry.id, join)) continue;
+    if (![model.id, ...(model.aliases ?? [])].some((id) => userDeclaresModel(id, entry.id, kin?.id ?? entry.id, join)))
+      continue;
     if (!models.some((row) => row.id === model.id)) models.push(listedModel(model, entry.id, entry.models, join));
   }
   addSessionModels(models, live, entry.id, listed, join, entry.models, hiddenReleases, kin?.id);

@@ -318,3 +318,34 @@ for (const harness of ["Codex", "Codex profile"]) {
     expect(ids(sections.latest)).not.toContain("gpt-6.1-sol");
   });
 }
+
+test("kin profiles materialize alias overrides while hidden aliases stay hidden", () => {
+  for (const scope of ["claude-sr2", "*"]) {
+    for (const hidden of [false, true]) {
+      const catalog = buildPickerCatalog({
+        catalog: BUNDLED_MODEL_CATALOG,
+        user: { overrides: { [`${scope}/opus`]: { name: "My Opus", contextWindow: 100000, hidden } } },
+        acpmux: [{ id: "claude-sr2", family: "claude-sr2", name: "Claude profile", models: [] }],
+      });
+      const models = catalog.harnesses.find((entry) => entry.id === "claude-sr2")!.models;
+      const opus = models.find((model) => model.id === "claude-opus-5-5");
+      if (hidden) expect(opus).toBeUndefined();
+      else {
+        expect(opus?.name).toBe("My Opus");
+        expect(opus?.contextWindow).toBe(100000);
+      }
+    }
+  }
+});
+
+test("both menus preserve an explicit empty or unavailable-only report and keep alternatives reachable", () => {
+  const models = [{ id: "available", name: "Available 1" }];
+  for (const top of [[], ["unavailable"]]) {
+    const composer = relevantModelSections(models, top);
+    const retry = retryModelSections(models, undefined, "Test", top);
+    expect(composer.shown).toEqual([]);
+    expect(retry.latest).toEqual([]);
+    expect(composer.more).toEqual(models);
+    expect(retry.more).toEqual(models);
+  }
+});

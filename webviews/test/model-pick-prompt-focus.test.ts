@@ -140,6 +140,12 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
       await page.keyboard.press("ArrowDown");
     }
     expect(await page.evaluate((row) => !!document.activeElement?.matches(row), QUICK_ROW)).toBe(true);
+    return (await page.locator(`${QUICK_ROW}:focus .acpmux-menu-label`).textContent())!;
+  };
+  const expectPickedModel = async (page: Page, stage: Stage, name: string) => {
+    // New Tab owns its selection locally. The chat fixture uses a static preview snapshot;
+    // model-menu-compact.test.tsx separately asserts the model dispatch for a live chat.
+    if (stage.entry === "agent-pane.new-tab") expect(await page.locator(MODEL).textContent()).toContain(name);
   };
 
   for (const [engine] of engines)
@@ -159,8 +165,9 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
         const page = await open(engine, stage);
         await press(page, MODEL);
         await page.locator(QUICK).first().waitFor();
-        await focusOtherModel(page);
+        const picked = await focusOtherModel(page);
         await page.keyboard.press("Enter");
+        await expectPickedModel(page, stage, picked);
         await page.locator(QUICK).first().waitFor({ state: "detached" });
         await settled(page);
         expect(await where(page, stage.prompt)).toBe("prompt");
@@ -175,8 +182,9 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
         const name = (await page.locator(`${QUICK_ROW} .acpmux-menu-label`).first().textContent()) ?? "";
         await page.keyboard.type(name);
         await page.locator(QUICK_ROW, { hasText: name }).first().waitFor();
-        await focusOtherModel(page);
+        const picked = await focusOtherModel(page);
         await page.keyboard.press("Enter");
+        await expectPickedModel(page, stage, picked);
         await page.locator(QUICK).first().waitFor({ state: "detached" });
         await settled(page);
         expect(await where(page, stage.prompt)).toBe("prompt");
@@ -196,8 +204,9 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
       test(`${engine}: ${stage.name}: Enter in the shortcut-opened compact menu puts the keyboard in the prompt`, async () => {
         const page = await open(engine, stage);
         await openCompactShortcut(page);
-        await focusOtherModel(page);
+        const picked = await focusOtherModel(page);
         await page.keyboard.press("Enter");
+        await expectPickedModel(page, stage, picked);
         await page.locator(QUICK).first().waitFor({ state: "detached" });
         await settled(page);
         expect(await where(page, stage.prompt)).toBe("prompt");
@@ -244,8 +253,9 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
             },
           });
         });
-        await focusOtherModel(page);
+        const picked = await focusOtherModel(page);
         await page.keyboard.press("Enter");
+        await expectPickedModel(page, stage, picked);
         // The pick has closed the menu, and its deferred focus waits in a held frame.
         await page.locator(`${QUICK}[data-closed]`).first().waitFor({ state: "attached" });
         expect(await page.evaluate(() => (window as unknown as Held).heldFrames())).toBeGreaterThan(0);
