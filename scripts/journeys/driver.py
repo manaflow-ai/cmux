@@ -30,6 +30,7 @@ import json
 import os
 import random
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -44,6 +45,10 @@ import build_names  # noqa: E402
 PROMPT = "J> "
 # The prompt every journey's shell gets (neutral: no host, user or path in any frame).
 NEUTRAL_PROMPT = "PS1='J> '; PROMPT='J> '; RPROMPT=''; unset PROMPT_COMMAND; cd /tmp; printf '\\033[H\\033[2J\\033[3J'\r"
+# Before it, the shell writes its tty to {tty_file} (its own short line, which the neutral prompt's clear then
+# removes): one terminal host runs the shells of every terminal (one tty each), and process checks look only
+# at this terminal's tty.
+TTY_PROBE = "tty >| {tty_file}\r"
 RPC_TIMEOUT = 30.0
 SNAPSHOT_TIMEOUT = 30.0
 POLL_SECONDS = 0.05
@@ -490,6 +495,8 @@ class Journey:
         self.nonce = "".join(random.choice("23456789") for _ in range(6))
         self.vars = {"nonce": self.nonce, "prompt": PROMPT, "fixture_heading": FIXTURE_HEADING}
         self.marks, self.binds = {}, {}
+        # {terminal id: its tty as ps names it (ttys004)}, written by the shell at neutral_prompt.
+        self.ttys, self.tty_probes = {}, 0
         self.term = self.pane = self.host_pid = None
         self.steps, self.evidence, self.checks = [], [], 0
         # The window keys go to (a main window id; None: debug.key's default, the first window), and
@@ -628,13 +635,49 @@ class Journey:
 
     def step_neutral_prompt(self, step):
         # Set-up, not under test: written into the PTY by the daemon, as a paste would be.
-        self.app.cmux("terminal", self.need_term(), "write", "--text", NEUTRAL_PROMPT)
+        term = self.need_term()
+        # The tty first, on its own line; the neutral prompt is written only after the shell ran it.
+        tty_file = self.tty_probe_path()
+        if tty_file.exists():
+            tty_file.unlink()
+        self.app.cmux("terminal", term, "write", "--text", TTY_PROBE.format(tty_file=shlex.quote(str(tty_file))))
+        tty = self.read_tty(tty_file, float(step.get("tty_timeout", 3)))
+        self.app.cmux("terminal", term, "write", "--text", NEUTRAL_PROMPT)
         end = now() + float(step.get("timeout", 15))
         while now() < end:
             if last_line(self.app.screen(self.term)["text"]) == PROMPT.rstrip():
-                return {"prompt": PROMPT}
+                # A slow shell ran the probe late: it is ahead of the neutral prompt line, so it ran by now.
+                tty = tty or self.read_tty(tty_file, 0)
+                if tty_file.exists():
+                    tty_file.unlink()
+                if tty:
+                    self.ttys[term] = tty
+                else:
+                    self.ttys.pop(term, None)
+                return {"prompt": PROMPT, "tty": tty}
             time.sleep(0.1)
         raise StepError(f"the neutral prompt never showed; screen ends {last_line(self.app.screen(self.term)['text'])!r}")
+
+    def tty_probe_path(self):
+        """The next probe file: in the driver's out dir (the capture slot's, removed with the slot; never /tmp),
+        a name of fixed length (no journey id), so the probe line never wraps the 110-column terminal."""
+        self.tty_probes += 1
+        return self.out.parent / f".tty-{self.nonce}-{self.tty_probes}"
+
+    @staticmethod
+    def read_tty(path, timeout):
+        """The tty the shell wrote (/dev/ttys004 -> ttys004, as ps names it), or None."""
+        end = now() + timeout
+        while True:
+            try:
+                text = path.read_text().strip()
+            except OSError:
+                text = ""
+            if text.startswith("/dev/"):
+                return text[len("/dev/"):]
+            if now() >= end:
+                return None
+            time.sleep(0.05)
 
     def step_type(self, step):
         # The mark is the moment the command is entered (Return), else the first key.
@@ -1330,6 +1373,10 @@ class Journey:
                 if ok:
                     s["ok"], s["at"] = True, now()
                 elif now() >= frame_until and tries >= 2:
+                    try:
+                        self.save_frame_failure()
+                    except OSError:
+                        pass
                     break
         failed = []
         for s in state:
@@ -1406,7 +1453,33 @@ class Journey:
         record["panes"] = [{"pane": p.get("pane"), "occluded": p.get("window_occluded"),
                             "paused": (p.get("surface") or {}).get("paused"),
                             "drawing": (p.get("surface") or {}).get("drawing")} for p in rows]
+        # The app's own cover judgment (WindowOcclusionFamily: one of its opaque windows in front with a frame that
+        # contains this one), which AppKit's occlusion does not report: a pane paused `window_occluded` with
+        # `occluded` false is covered by the app's own window when this is true, else its pause is stale.
+        record["family_occluded"] = self.family_occluded(wid)
         return record
+
+    def family_occluded(self, wid):
+        """debug.windows' family_occluded of window WID (None when unknown)."""
+        if not wid:
+            return None
+        try:
+            report = self.app.rpc("debug.windows", {}) or {}
+        except (StepError, OSError, ValueError):
+            return None
+        return next((w.get("family_occluded") for w in report.get("windows", []) if w.get("id") == wid), None)
+
+    def save_frame_failure(self):
+        """A failed frame check keeps the app's full debug.surfaces (every pane's surface, its pause and, in builds
+        that have it, pause_record) and debug.windows as diag-framefail.json: the state behind an empty pane is read,
+        not guessed (v2.2.6-opt gate: ctrl-c failed paused window_occluded with no saved window state)."""
+        dump = {}
+        for name, method in (("surfaces", "debug.surfaces"), ("windows", "debug.windows")):
+            try:
+                dump[name] = self.app.rpc(method, {"text": True} if name == "surfaces" else {}, timeout=30)
+            except (StepError, OSError, ValueError) as error:
+                dump[name] = {"error": str(error)[-300:]}
+        (self.out / "diag-framefail.json").write_text(json.dumps(dump, indent=1, default=str) + "\n")
 
     def covers_of(self, number):
         """The on-screen windows in front of window NUMBER (the window server's id, debug.surfaces' `window`)
@@ -1478,14 +1551,24 @@ class Journey:
                 if name == "process_present":
                     scope = descendants(table, self.app.roots(table, self.host_pid))
                     hits = [table[p] for p in sorted(scope) if re.search(want["match"], table[p]["command"])]
+                    tty = self.ttys.get(self.term) if self.term else None
+                    detail = {"matches": hits[:3], "count": len(hits), "tty": tty, "scope_root": self.host_pid or "bundle"}
                     if want.get("foreground"):
                         # A controlling tty, and the process in its foreground group (ps `+`): Ctrl+C can reach it.
                         good = [h for h in hits if h["tty"] not in ("??", "-", "") and "+" in h["stat"]]
+                        # This terminal's tty: the host also runs the other terminals' shells and jobs.
+                        if tty:
+                            good = [h for h in good if h["tty"] == tty]
+                        elif want.get("bind") and len({h["tty"] for h in good}) > 1:
+                            # Which one is this terminal's is unknown: a guess would bind another terminal's.
+                            detail["error"] = f"matches on ttys {sorted({h['tty'] for h in good})}; this terminal's tty is unknown"
+                            return False, detail
                     else:
                         good = hits
                     if good and want.get("bind"):
                         self.binds[want["bind"]] = good[0]
-                    return bool(good), {"matches": hits[:3], "scope_root": self.host_pid or "bundle"}
+                        detail["bound"] = good[0]
+                    return bool(good), detail
                 if name == "process_gone":
                     bound = self.binds.get(want)
                     if not bound:

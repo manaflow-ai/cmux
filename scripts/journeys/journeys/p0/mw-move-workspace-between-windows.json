@@ -148,7 +148,7 @@
     {
       "do": "use_window",
       "window": "w2",
-      "focus": false
+      "focus": true
     },
     {
       "do": "mouse",
