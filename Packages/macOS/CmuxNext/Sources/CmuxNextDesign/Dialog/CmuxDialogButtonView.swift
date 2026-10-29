@@ -1,8 +1,9 @@
 public import AppKit
 
-/// A dialog button: gray fills from the theme (no system accent), the
-/// default button prominent, a destructive one in the danger color. It
-/// draws a focus ring in `Palette.focusRing` while it has keyboard focus.
+/// A dialog button in its ``CmuxDialogButtonLook``: the default button a solid accent fill, a
+/// destructive one in the danger color, the others a theme gray (never the system accent), every
+/// title 4.5:1 on its fill. It draws a focus ring in `Palette.focusRing` around itself while it has
+/// keyboard focus (outside the fill, so it shows on a solid one too).
 @MainActor
 public final class CmuxDialogButtonView: NSButton {
     public private(set) var button: CmuxDialogButton
@@ -11,6 +12,8 @@ public final class CmuxDialogButtonView: NSButton {
     private var isHovering = false { didSet { refresh() } }
     private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
+    /// The keyboard focus ring, just outside the button.
+    private let focusRing = CALayer()
 
     /// A button drawing `hint` after its title. The hint only labels the key: the host
     /// answers it (``CmuxDialogView`` through ``CmuxDialogKeys``), so pass the hint that
@@ -31,6 +34,9 @@ public final class CmuxDialogButtonView: NSButton {
         // VoiceOver reads the key after the title; the label stays the title (automation finds it).
         setAccessibilityHelp(hint?.spokenName)
         heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.buttonHeight).isActive = true
+        focusRing.borderWidth = 2
+        focusRing.isHidden = true
+        layer?.addSublayer(focusRing)
         refresh()
     }
 
@@ -99,6 +105,19 @@ public final class CmuxDialogButtonView: NSButton {
     public override func mouseEntered(with event: NSEvent) { isHovering = true }
     public override func mouseExited(with event: NSEvent) { isHovering = false }
 
+    public override func layout() {
+        super.layout()
+        let outset = Self.focusRingOutset
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        focusRing.frame = bounds.insetBy(dx: -outset, dy: -outset)
+        focusRing.cornerRadius = CmuxDialogMetrics.buttonCornerRadius + outset
+        CATransaction.commit()
+    }
+
+    /// How far outside the fill the focus ring sits.
+    static let focusRingOutset: CGFloat = 3
+
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()
@@ -109,20 +128,31 @@ public final class CmuxDialogButtonView: NSButton {
         refresh()
     }
 
+    /// The look this button draws now (its role, hover and press, in its theme scope).
+    var look: CmuxDialogButtonLook {
+        let state: CmuxDialogButtonLook.State = isHighlighted ? .pressed : isHovering ? .hover : .rest
+        return performWithTheme {
+            let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+            return CmuxDialogButtonLook(role: button.role, tokens: tokens, state: state,
+                                        filledDestructive: ChromeTunables.filledDestructiveDialogButton.value,
+                                        card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value))
+        }
+    }
+
     private func refresh() {
-        let prominent = button.role == .default
+        let look = look
         performWithTheme {
-            var fill = prominent ? Palette.selectionFill : Palette.hoverFill
-            if isHighlighted || isHovering { fill = prominent ? Palette.pressedFill : Palette.selectionFill }
-            layer?.backgroundColor = fill.cgColor
-            alphaValue = isEnabled ? 1 : 0.45
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.backgroundColor = look.fill.nsColor.cgColor
             layer?.cornerRadius = CmuxDialogMetrics.buttonCornerRadius
-            layer?.borderWidth = hasFocus ? 2 : 0
-            layer?.borderColor = Palette.focusRing.cgColor
-            let color = button.role == .destructive ? Palette.danger : Palette.textPrimary
-            let font = prominent ? Typography.bodyEmphasized : Typography.body
-            attributedTitle = keyHint?.attributedTitle(button.title, font: font, color: color)
-                ?? NSAttributedString(string: button.title, attributes: [.foregroundColor: color, .font: font])
+            focusRing.isHidden = !hasFocus
+            focusRing.borderColor = Palette.focusRing.cgColor
+            CATransaction.commit()
+            alphaValue = isEnabled ? 1 : 0.45
+            let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
+            attributedTitle = keyHint?.attributedTitle(button.title, font: font, color: look.title.nsColor, hintColor: look.keyHint.nsColor)
+                ?? NSAttributedString(string: button.title, attributes: [.foregroundColor: look.title.nsColor, .font: font])
         }
         invalidateIntrinsicContentSize()
     }

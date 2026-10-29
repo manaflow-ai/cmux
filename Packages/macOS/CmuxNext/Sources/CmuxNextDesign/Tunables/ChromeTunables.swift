@@ -65,6 +65,14 @@ public nonisolated enum ChromeTunables {
         "glass.cardOpacity", .glass, "Card opacity", help: "Least opacity of the solid fill a card that opts into the card fill (no native overlay does; web pages read it as --cmux-card-tint) lays on its glass; text keeps 4.5:1 over any backdrop above it.",
         default: CardMaterial.defaultMinimumOpacity, range: 0.5...1, step: 0.01, unit: .fraction, code: "ChromeTunables.cardOpacity")
 
+    /// A dialog's destructive button (Delete, Close, Don't Save): on, a solid danger fill with ink fit
+    /// to 4.5:1 on it, as the web pages' `.danger` button draws; off, the danger ink on a faint danger
+    /// wash. Two variants of one design decision, compared live in Debug Settings.
+    public static let filledDestructiveDialogButton = Tunable<Bool>.toggle(
+        "dialog.filledDestructive", .glass, "Filled destructive dialog button",
+        help: "A dialog's destructive button: on, a solid red fill; off, red text on a faint red wash.",
+        default: true, code: "ChromeTunables.filledDestructiveDialogButton")
+
     // MARK: Scroll fade
 
     public static let scrollFadeMaxFraction = Tunable<Double>.number(
@@ -75,7 +83,7 @@ public nonisolated enum ChromeTunables {
         [space1, space2, space3, space4, space5, space6, trafficLightInset, sidebarMinWidth, sidebarMaxWidth, tabBackgroundInset,
          tabContentLeadingInset].map(\.descriptor)
             + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, tabRowTools.descriptor, interfaceSize.descriptor]
-            + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, cardOpacity.descriptor, scrollFadeMaxFraction.descriptor]
+            + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, cardOpacity.descriptor, filledDestructiveDialogButton.descriptor, scrollFadeMaxFraction.descriptor]
     }
 }
 

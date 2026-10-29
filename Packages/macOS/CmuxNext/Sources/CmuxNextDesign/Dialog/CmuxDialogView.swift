@@ -204,7 +204,9 @@ public final class CmuxDialogView: NSView {
 
         let content = NSView()
         content.addSubview(stack)
-        let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog))
+        // The card keeps the key-window glass: its panel gives key back as the close fade starts, and the
+        // inactive frost turned the card a lighter grey for the whole fade (debug.dialog_strip).
+        let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog), keepsActiveLook: true)
         addSubview(surface)
         self.surface = surface
         NSLayoutConstraint.activate([

@@ -109,6 +109,31 @@ import CmuxNextDesignTokens
         }
     }
 
+    /// The same contract over the glass card (the veil over the scrimmed window, as a dialog shows
+    /// without Reduce Transparency), for both destructive variants, in each state, light and dark,
+    /// for a theme with its own accent too.
+    @Test(arguments: [false, true])
+    func everyDialogButtonInkReadsOnTheGlassCard(filledDestructive: Bool) throws {
+        let accented = ThemeInput(background: ThemeRGB(hex: 0x1F2430), foreground: ThemeRGB(hex: 0xCBCCC6))
+        for input in [Self.light, Self.dark, accented] {
+            let tokens = ThemeTokens.derive(from: input)
+            for role in [CmuxDialogButton.Role.default, .destructive, .cancel, .normal] {
+                for state in CmuxDialogButtonLook.State.allCases {
+                    let look = CmuxDialogButtonLook(role: role, tokens: tokens, state: state, filledDestructive: filledDestructive)
+                    #expect(look.surfaces.count == CmuxDialogButtonLook.cardSurfaces(tokens).count)
+                    for surface in look.surfaces {
+                        #expect(look.title.contrast(with: surface) >= 4.5, "\(role) \(state) title: \(look.title.contrast(with: surface)):1")
+                        #expect(look.keyHint.contrast(with: surface) >= 4.5, "\(role) \(state) hint: \(look.keyHint.contrast(with: surface)):1")
+                    }
+                }
+            }
+            // A filled destructive button and the default one are solid: what shows through the glass
+            // cannot lower their contrast.
+            #expect(CmuxDialogButtonLook(role: .default, tokens: tokens).fill.alpha == 1)
+            #expect(CmuxDialogButtonLook(role: .destructive, tokens: tokens, filledDestructive: true).fill.alpha == 1)
+        }
+    }
+
     // MARK: Checks
 
     /// Every label is at least 4.5:1 on the resolved surface, and the surface is the scope's popup
