@@ -200,7 +200,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         .as_ref()
         .is_none_or(|w| w.token.as_deref().is_none_or(|t| t.trim().is_empty()));
     // Only the shared home owns the fixed port; any other home never saves it.
-    let shared_home = dirs::home_dir().map(|h| h.join(".acpmux")) == Some(home());
+    let shared_home = uses_shared_home();
     let saved_listen = config.websocket.as_ref().map(|w| w.listen.clone());
     let listen_ok =
         saved_listen.as_deref() == Some(first_run_listen(shared_home, saved_listen.as_deref()));
@@ -308,12 +308,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
-    // Only the session list before the ready line; the chat logs load right after it.
-    let hub = Hub::new_deferred(config, store, mailbox);
-    // Temporary folders of sessions this daemon no longer has, before the
-    // socket serves (`agent/session_tmp.rs`).
-    #[cfg(unix)]
-    hub.sweep_session_tmp();
+    // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
+    let hub = Hub::new_loading(config, store, mailbox);
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
@@ -327,6 +323,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
+    // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
+    let mesh_relay = crate::server::mesh_relay::start_configured(&hub).await;
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
@@ -487,9 +485,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     lock::fork_a_child_for_tests();
     // Profile files hot-reload (no polling); before startup work writes the config.
     hub.start_harness_watch();
-    {
+    // Metadata completion belongs to shutdown too; cancelling adoption must not cancel it.
+    let metadata = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.load_store_async().await })
+    };
+    let startup = {
         let hub = hub.clone();
         tokio::spawn(async move {
+            hub.wait_store().await;
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
             // load and adoption, as a large log store did, so integration tests can ask in
             // that window. Bounded; release builds have no seam.
@@ -528,8 +532,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tracing::warn!("{e}");
             }
-        });
-    }
+        })
+    };
     tokio::spawn(notify::notify_loop(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
@@ -554,6 +558,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    startup.abort();
+    let _ = startup.await;
+    // Its last heartbeat empties this daemon's rows in the hub's address book.
+    if let Some(relay) = mesh_relay {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
+    }
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
     // until a start), so a start racing this shutdown is refused either way.
@@ -571,7 +581,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
-    let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, hub.shutdown_all()).await {
+    let kept = match tokio::time::timeout(SHUTDOWN_BUDGET, async {
+        // A signal can arrive while metadata loads. Snapshot every stored session before
+        // detaching or ending hosts. A timeout conservatively keeps their router below.
+        let _ = metadata.await;
+        hub.shutdown_all().await
+    })
+    .await
+    {
         Ok(kept) => kept,
         Err(_) => {
             tracing::warn!("agents did not stop within {SHUTDOWN_BUDGET:?}; exiting anyway");
@@ -837,7 +854,7 @@ fn narrow_to_owner(path: &std::path::Path) {
 use crate::owner_only::narrow as narrow_to_owner;
 
 /// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
-const TOKEN_ROTATION: u32 = 1;
+pub(crate) const TOKEN_ROTATION: u32 = 1;
 
 /// Builds before this one sent the saved WebSocket token to remote-origin
 /// connections (`_acpmux/status` `webUrl`), so a token saved by one may be
@@ -1219,11 +1236,16 @@ fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
     let _ = link.shutdown(std::net::Shutdown::Both);
 }
 
+/// Use the same home classification for initial launch and CLI restart.
+pub(crate) fn uses_shared_home() -> bool {
+    dirs::home_dir().map(|h| h.join(".acpmux")) == Some(home())
+}
+
 /// The fixed dashboard port belongs to the shared daemon (`~/.acpmux`). Any other home (a
 /// tagged dev build's, `ACPMUX_HOME`) listens on a free port and never saves the fixed one,
 /// so it can never take the release daemon's port; a home that saved it before is moved off.
 /// Returns the address to save: the saved one when it is fine, else the default.
-fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
+pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
     const SHARED: &str = "127.0.0.1:47811";
     const ANY: &str = "127.0.0.1:0";
     match saved {
