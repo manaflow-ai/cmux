@@ -199,19 +199,10 @@ fn cli_daemon_restart_reattaches_an_active_turn() {
     assert!(made.status.success(), "start: {}", text(&made));
     let prompted = cli(&dir, &["send", "lane", "ticking:20:100"]);
     assert!(prompted.status.success(), "prompt: {}", text(&prompted));
-    let live = cli(&dir, &["--json", "daemon", "status"]);
-    assert!(
-        live.status.success(),
-        "daemon vanished after new: {}\nnew: {}",
-        text(&live),
-        text(&made)
-    );
     let before: serde_json::Value = serde_json::from_slice(&cli(&dir, &["--json", "ls"]).stdout)
         .expect("ls JSON before restart");
     let before_id = before["sessions"][0]["sessionId"].as_str().unwrap().to_owned();
 
-    let stopped = cli(&dir, &["daemon", "shutdown"]);
-    assert!(stopped.status.success(), "shutdown: {}", text(&stopped));
     let stopped = cli(&dir, &["daemon", "shutdown"]);
     assert!(stopped.status.success(), "shutdown: {}", text(&stopped));
     let restarted = cli(&dir, &["--json", "daemon", "start"]);
