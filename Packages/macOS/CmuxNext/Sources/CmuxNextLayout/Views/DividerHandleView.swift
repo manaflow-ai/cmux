@@ -277,7 +277,9 @@ final class DividerHandleView: NSView {
 
     private func applyColors() {
         glow.applyTheme(self)
-        glow.set(!showsActiveLine ? .rest : isDragging ? .dragging : isHovered ? .hovered : .rest)
+        // A drag always lights the band, under `layout.paneSeparation` none too (the app's default
+        // look): it is the drag's cue, not a separator. Hover lights it only where hover shows a line.
+        glow.set(isDragging ? .dragging : isHovered && showsActiveLine ? .hovered : .rest)
         let isEdge = isEdgeHandle
         performWithTheme {
             let active = (isHovered || isDragging) && showsActiveLine
