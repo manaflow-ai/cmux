@@ -358,7 +358,7 @@ public struct AgentChatTranscript: View {
         // UIKit owns the safe areas and the keyboard (the controller docks
         // the stack to the keyboard layout guide).
         .ignoresSafeArea()
-        // The soft top edge under the status bar or bar is the controller's TopFadeView.
+        // UIKit draws the native soft scroll edge at the controller's resolved top inset.
         .navigationDestination(item: $surface.diffRoute) { route in
             Group {
                 if let file = route.fileID {

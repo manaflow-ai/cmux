@@ -33,15 +33,12 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     public var body: some View {
         NavigationStack(path: $path) {
             // UIKit rows (FeedRowCell), laid out off the main thread (verify/feed-perf-20261022.md).
-            Color.clear
-                .background {
-                    FeedCollection(
-                        items: store.visibleItems, context: rowContext, swipe: swipe, control: list,
-                        header: AnyView(header), headerSignature: AnyHashable(headerSignature),
-                        headerContent: AnyHashable(store.needsYouCount)
-                    )
-                    .ignoresSafeArea(.container, edges: .vertical)
-                }
+            FeedCollection(
+                items: store.visibleItems, context: rowContext, swipe: swipe, control: list,
+                header: AnyView(header), headerSignature: AnyHashable(headerSignature),
+                headerContent: AnyHashable(store.needsYouCount)
+            )
+            .ignoresSafeArea(.container, edges: .vertical)
             .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
             .overlay(alignment: .top) { newPill }
             .background(Color.cmuxMobileBackground)
