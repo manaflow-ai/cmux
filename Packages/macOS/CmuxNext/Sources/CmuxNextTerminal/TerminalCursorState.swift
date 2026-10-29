@@ -15,9 +15,10 @@ nonisolated struct TerminalCursorState: Sendable, Equatable {
     }
 
     /// The cursor cell's pixels, glyph included, as Ghostty draws them (`surface` of `ghostty_cursor_cell_s`).
-    /// Each published cell has a new surface: Ghostty never draws into one after publishing it.
-    // crash-allow: an IOSurface is a kernel buffer object whose retain, release and use as layer contents are thread-safe (IOSurface/IOSurfaceRef.h); this immutable value only carries the reference from Ghostty's presenting thread to the cursor layer and never writes its pixels
-    nonisolated struct Image: @unchecked Sendable, Equatable {
+    /// Each published cell has a new surface: Ghostty never draws into one after publishing it. The SDK
+    /// declares `IOSurface` Sendable (its retain, release and use as layer contents are thread-safe), and this
+    /// immutable value only carries the reference from Ghostty's presenting thread to the cursor layer.
+    nonisolated struct Image: Sendable, Equatable {
         let surface: IOSurface
 
         static func == (lhs: Image, rhs: Image) -> Bool { lhs.surface === rhs.surface }

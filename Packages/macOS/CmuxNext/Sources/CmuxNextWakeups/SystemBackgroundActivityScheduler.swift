@@ -19,13 +19,13 @@ public struct SystemBackgroundActivityScheduler: BackgroundActivityScheduling {
         scheduler.repeats = true
         let ledger = ledger, owner = activity.owner
         scheduler.schedule { completion in
-            let done = BackgroundActivityCompletion(completion)
             ledger.record(owner, reason: "background-activity")
             // task-owner: one run; the scheduler starts no next run until this one calls its completion handler.
-            // The task takes the block's .background priority: nothing waits for maintenance.
+            // The task takes the block's .background priority: nothing waits for maintenance. The SDK declares the
+            // completion handler Sendable: NSBackgroundActivityScheduler takes it on any thread.
             Task {
                 await body()
-                done.finished()
+                completion(.finished)
             }
         }
         return SystemBackgroundActivityRun(scheduler)
@@ -43,16 +43,4 @@ private final class SystemBackgroundActivityRun: BackgroundActivityRun {
     deinit { scheduler.invalidate() }
 
     func invalidate() { scheduler.invalidate() }
-}
-
-/// The completion handler of one `NSBackgroundActivityScheduler` run, carried to the run's task.
-// crash-allow: the handler is immutable and called once, from the run's task; NSBackgroundActivityScheduler takes it on any thread, as an asynchronous activity must
-private struct BackgroundActivityCompletion: @unchecked Sendable {
-    private let handler: NSBackgroundActivityScheduler.CompletionHandler
-
-    init(_ handler: @escaping NSBackgroundActivityScheduler.CompletionHandler) {
-        self.handler = handler
-    }
-
-    func finished() { handler(.finished) }
 }
