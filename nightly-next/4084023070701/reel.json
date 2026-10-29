@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4084023070701",
+  "notes": "notes/4084023070701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27225,
+      "title": "fix(agent-pane): Preview tab-row tools reach the edge beside pushed Session Info",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27306,
+      "title": "cmux-next-ios-sim.sh: add a shots mode for PR before/after screens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27268,
+      "title": "Revert \"feat(inspector): summarize agent work in Session Info (#26988)\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27231,
+      "title": "fix(next): align workflow and status glyphs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27282,
+      "title": "ci(cmux-next): a job no idle mini takes overflows to a moving Blacksmith 6 vCPU queue, never a dead-end side label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26573,
+      "title": "cmux NEXT iOS: AppLockController.init is side-effect-free",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27284,
+      "title": "generated-files guard: a regeneration from the base's inputs is not a hand edit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25844,
+      "title": "cmux next: the upstream computer use driver refuses cmux, terminals and password managers",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    }
+  ]
+}
