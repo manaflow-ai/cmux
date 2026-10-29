@@ -172,7 +172,6 @@ extension HomeStore {
         default: nil
         }
     }
-    }
 
     /// Logs `op`, a send whose `uploads` go first, under `key`: its row shows
     /// at once and it takes its place in the conversation's send queue.
