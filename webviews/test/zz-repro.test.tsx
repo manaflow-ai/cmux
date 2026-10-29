@@ -230,24 +230,25 @@ async function showTab(name: string) {
 
 
 const opus = [{ id: "claude-opus-5-5", name: "Opus 5.5" }, { id: "claude-sonnet-5-5", name: "Sonnet 5.5" }];
-const leoCatalog = (sr2Family: string, sr2Models: { id: string; name: string }[]) =>
+// The Claude profiles acpmux lists on Leo's Mac (acpmux harness list, 2026-10-29), each optionally probed.
+const leoCatalog = (probed: Record<string, boolean>) =>
   [
-    { id: "claude", name: "Claude Code", family: "claude", models: opus },
-    { id: "claude-sr", name: "claude-sr", family: "claude", models: opus },
-    { id: "claude-sr2-headless", name: "claude-sr2-headless", family: "claude", icon: "claude", models: [] },
-    { id: "claude-sr2", name: "claude-sr2", family: sr2Family, icon: "claude", models: sr2Models },
-    { id: "codex", name: "Codex", family: "codex", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }] },
-    { id: "opencode", name: "OpenCode", family: "opencode", models: [{ id: "opencode/big-pickle", name: "Big Pickle" }] },
+    { id: "claude", name: "Claude Code", models: probed.claude ? opus : [] },
+    { id: "claude-sr", name: "Claude through the subrouter account pool", models: probed["claude-sr"] ? opus : [] },
+    { id: "claude-sr2", name: "Claude Code (sr2 internal)", models: probed["claude-sr2"] ? opus : [] },
+    { id: "claude-sr2-pipe", name: "Claude Code (sr2, headless)", models: probed["claude-sr2-pipe"] ? opus : [] },
+    { id: "cmux", name: "open-source models through the cmux model router", pickable: false, models: [] },
+    { id: "codex", name: "Codex through codex app-server, in process", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }] },
+    { id: "opencode", name: "found on PATH", models: [{ id: "opencode/big-pickle", name: "Big Pickle" }] },
   ] as Snapshot["catalog"];
 
-for (const [label, family, models] of [
-  ["sameFamilyEmpty", "claude", []],
-  ["ownFamilyEmpty", "claude-sr2", []],
-  ["ownFamilyModels", "claude-sr2", opus],
-] as const)
-  for (const started of [0, 1])
-    test(`repro ${label} started=${started}`, async () => {
-      await mount(started, started ? { ready: true } : undefined, "claude-sr2", leoCatalog(family, [...models]));
-      await open();
-      console.log("REPRO", label, started, JSON.stringify(railTabs().map((t) => t.getAttribute("aria-label"))), JSON.stringify(itemsOf(menu()!).map((i) => i.textContent)));
-    });
+for (const running of ["claude", "claude-sr2", "claude-sr2-pipe", "cmux"])
+  for (const probe of ["none", "all", "running"])
+    for (const started of [0, 1])
+      test(`repro ${running} probe=${probe} started=${started}`, async () => {
+        const probed: Record<string, boolean> =
+          probe === "all" ? { claude: true, "claude-sr": true, "claude-sr2": true, "claude-sr2-pipe": true } : probe === "running" ? { [running]: true } : {};
+        await mount(started, started ? { ready: true } : undefined, running, leoCatalog(probed));
+        await open();
+        console.log("REPRO", running, probe, started, JSON.stringify(railTabs().map((t) => t.getAttribute("aria-label"))), JSON.stringify(itemsOf(menu()!).map((i) => i.textContent)));
+      });
