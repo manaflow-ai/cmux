@@ -17,7 +17,7 @@ STUB
 cat >"$TMP/bin/rustup" <<STUB
 #!/bin/bash
 echo "rustup \$(basename "\$PWD") \${RUSTUP_TOOLCHAIN:+[\$RUSTUP_TOOLCHAIN] }\$*" >> "$TMP/calls"
-[[ "\$1" != which ]] || echo "$TMP/bin/cargo"
+[[ "\$1" != which ]] || echo "\${RUSTUP_WHICH_CARGO:-$TMP/bin/cargo}"
 [[ "\$1" != run ]] || { shift 2; exec "$TMP/bin/cargo" "\$@"; }
 STUB
 printf '#!/bin/bash\necho "${FAKE_OS:-Linux}"\n' >"$TMP/bin/uname"
@@ -93,6 +93,24 @@ grep -q '^cargo ws .*/.build/rust-workspace-target/crates__ws clippy --workspace
 grep -q '^cargo ws .*/.build/rust-workspace-target/crates__ws test --workspace$' "$TMP/calls" || fail "test: $(calls)"
 grep -q 'feat-parity-check: green' <<<"$out" || fail "no green summary: $out"
 rm -f "$TMP/calls"
+# The cargo on a fleet Mac's PATH is not always the rustup proxy: then `cargo clippy` finds no
+# cargo-clippy (2026-10-29, step dbb2c454 on cmux8s: "error: no such command: `clippy`"). The
+# root's toolchain cargo (`rustup which cargo`, whose bin dir holds cargo-clippy) must run them.
+mkdir -p "$TMP/toolchain"
+cat >"$TMP/toolchain/cargo" <<STUB
+#!/bin/bash
+echo "toolchain-cargo \$(basename "\$PWD") \$*" >> "$TMP/calls"
+STUB
+chmod +x "$TMP/toolchain/cargo"
+for root in crates/ws crates/pinned; do
+  ARGS=(rust-workspace "$root")
+  out=$(run CMUX_CI_STEP_KEY=k RUSTUP_WHICH_CARGO="$TMP/toolchain/cargo") || fail "rust-workspace $root with a non-proxy PATH cargo is red: $out"
+  name="${root#crates/}"
+  grep -q "^toolchain-cargo $name clippy --workspace --all-targets -- -D warnings$" "$TMP/calls" || fail "$root: clippy did not run with the toolchain's cargo: $(calls)"
+  grep -q "^toolchain-cargo $name test --workspace$" "$TMP/calls" || fail "$root: tests did not run with the toolchain's cargo: $(calls)"
+  ! grep -q "^cargo $name .* clippy" "$TMP/calls" || fail "$root: clippy ran with the PATH cargo: $(calls)"
+  rm -f "$TMP/calls"
+done
 for bad in crates/off crates/none ../crates/ws crates/./ws; do
   ARGS=(rust-workspace "$bad")
   run CMUX_CI_STEP_KEY=k >/dev/null && fail "rust-workspace accepted $bad"
