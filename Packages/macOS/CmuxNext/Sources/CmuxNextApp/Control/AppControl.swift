@@ -557,6 +557,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugAddDevice.show(call.params, services: services))
             },
+            // Captures of the Machines section's joined rows: fixture machines, no platform or account.
+            .mainActor("debug.joined_machines") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAddDevice.showJoined(call.params, services: services))
+            },
             // Captures of the daemon update: a board state, an ssh machine fixture and its header's tooltip.
             .mainActor("debug.daemon_update") { [weak services] call in
                 guard let services else { return .value(.null) }

@@ -107,6 +107,23 @@ final class SidebarIconButton: NSButton {
         menuProvider?() ?? super.menu(for: event)
     }
 
+    /// Told `true` while a right-click menu this button opened is open, `false` once it closes
+    /// (the sidebar keeps its hover-revealed + shown meanwhile).
+    var onMenuOpenChange: ((Bool) -> Void)?
+
+    /// The button stays pressed (lit) while its own menu is open, after the pointer leaves it.
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        changeHover { $0.pressed = true }
+        onMenuOpenChange?(true)
+    }
+
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        changeHover { $0.pressed = false }
+        onMenuOpenChange?(false)
+    }
+
     private func renderIcon() {
         let size = pointSize()
         guard size != renderedSize else { return }

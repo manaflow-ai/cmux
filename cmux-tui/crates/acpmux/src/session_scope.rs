@@ -903,7 +903,7 @@ mod tests {
         let log = root.path().join("slice.log");
         crate::test_exec::write_executable(&runner, "#!/bin/sh\nexit 0\n");
         crate::test_exec::write_executable(
-            &root.path().join("systemctl"),
+            root.path().join("systemctl"),
             "#!/bin/sh\necho \"$*\" >> \"$FAKE_SCOPE_LOG\"\n",
         );
         let mut env = BTreeMap::from([

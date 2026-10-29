@@ -622,6 +622,22 @@ impl Translator {
                 } else if let Some(uuid) = rid.strip_prefix("rebatch-") {
                     // A line dropped to be written again with more messages (`steer_batch.rs`).
                     out.extend(self.rebatched(uuid, ok, &inner).await);
+                } else if let Some(acp) = rid.strip_prefix("side-") {
+                    // Claude Code's native `/btw` callback answers once with its result payload.
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    self.pending.lock().await.remove(&id.to_string());
+                    out.push(if ok {
+                        Message::ok(id, inner)
+                    } else {
+                        Message::err(
+                            id,
+                            RpcError::internal(
+                                resp.get("error")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("Claude Code side question failed"),
+                            ),
+                        )
+                    });
                 } else if let Some(rest) = rid.strip_prefix("unsteer-") {
                     // A steer taken back, or read first (`steer_withdraw.rs`).
                     out.extend(self.steer_withdrawn(rest, ok, &inner).await);

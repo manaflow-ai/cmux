@@ -2051,6 +2051,10 @@ path = "tests/test_check_concurrency_generic_deinit.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_concurrency_pipe_reads.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
 
