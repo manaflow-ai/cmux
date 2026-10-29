@@ -134,6 +134,63 @@ echo real-claude "$@"
             failures.append(f"expected inherited cmux shim roots to be skipped, got {output!r}")
 
 
+def test_wrapper_preserves_claude_teams_tmux_shim_for_custom_path(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-teams-path-") as td:
+        root = Path(td)
+        wrapper_bin = root / "wrapper-bin"
+        shim_root = root / "tmp" / "cmux-cli-shims" / "surface"
+        real_bin = root / "real-bin"
+        logs = root / "logs"
+        for directory in (wrapper_bin, shim_root, real_bin, logs):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        wrapper = wrapper_bin / "cmux-claude-wrapper"
+        wrapper.write_bytes(WRAPPER.read_bytes())
+        wrapper.chmod(0o755)
+
+        tmux_shim = shim_root / "tmux"
+        write_executable(tmux_shim, "#!/bin/sh\necho cmux-tmux\n")
+        real_claude = real_bin / "claude"
+        write_executable(
+            real_claude,
+            """#!/bin/sh
+set -eu
+command -v tmux > "$FAKE_TMUX_PATH_LOG"
+printf '%s\\n' "$PATH" > "$FAKE_PATH_LOG"
+""",
+        )
+
+        env = minimal_env(f"{shim_root}:/usr/bin:/bin")
+        env.update(
+            {
+                "CMUX_SURFACE_ID": "surface",
+                "CMUX_CLAUDE_HOOKS_DISABLED": "1",
+                "CMUX_CUSTOM_CLAUDE_PATH": str(real_claude),
+                "CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH": "1",
+                "CMUX_AGENT_LAUNCH_KIND": "claudeTeams",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "cmux",
+                "CMUX_CLAUDE_TEAMS_CMUX_BIN": "cmux",
+                "CMUX_AGENT_LAUNCH_ARGV_B64": "fixture",
+                "CMUX_CLAUDE_TEAMS_TMUX_SHIM": str(tmux_shim),
+                "FAKE_TMUX_PATH_LOG": str(logs / "tmux-path"),
+                "FAKE_PATH_LOG": str(logs / "path"),
+            }
+        )
+
+        result = run_wrapper([str(wrapper), "--version"], env)
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            failures.append(f"teams custom-path wrapper exited {result.returncode}: {output}")
+            return
+
+        tmux_path = (logs / "tmux-path").read_text(encoding="utf-8").strip()
+        if tmux_path != str(tmux_shim):
+            failures.append(
+                "expected claude-teams custom path to retain its tmux shim, "
+                f"got {tmux_path!r} (PATH={(logs / 'path').read_text(encoding='utf-8').strip()!r})"
+            )
+
+
 def test_shell_integration_does_not_shim_grok(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-grok-wrapper-resolution-") as td:
         root = Path(td)
@@ -184,11 +241,18 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
             directory.mkdir(parents=True, exist_ok=True)
 
         surface_id = "surface-path-test"
-        shim_root = tmpdir / "cmux-cli-shims" / surface_id
-        expected_path = f"{shim_root}::{first}::{last}:"
+        home = root / "home"
+        home.mkdir()
+        shim_root = home / ".cmuxterm" / "cmux-cli-shims" / surface_id
+        bundled_bin = SHELL_INTEGRATION_DIR.parent / "bin"
+        expected_paths = {
+            "bash": f"{bundled_bin}:{shim_root}::{first}::{last}:",
+            "zsh": f"{shim_root}:{bundled_bin}::{first}::{last}:",
+        }
 
         input_path = f":{first}::{shim_root}:{last}:"
         base_env = minimal_env("/usr/bin:/bin", tmpdir)
+        base_env["HOME"] = str(home)
         base_env["CMUX_SHELL_INTEGRATION_DIR"] = str(SHELL_INTEGRATION_DIR)
         base_env["CMUX_SURFACE_ID"] = surface_id
         base_env["CMUX_TEST_INPUT_PATH"] = input_path
@@ -209,6 +273,7 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                 "-c",
                 'PATH="$CMUX_TEST_INPUT_PATH"; '
                 'source "$CMUX_SHELL_INTEGRATION_DIR/cmux-zsh-integration.zsh"; '
+                '_cmux_fix_path; '
                 'printf "%s\\n" "$PATH"',
             ],
         ]
@@ -221,6 +286,7 @@ def test_shell_integration_preserves_empty_path_components(failures: list[str]) 
                     f"{shell_name} path preservation exited {result.returncode}: "
                     f"{(result.stdout + result.stderr).strip()}"
                 )
+            expected_path = expected_paths[shell_name]
             if output != expected_path:
                 failures.append(f"{shell_name} expected PATH {expected_path!r}, got {output!r}")
 
@@ -229,6 +295,7 @@ def main() -> int:
     failures: list[str] = []
     test_wrapper_skips_cmux_shims_and_bundled_claude(failures)
     test_wrapper_skips_inherited_cmux_cli_shim_roots(failures)
+    test_wrapper_preserves_claude_teams_tmux_shim_for_custom_path(failures)
     test_shell_integration_does_not_shim_grok(failures)
     test_shell_integration_preserves_empty_path_components(failures)
     if failures:

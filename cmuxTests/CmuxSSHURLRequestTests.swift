@@ -1,3 +1,4 @@
+import CmuxCloud
 import XCTest
 import Foundation
 
@@ -269,8 +270,8 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         }
     }
 
-    func testParsesStableNightlyAndDevSchemes() throws {
-        for scheme in ["cmux", "cmux-nightly", "cmux-dev"] {
+    func testParsesStableNightlyRCAndDevSchemes() throws {
+        for scheme in ["cmux", "cmux-nightly", "cmux-rc", "cmux-dev"] {
             var components = URLComponents()
             components.scheme = scheme
             components.host = "ssh"

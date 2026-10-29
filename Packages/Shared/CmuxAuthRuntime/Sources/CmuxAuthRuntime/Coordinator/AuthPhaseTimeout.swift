@@ -35,6 +35,7 @@ actor AuthPhaseTimeoutRace {
 ///   - duration: The deadline.
 ///   - clock: The clock the deadline sleeps on (virtual in tests).
 ///   - log: Redacted diagnostics sink; timeouts log the phase and duration.
+///   - deadline: An existing absolute deadline when this wait shares a budget with later work.
 ///   - operation: The bounded work.
 /// - Returns: The operation's value when it beats the deadline.
 /// - Throws: ``AuthError/timedOut`` at the deadline; otherwise rethrows the
@@ -46,6 +47,7 @@ func withAuthPhaseTimeout<T: Sendable>(
     log: AuthDebugLog,
     registry: AuthPhaseTimeoutRegistry,
     blocksRetriesWhileTimedOutOperationActive: Bool,
+    deadline: AuthTokenDeadline? = nil,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
     try Task.checkCancellation()
@@ -63,6 +65,10 @@ func withAuthPhaseTimeout<T: Sendable>(
             let operationTask = Task {
                 do {
                     let value = try await operation()
+                    if let deadline {
+                        try Task.checkCancellation()
+                        guard !deadline.hasExpired() else { throw AuthError.timedOut }
+                    }
                     if blocksRetriesWhileTimedOutOperationActive {
                         await registry.end(phase, id: phaseID)
                     }
@@ -79,7 +85,11 @@ func withAuthPhaseTimeout<T: Sendable>(
             }
             let deadlineTask = Task {
                 do {
-                    try await clock.sleep(for: duration, tolerance: nil)
+                    if let deadline {
+                        try await deadline.wait()
+                    } else {
+                        try await clock.sleep(for: duration, tolerance: nil)
+                    }
                     try Task.checkCancellation()
                 } catch {
                     return

@@ -1,0 +1,58 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
+@@ -8,6 +8,9 @@
+     var onSend: () -> Void = {}
+     var onEscape: () -> Void = {}
+     var onPasteImage: (NSImage) -> Void = { _ in }
++    /// cmux: the host's attachment intake reads the pasteboard first
++    /// (files and pictures, Home's type rule); true when it took the paste.
++    var onPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
+     /// Marked (IME) text changed. UITextView reports marked text through
+     /// `textViewDidChange`, so the draft (and the field height) follows the
+     /// composition; NSTextView does not post a text change for it.
+@@ -424,6 +427,7 @@
+ 
+     override func paste(_ sender: Any?) {
+         let pb = pasteboard
++        if onPastePasteboard(pb) { return }  // cmux
+         if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
+         super.paste(sender)
+     }
+@@ -602,6 +606,14 @@
+     /// keeps it at `ComposeMetrics.emptyAfterSend` (30 pt), not the one-line height.
+     private(set) var emptyAfterSend = false
+     private var placeholder = Strings.placeholder
++    /// cmux-classic: the host's placeholder over the field's own (Home: an approval waits above).
++    var cmuxPlaceholder: String? {
++        didSet {
++            guard cmuxPlaceholder != oldValue else { return }
++            let p = cmuxPlaceholder ?? ComposeView.placeholders.field
++            if p != placeholder { placeholder = p; renderPlaceholder(); textView.view.setAccessibilityLabel(p) }
++        }
++    }
+     var captureMode = false {
+         didSet {
+             caret.isHidden = !captureMode
+@@ -940,11 +952,11 @@
+         fmt.opaque = false
+         let ph = placeholder
+         placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
+-            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholderInk, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
++            TextDraw.line(ph, font: ComposeView.font, color: Fixture.placeholder, x: 12, baseline: ComposeView.firstBaseline, in: ctx.cgContext)
+         }.cgImage
+         placeholderLayer.contentsScale = fmt.scale
+         waveLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 30), format: fmt).image { _ in
+-            Fixture.waveformInk.setFill()
++            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above); the see-through ink without a theme
+             // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
+             // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
+             // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
+@@ -993,7 +1005,7 @@
+                 if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
+             }
+         }
+-        let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field
++        let newPlaceholder = cmuxPlaceholder ?? (state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field) // cmux-classic
+         if newPlaceholder != placeholder { placeholder = newPlaceholder; renderPlaceholder(); tv.setAccessibilityLabel(placeholder) }
+         // Messages changes the field's height at once for an attachment (no in-between frame at
+         // 120 Hz, compose-attach-image paste take) and while typing (field-focus-type-take1 and

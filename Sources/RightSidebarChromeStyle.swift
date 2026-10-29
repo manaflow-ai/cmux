@@ -1,3 +1,4 @@
+import AppKit
 import CmuxFoundation
 import CmuxAppKitSupportUI
 import CmuxSettings
@@ -17,7 +18,7 @@ enum HeaderChromeIconStyle {
     static let pressedOpacity = 1.0
     static let disabledOpacity = 0.34
     static let weight: Font.Weight = .regular
-    static let foregroundColor = Color(nsColor: .secondaryLabelColor)
+    static let foregroundColor = Color.secondary
     static let sidebarGlyphStrokeWidth: CGFloat = 1
 
     static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
@@ -28,7 +29,8 @@ enum HeaderChromeIconStyle {
         CmuxSystemSymbolImage(
             systemName: systemName,
             pointSize: RightSidebarChromeMetrics.headerIconSize,
-            weight: weight
+            weight: weight,
+            tint: foregroundColor
         )
     }
 
@@ -84,6 +86,17 @@ enum RightSidebarChromeControlStyle {
     static let labelWeight = HeaderChromeIconStyle.weight
     static let foregroundColor = HeaderChromeIconStyle.foregroundColor
 
+    /// Pill tint for a mode/grouping control, shared by the pill modifier's
+
+    /// text foreground and the hosted symbol's baked-in tint.
+
+    static func pillForegroundColor(isSelected: Bool, isHovered: Bool) -> Color {
+
+        foregroundColor.opacity(foregroundOpacity(isSelected: isSelected, isHovered: isHovered))
+
+    }
+
+
     static func foregroundOpacity(isSelected: Bool, isHovered: Bool, isEnabled: Bool = true) -> Double {
         guard isEnabled else { return HeaderChromeIconStyle.disabledOpacity }
         if isSelected {
@@ -122,12 +135,15 @@ struct RightSidebarChromePillModifier: ViewModifier {
     var isHovered: Bool
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
     var geometryKeyPrefix: String?
+    /// False when one shared selection pill is drawn behind the controls
+    /// instead (the mode bar's sliding pill).
+    var drawsSelectionFill = true
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
     func body(content: Content) -> some View {
         content
             .foregroundStyle(
-                RightSidebarChromeControlStyle.foregroundColor.opacity(foregroundOpacity)
+                RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered)
             )
             .padding(.horizontal, horizontalPadding)
             .frame(height: controlHeight)
@@ -136,11 +152,11 @@ struct RightSidebarChromePillModifier: ViewModifier {
                 isVisible: true
             )
             .background(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                     .fill(backgroundColor)
             )
             .contentShape(
-                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
             )
     }
 
@@ -158,23 +174,26 @@ struct RightSidebarChromePillModifier: ViewModifier {
 
     private var backgroundColor: Color {
         if isSelected {
-            return Color.primary.opacity(0.10)
+            return drawsSelectionFill ? Self.selectionFill : Color.clear
         }
         if isHovered {
             return Color.primary.opacity(0.05)
         }
         return Color.clear
     }
+
+    static let selectionFill = Color.primary.opacity(0.10)
 }
 
 struct RightSidebarChromeBottomBorderModifier: ViewModifier {
+    let backgroundColor: NSColor
+
     func body(content: Content) -> some View {
         content.overlay(alignment: .bottom) {
             WindowChromeBorder(
                 orientation: .horizontal,
                 ignoresSafeArea: false,
-                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
-                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+                backgroundColor: backgroundColor
             )
         }
     }
@@ -212,7 +231,10 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
                 width: RightSidebarChromeMetrics.headerControlSize,
                 height: RightSidebarChromeMetrics.headerControlSize
             )
-            .foregroundStyle(HeaderChromeIconStyle.foregroundColor.opacity(foregroundOpacity))
+            // The hosted symbol bakes `HeaderChromeIconStyle.foregroundColor`
+            // into its bitmap; hover/pressed dimming applies as view opacity.
+            .foregroundStyle(HeaderChromeIconStyle.foregroundColor)
+            .opacity(foregroundOpacity)
             .background {
                 if backgroundOpacity > 0 {
                     RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius, style: .continuous)
@@ -262,20 +284,28 @@ extension View {
         isSelected: Bool,
         isHovered: Bool,
         horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding,
-        geometryKeyPrefix: String? = nil
+        geometryKeyPrefix: String? = nil,
+        drawsSelectionFill: Bool = true
     ) -> some View {
         modifier(
             RightSidebarChromePillModifier(
                 isSelected: isSelected,
                 isHovered: isHovered,
                 horizontalPadding: horizontalPadding,
-                geometryKeyPrefix: geometryKeyPrefix
+                geometryKeyPrefix: geometryKeyPrefix,
+                drawsSelectionFill: drawsSelectionFill
             )
         )
     }
 
-    func rightSidebarChromeBottomBorder() -> some View {
-        modifier(RightSidebarChromeBottomBorderModifier())
+    func rightSidebarChromeBottomBorder(backgroundColor: NSColor) -> some View {
+        modifier(RightSidebarChromeBottomBorderModifier(backgroundColor: backgroundColor))
+    }
+
+    /// Gives system bordered buttons below this view the shared
+    /// right-sidebar button radius instead of the platform default shape.
+    func rightSidebarButtonBorderShape() -> some View {
+        buttonBorderShape(.roundedRectangle(radius: RightSidebarChromeMetrics.buttonCornerRadius))
     }
 
     func rightSidebarHeaderControlAlignment() -> some View {
@@ -285,7 +315,7 @@ extension View {
     }
 }
 
-nonisolated struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
+struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case mode(RightSidebarMode)
     }
@@ -338,33 +368,88 @@ nonisolated struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
 struct ModeBarButton: View {
     let item: RightSidebarModeBarItem
     let isSelected: Bool
+    /// The tab is actively being dragged. Its icon stays anchored while the
+    /// full label slot opens around it.
+    var isDragged = false
     var badgeCount: Int = 0
     let shortcutHint: StoredShortcut
     let showsShortcutHint: Bool
+    /// Shared by the mode bar's tabs so one selection pill slides between
+    /// them; nil draws the selected fill on this tab alone.
+    var selectionNamespace: Namespace.ID?
     let action: () -> Void
 
     @State private var isHovered: Bool = false
+    /// False once the label's slot is narrower than about a letter; the tab
+    /// then shows only its icon. The label keeps its slot, so hiding it
+    /// never changes the tab's width.
+    @State private var labelFits = true
+    @State private var labelWidth: CGFloat = 0
+    /// The label's full width, which its slot may be narrower than.
+    @State private var naturalLabelWidth: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The tab switch: the selection pill slides and the tabs settle into
+    /// their new widths on a spring without overshoot. Snappier than the
+    /// sidebar glide's 0.38: the pill moves a short way, and a slower spring
+    /// spends most of that move in its tail, which reads as lag.
+    static let switchAnimation = Animation.spring(response: 0.28, dampingFraction: 0.9)
+    /// Labels swap straight away, so the clicked tab reads as selected at
+    /// once while the pill is still on its way.
+    static let labelOutAnimation = Animation.easeOut(duration: 0.08)
+    static let labelInAnimation = Animation.easeOut(duration: 0.12)
+
+    /// With its label hidden, the icon (and badge) moves into the middle of
+    /// the label's empty slot, so it sits centered in the tab's highlight.
+    private var hiddenLabelShift: CGFloat {
+        // A dragged tab is promoted to the full-label slot by the parent
+        // layout. Keep the glyph at its resting x position while the text
+        // reveals, instead of animating it from the icon-only center.
+        isDragged || labelFits ? 0 : (labelWidth + Self.contentSpacing) / 2
+    }
+    private static let contentSpacing: CGFloat = 4
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: Self.contentSpacing) {
                 CmuxSystemSymbolImage(
                     systemName: item.symbolName,
                     pointSize: RightSidebarChromeControlStyle.modeIconSize,
                     weight: RightSidebarChromeControlStyle.iconWeight,
+                    tint: RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered),
                     appliesGlobalFontMagnification: true
                 )
                     .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                         keyPrefix: "rightSidebarModeIcon_\(item.id)",
                         isVisible: true
                     )
+                    .offset(x: badgeCount > 0 ? 0 : hiddenLabelShift)
+                // The label keeps its natural width and its slot uncovers it:
+                // a slot that narrows clips with a soft edge rather than
+                // re-truncating ("Files", "Fil…", "F…") on every frame of a
+                // width change.
                 Text(item.label)
                     .cmuxFont(
                         size: RightSidebarChromeControlStyle.labelSize,
                         weight: RightSidebarChromeControlStyle.labelWeight
                     )
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .fixedSize()
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { naturalLabelWidth = $0 }
+                    .frame(minWidth: 0, alignment: .leading)
+                    .clipped()
+                    .mask { ModeBarLabelEdgeFade(naturalWidth: naturalLabelWidth) }
+                    .opacity(isDragged ? 1 : (labelFits ? 1 : 0))
+                    .animation(
+                        reduceMotion ? nil : (labelFits ? Self.labelInAnimation : Self.labelOutAnimation),
+                        value: labelFits
+                    )
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { width in
+                        labelWidth = width
+                        labelFits = width >= GlobalFontMagnification.scaledSize(Self.minimumVisibleLabelWidth)
+                    }
                 if badgeCount > 0 {
                     pendingChip
                 }
@@ -372,8 +457,20 @@ struct ModeBarButton: View {
             .rightSidebarChromePill(
                 isSelected: isSelected,
                 isHovered: isHovered,
-                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)"
+                geometryKeyPrefix: "rightSidebarModeControl_\(item.id)",
+                drawsSelectionFill: selectionNamespace == nil
             )
+            .background {
+                if isSelected, let selectionNamespace {
+                    RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
+                        .fill(RightSidebarChromePillModifier.selectionFill)
+                        .matchedGeometryEffect(id: "modeBarSelection", in: selectionNamespace)
+                        // One pill that moves: the outgoing copy leaves at once
+                        // instead of fading, so two translucent fills never
+                        // overlap into a lighter band mid-switch.
+                        .transition(.identity)
+                }
+            }
             .overlay(alignment: .trailing) {
                 if showsShortcutHint {
                     ShortcutHintPill(shortcut: shortcutHint, fontSize: 9, emphasis: isSelected ? 1.15 : 0.95)
@@ -385,12 +482,22 @@ struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // The icon's glide to or from the middle follows the width on the
+        // same curve. It changes a layout pass after the width, so it carries
+        // its own animation rather than the switch's; the label's fade has
+        // its own, above.
+        .animation(reduceMotion ? nil : Self.switchAnimation, value: labelFits)
         .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(helpText)
+        .accessibilityLabel(item.label)
         .accessibilityIdentifier("RightSidebarModeButton.\(item.id)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
     }
+
+    /// Roughly one letter and an ellipsis at the label's size.
+    static let minimumVisibleLabelWidth: CGFloat = 15
 
     private var helpText: String {
         if badgeCount > 0 {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCanvas
+import CmuxFoundation
 
 /// Transparent overlay that draws snap alignment guides during a drag or
 /// resize gesture. Guides are in document coordinates (same space as pane
@@ -12,6 +13,13 @@ final class CanvasGuidesView: NSView {
     private var joinHighlight: CGRect?
     /// Converts canvas coordinates into this view's document coordinates.
     var canvasToDocumentOffset: CGPoint = .zero
+    /// Accent for guides and the join highlight, set by the canvas root.
+    var accentColor = CmuxAccentColor() {
+        didSet {
+            guard accentColor != oldValue else { return }
+            needsDisplay = true
+        }
+    }
 
     override var isFlipped: Bool { true }
 
@@ -53,16 +61,16 @@ final class CanvasGuidesView: NSView {
     private func drawJoinHighlight() {
         guard let rect = joinHighlight else { return }
         let path = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
-        NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
+        accentColor.dynamicNSColor.withAlphaComponent(0.18).setFill()
         path.fill()
-        NSColor.controlAccentColor.withAlphaComponent(0.9).setStroke()
+        accentColor.dynamicNSColor.withAlphaComponent(0.9).setStroke()
         path.lineWidth = 2
         path.stroke()
     }
 
     private func drawGuides() {
         guard !guides.isEmpty else { return }
-        let color = NSColor.controlAccentColor.withAlphaComponent(0.8)
+        let color = accentColor.dynamicNSColor.withAlphaComponent(0.8)
         color.setStroke()
         let path = NSBezierPath()
         path.lineWidth = 1

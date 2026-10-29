@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import CmuxTerminal
 
 /// The live-app half of the v1 bonsplit pane commands (`list_panes` /
@@ -10,6 +11,19 @@ import CmuxTerminal
 /// `surface_health`): the exact bodies the former `TerminalController` v1
 /// handlers ran.
 extension TerminalController {
+    func controlSidebarCloseStrings() -> ControlSidebarCloseStrings {
+        ControlSidebarCloseStrings(
+            failed: String(
+                localized: "socket.sidebar.closeSurface.failed",
+                defaultValue: "Failed to close surface"
+            ),
+            confirmationRequired: String(
+                localized: "socket.sidebar.closeSurface.confirmationRequired",
+                defaultValue: "Surface has a running process; retry with --force"
+            )
+        )
+    }
+
     // MARK: - Pane listings / focus
 
     func controlSidebarPaneList() -> ControlSidebarPaneListSnapshot? {
@@ -105,29 +119,9 @@ extension TerminalController {
     // MARK: - Drag to split / new pane
 
     func controlSidebarRefreshKnownRefs() {
-        // The byte-faithful twin of the file-private `v2RefreshKnownRefs()`
-        // (which stays in `TerminalController.swift` for the v2 dispatch
-        // pre-pass), minting into the same coordinator-owned registry.
-        guard let app = AppDelegate.shared else { return }
-
-        let windows = app.listMainWindowSummaries()
-        for item in windows {
-            _ = controlCommandCoordinator.ensureRef(kind: .window, uuid: item.windowId)
-            if let tm = app.tabManagerFor(windowId: item.windowId) {
-                for ws in tm.tabs {
-                    _ = controlCommandCoordinator.ensureRef(kind: .workspace, uuid: ws.id)
-                    for paneId in ws.bonsplitController.allPaneIds {
-                        _ = controlCommandCoordinator.ensureRef(kind: .pane, uuid: paneId.id)
-                    }
-                    for panelId in ws.panels.keys {
-                        _ = controlCommandCoordinator.ensureRef(kind: .surface, uuid: panelId)
-                    }
-                }
-                for group in tm.workspaceGroups {
-                    _ = controlCommandCoordinator.ensureRef(kind: .workspaceGroup, uuid: group.id)
-                }
-            }
-        }
+        // Forward to the unified `v2RefreshKnownRefs()` which gates on `needsHandleTopologyRefresh`
+        // and records `markHandleTopologyRefreshCompleted()` (#5757).
+        v2RefreshKnownRefs()
     }
 
     func controlSidebarSplitOffSurface(surfaceID: UUID, directionRawValue: String) -> ControlSidebarSplitOffOutcome {
@@ -161,10 +155,11 @@ extension TerminalController {
         }
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
-        guard let newPaneId = tab.bonsplitController.splitPane(
+        guard let newPaneId = tab.splitPaneMovingTab(
             orientation: orientation,
             movingTab: bonsplitTabId,
-            insertFirst: insertFirst
+            insertFirst: insertFirst,
+            focusIntent: .preserveCurrent
         ) else {
             return .splitFailed
         }
@@ -188,6 +183,12 @@ extension TerminalController {
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
         if isBrowser {
+            // Terminal splits check the minimum pane size in
+            // `newTerminalSplitOutcome` (#15371).
+            if !tab.isRemoteTmuxMirror,
+               tab.splitSpaceVerdict(splittingPanel: focusedPanelId, orientation: orientation) == .noSpace {
+                return .noSpace
+            }
             guard let id = tab.newBrowserSplit(
                 from: focusedPanelId,
                 orientation: orientation,
@@ -210,12 +211,15 @@ extension TerminalController {
             orientation: orientation,
             insertFirst: insertFirst,
             focus: focus,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            inheritStartupWork: false
         ) {
         case .created(let panel):
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
+        case .noSpace:
+            return .noSpace
         case .failed:
             return .failed
         }
@@ -265,18 +269,19 @@ extension TerminalController {
             inPane: targetPaneId,
             focus: focus,
             inheritWorkingDirectoryFallback: true,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            inheritStartupWork: false
         ) {
         case .created(let panel):
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
-        case .failed:
+        case .failed, .noSpace:
             return .failed
         }
     }
 
-    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution {
+    func controlSidebarCloseSurface(surfaceArg: String?, force: Bool = false) -> ControlSidebarCloseSurfaceResolution {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
@@ -294,14 +299,19 @@ extension TerminalController {
         guard let targetSurfaceId = surfaceId else {
             return .surfaceNotFound
         }
+        if let message = browserReplTabRefusalMessage(targetSurfaceId) {
+            return .denied(message)
+        }
 
         // Don't close if it's the only surface
         if tab.panels.count <= 1 {
             return .lastSurface
         }
 
-        // Socket commands must be non-interactive: bypass close-confirmation gating.
-        guard controlSidebarCloseSurfaceRecordingHistory(in: tab, surfaceId: targetSurfaceId, force: true) else {
+        if !force, tab.panelNeedsConfirmClose(panelId: targetSurfaceId) {
+            return .confirmationRequired
+        }
+        guard controlSidebarCloseSurfaceRecordingHistory(in: tab, surfaceId: targetSurfaceId, force: force) else {
             return .closeFailed
         }
         return .closed
@@ -343,12 +353,37 @@ extension TerminalController {
 
     // MARK: - Misc ops
 
-    func controlSidebarReloadConfig() {
+    func controlSidebarReloadConfig(
+        completion:
+            @escaping @MainActor @Sendable () -> Void = {}
+    ) {
+        _ = controlSidebarReloadConfigWithAdmission(
+            completion: completion
+        )
+    }
+
+    @discardableResult
+    func controlSidebarReloadConfigWithAdmission(
+        /// Runs after surface propagation completes.
+        completion:
+            GhosttyApp.ConfigurationReloadCompletion? = nil,
+        /// Runs as soon as the validated app configuration commits. `false`
+        /// means preparation failed and no new configuration was committed.
+        commitCompletion:
+            GhosttyApp.ConfigurationReloadCommitCompletion? = nil
+    ) -> Bool {
         if let appDelegate = AppDelegate.shared {
-            appDelegate.reloadConfiguration(source: "socket.reload_config")
-        } else {
-            GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+            return appDelegate.reloadConfiguration(
+                source: "socket.reload_config",
+                completion: completion,
+                commitCompletion: commitCompletion
+            )
         }
+        return GhosttyApp.shared.reloadConfiguration(
+            source: "socket.reload_config",
+            completion: completion,
+            commitCompletion: commitCompletion
+        )
     }
 
     func controlSidebarRefreshSurfaces() -> Int {
@@ -362,8 +397,9 @@ extension TerminalController {
         // (resets cached metrics so the Metal layer drawable resizes correctly)
         var refreshedCount = 0
         for panel in tab.panels.values {
-            if let terminalPanel = panel as? TerminalPanel {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
+            if panel is TerminalPanel,
+               let target = tab.controlSocketTerminalTarget(for: panel.id) {
+                target.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
                 refreshedCount += 1
             }
         }

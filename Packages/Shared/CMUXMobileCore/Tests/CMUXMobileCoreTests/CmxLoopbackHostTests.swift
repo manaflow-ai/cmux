@@ -26,7 +26,7 @@ import Testing
 
     @Test(arguments: [
         "100.64.0.5", "128.0.0.1", "126.255.255.255", "10.0.0.1",
-        "lawrences-mac.tail1234.ts.net", "localhost.example.com",
+        "my-mac.tail1234.ts.net", "localhost.example.com",
         "fd7a:115c:a1e0::1", "::ffff:100.64.0.5", "127.0.0.0.1", "",
         // 128.1 -> 128.0.0.1 and 1681915909 -> 100.64.0.5: legacy numeric
         // forms that do NOT land in a self-dialing range stay accepted.

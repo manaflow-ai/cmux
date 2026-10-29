@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 /// A parsed remote-tmux layout awaiting authoritative pane rectangles.
 ///
 /// Tmux publishes pre-title geometry in its layout string when pane headers

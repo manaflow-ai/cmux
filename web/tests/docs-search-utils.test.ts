@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isDocsSearchShortcut,
   nextDocsSearchIndex,
   normalizeDocsSearchResult,
   normalizePagefindUrl,
@@ -125,5 +126,21 @@ describe("docs search utilities", () => {
         resultCount: 3,
       }),
     ).toBe(2);
+  });
+});
+
+describe("isDocsSearchShortcut", () => {
+  const base = { key: "k", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, targetIsEditable: false };
+  test("opens on Cmd+K and Ctrl+K, including while typing", () => {
+    expect(isDocsSearchShortcut({ ...base, metaKey: true })).toBe(true);
+    expect(isDocsSearchShortcut({ ...base, ctrlKey: true, targetIsEditable: true })).toBe(true);
+  });
+  test("opens on / only outside editable fields", () => {
+    expect(isDocsSearchShortcut({ ...base, key: "/" })).toBe(true);
+    expect(isDocsSearchShortcut({ ...base, key: "/", targetIsEditable: true })).toBe(false);
+  });
+  test("ignores plain k and modified combos", () => {
+    expect(isDocsSearchShortcut(base)).toBe(false);
+    expect(isDocsSearchShortcut({ ...base, metaKey: true, shiftKey: true })).toBe(false);
   });
 });

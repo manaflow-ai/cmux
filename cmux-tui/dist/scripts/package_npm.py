@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -25,21 +26,45 @@ TARGETS = [
         "cpu": "x64",
     },
     {
-        "rust_target": "x86_64-unknown-linux-gnu",
+        "rust_target": "x86_64-unknown-linux-musl",
         "package": "cmux-tui-linux-x64",
         "os": "linux",
         "cpu": "x64",
     },
     {
-        "rust_target": "aarch64-unknown-linux-gnu",
+        "rust_target": "aarch64-unknown-linux-musl",
         "package": "cmux-tui-linux-arm64",
         "os": "linux",
         "cpu": "arm64",
     },
+    {
+        "rust_target": "x86_64-pc-windows-gnu",
+        "package": "cmux-tui-win32-x64",
+        "os": "win32",
+        "cpu": "x64",
+        "ext": ".exe",
+    },
 ]
 
+RELAY_TARGETS = [
+    {**target, "package": target["package"].replace("cmux-tui", "cmux-relay")}
+    for target in TARGETS
+]
+
+# Rust targets that the SSH bootstrap can install on a remote host, matching
+# cmux-remote's ssh_artifacts target table.
+SSH_TARGETS = (
+    "aarch64-unknown-linux-musl",
+    "x86_64-unknown-linux-musl",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+)
+# Next to bin/cmux-tui, where cmux-remote looks for pinned SSH digests.
+SSH_MANIFEST = "bin/cmux-tui-ssh/manifest.json"
+BUILD_COMMIT_RE = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+
 VERSION_RE = re.compile(
-    r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+)$"
+    r"^(?:[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?|[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+)$"
 )
 
 
@@ -51,12 +76,15 @@ def parse_args() -> argparse.Namespace:
         "--binaries-dir",
         required=True,
         type=Path,
-        help="Directory containing cmux-tui-<rust-target> binaries.",
+        help="Directory containing cmux-tui- and cmux-tui-hook-<rust-target> binaries.",
     )
     parser.add_argument(
         "--version",
         required=True,
-        help="Package version in X.Y.Z or X.Y.Z-nightly.YYYYMMDD.N form.",
+        help=(
+            "Package version in X.Y.Z, X.Y.Z-rc.N, or "
+            "X.Y.Z-nightly.YYYYMMDD.N form."
+        ),
     )
     parser.add_argument(
         "--out",
@@ -64,6 +92,15 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Output directory for generated npm package directories.",
     )
+    parser.add_argument(
+        "--build-commit",
+        required=True,
+        help=(
+            "Commit stamped into the binaries as CMUX_TUI_BUILD_COMMIT. The SSH "
+            "bootstrap accepts the pinned digests only for this build."
+        ),
+    )
+    parser.add_argument("--include-windows", action="store_true")
     return parser.parse_args()
 
 
@@ -86,15 +123,57 @@ def recreate_dir(path: Path) -> None:
     path.mkdir(parents=True)
 
 
-def package_platforms(binaries_dir: Path, version: str, out_dir: Path) -> None:
-    for target in TARGETS:
-        src = binaries_dir / f"cmux-tui-{target['rust_target']}"
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def ssh_manifest(binaries_dir: Path, build_commit: str) -> dict:
+    """Pin the SHA-256 of every remote cmux-tui this release publishes.
+
+    The SSH bootstrap downloads a remote host's binary from npm and refuses it
+    unless it matches the digest pinned here, so the package a user already
+    runs locally decides which remote bytes are trusted.
+    """
+
+    binaries = {}
+    for target in SSH_TARGETS:
+        path = binaries_dir / f"cmux-tui-{target}"
+        if not path.is_file():
+            raise SystemExit(f"missing binary: {path}")
+        binaries[f"cmux-tui-{target}"] = sha256_file(path)
+    return {"commit": build_commit, "binaries": binaries}
+
+
+def package_platforms(
+    binaries_dir: Path,
+    version: str,
+    out_dir: Path,
+    include_windows: bool,
+    build_commit: str,
+) -> None:
+    manifest = ssh_manifest(binaries_dir, build_commit)
+    targets = TARGETS if include_windows else [t for t in TARGETS if t["os"] != "win32"]
+    relay_targets = RELAY_TARGETS if include_windows else [t for t in RELAY_TARGETS if t["os"] != "win32"]
+    for target in targets:
+        ext = target.get("ext", "")
+        src = binaries_dir / f"cmux-tui-{target['rust_target']}{ext}"
+        hook_src = binaries_dir / f"cmux-tui-hook-{target['rust_target']}{ext}"
         if not src.is_file():
             raise SystemExit(f"missing binary: {src}")
+        if not hook_src.is_file():
+            raise SystemExit(f"missing hook binary: {hook_src}")
 
         package_dir = out_dir / target["package"]
         recreate_dir(package_dir)
-        copy_executable(src, package_dir / "bin" / "cmux-tui")
+        copy_executable(src, package_dir / "bin" / f"cmux-tui{ext}")
+        copy_executable(hook_src, package_dir / "bin" / f"cmux-tui-hook{ext}")
+        manifest_path = package_dir / SSH_MANIFEST
+        manifest_path.parent.mkdir(parents=True)
+        write_json(manifest_path, manifest)
 
         write_json(
             package_dir / "package.json",
@@ -113,12 +192,46 @@ def package_platforms(binaries_dir: Path, version: str, out_dir: Path) -> None:
                 "license": "MIT",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": ["bin/cmux-tui"],
+                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", SSH_MANIFEST],
+            },
+        )
+
+    for target in relay_targets:
+        ext = target.get("ext", "")
+        src = binaries_dir / f"chatmux-relay-{target['rust_target']}{ext}"
+        if not src.is_file():
+            raise SystemExit(f"missing relay binary: {src}")
+        tui_src = binaries_dir / f"cmux-tui-{target['rust_target']}{ext}"
+        if not tui_src.is_file():
+            raise SystemExit(f"missing cmux-tui runtime for relay: {tui_src}")
+        package_dir = out_dir / target["package"]
+        recreate_dir(package_dir)
+        copy_executable(src, package_dir / "bin" / f"chatmux-relay{ext}")
+        # The machine relay must never silently fall back to a shell when its
+        # matching cmux-tui runtime is absent. Keep the exact runtime in the
+        # platform package. The launcher resolves this bundled binary from the
+        # same platform package, so a separate TUI package is not needed.
+        copy_executable(tui_src, package_dir / "bin" / f"cmux-tui{ext}")
+        write_json(
+            package_dir / "package.json",
+            {
+                "name": target["package"],
+                "version": version,
+                "description": f"Prebuilt cmux-relay binary for {target['os']}-{target['cpu']}.",
+                "repository": {
+                    "type": "git",
+                    "url": "git+https://github.com/manaflow-ai/cmux.git",
+                    "directory": "cmux-tui/dist",
+                },
+                "license": "MIT",
+                "os": [target["os"]],
+                "cpu": [target["cpu"]],
+                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}"],
             },
         )
 
 
-def package_launcher(version: str, out_dir: Path) -> None:
+def package_launcher(version: str, out_dir: Path, include_windows: bool) -> None:
     source_dir = Path(__file__).resolve().parents[1] / "npm" / "cmux"
     if not source_dir.is_dir():
         raise SystemExit(f"missing launcher template: {source_dir}")
@@ -130,9 +243,9 @@ def package_launcher(version: str, out_dir: Path) -> None:
     package_json_path = launcher_dir / "package.json"
     package_json = json.loads(package_json_path.read_text())
     package_json["version"] = version
-    package_json["optionalDependencies"] = {
-        target["package"]: version for target in TARGETS
-    }
+    targets = TARGETS if include_windows else [t for t in TARGETS if t["os"] != "win32"]
+    relay_targets = RELAY_TARGETS if include_windows else [t for t in RELAY_TARGETS if t["os"] != "win32"]
+    package_json["optionalDependencies"] = {target["package"]: version for target in targets}
     write_json(package_json_path, package_json)
 
     launcher_bin = launcher_dir / "bin" / "cmux.js"
@@ -144,11 +257,35 @@ def package_launcher(version: str, out_dir: Path) -> None:
             | stat.S_IXOTH
         )
 
+    relay_source = Path(__file__).resolve().parents[1] / "npm" / "cmux-relay"
+    relay_dir = out_dir / "cmux-relay"
+    recreate_dir(relay_dir)
+    shutil.copytree(relay_source, relay_dir, dirs_exist_ok=True)
+    relay_json_path = relay_dir / "package.json"
+    relay_json = json.loads(relay_json_path.read_text())
+    relay_json["version"] = version
+    relay_json["optionalDependencies"] = {target["package"]: version for target in relay_targets}
+    write_json(relay_json_path, relay_json)
+    relay_bin = relay_dir / "bin" / "cmux-relay.js"
+    if relay_bin.exists():
+        relay_bin.chmod(
+            relay_bin.stat().st_mode
+            | stat.S_IXUSR
+            | stat.S_IXGRP
+            | stat.S_IXOTH
+        )
+
 
 def main() -> None:
     args = parse_args()
     if not VERSION_RE.fullmatch(args.version):
-        raise SystemExit("--version must match X.Y.Z or X.Y.Z-nightly.YYYYMMDD.N")
+        raise SystemExit(
+            "--version must match X.Y.Z, X.Y.Z-rc.N, or "
+            "X.Y.Z-nightly.YYYYMMDD.N"
+        )
+
+    if not BUILD_COMMIT_RE.fullmatch(args.build_commit):
+        raise SystemExit("--build-commit must be a full lowercase Git commit ID")
 
     binaries_dir = args.binaries_dir.resolve()
     out_dir = args.out.resolve()
@@ -156,8 +293,10 @@ def main() -> None:
         raise SystemExit(f"--binaries-dir is not a directory: {binaries_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    package_platforms(binaries_dir, args.version, out_dir)
-    package_launcher(args.version, out_dir)
+    package_platforms(
+        binaries_dir, args.version, out_dir, args.include_windows, args.build_commit
+    )
+    package_launcher(args.version, out_dir, args.include_windows)
 
 
 if __name__ == "__main__":

@@ -33,9 +33,14 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     }
 
     var workspaces: [(id: UUID, state: WorkspaceState)] = []
-    var watchEnabled = true
-    var pollingEnabled = false
+    var gitMetadataActivity: SidebarGitMetadataActivity = .activePolling
+    var pullRequestActivity: SidebarGitMetadataActivity = .disabled
+    var pollingEnabled: Bool {
+        get { pullRequestActivity.performsActivePolling }
+        set { pullRequestActivity = newValue ? .activePolling : .disabled }
+    }
     var mobileHostActive = false
+    var terminalTypingActive = false
     var selectedWorkspaceId: UUID?
     private(set) var events: [ProjectionEvent] = []
     private var eventContinuations: [AsyncStream<ProjectionEvent>.Continuation] = []
@@ -196,8 +201,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
 
     // MARK: Environment
 
-    var isGitMetadataWatchEnabled: Bool { watchEnabled }
-    var isPullRequestPollingEnabled: Bool { pollingEnabled }
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool { mobileHostActive }
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval { mobileHostActive ? interval : 0 }
+    func terminalTypingIsActive(within interval: TimeInterval) -> Bool { terminalTypingActive }
+    func terminalTypingQuietDelay(for interval: TimeInterval) -> TimeInterval {
+        terminalTypingActive ? interval : 0
+    }
 }

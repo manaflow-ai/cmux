@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 for file in \
   "$ROOT_DIR/.github/workflows/build-ghosttykit.yml" \
-  "$ROOT_DIR/scripts/setup.sh" \
+  "$ROOT_DIR/scripts/ensure-ghosttykit.sh" \
   "$ROOT_DIR/scripts/build-sign-upload.sh"
 do
   if ! grep -Fq -- '-Dxcframework-target=universal' "$file"; then

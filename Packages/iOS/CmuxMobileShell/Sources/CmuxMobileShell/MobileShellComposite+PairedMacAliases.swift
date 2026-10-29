@@ -1,4 +1,5 @@
 public import CmuxMobilePairedMac
+internal import CMUXMobileCore
 internal import CmuxMobileShellModel
 internal import Foundation
 
@@ -12,17 +13,56 @@ extension MobileShellComposite {
         )
     }
 
+    /// Build-channel labels for the computer pickers, keyed by pairing entry
+    /// id, resolved with the same priority as the Computers sheet badge: live
+    /// presence first, then the stored instance tag while offline.
+    public func pairedMacBuildLabelsByEntryID() -> [String: String] {
+        Self.buildLabelsByEntryID(for: displayPairedMacs) { macDeviceID, instanceTag in
+            presenceSummary(for: macDeviceID, instanceTag: instanceTag)?.buildLabel
+        }
+    }
+
+    /// Shared label derivation for store-backed pickers and store-free
+    /// DEBUG fixtures (which pass a lookup that always returns `nil`).
+    public static func buildLabelsByEntryID(
+        for macs: [MobilePairedMac],
+        presenceBuildLabel: (String, String?) -> String?
+    ) -> [String: String] {
+        macs.reduce(into: [String: String]()) { result, mac in
+            result[mac.id] = presenceBuildLabel(mac.macDeviceID, mac.instanceTag)
+                ?? MacBuildChannel().label(bundleID: nil, tag: mac.instanceTag)
+        }
+    }
+
     /// Stored ids represented by a visible paired-Mac row.
-    public func pairedMacAliasIDs(for macDeviceID: String) -> [String] {
-        if let aliases = pairedMacAliasIDsByRepresentativeID[macDeviceID] {
+    public func pairedMacAliasIDs(
+        for macDeviceID: String,
+        instanceTag: String? = nil
+    ) -> [String] {
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        if let aliases = pairedMacAliasIDsByRepresentativeID[pairingID] {
             return aliases
         }
-        if let aliases = pairedMacAliasIDsByRepresentativeID.values.first(where: {
-            $0.contains(macDeviceID)
-        }) {
+        // A row may only absorb an alias group whose representative shares its
+        // exact stored build authority: tagged rows match only their own tag's
+        // group, and an untagged legacy row matches only the untagged group.
+        // Hide/presence/counts riding these ids can therefore never silently
+        // cross builds.
+        if let aliases = pairedMacAliasIDsByRepresentativeID.first(where: {
+            let identity = MobilePairedMac.pairingIdentity(from: $0.key)
+            return macInstanceTagAuthority.sameStoredAuthority(
+                identity.instanceTag,
+                instanceTag
+            ) && $0.value.contains(where: {
+                cmxCanonicalDeviceID($0) == cmxCanonicalDeviceID(macDeviceID)
+            })
+        })?.value {
             return aliases
         }
-        return [macDeviceID]
+        return [cmxCanonicalDeviceID(macDeviceID)]
     }
 
     /// Presence across every stored id represented by a visible paired-Mac row.
@@ -31,11 +71,11 @@ extension MobileShellComposite {
         for macDeviceID: String,
         instanceTag: String? = nil
     ) -> PresenceMap.DeviceSummary? {
-        let summaries = pairedMacAliasIDs(for: macDeviceID).compactMap {
+        let summaries = pairedMacAliasIDs(for: macDeviceID, instanceTag: instanceTag).compactMap {
             if let instanceTag {
                 presenceMap.instanceSummary(deviceId: $0, tag: instanceTag)
             } else {
-                presenceMap.deviceSummary(deviceId: $0)
+                presenceMap.soleInstanceSummary(deviceId: $0)
             }
         }
         guard !summaries.isEmpty else { return nil }
@@ -50,23 +90,52 @@ extension MobileShellComposite {
         )
     }
 
-    /// Workspace count across every stored id represented by a visible paired-Mac row.
-    public func workspaceCount(for macDeviceID: String) -> Int {
-        let aliases = Set(pairedMacAliasIDs(for: macDeviceID))
+    /// Workspace count for one exact pairing row. A legacy untagged workspace
+    /// belongs only to the legacy untagged pairing, because there is no build
+    /// authority that permits attributing it to Stable or Nightly.
+    public func workspaceCount(for macDeviceID: String, instanceTag: String? = nil) -> Int {
+        let aliases = Set(pairedMacAliasIDs(for: macDeviceID, instanceTag: instanceTag))
         return workspaces.filter { workspace in
-            guard let macDeviceID = workspace.macDeviceID else { return false }
-            return aliases.contains(macDeviceID)
+            guard let rowDeviceID = workspace.macDeviceID else { return false }
+            guard aliases.contains(rowDeviceID) else { return false }
+            return macInstanceTagAuthority.sameStoredAuthority(
+                workspace.macInstanceTag,
+                instanceTag
+            )
         }.count
     }
 
     /// User customization for every stored id represented by visible paired-Mac rows.
+    ///
+    /// Workspaces are stamped with their owning instance tag, so customizations
+    /// stay on the exact Stable/Nightly pairing instead of leaking across a
+    /// shared physical device id.
     func pairedMacCustomizationsByAliasID() -> [String: MobilePairedMac] {
-        displayPairedMacs.reduce(into: [String: MobilePairedMac]()) { result, mac in
-            guard mac.customColor != nil || mac.customIcon != nil else { return }
-            for aliasID in pairedMacAliasIDs(for: mac.macDeviceID) {
+        Self.customizationsByAliasID(for: displayPairedMacs) { mac in
+            pairedMacAliasIDs(for: mac.macDeviceID, instanceTag: mac.instanceTag)
+                .map { aliasID in
+                    MobilePairedMac.pairingID(
+                        macDeviceID: aliasID,
+                        instanceTag: mac.instanceTag
+                    )
+                }
+        }
+    }
+
+    /// Deterministic alias→customization resolution: the active pairing first,
+    /// then remaining display order, first write wins per alias id.
+    static func customizationsByAliasID(
+        for macs: [MobilePairedMac],
+        aliasesFor: (MobilePairedMac) -> [String]
+    ) -> [String: MobilePairedMac] {
+        let preferredMacs = macs.filter(\.isActive) + macs.filter { !$0.isActive }
+        var result: [String: MobilePairedMac] = [:]
+        for mac in preferredMacs where mac.customColor != nil || mac.customIcon != nil {
+            for aliasID in aliasesFor(mac) where result[aliasID] == nil {
                 result[aliasID] = mac
             }
         }
+        return result
     }
 
 }

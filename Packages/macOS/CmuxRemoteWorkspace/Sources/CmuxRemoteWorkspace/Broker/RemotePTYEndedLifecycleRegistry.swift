@@ -10,6 +10,10 @@ struct RemotePTYEndedLifecycleRegistry {
 
     var count: Int { entries.count }
 
+    func entry(for lifecycleKey: RemotePTYLifecycleKey) -> Entry? {
+        entries[lifecycleKey]
+    }
+
     mutating func record(
         _ lifecycleKey: RemotePTYLifecycleKey,
         transportKey: String,

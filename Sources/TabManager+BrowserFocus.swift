@@ -3,17 +3,28 @@ import AppKit
 extension TabManager {
     /// Returns the focused panel if it is a main-area or Dock browser.
     var focusedBrowserPanel: BrowserPanel? {
+        if let appDelegate = AppDelegate.shared,
+           let windowId = appDelegate.windowId(for: self),
+           let window = appDelegate.mainWindow(for: windowId) {
+            return appDelegate.focusedBrowserPanelForAction(in: window)
+        }
+        return focusedWorkspaceBrowserPanel
+    }
+
+    /// Workspace-tree browser resolution used by the window-aware AppDelegate
+    /// route without recursively consulting the per-window Dock.
+    var focusedWorkspaceBrowserPanel: BrowserPanel? {
         guard let tab = selectedWorkspace else { return nil }
         let window = NSApp.keyWindow ?? NSApp.mainWindow
         if let window, let responder = window.firstResponder {
             if let addressBarPanelId = AppDelegate.shared?.focusedBrowserAddressBarPanelId(),
                browserOmnibarPanelId(for: responder) == addressBarPanelId,
-               let browser = tab.browserPanelIncludingDock(for: addressBarPanelId) {
+               let browser = tab.browserPanel(for: addressBarPanelId) {
                 return browser
             }
             if let context = BrowserWindowPortalRegistry.paneDropContext(owning: responder, in: window),
                context.workspaceId == tab.id,
-               let browser = tab.browserPanelIncludingDock(for: context.panelId) {
+               let browser = tab.browserPanel(for: context.panelId) {
                 return browser
             }
         }
@@ -61,18 +72,21 @@ extension TabManager {
     @discardableResult
     func zoomInFocusedBrowserOrTextFilePreview() -> Bool {
         if let result = performFocusedTextFilePreviewZoom({ $0.zoomTextPreviewIn() }) { return result }
-        return zoomInFocusedBrowser()
+        if let result = performFocusedBrowserZoom({ $0.zoomIn() }) { return result }
+        return performFocusedTerminalFontSizeAction("increase_font_size:1") ?? false
     }
 
     @discardableResult
     func zoomOutFocusedBrowserOrTextFilePreview() -> Bool {
         if let result = performFocusedTextFilePreviewZoom({ $0.zoomTextPreviewOut() }) { return result }
-        return zoomOutFocusedBrowser()
+        if let result = performFocusedBrowserZoom({ $0.zoomOut() }) { return result }
+        return performFocusedTerminalFontSizeAction("decrease_font_size:1") ?? false
     }
 
     @discardableResult
     func resetZoomFocusedBrowserOrTextFilePreview() -> Bool {
         if let result = performFocusedTextFilePreviewZoom({ $0.resetTextPreviewZoom() }) { return result }
-        return resetZoomFocusedBrowser()
+        if let result = performFocusedBrowserZoom({ $0.resetZoom() }) { return result }
+        return performFocusedTerminalFontSizeAction("reset_font_size") ?? false
     }
 }

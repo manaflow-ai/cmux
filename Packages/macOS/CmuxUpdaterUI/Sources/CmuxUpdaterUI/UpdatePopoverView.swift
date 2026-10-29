@@ -39,6 +39,9 @@ public struct UpdatePopoverView: View {
             case .permissionRequest(let request):
                 PermissionRequestView(request: request, dismiss: dismiss)
 
+            case .preparingCheck(let checking):
+                PreparingUpdateCheckView(checking: checking, dismiss: dismiss)
+
             case .checking(let checking):
                 CheckingView(checking: checking, dismiss: dismiss)
 
@@ -47,6 +50,9 @@ public struct UpdatePopoverView: View {
 
             case .downloading(let download):
                 DownloadingView(download: download, dismiss: dismiss)
+
+            case .startingDownload:
+                StartingUpdateDownloadView()
 
             case .extracting(let extracting):
                 ExtractingView(extracting: extracting)
@@ -58,7 +64,12 @@ public struct UpdatePopoverView: View {
                 NotFoundView(notFound: notFound, dismiss: dismiss)
 
             case .error(let error):
-                UpdateErrorView(error: error, logPath: actions.updateLogPath, dismiss: dismiss)
+                UpdateErrorView(
+                    error: error,
+                    logPath: actions.updateLogPath,
+                    actions: actions,
+                    dismiss: dismiss
+                )
             }
         }
         .frame(width: 300)
@@ -158,7 +169,7 @@ private struct DetectedBackgroundUpdateView: View {
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .updatePrimaryButtonStyle()
                     .controlSize(.small)
                 }
             }
@@ -237,7 +248,7 @@ private struct PermissionRequestView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .updatePrimaryButtonStyle()
             }
         }
         .padding(16)
@@ -312,7 +323,7 @@ private struct UpdateAvailableView: View {
                         dismiss()
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .updatePrimaryButtonStyle()
                     .controlSize(.small)
                 }
             }
@@ -414,7 +425,7 @@ private struct InstallingView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .updatePrimaryButtonStyle()
                 .controlSize(.small)
             }
         }

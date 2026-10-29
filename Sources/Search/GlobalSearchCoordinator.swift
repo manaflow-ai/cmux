@@ -5,6 +5,7 @@ import Foundation
 final class GlobalSearchCoordinator {
     static let shared = GlobalSearchCoordinator()
 
+    private let databaseURL: URL
     private var panelPurgeTasks: [UUID: Task<Void, Never>] = [:]
     private var panelPurgeTaskIDs: [UUID: UUID] = [:]
     private var startupIndexTask: Task<Void, Never>?
@@ -16,15 +17,21 @@ final class GlobalSearchCoordinator {
         },
         cancelPanelPurge: { [weak self] panelID in
             self?.cancelPanelPurge(forPanelID: panelID)
+        },
+        agentSessionSource: { context in
+            TerminalController.shared.agentChatTranscriptService?.globalSearchSource(surfaceID: context.panelID)
         }
     )
     private lazy var popover = MenubarSearchPopover(coordinator: self)
 
-    private init() {}
+    init(databaseURL: URL = .cmuxSearchDatabaseURL) {
+        self.databaseURL = databaseURL
+    }
 
-    func start() {
+    @discardableResult
+    func start() -> Task<Void, Never> {
         startupIndexTask?.cancel()
-        startupIndexTask = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self, let index = await self.ensureIndex() else { return }
             do {
                 try await index.deleteAll()
@@ -40,6 +47,8 @@ final class GlobalSearchCoordinator {
                 self.startupIndexTask = nil
             }
         }
+        startupIndexTask = task
+        return task
     }
 
     func togglePalette(anchor: NSStatusBarButton, onDismiss: (() -> Void)? = nil) {
@@ -99,6 +108,7 @@ final class GlobalSearchCoordinator {
 
             await captureManager.refreshPanelContent(for: context, index: index)
         }
+        await captureManager.pruneAgentSessionReaders()
     }
 
     func captureBrowserPanel(_ panel: BrowserPanel) {
@@ -163,7 +173,8 @@ final class GlobalSearchCoordinator {
     }
 
     private func openIndex() async -> SearchIndex? {
-        let task = Task { try await SearchIndex.open() }
+        let databaseURL = databaseURL
+        let task = Task { try await SearchIndex.open(databaseURL: databaseURL) }
         indexState = .opening(task)
         return await resolveIndexOpeningTask(task)
     }

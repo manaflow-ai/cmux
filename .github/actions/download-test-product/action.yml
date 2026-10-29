@@ -1,0 +1,73 @@
+name: Download compiled test product
+description: Download the exact-run test artifact and report transfer cost.
+inputs:
+  artifact-id:
+    description: Artifact ID emitted by compile admission.
+    required: true
+  path:
+    description: Destination for the downloaded test archive.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Start transfer measurement
+      id: clock
+      shell: bash
+      run: echo "started_ns=$(python3 -c 'import time; print(time.monotonic_ns())')" >> "$GITHUB_OUTPUT"
+
+    - name: Download artifact
+      id: download
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      with:
+        artifact-ids: ${{ inputs.artifact-id }}
+        path: ${{ inputs.path }}
+        merge-multiple: true
+
+    - name: Report transfer measurement
+      if: always()
+      # Observability must not fail a successful transfer. A failed download
+      # still fails the composite action and prevents product restoration.
+      continue-on-error: true
+      shell: bash
+      env:
+        TRANSFER_STARTED_NS: ${{ steps.clock.outputs.started_ns }}
+        TRANSFER_OUTCOME: ${{ steps.download.outcome }}
+        TRANSFER_ARTIFACT_ID: ${{ inputs.artifact-id }}
+        TRANSFER_PATH: ${{ inputs.path }}
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+        from pathlib import Path
+        import time
+
+        elapsed = max(0, round((time.monotonic_ns() - int(os.environ["TRANSFER_STARTED_NS"])) / 1_000_000_000, 3))
+        archive = Path(os.environ["TRANSFER_PATH"]) / "app-host-products.tar.gz"
+        archive_bytes = archive.stat().st_size if archive.is_file() else None
+        complete = os.environ["TRANSFER_OUTCOME"] == "success"
+        record = {
+            "artifact_id": os.environ["TRANSFER_ARTIFACT_ID"],
+            "run_id": os.environ.get("GITHUB_RUN_ID"),
+            "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+            "job": os.environ.get("GITHUB_JOB"),
+            "shard": os.environ.get("CMUX_APP_HOST_SHARD"),
+            "runner_name": os.environ.get("RUNNER_NAME"),
+            "runner_os": os.environ.get("RUNNER_OS"),
+            "outcome": os.environ["TRANSFER_OUTCOME"],
+            "transport": "github",
+            "cache": None,
+            "elapsed_seconds": elapsed,
+            "archive_bytes": archive_bytes,
+            # Includes artifact lookup, download/retries, and outer ZIP extraction.
+            # This is effective archive throughput, not raw network bandwidth.
+            "effective_archive_mib_per_second": (
+                round(archive_bytes / (1024 * 1024) / elapsed, 3)
+                if complete and archive_bytes is not None and elapsed > 0 else None
+            ),
+        }
+        print("CMUX_TEST_PRODUCT_TRANSFER " + json.dumps(record, sort_keys=True))
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+            summary.write("### Compiled test product transfer\n\n```json\n")
+            summary.write(json.dumps(record, indent=2, sort_keys=True))
+            summary.write("\n```\n\nElapsed time includes artifact lookup, transfer/retries, and outer ZIP extraction.\n")
+        PY

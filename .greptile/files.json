@@ -1,6 +1,27 @@
 {
   "files": [
     {
+      "path": "REVIEW.md",
+      "description": "Mistakes cmux review keeps catching, mined from review comments that led to fix commits. Check every PR against it.",
+      "scope": [
+        "**/*"
+      ]
+    },
+    {
+      "path": ".github/review-bot-rules/cloud-persistent-session-and-early-input.md",
+      "description": "Source-of-truth cmux review rule for one persistent Cloud session, immediate empty Ghostty runtime, and ordered early input.",
+      "scope": [
+        "Sources/Cloud/**/*.swift",
+        "Sources/Surfaces/**/*.swift",
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift",
+        "Sources/AppDelegate*.swift",
+        "Sources/Ghostty*.swift",
+        "cmux-tui/crates/**/src/**/*.rs",
+        "Sources/Workspace*.swift",
+        "Sources/TerminalSurfaceRuntimeWiring.swift"
+      ]
+    },
+    {
       "path": ".github/review-bot-rules/swift-actor-isolation.md",
       "description": "Source-of-truth cmux lint rule for Swift actor isolation review.",
       "scope": [
@@ -114,8 +135,8 @@
       ]
     },
     {
-      "path": ".github/review-bot-rules/swift-file-package-boundaries.md",
-      "description": "Source-of-truth cmux lint rule for Swift file size and SwiftPM package boundary review.",
+      "path": ".github/review-bot-rules/swift-package-boundaries.md",
+      "description": "Source-of-truth cmux lint rule for SwiftPM package boundary review.",
       "scope": [
         "**/*.swift",
         "**/Package.swift",

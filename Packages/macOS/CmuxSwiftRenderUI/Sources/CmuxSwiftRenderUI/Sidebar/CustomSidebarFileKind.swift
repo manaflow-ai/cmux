@@ -7,4 +7,7 @@ public enum CustomSidebarFileKind: String, Sendable {
 
     /// Declarative JSON sidebar document.
     case json
+
+    /// Reactive JavaScript sidebar program (retained scene runtime).
+    case js
 }

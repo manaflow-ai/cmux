@@ -1,0 +1,15 @@
+{
+  "oracle": {
+    "frame-button-count": 2,
+    "same-clicked": "Inner clicked <PRIMARY_PORT>",
+    "cross-clicked": "Inner clicked PORT",
+    "cross-typed": "typed across",
+    "cross-fill": "cross value",
+    "same-fill": "same value",
+    "cross-trusted": true
+  },
+  "cmux": {
+    "full": "title: Frames Fixture\nurl: PRIMARY/frames.html?peer=PEER\n- heading \"Frames\" [level=1]\n- iframe \"Same origin\" [ref=e1]:\n  - button \"Inside frame\" [ref=f1e1]\n  - textbox \"Frame field\" [ref=f1e2]\n- iframe \"Cross origin\" [ref=e2]:\n  - button \"Inside frame\" [ref=f2e1]\n  - textbox \"Frame field\" [ref=f2e2]",
+    "after-clicks": "title: Frames Fixture\nurl: PRIMARY/frames.html?peer=PEER\n- heading \"Frames\" [level=1]\n- iframe \"Same origin\" [ref=e1]:\n  - button \"Inner clicked <PRIMARY_PORT>\" [ref=f1e1]\n  - textbox \"Frame field\" [ref=f1e2]\n- iframe \"Cross origin\" [ref=e2]:\n  - button \"Inner clicked <PEER_PORT>\" [ref=f2e1] [focused]\n  - textbox \"Frame field\" [ref=f2e2]"
+  }
+}

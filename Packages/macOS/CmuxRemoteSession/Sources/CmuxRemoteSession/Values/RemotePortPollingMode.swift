@@ -3,7 +3,7 @@ internal import Foundation
 /// Which fallback polling strategy the port scanner uses when TTY-scoped
 /// scans are not (yet) possible, with the legacy cadence pinned per mode.
 /// Lifted one-for-one from the legacy controller's nested enum.
-enum RemotePortPollingMode {
+enum RemotePortPollingMode: Hashable, Sendable {
     case hostWide
     case hostWideDelta
     case ttyScoped

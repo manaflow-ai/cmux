@@ -4,6 +4,7 @@ import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } fr
 import { englishFallbackContentLocales } from "@/i18n/locale-availability";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -47,9 +48,7 @@ export default function CmuxClaudeTeamsPage() {
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-03-30" className="text-sm text-muted">
-        {t("date")}
-      </time>
+      <BlogPostMeta date={t("date")} dateTime="2026-03-30" />
 
       <video
         src="/blog/cmux-claude-teams-demo.mp4"

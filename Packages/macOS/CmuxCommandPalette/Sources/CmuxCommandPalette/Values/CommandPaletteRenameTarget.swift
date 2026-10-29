@@ -9,6 +9,10 @@ public struct CommandPaletteRenameTarget: Equatable {
         case workspace(workspaceId: UUID)
         /// Rename the tab `panelId` inside workspace `workspaceId`.
         case tab(workspaceId: UUID, panelId: UUID)
+        /// Rename the workspace group with this id. Reached when the focused
+        /// workspace is a group's anchor: that row renders the group name, so
+        /// the group is what the user is asking to rename.
+        case workspaceGroup(groupId: UUID)
     }
 
     /// The entity being renamed.
@@ -22,6 +26,47 @@ public struct CommandPaletteRenameTarget: Equatable {
         self.currentName = currentName
     }
 
+    /// Creates the rename target for "Rename Workspace" on the focused
+    /// workspace.
+    ///
+    /// Renaming a group's anchor workspace would edit a title nothing displays
+    /// and would prefill the stale name the anchor was created with (issue
+    /// #9199), so an anchor resolves to its group instead — matching that row's
+    /// "Rename Group..." context menu item. Every other workspace renames
+    /// itself.
+    ///
+    /// - Parameters:
+    ///   - focusedWorkspaceId: The currently selected workspace.
+    ///   - focusedWorkspaceName: Its display name, used when it is not an anchor.
+    ///   - groupAnchors: Every group's anchor descriptor.
+    public init(
+        focusedWorkspaceId: UUID,
+        focusedWorkspaceName: String,
+        groupAnchors: [CommandPaletteWorkspaceGroupAnchor]
+    ) {
+        if let anchor = groupAnchors.first(where: { $0.anchorWorkspaceId == focusedWorkspaceId }) {
+            self.init(kind: .workspaceGroup(groupId: anchor.groupId), currentName: anchor.name)
+        } else {
+            self.init(kind: .workspace(workspaceId: focusedWorkspaceId), currentName: focusedWorkspaceName)
+        }
+    }
+
+    private static let userInfoKey = "cmux.commandPaletteRenameTarget"
+
+    /// The notification payload for a `.rename` palette request.
+    public var userInfo: [AnyHashable: Any] {
+        [Self.userInfoKey: self]
+    }
+
+    /// Reads the target back out of a `.rename` request's payload. Returns nil
+    /// when the payload carries no target, so the receiver can ignore it.
+    public init?(userInfo: [AnyHashable: Any]?) {
+        guard let target = userInfo?[Self.userInfoKey] as? CommandPaletteRenameTarget else {
+            return nil
+        }
+        self = target
+    }
+
     // Strings resolve against the app bundle (`bundle: .main`) so the keys in
     // the app's Localizable.xcstrings (including Japanese) keep working from
     // package code.
@@ -33,6 +78,8 @@ public struct CommandPaletteRenameTarget: Equatable {
             return String(localized: "commandPalette.rename.workspaceTitle", defaultValue: "Rename Workspace", bundle: .main)
         case .tab:
             return String(localized: "commandPalette.rename.tabTitle", defaultValue: "Rename Tab", bundle: .main)
+        case .workspaceGroup:
+            return String(localized: "workspaceGroup.rename.title", defaultValue: "Rename Group", bundle: .main)
         }
     }
 
@@ -43,6 +90,8 @@ public struct CommandPaletteRenameTarget: Equatable {
             return String(localized: "commandPalette.rename.workspaceDescription", defaultValue: "Choose a custom workspace name.", bundle: .main)
         case .tab:
             return String(localized: "commandPalette.rename.tabDescription", defaultValue: "Choose a custom tab name.", bundle: .main)
+        case .workspaceGroup:
+            return String(localized: "workspaceGroup.rename.message", defaultValue: "Enter a new name for this group.", bundle: .main)
         }
     }
 
@@ -53,6 +102,8 @@ public struct CommandPaletteRenameTarget: Equatable {
             return String(localized: "commandPalette.rename.workspacePlaceholder", defaultValue: "Workspace name", bundle: .main)
         case .tab:
             return String(localized: "commandPalette.rename.tabPlaceholder", defaultValue: "Tab name", bundle: .main)
+        case .workspaceGroup:
+            return String(localized: "workspaceGroup.rename.placeholder", defaultValue: "Group name", bundle: .main)
         }
     }
 }

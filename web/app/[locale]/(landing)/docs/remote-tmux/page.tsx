@@ -7,19 +7,16 @@ import { Callout } from "@/app/[locale]/components/callout";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
-function assertSupportedLocale(locale: string) {
-  if (
-    !remoteTmuxDocsLocales.includes(
-      locale as (typeof remoteTmuxDocsLocales)[number],
-    )
-  ) {
-    notFound();
-  }
+type RemoteTmuxLocale = (typeof remoteTmuxDocsLocales)[number];
+
+async function localeOr404(params: Promise<{ locale: string }>): Promise<RemoteTmuxLocale> {
+  const { locale } = await params;
+  if (!(remoteTmuxDocsLocales as readonly string[]).includes(locale)) notFound();
+  return locale as RemoteTmuxLocale;
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params;
-  assertSupportedLocale(locale);
+  const locale = await localeOr404(params);
   return auditedDocsMetadata({
     locale,
     pageKey: "remoteTmux",
@@ -28,22 +25,45 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
-export default async function RemoteTmuxPage({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}) {
-  const { locale } = await params;
-  assertSupportedLocale(locale);
+export default async function RemoteTmuxPage({ params }: { params: Promise<{ locale: string }> }) {
+  const locale = await localeOr404(params);
   const t = await getTranslations({ locale, namespace: "docs.remoteTmux" });
 
   return (
     <>
       <DocsSchema namespace="docs.remoteTmux" path="/docs/remote-tmux" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
+      <Callout>{t("betaNote")}</Callout>
       <p>{t("intro")}</p>
 
-      <Callout>{t("betaNote")}</Callout>
+      <DocsHeading level={2} id="requirements">{t("requirementsTitle")}</DocsHeading>
+      <p>{t("requirementsDesc")}</p>
+
+      <DocsHeading level={2} id="enable">{t("enableTitle")}</DocsHeading>
+      <p>{t("enableDesc")}</p>
+
+      <DocsHeading level={2} id="attach">{t("attachTitle")}</DocsHeading>
+      <p>{t("attachIntro")}</p>
+      <CodeBlock lang="bash">{`# user@host, or any Host alias from ~/.ssh/config
+cmux ssh-tmux build@devbox.internal
+
+# non-default port and key
+cmux ssh-tmux staging --port 2200 --identity ~/.ssh/staging_ed25519
+
+# put the mirror in its own cmux window
+cmux ssh-tmux build@devbox.internal --new-window`}</CodeBlock>
+      <p>{t("attachCli")}</p>
+      <p>{t("attachNewWindow")}</p>
+      <Callout>{t("moshContrast")}</Callout>
+
+      <DocsHeading level={3} id="permission-denied">{t("troubleshootTitle")}</DocsHeading>
+      <p>{t("troubleshootDesc")}</p>
+      <CodeBlock title="~/.ssh/config" lang="text">{`Host staging
+  HostName 198.51.100.24
+  Port 2200
+  User deploy
+  IdentityFile ~/.ssh/staging_ed25519`}</CodeBlock>
+      <p>{t("troubleshootFallback")}</p>
 
       <DocsHeading level={2} id="mapping">{t("mappingTitle")}</DocsHeading>
       <p>{t("mappingIntro")}</p>
@@ -62,39 +82,23 @@ export default async function RemoteTmuxPage({
       </table>
       <p>{t("mappingPanes")}</p>
 
-      <DocsHeading level={2} id="requirements">{t("requirementsTitle")}</DocsHeading>
-      <p>{t("requirementsDesc")}</p>
-
-      <DocsHeading level={2} id="enable">{t("enableTitle")}</DocsHeading>
-      <p>{t("enableDesc")}</p>
-
-      <DocsHeading level={2} id="attach">{t("attachTitle")}</DocsHeading>
-      <p>{t("attachIntro")}</p>
-      <p>{t("attachCli")}</p>
-      <CodeBlock lang="bash">{`cmux ssh-tmux dev@example.com\ncmux ssh-tmux my-ssh-alias --port 2222 --identity ~/.ssh/id_ed25519`}</CodeBlock>
-      <p>{t("attachSockets")}</p>
-
-      <DocsHeading level={3} id="permission-denied">{t("troubleshootTitle")}</DocsHeading>
-      <p>{t("troubleshootDesc")}</p>
-      <CodeBlock lang="text">{`Host my-ssh-alias\n    HostName 203.0.113.10\n    User dev\n    IdentityFile ~/.ssh/id_ed25519`}</CodeBlock>
-      <p>{t("troubleshootFallback")}</p>
+      <DocsHeading level={2} id="behavior">{t("behaviorTitle")}</DocsHeading>
+      <ul>
+        <li>{t("behaviorSplit")}</li>
+        <li>{t("behaviorSize")}</li>
+        <li>{t("behaviorMouse")}</li>
+        <li>{t("behaviorPaste")}</li>
+        <li>{t("behaviorUnicode")}</li>
+        <li>{t("behaviorCwd")}</li>
+        <li>{t("behaviorReorder")}</li>
+      </ul>
 
       <DocsHeading level={2} id="how-it-works">{t("howTitle")}</DocsHeading>
       <p>{t("howDesc")}</p>
 
-      <DocsHeading level={2} id="behavior">{t("behaviorTitle")}</DocsHeading>
-      <ul>
-        <li>{t("behaviorSize")}</li>
-        <li>{t("behaviorSplit")}</li>
-        <li>{t("behaviorReorder")}</li>
-        <li>{t("behaviorCwd")}</li>
-        <li>{t("behaviorPaste")}</li>
-        <li>{t("behaviorMouse")}</li>
-        <li>{t("behaviorUnicode")}</li>
-      </ul>
-
       <DocsHeading level={2} id="socket-commands">{t("socketTitle")}</DocsHeading>
       <p>{t("socketDesc")}</p>
+      <p>{t("attachSockets")}</p>
       <table>
         <thead>
           <tr>
@@ -104,22 +108,42 @@ export default async function RemoteTmuxPage({
           </tr>
         </thead>
         <tbody>
-          <tr><td><code>remote.tmux.sessions</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td><td>{t("methodSessions")}</td></tr>
-          <tr><td><code>remote.tmux.attach</code></td><td><code>host</code>, <code>session</code>, <code>create?</code></td><td>{t("methodAttach")}</td></tr>
-          <tr><td><code>remote.tmux.mirror</code></td><td><code>host</code>, <code>port?</code>, <code>identity_file?</code>, <code>activate?</code></td><td>{t("methodMirror")}</td></tr>
-          <tr><td><code>remote.tmux.detach</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodDetach")}</td></tr>
-          <tr><td><code>remote.tmux.state</code></td><td><code>host</code>, <code>session</code></td><td>{t("methodState")}</td></tr>
+          <tr>
+            <td><code>remote.tmux.mirror</code></td>
+            <td><code>host</code>, <code>port?</code>, <code>identity_file?</code>, <code>activate?</code></td>
+            <td>{t("methodMirror")}</td>
+          </tr>
+          <tr>
+            <td><code>remote.tmux.sessions</code></td>
+            <td><code>host</code>, <code>port?</code>, <code>identity_file?</code></td>
+            <td>{t("methodSessions")}</td>
+          </tr>
+          <tr>
+            <td><code>remote.tmux.attach</code></td>
+            <td><code>host</code>, <code>session</code>, <code>create?</code></td>
+            <td>{t("methodAttach")}</td>
+          </tr>
+          <tr>
+            <td><code>remote.tmux.state</code></td>
+            <td><code>host</code>, <code>session</code></td>
+            <td>{t("methodState")}</td>
+          </tr>
+          <tr>
+            <td><code>remote.tmux.detach</code></td>
+            <td><code>host</code>, <code>session</code></td>
+            <td>{t("methodDetach")}</td>
+          </tr>
         </tbody>
       </table>
+      <CodeBlock lang="json">{`{"method": "remote.tmux.sessions", "params": {"host": "staging"}}`}</CodeBlock>
       <p>{t("socketSafetyDesc")}</p>
-      <CodeBlock lang="json">{`{ "method": "remote.tmux.mirror", "params": { "host": "dev.example.com" } }`}</CodeBlock>
 
       <DocsHeading level={2} id="limitations">{t("limitationsTitle")}</DocsHeading>
       <ul>
         <li>{t("limitReconnect")}</li>
+        <li>{t("limitReflow")}</li>
         <li>{t("limitPaste")}</li>
         <li>{t("limitCwd")}</li>
-        <li>{t("limitReflow")}</li>
       </ul>
     </>
   );

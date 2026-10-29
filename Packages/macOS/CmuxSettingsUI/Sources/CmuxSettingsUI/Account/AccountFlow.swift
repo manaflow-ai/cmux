@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 /// Host-supplied dependency the package's ``AccountSection`` uses to
@@ -12,7 +13,7 @@ import Foundation
 /// `currentIdentity` / `availableTeams` / `selectedTeamID` from view
 /// bodies. Use `@Observable` so SwiftUI tracks changes.
 @MainActor
-public protocol AccountFlow: AnyObject {
+public protocol AccountFlow: AccountTeamManagement {
     /// The currently signed-in user, or `nil` if signed out.
     var currentIdentity: AccountIdentity? { get }
 
@@ -21,7 +22,11 @@ public protocol AccountFlow: AnyObject {
     var availableTeams: [AccountTeamSummary] { get }
 
     /// Identifier of the currently selected team, or `nil` if none.
-    var selectedTeamID: String? { get set }
+    var selectedTeamID: String? { get }
+
+    /// Selects a team through the host's shared auth mutation path.
+    /// - Parameter id: A member team id, or `nil` to clear the explicit choice.
+    func selectTeam(id: String?) async throws
 
     /// Whether the host is currently in the middle of a sign-in or
     /// sign-out network round trip. The UI disables interaction while
@@ -34,6 +39,13 @@ public protocol AccountFlow: AnyObject {
     /// surfaces an "open in your default browser" affordance instead of an
     /// indefinite spinner when this is `true`.
     var signInIsSlow: Bool { get }
+
+    /// Localized title for the most recent failed sign-in, when the host has
+    /// one to show in the account card.
+    var signInFailureTitle: String? { get }
+
+    /// Localized recovery guidance for the most recent failed sign-in.
+    var signInFailureRecovery: String? { get }
 
     /// Launches the host's sign-in flow. The package shows the user a
     /// progress indicator while ``isWorkingOnAuth`` is `true` and
@@ -70,19 +82,43 @@ public protocol AccountFlow: AnyObject {
     /// Opens the hosted Stripe customer portal in the user's default browser.
     func openBillingPortal()
 
-    /// Whether the Pro upgrade row should render. The host backs this with
-    /// a remotely toggleable feature flag; `true` when flags are
-    /// unavailable only in explicit dogfood builds whose flag default is on.
+    /// Whether the Settings plan row should render. The row chooses its
+    /// copy and actions from ``planTier``.
     var isProUpgradeAvailable: Bool { get }
 
-    /// Whether the current account has an active Pro entitlement.
+    /// Whether the current account has an active paid Cloud entitlement.
     var isProActive: Bool { get }
+
+    /// The signed-in account's plan tier, or `nil` while it is unknown.
+    /// Defaults to Pro or Free from ``isProActive`` for hosts that only
+    /// know the legacy flag.
+    var planTier: CmuxPlanTier? { get }
 
     /// Whether the current Pro entitlement can be managed through the hosted
     /// Stripe billing portal.
     var canManageBilling: Bool { get }
+
+    /// Who bills the signed-in account's personal plan, or `nil` while it is
+    /// unknown. Defaults to `nil` for hosts that do not report it.
+    var planBillingSource: AccountPlanBillingSource? { get }
+}
+
+/// Who bills a personal plan, for the Settings plan row's billing line.
+public enum AccountPlanBillingSource: Sendable, Equatable {
+    /// Billed by cmux through the hosted billing portal.
+    case stripe
+    /// Billed through the App Store.
+    case appStore
+    /// Granted by cmux, so nothing bills it.
+    case granted
 }
 
 extension AccountFlow {
     public func prefetchProUpgrade() {}
+    public var signInFailureTitle: String? { nil }
+    public var signInFailureRecovery: String? { nil }
+
+    public var planTier: CmuxPlanTier? { isProActive ? .pro : nil }
+
+    public var planBillingSource: AccountPlanBillingSource? { nil }
 }

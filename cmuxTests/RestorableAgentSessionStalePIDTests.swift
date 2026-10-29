@@ -1,3 +1,5 @@
+import CmuxFoundation
+import Darwin
 import Foundation
 import Testing
 
@@ -51,7 +53,8 @@ struct RestorableAgentSessionStalePIDTests {
             fileManager: fm,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
-            processArgumentsProvider: { _ in nil }
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .absent }
         )
         let snapshot = try #require(
             index.snapshot(workspaceId: ws, panelId: panel),
@@ -98,6 +101,13 @@ struct RestorableAgentSessionStalePIDTests {
             updatedAt: 10
         )
         liveRecord["pid"] = livePID
+        let liveIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(livePID),
+            startSeconds: 9,
+            startMicroseconds: 0
+        )
+        liveRecord["pidStartSeconds"] = liveIdentity.startSeconds
+        liveRecord["pidStartMicroseconds"] = liveIdentity.startMicroseconds
         var staleRecord = driftedAgentHookRecord(
             launcher: "codex",
             sessionId: staleSID,
@@ -131,6 +141,12 @@ struct RestorableAgentSessionStalePIDTests {
                         "CMUX_SURFACE_ID": panel.uuidString,
                     ]
                 )
+            },
+            processPresenceProvider: { pid in
+                pid == livePID ? .present : .absent
+            },
+            processIdentityProvider: { pid in
+                pid == livePID ? liveIdentity : nil
             }
         )
         let snapshot = try #require(
@@ -175,6 +191,22 @@ struct RestorableAgentSessionStalePIDTests {
         storeFilename: String,
         sessions: [String: [String: Any]]
     ) throws {
+        let rolloutDirectory = root.appendingPathComponent(".codex/sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: rolloutDirectory, withIntermediateDirectories: true)
+        for (sessionId, record) in sessions {
+            let metadata: [String: Any] = [
+                "type": "session_meta",
+                "payload": [
+                    "id": sessionId,
+                    "cwd": record["cwd"] as? String ?? root.path,
+                    "source": "cli",
+                    "originator": "codex_cli_rs",
+                ],
+            ]
+            var rollout = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+            rollout.append(0x0a)
+            try rollout.write(to: rolloutDirectory.appendingPathComponent("rollout-\(sessionId).jsonl"))
+        }
         let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(

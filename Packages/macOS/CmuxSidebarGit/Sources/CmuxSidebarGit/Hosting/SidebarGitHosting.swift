@@ -89,15 +89,22 @@ public protocol SidebarGitHosting: AnyObject {
 
     // MARK: Environment
 
-    /// Whether the sidebar git status watch setting is enabled.
-    var isGitMetadataWatchEnabled: Bool { get }
-    /// Whether sidebar pull-request polling is enabled.
-    var isPullRequestPollingEnabled: Bool { get }
+    /// The active/passive/disabled work level for sidebar git metadata.
+    var gitMetadataActivity: SidebarGitMetadataActivity { get }
+    /// The active/passive/disabled work level for sidebar pull-request metadata.
+    var pullRequestActivity: SidebarGitMetadataActivity { get }
     /// Whether the paired mobile host served a request within `interval`
     /// seconds (background git/PR work defers while true).
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool
     /// How long until the mobile host has been quiet for `interval` seconds.
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval
+
+    /// Whether terminal input was received within `interval` seconds. Local
+    /// metadata probes defer during this short window so their apply hop does
+    /// not compete with the terminal's input/render turn.
+    func terminalTypingIsActive(within interval: TimeInterval) -> Bool
+    /// The remaining quiet delay before local metadata work may resume.
+    func terminalTypingQuietDelay(for interval: TimeInterval) -> TimeInterval
 }
 
 extension SidebarGitHosting {

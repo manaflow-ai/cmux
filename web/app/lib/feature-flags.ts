@@ -6,8 +6,10 @@
 //   - naming: kebab-case, positive phrasing, a type suffix
 //     (-release | -experiment | -permission), no negations
 //   - owner: a GitHub handle accountable for removing the flag
-//   - reviewBy: a date; once past, CI fails until the flag is removed or
-//     the date is consciously extended (zombie-flag guard)
+//   - reviewBy: a date; once past, CI warns, a change that edits that flag's
+//     declaration fails until the flag is removed or the date is consciously
+//     extended, and the daily review-drift issue pings the owner
+//     (zombie-flag guard)
 //   - defaultWhenUnavailable: the fallback when PostHog is unreachable or
 //     slow — it must be the safe, always-working path
 //   - single evaluation site: each key literal appears in exactly one
@@ -24,20 +26,20 @@ export type FeatureFlagDefinition = {
 };
 
 export const FEATURE_FLAGS = {
-  proUpgradeUI: {
-    key: "pro-upgrade-ui-enabled-release",
+  iosArtifactChip: {
+    key: "ios-artifact-chip-enabled-release",
     owner: "lawrencecchen",
     description:
-      "Shows public Pro/pricing navigation and in-app upgrade entrypoints. Off in release until checkout dogfood is approved.",
-    reviewBy: "2026-10-01",
-    defaultWhenUnavailable: false,
+      "Shows the integrated Terminal Files chip and its count scan in the iOS terminal toolbar.",
+    reviewBy: "2027-02-01",
+    defaultWhenUnavailable: true,
   },
-  proCheckout: {
-    key: "pro-checkout-enabled-release",
+  goPlan: {
+    key: "go-plan-enabled-release",
     owner: "lawrencecchen",
     description:
-      "Points the pricing page Pro CTA at /api/billing/checkout instead of the download link. Off until prod Stripe is live.",
-    reviewBy: "2026-10-01",
+      "Shows and sells the $10/month Go personal Cloud VM plan. Off until Go capacity and support are ready for public rollout.",
+    reviewBy: "2026-12-01",
     defaultWhenUnavailable: false,
   },
 } as const satisfies Record<string, FeatureFlagDefinition>;

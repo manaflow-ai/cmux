@@ -1,99 +1,215 @@
-import type { Transport, Unsubscribe } from "./transport.js";
+import {
+  CmuxAuthenticationRejectedError,
+  CmuxConnectionError,
+} from "./errors.js";
+import { WebSocketLifecycle } from "./internal/websocket-lifecycle.js";
+import type {
+  DispatchGuard,
+  OnDispatched,
+  Transport,
+  Unsubscribe,
+} from "./transport.js";
+import {
+  MAX_INBOUND_MESSAGE_BYTES,
+  MAX_OUTBOUND_MESSAGE_BYTES,
+  MAX_PENDING_BYTES,
+  MAX_PENDING_MESSAGES,
+  MAX_PREAUTH_MESSAGE_BYTES,
+  positiveLimit,
+  utf8ByteLength,
+} from "./transport-limits.js";
 
 interface WebSocketEventMap {
   open: unknown;
   message: { data: unknown };
-  close: unknown;
+  close: { code?: number; reason?: string };
   error: unknown;
 }
 
-/** The WebSocket subset used by `WebSocketTransport`. */
+/** Browser WebSocket subset, injectable for tests and compatible runtimes. */
 export interface WebSocketLike {
   readonly readyState: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
-  addEventListener?<K extends keyof WebSocketEventMap>(
-    type: K,
-    listener: (event: WebSocketEventMap[K]) => void,
+  addEventListener?<Kind extends keyof WebSocketEventMap>(
+    type: Kind,
+    listener: (event: WebSocketEventMap[Kind]) => void,
   ): void;
-  removeEventListener?<K extends keyof WebSocketEventMap>(
-    type: K,
-    listener: (event: WebSocketEventMap[K]) => void,
+  removeEventListener?<Kind extends keyof WebSocketEventMap>(
+    type: Kind,
+    listener: (event: WebSocketEventMap[Kind]) => void,
   ): void;
   on?(type: string, listener: (...args: unknown[]) => void): void;
-  off?(type: string, listener: (...args: unknown[]) => void): void;
 }
 
-/** A browser- or Node-compatible WebSocket constructor. */
 export interface WebSocketConstructor {
   new (url: string | URL, protocols?: string | string[]): WebSocketLike;
 }
 
 export interface WebSocketTransportOptions {
-  protocols?: string | string[];
-  /** Sends the cmux-tui WebSocket authentication preamble before queued protocol requests. */
-  authToken?: string;
-  /** Inject a compatible constructor such as the Node `ws` package. */
-  WebSocket?: WebSocketConstructor;
+  readonly protocols?: string | string[];
+  readonly authToken?: string;
+  /** Called while the server waits for a trusted TUI to approve this connection. */
+  readonly onPairingChallenge?: (challenge: PairingChallenge) => void;
+  /** Receives the credential issued after approval for reconnects. */
+  readonly onPairingCredential?: (credential: string) => void;
+  /** Called when a supplied token or reconnect credential is rejected. */
+  readonly onAuthenticationRejected?: () => void;
+  readonly WebSocket?: WebSocketConstructor;
+  readonly maxInboundMessageBytes?: number;
+  readonly maxOutboundMessageBytes?: number;
+  readonly maxPendingBytes?: number;
+  readonly maxPendingMessages?: number;
+  readonly maxPreauthenticationMessageBytes?: number;
 }
 
-/** Sends and receives one JSON message per WebSocket text frame. */
-export class WebSocketTransport implements Transport {
-  private readonly socket: WebSocketLike;
-  private readonly pending: string[] = [];
-  private readonly messageHandlers = new Set<(json: string) => void>();
-  private readonly closeHandlers = new Set<() => void>();
-  private readonly errorHandlers = new Set<(error: Error) => void>();
-  private readonly authToken: string | undefined;
-  private closed = false;
+export interface PairingChallenge {
+  readonly code: string;
+  readonly peer: string;
+  readonly expiresIn: number;
+}
 
-  constructor(url: string | URL, options: WebSocketTransportOptions | WebSocketConstructor = {}) {
-    const normalized = typeof options === "function" ? { WebSocket: options } : options;
-    const Constructor = normalized.WebSocket ?? this.globalConstructor();
-    this.authToken = normalized.authToken;
-    this.socket = new Constructor(url, normalized.protocols);
-    this.listen("open", () => this.flush());
-    this.listen("message", (event) => this.receive(event));
-    this.listen("error", (event) => this.fail(this.eventError(event)));
-    this.listen("close", () => this.finish());
+interface PendingMessage {
+  readonly json: string;
+  readonly bytes: number;
+  readonly onDispatched: OnDispatched;
+  readonly dispatchGuard: DispatchGuard | undefined;
+}
+
+/** Browser-safe text-frame transport with bounded pre-open buffering. */
+export class WebSocketTransport implements Transport {
+  readonly supportsDispatchGuard: true = true;
+  private readonly socket: WebSocketLike;
+  private readonly lifecycle: WebSocketLifecycle;
+  private readonly pending: PendingMessage[] = [];
+  private readonly messages = new Set<(json: string) => void>();
+  private readonly maxOutboundMessageBytes: number;
+  private readonly maxPendingBytes: number;
+  private readonly maxPendingMessages: number;
+  private pendingBytes = 0;
+  private flushing = false;
+
+  constructor(url: string | URL, options: WebSocketTransportOptions = {}) {
+    const Constructor = options.WebSocket ?? globalWebSocket();
+    const maxInboundMessageBytes = positiveLimit(
+      "maxInboundMessageBytes",
+      options.maxInboundMessageBytes,
+      MAX_INBOUND_MESSAGE_BYTES,
+    );
+    this.maxOutboundMessageBytes = positiveLimit(
+      "maxOutboundMessageBytes",
+      options.maxOutboundMessageBytes,
+      MAX_OUTBOUND_MESSAGE_BYTES,
+    );
+    this.maxPendingBytes = positiveLimit(
+      "maxPendingBytes",
+      options.maxPendingBytes,
+      MAX_PENDING_BYTES,
+    );
+    this.maxPendingMessages = positiveLimit(
+      "maxPendingMessages",
+      options.maxPendingMessages,
+      MAX_PENDING_MESSAGES,
+    );
+    const maxPreauthenticationMessageBytes = positiveLimit(
+      "maxPreauthenticationMessageBytes",
+      options.maxPreauthenticationMessageBytes,
+      MAX_PREAUTH_MESSAGE_BYTES,
+    );
+    this.socket = new Constructor(url, options.protocols);
+    this.lifecycle = new WebSocketLifecycle({
+      socket: this.socket,
+      authToken: options.authToken,
+      maxInboundMessageBytes,
+      maxPreauthenticationMessageBytes,
+      createError: (message) => new CmuxConnectionError(message),
+      createAuthenticationRejectedError: () =>
+        new CmuxAuthenticationRejectedError("WebSocket authentication rejected"),
+      flushPending: () => this.flush(),
+      clearPending: () => this.clearPending(),
+      deliverMessage: (json) => this.deliverMessage(json),
+      onPairingChallenge: options.onPairingChallenge
+        ? ({ code, peer, expiresIn }) =>
+          options.onPairingChallenge?.({ code, peer, expiresIn })
+        : undefined,
+      onPairingCredential: options.onPairingCredential,
+      onAuthenticationRejected: options.onAuthenticationRejected,
+    });
+    this.listen("open", () => this.lifecycle.open());
+    this.listen("message", (event) => this.lifecycle.receive(event));
+    this.listen("error", (event) => this.lifecycle.receiveError(event));
+    this.listen("close", (event, reason) => {
+      this.lifecycle.finish(event, reason);
+    });
   }
 
   send(json: string): void {
-    if (this.closed) throw new Error("WebSocket transport is closed");
-    if (this.socket.readyState === 1) this.socket.send(json);
-    else this.pending.push(json);
+    this.enqueue(json, () => undefined);
+  }
+
+  sendCancellable(
+    json: string,
+    onDispatched: OnDispatched,
+    dispatchGuard?: DispatchGuard,
+  ): Unsubscribe {
+    return this.enqueue(json, onDispatched, dispatchGuard);
+  }
+
+  private enqueue(
+    json: string,
+    onDispatched: OnDispatched,
+    dispatchGuard?: DispatchGuard,
+  ): Unsubscribe {
+    this.lifecycle.assertOpen();
+    const bytes = utf8ByteLength(json);
+    if (bytes > this.maxOutboundMessageBytes) {
+      throw new CmuxConnectionError(
+        `outbound message exceeds ${this.maxOutboundMessageBytes} bytes`,
+      );
+    }
+    const mustBuffer =
+      !this.lifecycle.canDispatch
+      || this.flushing
+      || this.pending.length > 0;
+    if (
+      mustBuffer
+      && (this.pending.length >= this.maxPendingMessages
+        || bytes > this.maxPendingBytes - this.pendingBytes)
+    ) {
+      throw new CmuxConnectionError("pending WebSocket message buffer is full");
+    }
+    const message = { json, bytes, onDispatched, dispatchGuard };
+    this.pending.push(message);
+    this.pendingBytes += bytes;
+    if (this.lifecycle.canDispatch) this.flush();
+    return () => {
+      const index = this.pending.indexOf(message);
+      if (index < 0) return;
+      this.pending.splice(index, 1);
+      this.pendingBytes -= bytes;
+    };
   }
 
   onMessage(handler: (json: string) => void): Unsubscribe {
-    this.messageHandlers.add(handler);
-    return () => this.messageHandlers.delete(handler);
+    this.messages.add(handler);
+    return () => this.messages.delete(handler);
   }
 
   onClose(handler: () => void): Unsubscribe {
-    this.closeHandlers.add(handler);
-    if (this.closed) queueMicrotask(handler);
-    return () => this.closeHandlers.delete(handler);
+    return this.lifecycle.onClose(handler);
   }
 
   onError(handler: (error: Error) => void): Unsubscribe {
-    this.errorHandlers.add(handler);
-    return () => this.errorHandlers.delete(handler);
+    return this.lifecycle.onError(handler);
   }
 
   close(): void {
-    if (this.closed) return;
-    this.socket.close();
+    this.lifecycle.close();
   }
 
-  private globalConstructor(): WebSocketConstructor {
-    const Constructor = (globalThis as typeof globalThis & { WebSocket?: WebSocketConstructor }).WebSocket;
-    if (!Constructor) throw new Error("WebSocket is not available; inject a compatible constructor");
-    return Constructor;
-  }
-
-  private listen<K extends keyof WebSocketEventMap>(
-    type: K,
-    handler: (event: WebSocketEventMap[K]) => void,
+  private listen<Kind extends keyof WebSocketEventMap>(
+    type: Kind,
+    handler: (event: WebSocketEventMap[Kind], ...args: unknown[]) => void,
   ): void {
     if (this.socket.addEventListener) {
       this.socket.addEventListener(type, handler);
@@ -103,42 +219,47 @@ export class WebSocketTransport implements Transport {
       this.socket.on(type, handler as (...args: unknown[]) => void);
       return;
     }
-    throw new Error("injected WebSocket does not support event listeners");
+    throw new CmuxConnectionError("WebSocket does not support event listeners");
   }
 
   private flush(): void {
-    if (this.closed) return;
-    if (this.authToken !== undefined) {
-      this.socket.send(JSON.stringify({ auth: { token: this.authToken } }));
+    if (this.flushing || !this.lifecycle.canDispatch) return;
+    this.flushing = true;
+    try {
+      while (this.lifecycle.canDispatch && this.pending.length > 0) {
+        const message = this.pending.shift()!;
+        this.pendingBytes -= message.bytes;
+        const result = this.lifecycle.dispatch(
+          message.json,
+          message.onDispatched,
+          message.dispatchGuard,
+        );
+        if (result === "vetoed") continue;
+        if (result === "failed") return;
+      }
+    } finally {
+      this.flushing = false;
     }
-    while (this.pending.length > 0) this.socket.send(this.pending.shift()!);
   }
 
-  private receive(event: WebSocketEventMap["message"] | unknown): void {
-    const data = event && typeof event === "object" && "data" in event ? (event as { data: unknown }).data : event;
-    if (typeof data !== "string") {
-      this.fail(new Error("WebSocket server sent a non-text frame"));
-      return;
-    }
-    for (const handler of this.messageHandlers) handler(data);
-  }
-
-  private eventError(event: unknown): Error {
-    if (event instanceof Error) return event;
-    if (event && typeof event === "object" && "error" in event && (event as { error?: unknown }).error instanceof Error) {
-      return (event as { error: Error }).error;
-    }
-    return new Error("WebSocket transport error");
-  }
-
-  private fail(error: Error): void {
-    for (const handler of this.errorHandlers) handler(error);
-  }
-
-  private finish(): void {
-    if (this.closed) return;
-    this.closed = true;
+  private clearPending(): void {
     this.pending.length = 0;
-    for (const handler of this.closeHandlers) handler();
+    this.pendingBytes = 0;
   }
+
+  private deliverMessage(json: string): void {
+    for (const handler of this.messages) handler(json);
+  }
+}
+
+function globalWebSocket(): WebSocketConstructor {
+  const Constructor = (
+    globalThis as typeof globalThis & { WebSocket?: WebSocketConstructor }
+  ).WebSocket;
+  if (!Constructor) {
+    throw new CmuxConnectionError(
+      "WebSocket is unavailable; inject a compatible constructor",
+    );
+  }
+  return Constructor;
 }

@@ -1,10 +1,29 @@
 "use client";
 
-import { useCallback, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
-import { pricingActionClassName, type PricingActionSize } from "./pricing-shared";
+import { posthog } from "../lib/posthog-client";
+import {
+  pricingActionClassName,
+  type PricingActionSize,
+} from "./pricing-shared";
 
 const CHECKOUT_PATH = "/api/billing/checkout";
+
+/** Whether a link points at the checkout route, including an absolute app URL. */
+export function isCheckoutHref(href: string): boolean {
+  try {
+    return new URL(href, "https://cmux.invalid").pathname === CHECKOUT_PATH;
+  } catch {
+    return false;
+  }
+}
 
 // Intercepts a checkout link click: instead of navigating to the checkout route
 // (which flashes a blank page while it builds the Stripe session server-side),
@@ -30,7 +49,7 @@ export function useCheckoutRedirect() {
       ) {
         return;
       }
-      if (!href.startsWith(CHECKOUT_PATH)) return;
+      if (!isCheckoutHref(href)) return;
       event?.preventDefault();
       if (pending) return;
       setPending(true);
@@ -42,7 +61,9 @@ export function useCheckoutRedirect() {
         .then((response) => response.json())
         .then((data: unknown) => {
           const url =
-            data && typeof data === "object" && typeof (data as { url?: unknown }).url === "string"
+            data &&
+            typeof data === "object" &&
+            typeof (data as { url?: unknown }).url === "string"
               ? (data as { url: string }).url
               : href;
           window.location.assign(url);
@@ -70,9 +91,40 @@ export function CheckoutSpinner() {
       aria-hidden="true"
       style={{ display: "inline-block", verticalAlign: "-2px" }}
     >
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.3" strokeWidth="3" />
-      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeOpacity="0.3"
+        strokeWidth="3"
+      />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
     </svg>
+  );
+}
+
+export function CheckoutPendingContent({
+  pending,
+  children,
+}: {
+  pending: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <span className={pending ? "invisible" : undefined}>{children}</span>
+      {pending ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <CheckoutSpinner />
+        </span>
+      ) : null}
+    </>
   );
 }
 
@@ -86,14 +138,21 @@ const PRIMARY_LINK_STYLE: CSSProperties = {
 // spinner and redirects straight to Stripe.
 export function CheckoutButton({
   href,
+  resolveHref,
   children,
   size = "default",
   onClick,
+  analytics,
 }: {
   href: string;
+  resolveHref?: () => string;
   children: ReactNode;
   size?: PricingActionSize;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  analytics?: {
+    event: string;
+    properties: Record<string, string | number | boolean>;
+  };
 }) {
   const { pending, start } = useCheckoutRedirect();
   return (
@@ -101,13 +160,23 @@ export function CheckoutButton({
       href={href}
       onClick={(event) => {
         onClick?.(event);
-        start(href, event);
+        const destination = resolveHref?.() ?? href;
+        event.currentTarget.href = destination;
+        if (!event.defaultPrevented && analytics) {
+          posthog.capture(analytics.event, analytics.properties);
+        }
+        start(destination, event);
       }}
       aria-busy={pending}
-      className={pricingActionClassName("primary", size)}
-      style={{ ...PRIMARY_LINK_STYLE, pointerEvents: pending ? "none" : undefined }}
+      className={`${pricingActionClassName("primary", size)} relative`}
+      style={{
+        ...PRIMARY_LINK_STYLE,
+        pointerEvents: pending ? "none" : undefined,
+      }}
     >
-      {pending ? <CheckoutSpinner /> : children}
+      <CheckoutPendingContent pending={pending}>
+        {children}
+      </CheckoutPendingContent>
     </a>
   );
 }

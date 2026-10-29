@@ -5,7 +5,7 @@ import Testing
 
 @Suite struct MobileCoreRPCWorkspaceMutationAuthTests {
     @Test func workspaceMoveCarriesWorkspaceScopedAttachTicketContext() async throws {
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
@@ -46,7 +46,7 @@ import Testing
     }
 
     @Test func workspaceGroupActionCarriesWorkspaceScopedAttachTicketContext() async throws {
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
@@ -88,7 +88,7 @@ import Testing
     }
 
     @Test func workspaceGroupActionCarriesMacWideAttachTicketContext() async throws {
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
@@ -129,8 +129,52 @@ import Testing
         #expect(frame.hasAuth)
     }
 
+    @Test func accountAuthorizedGroupActionCanOmitWorkspaceScopedAttachTicketContext() async throws {
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: "test-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-main",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "workspace.group.action",
+            params: [
+                "group_id": "group-main",
+                "action": "rename",
+                "title": "Project Alpha",
+            ]
+        )
+        let task = Task {
+            try await client.sendRequest(request, attachTicketPolicy: .omit)
+        }
+        let sent = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let frame = try #require(sent.first)
+        #expect(frame.method == "workspace.group.action")
+        #expect(frame.attachToken == nil)
+        #expect(frame.stackAccessToken == "test-stack-token")
+        #expect(frame.hasAuth)
+    }
+
     @Test func workspaceGroupCreateCarriesWorkspaceScopedAttachTicketContext() async throws {
-        let route = try hostPortRoute(kind: .tailscale, host: "100.64.0.5", port: 58465)
+        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 58465)
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
             transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),

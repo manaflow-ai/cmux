@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# See what a UI test did, one frame per action.
+#   scripts/ui-test SidebarHelpMenuUITests[/testMethod] [--ref SHA]   run it in CI at the pushed commit, then show its steps
+#   scripts/ui-test <run id or URL> [--test Substring]                 show a finished run's steps
+set -euo pipefail
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "${1:-}" in
+  "" | -h | --help) sed -n '2,4p' "$0" | sed 's/^# //'; exit 0 ;;
+  [0-9]* | http*) exec python3 "$dir/ci/e2e-frames.py" "$@" ;;
+  *) exec python3 "$dir/ci/dispatch-focused-test.py" "$@" --frames ;;
+esac
