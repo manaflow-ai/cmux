@@ -151,6 +151,11 @@ final class SidebarTabRowView: SidebarRowView {
                   let parent = list.rowViews[.workspace(workspaceID)] as? WorkspaceRowView else {
                 return SidebarStyle.titleLeading
             }
+            // SidebarListView may realize children before their workspace row. Ensure the
+            // parent has computed its icon-aware title column before converting it into the
+            // child coordinate space; otherwise the first layout pass can anchor tabs to a
+            // stale zero/default frame.
+            parent.layoutSubtreeIfNeeded()
             return convert(parent.titleFrame, from: parent).minX
         }()
         // Keep the label cell's internal padding in the well so a no-icon tab still lands exactly

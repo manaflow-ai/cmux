@@ -125,10 +125,11 @@ struct SidebarWorkspaceTabHierarchyTests {
             // Favicon rows keep the same child column; their title follows the favicon within that column.
             #expect(groupedTab.debugIcon == "favicon", "\(c.testDescription): favicon tab lost its favicon")
 
-            // Workspace siblings and the shared trailing column retain their established alignment.
+            // Workspace rows share the outer row column and trailing controls. A custom icon
+            // intentionally moves the grouped title column right; nested lineage moves it again.
             let workspaceXs = [loose, grouped, nested].map { (workspace: WorkspaceRowView) in Self.listX(list, workspace, workspace.titleFrame.minX) }
-            #expect(abs(workspaceXs[1] - workspaceXs[0]) < 0.5,
-                    "\(c.testDescription): grouped workspace left its shared workspace column")
+            #expect(workspaceXs[1] > workspaceXs[0],
+                    "\(c.testDescription): grouped workspace icon did not move its title column")
             #expect(workspaceXs[2] > workspaceXs[1],
                     "\(c.testDescription): nested workspace lost its lineage offset")
             let trailing = list.bounds.width - list.inset - SidebarStyle.rowTrailingTrim

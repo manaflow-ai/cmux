@@ -532,3 +532,4 @@ existing colors, glass, row geometry and drag behavior.
 
 - 2026-10-29: disclosed tab titles use `Metrics.space6` (16 pt) from the workspace title column so the hierarchy is visible at a glance.
 - 2026-10-29: disclosed tab positions resolve the rendered parent workspace title column, including custom icon or mark offsets; the typography-only gallery rewinds the full production indent.
+- 2026-10-29: parent layout is realized before child tab frames are resolved so icon-aware workspace title columns remain stable on first draw.
