@@ -628,7 +628,7 @@ for (const location of ["top", "more", "provider"] as const) {
   for (const capability of ["absent", "empty"] as const) {
     test(`the current ${location} model respects ${capability} effort capability in every control`, async () => {
       const container = installDom();
-  await loadQuickModelMenu();
+      await loadQuickModelMenu();
       const current: QuickModel = {
         id: "current",
         name: "Current model",
@@ -708,7 +708,7 @@ test.each(["submenu", "expanded"] as QuickProviderLook[])(
   "provider %s controls never nest menu items",
   async (providers) => {
     const container = installDom();
-  await loadQuickModelMenu();
+    await loadQuickModelMenu();
     function ProviderMenu() {
       const trigger = useRef<HTMLButtonElement | null>(null);
       const [open, setOpen] = useState(false);
