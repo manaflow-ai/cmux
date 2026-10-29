@@ -37,6 +37,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_REPORT,
     // A GitHub action is for this daemon's own caller session (`github_broker.rs`).
     method::MUX_GITHUB_ACTION,
+    // The app's cmux sign-in is for this daemon alone (`github_app_token.rs`).
+    method::MUX_GITHUB_APP_LEASE,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
@@ -47,6 +49,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
+    // Mesh enqueue borrows only this daemon's identity, after its local-socket check.
+    method::MUX_MESH_CONTROL,
     // Forwarded by its own handler, which answers for a peer that is down (`session_auth.rs`).
     method::MUX_SESSION_AUTH,
     // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).

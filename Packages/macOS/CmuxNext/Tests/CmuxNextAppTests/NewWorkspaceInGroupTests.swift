@@ -9,6 +9,9 @@ import Testing
 /// place by `workspaces.newPlacement` (`NewWorkspaceDefaultSlot`); New Workspace Below and Duplicate
 /// pass `.below(current)` themselves. With the default `top`, a new workspace made from `d` in group
 /// `g1` (`c`, `d`, `e`) went to the top of the group, above `c`; it belongs right below `d`.
+/// Lawrence 2026-10-28: a new workspace made inside a group goes to the TOP of that group by
+/// default, like a new workspace goes to the top of the sidebar; `afterCurrent` ("After Current
+/// Workspace" in Settings) keeps Leo's place right below the current one.
 @Suite struct NewWorkspaceInGroupTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     static let g1 = GroupID("g1")
@@ -43,16 +46,27 @@ import Testing
         return (loose, group)
     }
 
-    @Test func newFromAGroupMemberGoesRightBelowItInThatGroup() throws {
-        for placement in [NewWorkspacePlacement.top, .afterCurrent] {
-            let placed = try Self.placed(placement, from: "d")
-            #expect(placed.group == ["c", "d", "n", "e"], "\(placement) from d")
-            #expect(placed.loose == ["a", "f"], "\(placement) from d")
+    @Test func topFromAGroupMemberGoesToTheTopOfThatGroup() throws {
+        for current in ["c", "d", "e"] {
+            let placed = try Self.placed(.top, from: current)
+            #expect(placed.group == ["n", "c", "d", "e"], "top from \(current)")
+            #expect(placed.loose == ["a", "f"], "top from \(current)")
         }
     }
 
-    @Test func newFromTheGroupsLastMemberStaysInTheGroup() throws {
-        let placed = try Self.placed(.top, from: "e")
+    @Test func theDefaultPlacementPutsANewWorkspaceFirstInItsGroup() throws {
+        let placed = try Self.placed(CmuxConfigSnapshot.newWorkspacePlacementFallback, from: "d")
+        #expect(placed.group == ["n", "c", "d", "e"])
+    }
+
+    @Test func afterCurrentFromAGroupMemberGoesRightBelowItInThatGroup() throws {
+        let placed = try Self.placed(.afterCurrent, from: "d")
+        #expect(placed.group == ["c", "d", "n", "e"])
+        #expect(placed.loose == ["a", "f"])
+    }
+
+    @Test func afterCurrentFromTheGroupsLastMemberStaysInTheGroup() throws {
+        let placed = try Self.placed(.afterCurrent, from: "e")
         #expect(placed.group == ["c", "d", "e", "n"])
     }
 
@@ -60,6 +74,28 @@ import Testing
         let placed = try Self.placed(.top, from: "f")
         #expect(placed.loose == ["n", "a", "f"])
         #expect(placed.group == ["c", "d", "e"])
+    }
+
+    /// The group's own + (and a double-click in its empty part) for `g1`, with the window on `current`.
+    static func placedFromGroup(_ placement: NewWorkspacePlacement, current: String?) throws -> [String] {
+        var sections = sections()
+        let slot = NewWorkspaceDefaultSlot(placement: placement, current: current).slot(inGroup: g1, members: ["c", "d", "e"])
+        let position = try #require(slot.position(moving: ["n"], section: .machine(.local), in: sections))
+        #expect(SidebarEdits.apply(.reorder([WorkspaceID("n")], to: position), to: &sections))
+        for case let .group(group) in sections[0].nodes { return group.workspaces.map(\.id.rawValue) }
+        return []
+    }
+
+    @Test func theGroupsPlusPutsTheNewWorkspaceAtItsTopByDefault() throws {
+        for current in ["a", "d", nil] {
+            #expect(try Self.placedFromGroup(.top, current: current) == ["n", "c", "d", "e"], "from \(current ?? "none")")
+        }
+    }
+
+    @Test func theGroupsPlusFollowsAfterCurrentAndBottom() throws {
+        #expect(try Self.placedFromGroup(.afterCurrent, current: "d") == ["c", "d", "n", "e"])
+        #expect(try Self.placedFromGroup(.afterCurrent, current: "a") == ["n", "c", "d", "e"])
+        #expect(try Self.placedFromGroup(.bottom, current: "d") == ["c", "d", "e", "n"])
     }
 
     @Test func bottomFromAGroupMemberIsTheGroupsLastSlot() throws {
