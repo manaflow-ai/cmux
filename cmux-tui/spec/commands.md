@@ -2693,6 +2693,7 @@ Params:
 | `width` | `float32` | default `0.6666667` | From 0.1 through 1.0 |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `side` | `string` | default `"right"` | With `column-left-v1`: `"left"` opens the column immediately left of `pane`'s column (New Column Left), `"right"` after it; `"left"` takes a PTY column only |
 | `shell_args` | `string[]` | default null | With `terminal-shell-args-v1`: arguments for the terminal's shell, its `SHELL` in `env` or else the daemon's default shell; none or empty keeps the bare shell |
 | `pane_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane, `pane_` and 32 lowercase hex digits; see "Client-minted pane ids" |
 | `tab_id` | `string` | default null | With `split-client-keys-v1`: caller-minted id of the new pane's tab, `tab_` and 32 lowercase hex digits; terminal panes only |
@@ -2712,6 +2713,7 @@ Errors:
 | `pane <id> has no workspace` | Target pane is not in a screen |
 | `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
 | `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: side ...` | `side` is not `"left"` or `"right"`, or `"left"` with `kind:"browser"`; nothing is created |
 | `bad request: <cmd> kind ...` | Unknown `kind`, `kind:"browser"` without `url`, `url` without `kind:"browser"`, or `cwd`, `env`, `keep`, `terminal_id` or `shell_args` with `kind:"browser"`; nothing is created |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
@@ -9109,7 +9111,7 @@ exact public `terminal_id`, the current attachment `lease`, a 32-hex-character
 
 | `op` | Additional fields | Effect |
 | --- | --- | --- |
-| `begin` | `mime`, `size` | Reserve bounded capacity and create a private daemon-owned file. |
+| `begin` | `mime`, `size` | Reserve an upload slot and create a private daemon-owned file. |
 | `chunk` | `offset`, `data` | Append one sequential, standard-base64 chunk (at most 48 KiB decoded). |
 | `commit` | none | Verify byte count and MIME, then invoke the authoritative terminal paste operation once. |
 | `cancel` | none | Remove an unpublished upload; idempotent when already absent. |
@@ -9121,9 +9123,9 @@ destination path is accepted and no image path or content is returned in an
 acknowledgement. Stable error codes begin with `image-`; clients must treat a
 lost commit acknowledgement as uncertain delivery and must not retry it blindly.
 
-The policy is 20 MiB per PNG/JPEG/GIF/WebP image, eight images per connection,
-32 retained uploads and 128 MiB reserved per daemon. Pending uploads expire in
-two minutes; committed uploads expire in ten minutes. Ownership receipts permit
+The policy is PNG/JPEG/GIF/WebP images of any size, eight images per connection
+and 32 retained uploads per daemon, with no byte budget. A pending upload expires
+two minutes after its last accepted chunk; committed uploads expire in ten minutes. Ownership receipts permit
 restart cleanup with a twelve-minute expiry from creation and recurring bounded
 recovery sweeps. Receipts match a persistent random file ownership marker as well
 as inode identity; the filesystem must support extended attributes. See
