@@ -39,3 +39,4 @@ pub mod size_release;
 pub mod surface;
 
 mod workspace_cache;
+mod side_completion;

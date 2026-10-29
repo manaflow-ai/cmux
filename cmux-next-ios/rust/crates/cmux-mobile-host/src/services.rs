@@ -285,6 +285,10 @@ async fn chief(
     splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver).await
 }
 
+/// Bound an unanswered ordered command; its splice closes on expiry. Terminal
+/// sends and close handling never wait on this timer.
+const SIDE_COMPLETION_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Splices one phone channel to a daemon socket. Responses and refusals
 /// reach the phone as whole lines, never interleaved.
 async fn splice(
@@ -312,6 +316,9 @@ async fn splice(
     let _active = claims.then(crate::size_release::ActiveSplice::begin);
     let pending = Arc::new(crate::size_release::PendingReleases::default());
 
+    let side_completion = Arc::new(crate::side_completion::SideCompletion::default());
+    let completed = Arc::clone(&side_completion);
+
     // Daemon → phone, whole lines.
     let daemon_lines = lines_tx.clone();
     let reply_policy = policy.clone();
@@ -327,6 +334,7 @@ async fn splice(
                     if answers.answer(&line) {
                         continue;
                     }
+                    let line = completed.answer(line);
                     let Some(line) = reply_policy.reply(line) else { continue };
                     if daemon_lines.send(line).await.is_err() {
                         return;
@@ -345,18 +353,40 @@ async fn splice(
     // JoinSet also aborts this worker if the service future is cancelled.
     let mut side_workers = tokio::task::JoinSet::new();
     side_workers.spawn(async move {
+        let mut state_changed = false;
         while let Some((line, verdict)) = side_rx.recv().await {
             let Some(cache) = &side_cache else { return };
             if let Some((tree, personal, layout)) = side_requirements(&line) {
+                if state_changed {
+                    // The previous command has actually completed in the daemon.
+                    // A subscription event may still be queued on the cache's
+                    // other socket, so require a post-completion snapshot.
+                    cache.refresh().await;
+                    state_changed = false;
+                }
                 cache.wait_for(tree, personal, layout).await;
             }
             let verdict = owned_check(cache, &line, verdict);
-            let verdict = match verdict {
-                Verdict::Refuse(answer) => Verdict::Refuse(answer),
-                _ => Verdict::Rewrite(with_pane_folder(cache.tree().as_deref(), line)),
-            };
-            if ready_tx.send(verdict).await.is_err() {
-                return;
+            match verdict {
+                Verdict::Refuse(answer) => {
+                    if ready_tx.send(Verdict::Refuse(answer)).await.is_err() {
+                        return;
+                    }
+                }
+                _ => {
+                    let changes_state = changes_cached_state(&line);
+                    let line = with_pane_folder(cache.tree().as_deref(), line);
+                    let (line, completion) = side_completion.prepare(line);
+                    if ready_tx.send(Verdict::Rewrite(line)).await.is_err() {
+                        return;
+                    }
+                    // Only this worker waits. Terminal sends, daemon replies,
+                    // close handling and size release remain live on their tasks.
+                    if !matches!(tokio::time::timeout(SIDE_COMPLETION_WAIT, completion).await, Ok(Ok(()))) {
+                        return;
+                    }
+                    state_changed |= changes_state;
+                }
             }
         }
     });
@@ -544,6 +574,14 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+/// Reads do not dirty the cached state. Unknown operations conservatively do.
+fn changes_cached_state(line: &[u8]) -> bool {
+    let Ok(request) = serde_json::from_slice::<Value>(line) else { return true };
+    !request.get("cmd").and_then(Value::as_str).is_some_and(|cmd| {
+        cmd.starts_with("list-") || matches!(cmd, "identify" | "set-client-info" | "subscribe")
+    })
 }
 
 fn side_busy(line: &[u8]) -> String {
