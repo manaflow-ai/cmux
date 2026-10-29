@@ -85,6 +85,7 @@ public final class BrowserTabModel: BrowserTabState {
 
     func unreachable(_ target: URL, _ error: any Error) {
         let code = (error as NSError).code
+        url = target
         problem = Problem(url: target, isMacOnly: false, isPrivateNetwork: PhoneReach(target) == .privateNetwork,
                           isInsecure: (error as NSError).domain == NSURLErrorDomain && code == NSURLErrorAppTransportSecurityRequiresSecureConnection,
                           message: error.localizedDescription)
@@ -109,7 +110,9 @@ public final class BrowserTabModel: BrowserTabState {
             })
         }
         watch(\.url) { model, value in
-            guard let value else { return }
+            // A card keeps the address that failed in the bar (as Safari does); WebKit
+            // puts its own back on the last page that loaded.
+            guard let value, model.problem == nil else { return }
             model.url = value
             model.urlChanged?(value)
         }
