@@ -13,13 +13,13 @@ struct OracleOverlaysFacetTests {
 
     private func overlays(_ reading: OracleOverlaysFacet.Reading) throws -> OracleValue {
         let facet = OracleOverlaysFacet(hash: Self.hash) { reading }
-        return try #require(try OracleFacets([facet]).beginCapture([.overlays]).completed?["overlays"])
+        return try #require(try OracleFacets([facet]).snapshot([.overlays])["overlays"])
     }
 
     @Test func nothingOpenIsTheClosedForm() throws {
         let facet = OracleOverlaysFacet(hash: Self.hash) { OracleOverlaysFacet.Reading() }
         #expect(facet.facet == .overlays)
-        let snapshot = try #require(try OracleFacets([facet]).beginCapture([.overlays]).completed)
+        let snapshot = try OracleFacets([facet]).snapshot([.overlays])
         #expect(snapshot["overlays"] == [
             "stack": [],
             "palette": ["open": false, "mode": nil, "querySha256": nil, "topIds": [], "selectedIndex": nil],
@@ -102,7 +102,7 @@ struct OracleOverlaysFacetTests {
 
     @Test func noOwnersIsNotComparable() throws {
         let facet = OracleOverlaysFacet(hash: Self.hash) { nil }
-        let snapshot = try #require(try OracleFacets([facet]).beginCapture([.overlays]).completed)
+        let snapshot = try OracleFacets([facet]).snapshot([.overlays])
         #expect(snapshot["overlays"]?["status"] == "not-comparable")
         #expect(snapshot["overlays"]?["task"] == "p15-oracle-038")
     }

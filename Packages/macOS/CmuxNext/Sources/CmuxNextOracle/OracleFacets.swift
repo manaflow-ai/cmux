@@ -4,9 +4,7 @@
 /// asks it for the facets a case names; a facet with no provider in this build answers
 /// not-comparable, never absent, so the diff can never pass it.
 ///
-/// A snapshot takes one main-actor hop: ``beginCapture(_:)`` runs every main-actor provider and the
-/// main-actor part of every split provider in the same turn, then ``OracleCapture/finish()`` runs the
-/// background providers and the rest of the split ones off the main actor.
+/// A snapshot is one main-actor turn: ``snapshot(_:)`` runs every requested provider in it.
 public struct OracleFacets: Sendable {
     private let providers: [OracleFacet: any OracleFacetProvider]
     /// Facets that more than one provider named; the first provider in the list answers. The App
@@ -53,85 +51,19 @@ public struct OracleFacets: Sendable {
         })
     }
 
-    /// Runs the main-actor providers of `facets`, and the main-actor part of the split ones, in this turn and
-    /// returns the rest of the snapshot.
+    /// `{<facet>: <value>}` for every facet in `facets`, all read in this one main-actor turn.
     @MainActor
-    public func beginCapture(_ facets: [OracleFacet]) throws(OracleSnapshotError) -> OracleCapture {
+    public func snapshot(_ facets: [OracleFacet]) throws(OracleSnapshotError) -> OracleValue {
         var values: [String: OracleValue] = [:]
-        var background: [OracleCapture.Pending] = []
         for facet in facets {
             guard let provider = providers[facet] else {
                 values[facet.rawValue] = .notComparable(reason: "no provider for \(facet.rawValue) in this build", task: facet.task)
                 continue
             }
-            switch provider.capture {
-            case .mainActor(let read):
-                do throws(OracleFacetError) {
-                    values[facet.rawValue] = try read()
-                } catch {
-                    throw OracleSnapshotError(facet: facet, error: error)
-                }
-            case .background(let read):
-                background.append(OracleCapture.Pending(facet: facet, read: read))
-            case .split(let begin):
-                do throws(OracleFacetError) {
-                    background.append(OracleCapture.Pending(facet: facet, read: try begin()))
-                } catch {
-                    throw OracleSnapshotError(facet: facet, error: error)
-                }
-            }
-        }
-        return OracleCapture(values: values, background: background)
-    }
-}
-
-/// A snapshot whose main-actor facets are read; ``finish()`` reads the background ones.
-public struct OracleCapture: Sendable {
-    struct Pending: Sendable {
-        let facet: OracleFacet
-        let read: OracleFacetRead
-
-        func run() async -> Result<OracleValue, OracleFacetError> {
             do throws(OracleFacetError) {
-                return .success(try await read())
+                values[facet.rawValue] = try provider.read()
             } catch {
-                return .failure(error)
-            }
-        }
-    }
-
-    private let values: [String: OracleValue]
-    private let background: [Pending]
-
-    init(values: [String: OracleValue], background: [Pending]) {
-        self.values = values
-        self.background = background
-    }
-
-    /// The snapshot when no facet runs off the main actor.
-    public var completed: OracleValue? { background.isEmpty ? .object(values) : nil }
-
-    /// `{<facet>: <value>}` for every requested facet.
-    /// The background facets read concurrently, each in its own child task.
-    public func finish() async throws(OracleSnapshotError) -> OracleValue {
-        let background = background
-        let results: [OracleFacet: Result<OracleValue, OracleFacetError>] = await withTaskGroup(
-            of: (OracleFacet, Result<OracleValue, OracleFacetError>).self
-        ) { group in
-            for pending in background {
-                group.addTask { (pending.facet, await pending.run()) }
-            }
-            var results: [OracleFacet: Result<OracleValue, OracleFacetError>] = [:]
-            for await (facet, result) in group { results[facet] = result }
-            return results
-        }
-        var values = values
-        // Catalog order, so the reported error does not depend on which task ended first.
-        for facet in OracleFacet.allCases {
-            switch results[facet] {
-            case .success(let value): values[facet.rawValue] = value
-            case .failure(let error): throw OracleSnapshotError(facet: facet, error: error)
-            case nil: continue
+                throw OracleSnapshotError(facet: facet, error: error)
             }
         }
         return .object(values)

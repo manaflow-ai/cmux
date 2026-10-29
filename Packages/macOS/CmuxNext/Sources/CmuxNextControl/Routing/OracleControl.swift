@@ -24,8 +24,8 @@ public struct OracleControl: Sendable {
     public var methods: [ControlMethod] {
         [
             // Params: `facets` (facet names; all when absent) and `list` (the catalog: every facet, its
-            // task, and whether this build provides it). The result is `{<facet>: <value>}`. The
-            // main-actor facets are read in this one turn; the background facets after it, off the main actor.
+            // task, and whether this build provides it). The result is `{<facet>: <value>}`, every facet read
+            // in this one turn.
             .mainActor(Self.snapshot) { [facets] call in
                 if call.params["list"]?.boolValue == true { return .value(Self.json(facets.catalog)) }
                 let requested: [OracleFacet]
@@ -34,19 +34,10 @@ public struct OracleControl: Sendable {
                 } catch {
                     throw ControlError.invalidParams(error.message, data: ["param": "facets"])
                 }
-                let capture: OracleCapture
                 do throws(OracleSnapshotError) {
-                    capture = try facets.beginCapture(requested)
+                    return .value(Self.json(try facets.snapshot(requested)))
                 } catch {
                     throw Self.failure(error)
-                }
-                if let completed = capture.completed { return .value(Self.json(completed)) }
-                return .followUp {
-                    do throws(OracleSnapshotError) {
-                        return Self.json(try await capture.finish())
-                    } catch {
-                        throw Self.failure(error)
-                    }
                 }
             },
         ]

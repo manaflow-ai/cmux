@@ -168,7 +168,7 @@ public struct OracleOverlaysFacet: OracleFacetProvider {
     }
 
     public var facet: OracleFacet { .overlays }
-    public let capture: OracleFacetCapture
+    public let read: OracleFacetRead
     public let changes: OracleFacetChanges?
 
     /// - Parameters:
@@ -180,7 +180,7 @@ public struct OracleOverlaysFacet: OracleFacetProvider {
     public init(hash: @escaping @Sendable (String) -> String, changes: OracleFacetChanges? = nil,
                 read: @escaping @MainActor @Sendable () -> Reading?) {
         self.changes = changes
-        capture = .mainActor { () throws(OracleFacetError) -> OracleValue in
+        self.read = { () throws(OracleFacetError) -> OracleValue in
             guard let reading = read() else {
                 return .notComparable(reason: "no overlay owners in this process", task: OracleFacet.overlays.task)
             }

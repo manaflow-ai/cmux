@@ -5,8 +5,8 @@ import CmuxNextSettings
 import Testing
 
 /// `debug.oracle.snapshot`: a DEV router lists every facet with its task and answers the
-/// facets a case names, not-comparable when the build has no provider; the main-actor and background
-/// facets answer in one reply; a typo is `invalid_params`, a failing provider `internal_error` naming its
+/// facets a case names, not-comparable when the build has no provider; a provided facet answers in the
+/// reply; a typo is `invalid_params`, a failing provider `internal_error` naming its
 /// facet; a Release router lists no oracle method and answers `not_allowed`, not `method_not_found`. Run: `swift test --filter OracleControlTests`.
 @MainActor @Suite(.serialized) struct OracleControlTests {
     private func router(_ facets: OracleFacets, allowsDebug: Bool = true) -> ControlRouter {
@@ -38,13 +38,9 @@ import Testing
         ])
     }
 
-    @Test func mainActorAndBackgroundFacetsAnswer() async throws {
-        let main = OracleFacets([OracleFacetSource(.overlays, .mainActor { () throws(OracleFacetError) -> OracleValue in ["count": 1] })])
+    @Test func aProvidedFacetAnswers() async throws {
+        let main = OracleFacets([OracleFacetSource(.overlays) { () throws(OracleFacetError) -> OracleValue in ["count": 1] }])
         #expect(try await snapshot(router(main), ["facets": ["overlays"]]).get() == ["overlays": ["count": 1]])
-        let background = OracleFacets([
-            OracleFacetSource(.overlays, .background { () async throws(OracleFacetError) -> OracleValue in ["list": []] }),
-        ])
-        #expect(try await snapshot(router(background), ["facets": ["overlays"]]).get() == ["overlays": ["list": []]])
     }
 
     @Test func anUnknownFacetOrANonListIsInvalidParams() async {
@@ -56,9 +52,9 @@ import Testing
 
     @Test func aFailingProviderIsAnInternalErrorNamingItsFacet() async {
         let facets = OracleFacets([
-            OracleFacetSource(.overlays, .background { () async throws(OracleFacetError) -> OracleValue in
+            OracleFacetSource(.overlays) { () throws(OracleFacetError) -> OracleValue in
                 throw OracleFacetError("owners gone")
-            }),
+            },
         ])
         let result = await snapshot(router(facets), ["facets": ["overlays"]])
         #expect(failure(result)?.code == "internal_error")
