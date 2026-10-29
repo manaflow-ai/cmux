@@ -35,6 +35,9 @@ struct SidebarWorkspaceDisclosureTests {
         sidebar.list.reload(animated: false)
         let row = try #require(sidebar.list.rowViews[.workspace(SidebarTabGroupControlsTests.shown)] as? WorkspaceRowView)
         var caretX: CGFloat?
+        row.layoutSubtreeIfNeeded()
+        let clickPoint = NSPoint(x: row.frame.minX + row.disclosureButton.frame.midX,
+                                y: row.frame.minY + row.disclosureButton.frame.midY)
         for hovered in [false, true, false] {
             row.isHovered = hovered
             row.layoutSubtreeIfNeeded()
@@ -43,6 +46,7 @@ struct SidebarWorkspaceDisclosureTests {
                     "the caret is separated from the name by empty row width")
             if let caretX { #expect(abs(row.disclosureButton.frame.minX - caretX) < 0.5) }
             caretX = row.disclosureButton.frame.minX
+            #expect(row.hitTest(clickPoint) === row.disclosureButton, "hover moved the caret away from the pointer")
             if hovered {
                 #expect(row.disclosureButton.frame.maxX <= row.closeButton.frame.minX)
             }

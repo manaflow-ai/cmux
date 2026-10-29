@@ -30,6 +30,11 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 
 ## Target look (Lawrence's words win)
 
+Workspace tab disclosures sit immediately after the visible workspace name, with `space1` between
+the name and caret, and stay in place when hover controls appear. User request, 2026-10-28:
+"too mcuh space between the directory name and the expansion caret". This changes the trailing
+disclosure placement from the Oct 27 tab-group controls; close, menu and status keep their slots.
+
 | Part | Target | Source |
 | --- | --- | --- |
 | Row close (X) | The original close: a small x at the row's trailing end, shown on hover, in its rounded box. Not the top-right "dog-ear" fold. | Lawrence 11405 ("revert styling back to original, for the X button") |

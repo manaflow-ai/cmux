@@ -132,7 +132,7 @@ struct SidebarTabGroupControlsTests {
             row.layoutSubtreeIfNeeded()
             let column = SidebarStyle.trailingColumnCenterX(rowWidth: row.bounds.width)
             #expect(abs(row.closeButton.frame.midX - column) < 0.5, "the ✕ at \(row.closeButton.frame.midX), the column at \(column)")
-            #expect(row.moreButton.frame.maxX <= row.disclosureButton.frame.minX + 0.5, "⋮ is not left of the chevron")
+            #expect(row.disclosureButton.frame.maxX <= row.moreButton.frame.minX + 0.5, "the chevron must follow the title before the menu")
             #expect(row.disclosureButton.frame.maxX <= row.closeButton.frame.minX + 0.5, "the chevron is not left of the ✕")
             let under = SidebarTrailingColumnTests.marks(in: row, named: name, list: list)
             #expect(under.isEmpty, "a status mark shows under the ✕: \(under.map(\.what))")
@@ -153,7 +153,7 @@ struct SidebarTabGroupControlsTests {
             sidebar.renderNow()
             row.isHovered = true
             row.layoutSubtreeIfNeeded()
-            #expect(row.closeButton.frame.maxX <= row.disclosureButton.frame.minX + 0.5)
+            #expect(row.disclosureButton.frame.maxX <= row.closeButton.frame.minX + 0.5)
             let under = SidebarTrailingColumnTests.marks(in: row, named: Self.other.rawValue, list: sidebar.list)
             #expect(under.isEmpty, "a status mark shows beside the hover controls: \(under.map(\.what))")
             row.isHovered = false
