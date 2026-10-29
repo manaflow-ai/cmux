@@ -217,6 +217,12 @@ async fn reopen_replays_messages(with_peer_token: bool) {
         assert!(outgoing[0]["sender"].get("host").is_none(), "sender host leaked: {outgoing:#?}");
     }
 
+    // Reopening each mirrored chat replays the same projections.
+    assert_eq!(
+        client.replay_messages("session/resume", &format!("remote/{receiver}")).await,
+        incoming
+    );
+    assert_eq!(client.replay_messages("session/load", &format!("remote/{sender}")).await, outgoing);
     // Another viewer's reopen replays over the link both share: a viewer that heard the
     // message hears it no more. A later message is the marker: anything repeated would come
     // before it.
@@ -241,11 +247,5 @@ async fn reopen_replays_messages(with_peer_token: bool) {
         }
     }
 
-    // Reopening each mirrored chat replays the same projections.
-    assert_eq!(
-        client.replay_messages("session/resume", &format!("remote/{receiver}")).await,
-        incoming
-    );
-    assert_eq!(client.replay_messages("session/load", &format!("remote/{sender}")).await, outgoing);
     std::fs::remove_dir_all(root).unwrap();
 }

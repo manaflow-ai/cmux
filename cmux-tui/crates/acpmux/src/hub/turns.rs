@@ -154,7 +154,7 @@ impl Hub {
             opts.prompt_id = Some(generated_id.clone());
             ensure_message_provenance(&mut opts, &session.id);
             let message = message_context(self, session, &blocks, &opts, &generated_id);
-            embed_message_context(&mut opts, message.as_ref());
+            embed_message_context(&mut opts, message.as_ref(), &session.id);
             let target_id = session.id.clone();
             let hub = self.clone();
             let prior = opts.on_accepted.take();
@@ -216,7 +216,7 @@ impl Hub {
         // event.
         ensure_message_provenance(&mut opts, &session.id);
         let message = message_context(self, session, &blocks, &opts, &prompt_id);
-        embed_message_context(&mut opts, message.as_ref());
+        embed_message_context(&mut opts, message.as_ref(), &session.id);
         // Remember the outcome only for a prompt that reached the session:
         // one refused before that (no agent, a bad session) may be sent again.
         let accepted = Arc::new(AtomicBool::new(false));

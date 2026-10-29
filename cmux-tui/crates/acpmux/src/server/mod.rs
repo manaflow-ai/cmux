@@ -53,36 +53,22 @@ pub struct SubOpts {
 /// link every viewer here shares: those records come to every viewer as live ones, so a viewer
 /// that heard them already hears them no more; the one that asked starts fresh too
 /// (`peer_forward.rs`).
+/// Each record by its own seq: a replay's older records may come after a newer live one.
 #[derive(Default)]
 pub(super) struct MessageNotices {
-    /// The highest seq heard.
-    heard: u64,
-    /// The first seq the live stream sent since this replay began.
-    live_from: Option<u64>,
+    heard: std::collections::BTreeSet<u64>,
 }
 
 impl MessageNotices {
     /// The replay's notice of record `seq`: sent unless the live stream sent it.
     pub(super) fn replay(&mut self, seq: u64) -> bool {
-        if self.live_from.is_some_and(|from| seq >= from) {
-            return false;
-        }
-        self.heard = self.heard.max(seq);
-        true
+        self.live(seq)
     }
 
     /// The live notice of record `seq`: sent unless this connection heard it. A record of no
     /// known seq (0) is always sent.
     pub(super) fn live(&mut self, seq: u64) -> bool {
-        if seq == 0 {
-            return true;
-        }
-        if seq <= self.heard {
-            return false;
-        }
-        self.heard = seq;
-        self.live_from.get_or_insert(seq);
-        true
+        seq == 0 || self.heard.insert(seq)
     }
 }
 
@@ -2147,13 +2133,19 @@ mod message_notice_tests {
         assert!(!n.live(2));
         assert!(n.live(0));
         assert!(n.live(0));
-        // The live stream sent seq 5 while the replay was at 3: the replay stops at 5.
+        // The live stream sent seq 5 while the replay was at 3: the replay skips only 5.
         let mut n = MessageNotices::default();
         assert!(n.live(5));
         assert!(n.replay(3));
         assert!(!n.replay(5));
-        assert!(!n.replay(6));
-        assert!(n.live(6));
+        assert!(n.replay(6));
+        assert!(!n.live(6));
+        // A peer's replay reaches a viewer as live records: an older one after a newer one
+        // still goes.
+        let mut n = MessageNotices::default();
+        assert!(n.live(9));
+        assert!(n.live(4));
+        assert!(!n.live(4));
         // The replay sent 3 and 4 before the live stream reached them.
         let mut n = MessageNotices::default();
         assert!(n.replay(3));

@@ -276,7 +276,9 @@ async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value,
             }
         }
         if page.get("hasMore").and_then(Value::as_bool) != Some(true) {
-            return Err(("the receiver has not recorded this message".to_owned(), Next::Retry));
+            // A refused prompt that the receiver did not journal was never taken.
+            let next = if intent["refused"] == true { Next::Fail } else { Next::Retry };
+            return Err(("the receiver has not recorded this message".to_owned(), next));
         }
         let next = events.iter().filter_map(|e| e["seq"].as_u64()).max().unwrap_or(after);
         if next <= after {
@@ -330,11 +332,18 @@ pub(super) fn forward_refused(hub: &Arc<Hub>, id: &str, error: &RpcError) {
         if d.settled() || d.accepted.is_some() {
             return;
         }
-        d.state = match next(error) {
-            Next::Retry => State::Held,
-            Next::Held => State::Held,
-            Next::Fail => State::Failed,
-        };
+        // A refusal can come back before the acceptance notice it followed (a steer-only
+        // prompt taken, then refused with no turn): the receiver journals a message before it
+        // answers, so one read of its journal settles it (`reconcile_forward`).
+        if next(error) == Next::Fail
+            && let Some(projection) = d
+                .request
+                .pointer_mut("/_meta/acpmux/forwardProjection")
+                .and_then(Value::as_object_mut)
+        {
+            projection.insert("refused".into(), json!(true));
+        }
+        d.state = State::Held;
         d.error = Some(error.message.clone());
     });
     // The request may have reached the peer before a disconnect. Reconcile its
@@ -669,6 +678,87 @@ mod forward_projection_tests {
         assert_eq!(pending[0].prompt_id(), "write-failure");
         assert!(pending[0].projection_only());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A refusal that came back before its acceptance notice: the receiver's journal says
+    /// whether the message was taken. Taken, the sender gains its copy; not, the intent fails
+    /// after that one read.
+    #[tokio::test]
+    async fn a_refused_forward_reads_the_receiver_journal_once() {
+        let dir = std::env::temp_dir().join(format!("forward-refused-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = config(StoreMode::Memory);
+        let local = Hub::new(config.clone(), crate::store::open(&config.store, &dir).unwrap());
+        let remote = Hub::new(config.clone(), crate::store::open(&config.store, &dir).unwrap());
+        let new = |name: &str| NewRequest {
+            name: Some(name.into()),
+            cwd: Some(std::env::temp_dir()),
+            ..NewRequest::default()
+        };
+        let sender = local.new_session(new("sender")).await.unwrap();
+        let receiver = remote.new_session(new("receiver")).await.unwrap();
+        let auth_dir = dir.join("peer-auth");
+        let auth = crate::server::peer_auth::PeerAuth::create(&auth_dir).unwrap();
+        let token =
+            std::fs::read_to_string(crate::server::peer_auth::token_path(&auth_dir)).unwrap();
+        let listener = bind_ws("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(serve_ws_with(
+            remote.clone(),
+            listener,
+            "test".into(),
+            WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
+        ));
+        local
+            .add_peer(
+                "remote",
+                &format!("ws://127.0.0.1:{port}"),
+                Some("test".into()),
+                Some(token),
+                true,
+            )
+            .await
+            .unwrap();
+        let sender_meta = json!({"name": "sender", "sessionId": sender.id, "host": "local"});
+        let intent = async |prompt_id: &str| {
+            let request = json!({"sessionId": receiver.id,
+                "prompt": [{"type": "text", "text": "steer only"}], "_meta": {"acpmux": {
+                "promptId": prompt_id, "messageSender": sender_meta
+            }}});
+            remember_forward(&local, "remote", &receiver.id, &sender.id, &request).await.unwrap()
+        };
+        let refusal = RpcError::invalid_params("no turn to steer");
+        assert_eq!(next(&refusal), Next::Fail);
+
+        let taken = intent("p-taken").await;
+        assert!(remote.append_message_event(
+            &receiver,
+            sender_meta.clone(),
+            "steer only".into(),
+            "p-taken".into(),
+            1234
+        ));
+        forward_refused(&local, &taken, &refusal);
+        let done = outbox_status(&local, &taken, &json!({"waitMs": 10_000})).await.unwrap();
+        assert_eq!(done["status"], "delivered", "{done}");
+
+        let refused = intent("p-refused").await;
+        forward_refused(&local, &refused, &refusal);
+        let done = outbox_status(&local, &refused, &json!({"waitMs": 10_000})).await.unwrap();
+        assert_eq!(done["status"], "failed", "{done}");
+        assert_eq!(done["attempts"], 1, "one read of the journal: {done}");
+
+        let page = local
+            .events_page(&sender.id, 0, None, 500, None, false, &EventFilter::parse(None).unwrap())
+            .unwrap();
+        let ids: Vec<_> = page
+            .events
+            .iter()
+            .filter(|r| r.kind == "_acpmux/message")
+            .map(|r| r.msg["messageId"].clone())
+            .collect();
+        assert_eq!(ids, vec![json!("p-taken")]);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]

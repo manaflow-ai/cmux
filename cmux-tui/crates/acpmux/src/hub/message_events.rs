@@ -21,7 +21,13 @@ pub(super) struct MessageContext {
 // record but before the acceptance callback ran.
 use crate::prompt_provenance::MESSAGE_META;
 
-pub(super) fn embed_message_context(opts: &mut PromptOptions, message: Option<&MessageContext>) {
+/// `receiver` is the session the copy is for: a fork inherits the record, and recovery there
+/// must not take it for the fork's own delivery (`addressed_elsewhere`).
+pub(super) fn embed_message_context(
+    opts: &mut PromptOptions,
+    message: Option<&MessageContext>,
+    receiver: &str,
+) {
     let Some(provenance) = opts.provenance.as_mut() else { return };
     let Some(object) = provenance.as_object_mut() else { return };
     object.remove(MESSAGE_META);
@@ -34,6 +40,7 @@ pub(super) fn embed_message_context(opts: &mut PromptOptions, message: Option<&M
             "messageId": message.message_id.clone(),
             "recordSenderCopy": message.record_sender_copy,
             "at": message.at,
+            "receiverId": receiver,
         }),
     );
 }
@@ -136,8 +143,14 @@ fn collect_message_contexts(
     }
 }
 
-/// The provenance's `to` names another session by id (a name is not checked: names change).
+/// The record was another session's delivery: its message copy names another receiver, or its
+/// provenance's `to` names another session by id (a name is not checked: names change).
 fn addressed_elsewhere(provenance: &Value, session_id: &str) -> bool {
+    if let Some(receiver) =
+        provenance.pointer(&format!("/{MESSAGE_META}/receiverId")).and_then(Value::as_str)
+    {
+        return receiver != session_id;
+    }
     let Some(to) = provenance.get("to").and_then(Value::as_str) else { return false };
     let to = to.strip_prefix("acp:").unwrap_or(to);
     to != session_id && uuid::Uuid::parse_str(to).is_ok()
@@ -861,6 +874,10 @@ mod message_recovery_tests {
             "user_message",
             record(&format!("acp:{original_receiver}"), "inherited-2"),
         );
+        // Addressed by name, as a local provenance may be: the copy's receiver id says whose.
+        let mut named = record("receiver", "inherited-named");
+        named["_meta"]["provenance"]["_acpmuxMessage"]["receiverId"] = json!(original_receiver);
+        hub.append(&imported, "mux", "user_message", named);
         recover_message_events(&hub, &imported);
         assert_eq!(message_count(&hub, &imported.id), 0);
         assert_eq!(message_count(&hub, &sender.id), 0);
