@@ -193,7 +193,6 @@ class StaleExitTests(unittest.TestCase):
                 unittest.mock.patch.object(watch, "legacy_lag", lambda *a: (4023540480101 if legacy_stale else None, "legacy")), \
                 unittest.mock.patch.object(watch, "legacy_rerun", lambda *a: "re-ran"), \
                 unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
-                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
                 unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
                 unittest.mock.patch.object(watch, "assess", lambda *a, **k: stage), \
                 unittest.mock.patch.object(watch.GitHub, "runs", lambda self, *a, **k: []), \
@@ -285,7 +284,6 @@ class QueuedGateTests(unittest.TestCase):
         with unittest.mock.patch.object(watch, "fetch_feed", lambda url: NEWEST_FEED), \
                 unittest.mock.patch.object(watch, "legacy_lag", lambda *a: (None, "legacy")), \
                 unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
-                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
                 unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
                 unittest.mock.patch.object(watch, "assess", lambda *a, **k: stage), \
                 unittest.mock.patch.object(watch.GitHub, "runs", lambda self, *a, **k: []), \
@@ -305,7 +303,6 @@ class QueuedGateTests(unittest.TestCase):
         with unittest.mock.patch.object(watch, "fetch_feed", lambda url: NEWEST_FEED), \
                 unittest.mock.patch.object(watch, "legacy_lag", lambda *a: (None, "legacy")), \
                 unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
-                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
                 unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
                 unittest.mock.patch.object(watch, "assess", lambda *a, **k: stage), \
                 unittest.mock.patch.object(watch.GitHub, "runs", lambda self, *a, **k: []), \
@@ -440,7 +437,7 @@ class LegacyFeedTests(unittest.TestCase):
         with unittest.mock.patch.object(watch, "starvation_dispatch",
                                         lambda *a, **k: seen.append(k.get("branch")) or "stubbed"):
             self.assertEqual(self.run_main(fail=True), 1)
-        self.assertEqual(seen, ["feat-cmux-next", "main"])
+        self.assertEqual(seen, ["feat-cmux-next"])
 
     def test_a_zoneless_or_malformed_date_never_hides_the_lag(self):
         stamp = (NOW - dt.timedelta(minutes=40)).strftime("%a, %d %b %Y %H:%M:%S")
@@ -877,14 +874,13 @@ class UnstartedRunTests(unittest.TestCase):
         seen = []
         with unittest.mock.patch.object(watch, "read_feeds", lambda urls: (None, [])), \
                 unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
-                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
                 unittest.mock.patch.object(watch, "starvation_dispatch",
                                            lambda *a, **k: seen.append((k.get("branch"), k.get("minutes"), k.get("by_tip_age"), k.get("carries") is not None)) or "stubbed"), \
                 unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             watch.main(["--repo", "o/r", "--dry-run", "--legacy-identity", "off"])
         self.assertIn(("feat-cmux-next", 20.0, True, True), seen)
-        self.assertIn(("main", None, None, False), seen, "the classic guard keeps its own rule")
+        self.assertEqual(len(seen), 1, "only NEXT is recovered")
 
     def test_the_watch_runs_every_ten_minutes(self):
         """At :07/:37 with a 25-minute trigger the 30-minute bound could not hold."""
@@ -981,14 +977,14 @@ class HealBeforeAlarmTests(unittest.TestCase):
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             return watch.main(["--repo", "o/r", "--dry-run"]), seen
 
-    def test_a_rate_limited_alarm_still_runs_both_guards(self):
+    def test_a_rate_limited_alarm_still_runs_the_next_guard(self):
         def forbidden(self, method, path, body=None):
             raise urllib.error.HTTPError("u", 403, "rate limit exceeded", {}, None)
         code, seen = self.run_main(forbidden)
         self.assertEqual(code, 0)
-        self.assertEqual(seen, ["feat-cmux-next", "main"])
+        self.assertEqual(seen, ["feat-cmux-next"])
 
-    def test_one_failing_guard_never_skips_the_other(self):
+    def test_a_failing_next_guard_never_skips_legacy_feed_repair(self):
         calls = []
 
         def guard(*_args, **kwargs):
@@ -1003,53 +999,52 @@ class HealBeforeAlarmTests(unittest.TestCase):
                 unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.object(watch.GitHub, "call", forbidden), \
                 unittest.mock.patch.object(watch, "starvation_dispatch", guard), \
+                unittest.mock.patch.object(watch, "legacy_lag", return_value=(None, "current")) as legacy, \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
-        self.assertEqual(calls, ["feat-cmux-next", "main"])
+        self.assertEqual(calls, ["feat-cmux-next"])
+        legacy.assert_called_once()
 
-    def test_a_release_read_that_is_not_an_oserror_still_leaves_a_guard_running(self):
+    def test_a_truncated_release_read_never_skips_legacy_feed_repair(self):
         """`published_commit*` swallow OSError, so a 403 was survivable, but the
         read sat outside every boundary: the live `IncompleteRead` seen on
-        2026-10-26 is not an OSError and would have taken both guards with it."""
+        2026-10-26 is not an OSError and would have skipped legacy feed repair."""
         seen = []
         with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
                 unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.object(
                     watch, "published_commit",
                     lambda gh: (_ for _ in ()).throw(http.client.IncompleteRead(b"half"))), \
-                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
                 unittest.mock.patch.object(
                     watch, "starvation_dispatch",
                     lambda *a, **k: seen.append(k.get("branch")) or "dispatched"), \
+                unittest.mock.patch.object(watch, "legacy_lag", return_value=(None, "current")) as legacy, \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
-        # The NEXT guard cannot run without its marker, but classic still does.
-        self.assertEqual(seen, ["main"])
+        # The NEXT guard cannot run without its marker, but legacy repair still does.
+        self.assertEqual(seen, [])
+        legacy.assert_called_once()
 
-    def test_each_release_marker_is_read_once(self):
-        """The guards and the alarm share one read apiece, not three."""
+    def test_the_next_release_marker_is_read_once(self):
+        """The NEXT guard and the alarm share one release read."""
         reads = []
         with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
                 unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.object(
                     watch, "published_commit", lambda gh: reads.append("next") or ""), \
-                unittest.mock.patch.object(
-                    watch, "published_commit_for_release", lambda gh, tag: reads.append(tag) or ""), \
                 unittest.mock.patch.object(watch, "starvation_dispatch", lambda *a, **k: "stubbed"), \
                 unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
                 unittest.mock.patch.object(watch.GitHub, "runs", lambda self, *a, **k: []), \
                 unittest.mock.patch.object(watch, "sync_issue", lambda *a: "synced"), \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             watch.main(["--repo", "o/r", "--dry-run"])
-        self.assertEqual(reads, ["next", "nightly"])
+        self.assertEqual(reads, ["next"])
 
-    def test_the_classic_guard_runs_when_the_next_feeds_are_unreadable(self):
-        """Different feeds fail differently; one must not take the other down."""
+    def test_the_next_guard_runs_when_its_feeds_are_unreadable(self):
+        """The guard can recover by tip age when no feed timestamp is available."""
         seen = []
 
         def read(url):
-            if url == watch.CLASSIC_FEED_URL:
-                return NEWEST
             raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
 
         def forbidden(self, method, path, body=None):
@@ -1062,7 +1057,7 @@ class HealBeforeAlarmTests(unittest.TestCase):
                     lambda *a, **k: seen.append(k.get("branch")) or "ok"), \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
-        self.assertEqual(seen, ["feat-cmux-next", "main"])
+        self.assertEqual(seen, ["feat-cmux-next"])
 
     def test_heal_reports_any_failure_without_raising(self):
         """A guard runs before the alarm, so nothing it raises may stop the check."""
@@ -1167,7 +1162,6 @@ class TrainModeTests(unittest.TestCase):
         with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
                 unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
-                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
                 unittest.mock.patch.object(
                     watch, "starvation_dispatch",
                     lambda *a, **k: (k.get("branch") == "feat-cmux-next" and seen.append(k["active_workflows"])) or "dispatched"), \
