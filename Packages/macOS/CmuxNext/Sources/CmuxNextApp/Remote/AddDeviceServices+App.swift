@@ -34,7 +34,21 @@ extension AddDeviceServices {
                 guard let registry = services?.registry, !registry.perform("newCloudMachine") else { return }
                 _ = registry.perform("palette.auth.signIn")
             },
-            copy: { CloudPresenter.copy($0) })
+            copy: { CloudPresenter.copy($0) },
+            // Labs labs.machineJoin: read at each opening, so the switch takes effect on the next one.
+            machineJoin: { [weak services] in
+                guard let services else { return nil }
+                #if DEBUG
+                if let fixture = DebugAddDevice.joinService { return fixture }
+                #endif
+                return services.settings?.snapshot.machineJoin == true ? MachineJoinService.app(services) : nil
+            },
+            // The line carries a single-use token: marked concealed and transient (nspasteboard.org) so
+            // clipboard managers do not keep it.
+            copyConcealed: { line in
+                SystemPasswordPasteboard().write(line, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType])
+            },
+            showMachines: { [weak services] in _ = services?.registry.perform(RightSidebarMode.machines.actionID) })
     }
 }
 

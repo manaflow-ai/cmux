@@ -4,10 +4,58 @@
     "settings.labs.machineJoin": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضمّ أي جهاز بسطر واحد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeden Rechner mit einer Zeile hinzufügen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Join Any Machine with One Line"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unir cualquier equipo con una línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter n’importe quelle machine en une ligne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "1行で任意のマシンを参加させる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "한 줄로 모든 컴퓨터 참여시키기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用一行命令加入任意机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "用一行指令加入任何機器"
           }
         }
       }
@@ -15,10 +63,58 @@
     "settings.labs.machineJoin.help": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض «إضافة جهاز» سطرًا للصقه على أي جهاز Mac أو Linux؛ فينضم إلى أجهزة فريقك. تبقى مشاركة الشاشة والتحكم متوقفة حتى يسمح بهما ذلك الجهاز."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Gerät hinzufügen“ zeigt eine Zeile, die du auf einem beliebigen Mac oder Linux-Rechner einfügst; er tritt den Rechnern deines Teams bei. Bildschirmfreigabe und Steuerung bleiben aus, bis dieser Rechner sie erlaubt."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadir dispositivo muestra una línea para pegar en cualquier Mac u ordenador Linux; se une a los equipos de tu equipo de trabajo. Compartir pantalla y el control siguen desactivados hasta que ese equipo los permita."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter un appareil affiche une ligne à coller sur n’importe quel Mac ou ordinateur Linux ; il rejoint les machines de votre équipe. Le partage d’écran et le contrôle restent désactivés jusqu’à ce que cette machine les autorise."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「デバイスを追加」に、任意の Mac または Linux コンピュータに貼り付ける行が表示され、チームのマシンに参加します。画面共有と操作は、そのマシンが許可するまでオフのままです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기기 추가에 아무 Mac 또는 Linux 컴퓨터에 붙여 넣을 줄이 표시되며, 그 컴퓨터가 팀의 컴퓨터에 참여합니다. 화면 공유와 제어는 그 컴퓨터가 허용할 때까지 꺼져 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“添加设备”会显示一行命令，可粘贴到任意 Mac 或 Linux 电脑上；它会加入你团队的机器。在该机器允许之前，屏幕共享和控制保持关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「新增裝置」會顯示一行指令，可貼到任何 Mac 或 Linux 電腦上；它會加入你團隊的機器。在該機器允許之前，螢幕分享和控制保持關閉。"
           }
         }
       }
