@@ -36,7 +36,7 @@ final class InputVerificationService {
     /// Any window's move, resize, screen and deminiaturize notices (`observeWindowGeometry`).
     private var geometrySubscriptions: [EventSubscription] = []
     /// Any window's occlusion notice (`observeWindowOcclusion`).
-    private var occlusionObserver: (any NSObjectProtocol)?
+    private var occlusionObserver: MainNotificationObserver?
     /// Each cmux window's frame as last journaled, so a notice journals only the windows that moved.
     private var journaledFrames: [ObjectIdentifier: NSRect] = [:]
     /// No-activate mode only: gives back a keyboard the user did not give.
@@ -122,24 +122,24 @@ final class InputVerificationService {
     /// timeline marks when a page child window's occlusion lands, and in Debug and bench builds the blank-pane rule
     /// (VS2) looks at that window's panes again (panes of an occluded window draw nothing by design and are not
     /// judged; the check after the window is visible again proves every surface drew).
-    func observeWindowOcclusion() {
+    func observeWindowOcclusion(services: AppServices) {
         guard occlusionObserver == nil else { return }
-        let center = NotificationCenter.default
-        // raw-observer-allow: the tab-switch timeline names the posting window, and AppEvents (frozen Wakeups API) passes no notification
-        occlusionObserver = center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { [weak self] note in
+        // In the notice's delivery (a frame-class handler runs there), so the timeline mark is when the state landed.
+        occlusionObserver = MainNotificationObserver(NSWindow.didChangeOcclusionStateNotification, class: .frame,
+                                                     owner: "InputVerification.windowOcclusion", on: services.mainWork,
+                                                     read: { $0.object as? NSWindow }) { [weak self, weak services] window in
+            guard let window else { return }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            // A touch only marks the window's panes for this turn's check.
+            if let owner = services?.windows.owner(of: window) { self?.probe.touch(.visibility, .window(owner.state.id)) }
+            #else
+            _ = (self, services)
+            #endif
             // Tab switch timeline (cx-asb1): when a page child window's occlusion state lands.
-            let window = note.object as? NSWindow
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let window else { return }
-                #if DEBUG || CMUX_BENCH_HOOKS
-                // In the notice's own turn: a touch only marks the window's panes for this turn's check.
-                if let owner = self?.services?.windows.owner(of: window) { self?.probe.touch(.visibility, .window(owner.state.id)) }
-                #endif
-                let child = window.parent != nil
-                let visible = window.occlusionState.contains(.visible)
-                // wall-clock: one timeline with the Control and Browser tab-switch marks and the page's performance.timeOrigin
-                Self.tabSwitchLog.debug("tab-switch occlusion-\(child ? "child" : "top", privacy: .public)-\(visible ? "visible" : "hidden", privacy: .public)-\(String(describing: type(of: window)).filter(\.isLetter), privacy: .public)\(window.identifier?.rawValue.filter(\.isLetter) ?? "", privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
-            }
+            let child = window.parent != nil
+            let visible = window.occlusionState.contains(.visible)
+            // wall-clock: one timeline with the Control and Browser tab-switch marks and the page's performance.timeOrigin
+            Self.tabSwitchLog.debug("tab-switch occlusion-\(child ? "child" : "top", privacy: .public)-\(visible ? "visible" : "hidden", privacy: .public)-\(String(describing: type(of: window)).filter(\.isLetter), privacy: .public)\(window.identifier?.rawValue.filter(\.isLetter) ?? "", privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
         }
     }
 
