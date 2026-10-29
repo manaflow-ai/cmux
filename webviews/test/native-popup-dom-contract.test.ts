@@ -127,13 +127,13 @@ describe("native popup DOM observations", () => {
     expect(f.element("host").shadowRoot).toBeNull();
     const scoped = f.inspect({ shadowRoots: new Set([inner, closed]) });
     expect(scoped).toHaveLength(1);
-    expect(scoped[0]?.element).toBe(inner.firstElementChild);
+    expect(scoped[0]?.element === inner.firstElementChild).toBe(true);
     const hostScoped = inspectNativePopups(f.element("host"), {
       adapter: "native",
       shadowRoots: new Set([unrelated, inner, closed]),
     });
     expect(hostScoped).toHaveLength(1);
-    expect(hostScoped[0]?.element).toBe(inner.firstElementChild);
+    expect(hostScoped[0]?.element === inner.firstElementChild).toBe(true);
     const open = f.element("unrelated").ownerDocument.createElement("span");
     closed.append(open);
     const openRoot = open.attachShadow({ mode: "open" });
