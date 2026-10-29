@@ -34,6 +34,8 @@ export const HEARTBEAT_LIMIT_S = 90
 /** After a cancel: the whole cleanup's deadline, and the part of it kept for the revoke request. */
 export const CANCEL_BUDGET_MS = 7_500
 export const REVOKE_RESERVE_MS = 2_500
+/** After a SIGKILL, a child's result comes at most this much later, even if a descendant holds its pipes open. */
+export const KILL_GRACE_MS = 500
 export const CHILD_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/
 const USER = /^[a-z_][a-z0-9_-]{0,31}$/
@@ -409,15 +411,17 @@ export async function runE2E(
   }
   // One retry: status records a revoke under the join lock, which the daemon's heartbeat may hold for a moment.
   // `by` is an absolute deadline: each read gets only what is left of it (60 s at most), and the one retry
-  // (after 1 s) runs only if more than that second is left. Nothing here runs past `by`.
+  // (after 1 s) runs only if more than that second is left. A read is killed at `by` and answers at most
+  // KILL_GRACE_MS later (realDeps); an answer that comes after `by` does not count.
   const status = async (by = Infinity) => {
     for (let attempt = 0; ; attempt++) {
       const left = by - deps.now()
       if (left <= 0) throw new Failed("status: no time left")
       const r = await acpmux(["host", "join", "--status", "--json"], undefined, undefined, Math.min(60_000, left))
       const s = lastJson(r.stdout)
-      if (r.code === 0 && s) return s
-      if (attempt >= 1 || by - deps.now() <= 1_000) throw new Failed(`status: exit ${r.code}`)
+      const late = deps.now() > by
+      if (r.code === 0 && s && !late) return s
+      if (late || attempt >= 1 || by - deps.now() <= 1_000) throw new Failed(late ? "status: past its deadline" : `status: exit ${r.code}`)
       await within(new Promise(() => undefined), 1_000, false)
     }
   }
@@ -671,7 +675,10 @@ export async function runE2E(
         if (evidence.status.heartbeatAgeSeconds < HEARTBEAT_LIMIT_S) break
       } else if (s.lastHeartbeat !== null && s.lastHeartbeat !== undefined) strangeBeat = true
       if (deps.now() >= deadline) break
-      await within(new Promise(() => undefined), 3_000, false)
+      // The pause ends by the deadline too.
+      const pause = Math.min(3_000, deadline - deps.now())
+      if (pause <= 0) break
+      await within(new Promise(() => undefined), pause, false)
     }
     evidence.status.credentialPresent = s.credentialPresent === true
     evidence.status.joinIncomplete = s.joinIncomplete === true
@@ -807,26 +814,44 @@ export function realDeps(): Deps {
     child.stdin.on("error", () => undefined)
     if (stdin !== undefined) child.stdin.write(stdin)
     child.stdin.end()
-    const done = new Promise<ChildResult>((resolve) => {
-      child.on("error", () => resolve({ code: null, stdout: "", stderr: "spawn failed" }))
-      // Text is UTF-8, as acpmux and the tools print it, so redaction and masks see the original values;
-      // binary output (the scan's archive) keeps every byte as one character.
-      child.on("close", (code) =>
-        resolve({ code, stdout: Buffer.concat(out).toString(binary ? "latin1" : "utf8"), stderr: Buffer.concat(err).toString("utf8") })
-      )
+    // Text is UTF-8, as acpmux and the tools print it, so redaction and masks see the original values;
+    // binary output (the scan's archive) keeps every byte as one character.
+    const result = (code: number | null): ChildResult => ({
+      code,
+      stdout: Buffer.concat(out).toString(binary ? "latin1" : "utf8"),
+      stderr: Buffer.concat(err).toString("utf8")
     })
-    return { child, done }
+    let finish: (r: ChildResult) => void = () => undefined
+    const done = new Promise<ChildResult>((resolve) => {
+      finish = resolve
+      child.on("error", () => resolve({ code: null, stdout: "", stderr: "spawn failed" }))
+      child.on("close", (code) => resolve(result(code)))
+    })
+    // SIGKILL reaches only the launcher (sudo cannot relay it; the user's processes are ended by cleanup's
+    // `kill -1` as that user). A descendant may still hold the pipes open, so the result is given at most
+    // KILL_GRACE_MS later regardless, as killed (code null), and the pipes are let go.
+    const kill = () => {
+      child.kill("SIGKILL")
+      const grace = setTimeout(() => {
+        child.stdout.destroy()
+        child.stderr.destroy()
+        finish(result(null))
+      }, KILL_GRACE_MS)
+      void done.then(() => clearTimeout(grace))
+    }
+    return { child, done, kill }
   }
   return {
     fetch: (url, init) => fetch(url, init),
     run: async (argv, { env, stdin, timeoutMs, signal, binary }) => {
-      const { child, done } = collect(argv, env, stdin, binary)
-      const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs)
+      const { child, done, kill } = collect(argv, env, stdin, binary)
+      // The result comes by timeoutMs + KILL_GRACE_MS at the latest.
+      const timer = setTimeout(kill, timeoutMs)
       // An abort: SIGTERM (sudo relays it to its command), then SIGKILL a second later.
       let hard: ReturnType<typeof setTimeout> | undefined
       const stop = () => {
         child.kill("SIGTERM")
-        hard = setTimeout(() => child.kill("SIGKILL"), 1_000)
+        hard = setTimeout(kill, 1_000)
       }
       if (signal?.aborted) stop()
       else signal?.addEventListener("abort", stop, { once: true })
@@ -839,16 +864,16 @@ export function realDeps(): Deps {
       }
     },
     start: (argv, { env }) => {
-      const { child, done } = collect(argv, env, undefined)
+      const { child, done, kill } = collect(argv, env, undefined)
       return {
         stop: async () => {
           // sudo relays SIGTERM to acpmux; the job's cleanup step kills the user's leftovers.
           child.kill("SIGTERM")
-          const kill = setTimeout(() => child.kill("SIGKILL"), 10_000)
+          const hard = setTimeout(kill, 10_000)
           try {
             return await done
           } finally {
-            clearTimeout(kill)
+            clearTimeout(hard)
           }
         }
       }

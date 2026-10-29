@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   CANCEL_BUDGET_MS,
   CHILD_PATH,
+  KILL_GRACE_MS,
   REVOKE_RESERVE_MS,
   DEV_API,
   DEV_PLATFORM,
@@ -98,7 +99,8 @@ interface Knobs {
   heartbeatValue?: (ms: number) => unknown
   /** How the platform's list shows a heartbeat at `ms` (default: RFC 3339). */
   listHeartbeat?: (ms: number) => unknown
-  /** Status reads take this long once the daemon runs; from the second such read on, the daemon beats as each returns. */
+  /** Status reads take this long once the daemon runs; from the second such read on, the daemon beats as each
+   * returns (unless `heartbeat` is false). */
   statusDelayMs?: number
   /** Per status read once the daemon runs: how long each takes (overrides statusDelayMs). */
   statusDelays?: number[]
@@ -281,7 +283,7 @@ function world(k: Knobs = {}) {
         }
         await after(delay)
         statusReads.push({ start, end: clock })
-        if (daemonStatusReads >= 2) lastHeartbeat = clock
+        if (daemonStatusReads >= 2 && k.heartbeat !== false) lastHeartbeat = clock
       }
       if (k.statusFailsWithDaemon && daemonUp) return { code: 1, stdout: "", stderr: "status failed\n" }
       const status = {
@@ -967,6 +969,23 @@ function assertUnicodeHeld(w: ReturnType<typeof world>) {
   }
 }
 
+describe("killed children", () => {
+  test("a timed-out child answers within the kill grace even if a descendant holds its pipes", async () => {
+    // The shell prints its background sleep's pid, then waits; the sleep keeps stdout and stderr open.
+    const started = Date.now()
+    const r = await realDeps().run(["/bin/sh", "-c", "sleep 30 & echo $! >&2; wait"], { env: { PATH: CHILD_PATH }, timeoutMs: 300 })
+    const took = Date.now() - started
+    const orphan = Number(r.stderr.trim())
+    if (Number.isInteger(orphan) && orphan > 0) {
+      try {
+        process.kill(orphan, "SIGKILL")
+      } catch {}
+    }
+    expect(r.code).toBeNull()
+    expect(took).toBeLessThan(300 + KILL_GRACE_MS + 1_000)
+  })
+})
+
 describe("non-ASCII held values", () => {
   test("child text output is read as UTF-8, and binary output keeps each byte", async () => {
     const script = `printf '${octal("xäy")}'; printf '${octal("päss")}' >&2`
@@ -1007,6 +1026,20 @@ describe("non-ASCII held values", () => {
 })
 
 describe("heartbeats", () => {
+  test("a read without a beat just before the deadline: the pause ends at the deadline", async () => {
+    // Read 1 takes 59 s, the pause 3 s, read 2 27 s: it ends at 89 s with no beat, leaving 1 s for the pause.
+    const w = world({ heartbeat: false, statusDelays: [59_000, 27_000] })
+    const e = await runE2E(opts, env, w.deps)
+    expect(e.result).toBe("fail")
+    const deadline = w.daemonStartedAt()! + 90_000
+    expect(w.statusReads.map((r) => r.end - w.daemonStartedAt()!)).toEqual([59_000, 89_000])
+    // The next step (the platform's list; the sweep's read came at the daemon's start instant) starts at the
+    // deadline, not 3 s past it.
+    const nextList = w.listAt.find((t) => t > w.daemonStartedAt()!)!
+    expect(nextList).toBe(deadline)
+    assertNoSecretEscaped(w)
+  })
+
   test("a status read that times out at the heartbeat deadline is not retried past it", async () => {
     // Read 1 takes 40 s (no beat); after the 3 s pause, read 2 hangs and is cut at the deadline (90 s).
     const w = world({ heartbeat: false, statusDelays: [40_000, 600_000, 1_000] })
