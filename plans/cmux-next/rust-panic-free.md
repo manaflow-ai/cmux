@@ -288,3 +288,15 @@ nor null; most of the ~217 new writes are on values built by `json!({..})`,
 but they were sampled, not all reviewed. Clippy cannot tell these from slice indexing, so they are counted.
 Next step for them: a non-panicking `set` helper, then lower the counts.
 22 crates at deny.
+
+JSON writes 2026-10-29: the leaf crate `cmux-json` adds `JsonSet::set` and
+`set_path` (null becomes an object; any other non-object is left unchanged and
+`set` returns `false`). acpmux's `no_panic::JsonExt` is now that trait. About
+1,010 production `v["key"] = x` writes in 17 crates moved to it, and
+`v["key"].as_array_mut()`/`take()` sites use `get_mut`. `indexing_slicing`
+went down by 972: acpmux 1021 to 697, cmux-tui 1141 to 833, cmux-tui-core
+1058 to 853, cmux-browser-host 211 to 140, cmux-tui-cloud-conversations 55 to
+25, cmux-tui-cdp 14 to 5, cmux-server 65 to 58, cmux-server-core 30 to 25,
+cmux-host 1 to 0, and 1 to 3 each in 8 small crates. Use `v.set("key", x)`
+for new writes; the rest of these counts are reads (`v["key"]`, which
+return `Null`) and slice indexing.

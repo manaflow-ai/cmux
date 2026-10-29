@@ -48,6 +48,7 @@
 
 use super::queue::{Answer, PromptRun, QueuedPrompt};
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 // `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest.
@@ -142,7 +143,7 @@ pub(super) fn digest_provenance(parts: &[Part]) -> Value {
         .map(|part| {
             let mut m = json!({"promptId": part.prompt_id, "from": part.sender});
             if let Some(p) = &part.run.provenance {
-                m["provenance"] = p.clone();
+                m.set("provenance", p.clone());
             }
             m
         })
@@ -369,11 +370,11 @@ impl Hub {
             let text = prompt_text(&q.run.blocks);
             let mut queued = json!({"text": text, "client": q.client, "position": position, "promptId": q.prompt_id, "turnId": q.turn_id, "prompt": q.run.blocks, "control": q.run.control.as_str(), "trustGate": q.run.trust_gate, "requeued": true});
             if let Some(agent) = &q.run.agent {
-                queued["fromAgent"] = json!(agent);
+                queued.set("fromAgent", json!(agent));
             }
             let images = super::prompt_images::keep(&q.run.blocks);
             if !images.is_empty() {
-                queued["images"] = Value::Array(images);
+                queued.set("images", Value::Array(images));
             }
             super::session::mark_pasted(&mut queued, &q.run.blocks);
             let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
