@@ -1016,10 +1016,15 @@ where
     let show = tokio::process::Command::new(systemctl.clone())
         .args(["--user", "show", "acpmux.service", "-p", "LoadState", "--value"])
         .output();
-    let loaded =
-        tokio::time::timeout(PROBE_BUDGET, show).await.ok().and_then(Result::ok).is_some_and(
-            |output| output.status.success() && output.stdout.trim_ascii() == b"loaded",
-        );
+    let loaded = match tokio::time::timeout(PROBE_BUDGET, show).await {
+        Ok(Ok(output)) if output.status.success() => output.stdout.trim_ascii() == b"loaded",
+        Ok(Ok(_)) => false,
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Ok(Err(error)) => return Err(error.into()),
+        Err(_) => {
+            return Err(anyhow!("systemd did not report acpmux.service within {PROBE_BUDGET:?}"));
+        }
+    };
     if !loaded {
         return Ok(None);
     }
@@ -1027,13 +1032,23 @@ where
     let env = tokio::process::Command::new(systemctl.clone())
         .args(["--user", "show", "acpmux.service", "-p", "Environment", "--value"])
         .output();
-    let env = tokio::time::timeout(PROBE_BUDGET, env)
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
-        .unwrap_or_default();
+    let env = match tokio::time::timeout(PROBE_BUDGET, env).await {
+        Ok(Ok(output)) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        }
+        Ok(Ok(output)) => {
+            return Err(anyhow!(
+                "systemd could not read acpmux.service environment: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        Ok(Err(error)) => return Err(error.into()),
+        Err(_) => {
+            return Err(anyhow!(
+                "systemd did not report acpmux.service environment within {PROBE_BUDGET:?}"
+            ));
+        }
+    };
     let unit_home =
         unit_environment_path(&env, "ACPMUX_HOME").unwrap_or_else(crate::config::default_home);
     if !equivalent_path(current_home, &unit_home) {

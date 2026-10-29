@@ -78,11 +78,18 @@ fn remaining_timeout(started: tokio::time::Instant, timeout: Option<u64>) -> Opt
     timeout.map(|seconds| seconds.saturating_sub(started.elapsed().as_secs()))
 }
 
-async fn resolve_id_after_update(client: &mut Arc<Client>, key: &str) -> Result<String> {
+async fn resolve_id_after_update(
+    client: &mut Arc<Client>,
+    key: &str,
+    budget: Option<std::time::Duration>,
+) -> Result<String> {
     match resolve_id(client, key).await {
         Ok(id) => Ok(id),
         Err(error) if daemon_closed_error(&error) => {
-            *client = reconnect_after_update().await?;
+            *client = match budget {
+                Some(budget) => reconnect_after_update_with_budget(budget).await?,
+                None => reconnect_after_update().await?,
+            };
             resolve_id(client, key).await
         }
         Err(error) => Err(error),
@@ -117,7 +124,12 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
     let mut ids: Vec<(String, String)> = Vec::new();
     for key in &opts.sessions {
         let key = expand_session_key(key)?;
-        let id = resolve_id_after_update(&mut client, &key).await?;
+        let id = resolve_id_after_update(
+            &mut client,
+            &key,
+            opts.timeout.map(|s| std::time::Duration::from_secs(s)),
+        )
+        .await?;
         ids.push((key, id));
     }
     if let Some(matcher) = &opts.matcher {
@@ -146,7 +158,13 @@ pub(crate) async fn wait(client: Arc<Client>, opts: WaitOpts, json_out: bool) ->
     let v = match client.request(method::MUX_WAIT, params.clone()).await {
         Ok(value) => value,
         Err(error) if crate::cli::output::daemon_closed_error(&error) => {
-            client = crate::cli::output::reconnect_after_update().await?;
+            let budget = opts.timeout.map(|s| {
+                std::time::Duration::from_secs(s.saturating_sub(started.elapsed().as_secs()))
+            });
+            client = match budget {
+                Some(budget) => reconnect_after_update_with_budget(budget).await?,
+                None => reconnect_after_update().await?,
+            };
             let params = json!({
                 "sessions": ids.iter().map(|(_, id)| id.clone()).collect::<Vec<_>>(),
                 "until": opts.until,
@@ -354,7 +372,13 @@ async fn wait_match_after_update(
             Ok(()) => return Ok(()),
             Err(error) if !retried && daemon_closed_error(&error) => {
                 retried = true;
-                client = reconnect_after_update().await?;
+                let budget = timeout.map(|s| {
+                    std::time::Duration::from_secs(s.saturating_sub(started.elapsed().as_secs()))
+                });
+                client = match budget {
+                    Some(budget) => reconnect_after_update_with_budget(budget).await?,
+                    None => reconnect_after_update().await?,
+                };
             }
             Err(error) => return Err(error),
         }

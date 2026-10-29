@@ -17,9 +17,13 @@ fn remaining_opts(opts: CollectOpts, started: tokio::time::Instant) -> CollectOp
 }
 
 pub(crate) async fn reconnect_after_update() -> Result<Arc<Client>> {
-    tokio::time::timeout(UPDATE_RECONNECT_BUDGET, crate::daemon::connect(true))
+    reconnect_after_update_with_budget(UPDATE_RECONNECT_BUDGET).await
+}
+
+pub(crate) async fn reconnect_after_update_with_budget(budget: Duration) -> Result<Arc<Client>> {
+    tokio::time::timeout(budget, crate::daemon::connect(true))
         .await
-        .map_err(|_| anyhow!("daemon did not come back within {UPDATE_RECONNECT_BUDGET:?}"))?
+        .map_err(|_| anyhow!("daemon did not come back within {budget:?}"))?
 }
 
 pub(crate) fn daemon_closed_error(error: &anyhow::Error) -> bool {
@@ -349,7 +353,11 @@ pub(crate) async fn stream_prompt(
     {
         Ok(()) => Ok(()),
         Err(error) if daemon_closed_error(&error) => {
-            let replacement = reconnect_after_update().await?;
+            let budget = opts
+                .timeout
+                .map(|seconds| Duration::from_secs(seconds).saturating_sub(started.elapsed()))
+                .unwrap_or(UPDATE_RECONNECT_BUDGET);
+            let replacement = reconnect_after_update_with_budget(budget).await?;
             let mut retry = prompt.clone();
             retry.resend = true;
             stream_prompt_once(
@@ -382,23 +390,13 @@ async fn stream_prompt_once(
 ) -> Result<()> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    let attach = client
-        .request(
-            method::MUX_ATTACH,
-            json!({"sessionId": id, "limit": if prompt.resend { 5000 } else { 0 }}),
-        )
-        .await?;
+    client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
     let params = prompt.params(id, text, steer, None);
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
     let mut t = Transcript::default();
-    if prompt.resend {
-        for event in attach.get("events").and_then(Value::as_array).into_iter().flatten() {
-            t.apply_event(event);
-        }
-    }
     let mut printed_assistant = 0usize;
     let mut last_tool = String::new();
     let stdout = std::io::stdout();
@@ -724,7 +722,13 @@ pub(crate) async fn collect_reply(
             Err(e) => {
                 if !update_retry && daemon_closed_error(&e) {
                     update_retry = true;
-                    client = reconnect_after_update().await?;
+                    let budget = opts
+                        .timeout
+                        .map(|seconds| {
+                            Duration::from_secs(seconds).saturating_sub(started.elapsed())
+                        })
+                        .unwrap_or(UPDATE_RECONNECT_BUDGET);
+                    client = reconnect_after_update_with_budget(budget).await?;
                     prompt.resend = true;
                     continue;
                 }
@@ -762,23 +766,13 @@ async fn collect_once(
 ) -> Result<CollectResult> {
     let mut notes =
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
-    let attach = client
-        .request(
-            method::MUX_ATTACH,
-            json!({"sessionId": id, "limit": if prompt.resend { 5000 } else { 0 }}),
-        )
-        .await?;
+    client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
     let params = prompt.params(id, text, opts.steer, None);
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, opts.steer);
     let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
     let mut t = Transcript::default();
-    if prompt.resend {
-        for event in attach.get("events").and_then(Value::as_array).into_iter().flatten() {
-            t.apply_event(event);
-        }
-    }
     let started = tokio::time::Instant::now();
     let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));
     let mut activity = false;
@@ -923,12 +917,11 @@ async fn collect_once(
     }
     // A resent prompt id streams nothing: its turn already ran, so read the
     // reply of that turn (not necessarily the newest) from the log.
-    if reply.is_empty() {
-        if let Some(turn) = result.pointer("/_meta/acpmux/turnId").and_then(Value::as_str) {
-            reply = turn_reply(&client, id, turn).await?.unwrap_or_default();
-        } else if prompt.resend {
-            reply = last_replies(&client, id, 1).await?.pop().unwrap_or_default();
-        }
+    if prompt.resend {
+        reply = match result.pointer("/_meta/acpmux/turnId").and_then(Value::as_str) {
+            Some(turn) => turn_reply(&client, id, turn).await?.unwrap_or_default(),
+            None => last_replies(&client, id, 1).await?.pop().unwrap_or_default(),
+        };
     }
     let stop_reason =
         result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
