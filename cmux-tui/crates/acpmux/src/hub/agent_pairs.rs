@@ -681,8 +681,10 @@ impl Hub {
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
         // A prompt that waits for the owner queues: never steered in, never stopping the turn.
-        let steer = steer && !crate::author::awaits_owner(opts.provenance.as_ref());
-        (opts.interrupt, opts.steer_now) = (opts.interrupt && steer, opts.steer_now && steer);
+        // Any other prompt keeps its own interrupt and steer-now, which need no `steer`.
+        let held = crate::author::awaits_owner(opts.provenance.as_ref());
+        let steer = steer && !held;
+        (opts.interrupt, opts.steer_now) = (opts.interrupt && !held, opts.steer_now && !held);
         self.agent_pair_check(session, &blocks, client, steer, &mut opts)?;
         self.run_prompt(session, blocks, client, steer, opts).await
     }
