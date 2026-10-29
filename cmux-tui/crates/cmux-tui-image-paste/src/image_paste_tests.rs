@@ -419,3 +419,56 @@ fn cloud_image_paste_receipt_refresh_is_throttled() {
     daemon_a.cancel(&owner(), ID).unwrap();
     assert!(!path.parent().unwrap().exists());
 }
+
+/// Daemon A's wall clock runs past its receipt's expiry while its in-memory
+/// deadline does not (a suspended machine). Daemon B's sweep reads the expired
+/// receipt and holds a handle to remove the upload. A must not revive that
+/// receipt and keep accepting chunks, or B's removal would unlink a live
+/// upload: A ends the upload instead.
+#[test]
+fn cloud_image_paste_an_expired_receipt_is_never_revived() {
+    let shared = SharedStorage::new();
+    let clock = WallClock::manual(1_000_000);
+    let daemon_a = ImagePasteStore::with_storage(&shared.temporary, clock.clone());
+    daemon_a.begin(owner(), ID, "image/png", LARGE).unwrap();
+    let path = daemon_a.shared.state.lock().unwrap().uploads[&(1, ID.into())].file.path().unwrap();
+    chunk(&daemon_a, 0, PNG);
+    clock.advance((UPLOAD_TTL + IMAGE_TTL).as_secs() + 1);
+    let (deadline, stale) =
+        ImagePasteFile::recover_one(path.parent().unwrap().to_owned(), clock.now()).unwrap();
+    assert!(deadline <= Instant::now(), "daemon B should see the receipt as expired");
+    let refused = daemon_a
+        .append(&owner(), ID, PNG.len(), &base64::engine::general_purpose::STANDARD.encode(PNG))
+        .unwrap_err();
+    assert_eq!(refused.to_string(), "image-upload-expired");
+    assert_eq!(receipt(&path).0, 1_000_000 + 720, "daemon A revived an expired receipt");
+    assert!(daemon_a.shared.state.lock().unwrap().uploads.is_empty());
+    assert!(stale.remove_owned());
+    drop(stale);
+    assert!(!path.parent().unwrap().exists());
+    let late = daemon_a.commit(&owner(), ID, |_| Ok(())).unwrap_err();
+    assert_eq!(late.to_string(), "image-upload-expired");
+}
+
+/// A commit whose receipt has (nearly) expired on the wall clock is refused
+/// rather than reviving the receipt another daemon's sweep may hold.
+#[test]
+fn cloud_image_paste_commit_never_revives_a_nearly_expired_receipt() {
+    let shared = SharedStorage::new();
+    let clock = WallClock::manual(1_000_000);
+    let daemon_a = ImagePasteStore::with_storage(&shared.temporary, clock.clone());
+    daemon_a.begin(owner(), ID, "image/png", PNG.len()).unwrap();
+    let path = daemon_a.shared.state.lock().unwrap().uploads[&(1, ID.into())].file.path().unwrap();
+    chunk(&daemon_a, 0, PNG);
+    clock.advance((UPLOAD_TTL + IMAGE_TTL).as_secs() - 299);
+    let mut pasted = false;
+    let refused = daemon_a
+        .commit(&owner(), ID, |_| {
+            pasted = true;
+            Ok(())
+        })
+        .unwrap_err();
+    assert_eq!(refused.to_string(), "image-upload-expired");
+    assert!(!pasted);
+    assert!(!path.parent().unwrap().exists());
+}

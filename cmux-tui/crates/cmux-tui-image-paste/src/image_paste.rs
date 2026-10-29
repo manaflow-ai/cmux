@@ -230,10 +230,11 @@ impl ImagePasteStore {
         // RECEIPT_REFRESH, so a fast upload is not one fsync per chunk.
         let now = self.clock.now();
         if now >= upload.receipt_written.saturating_add(RECEIPT_REFRESH.as_secs()) {
-            upload
-                .file
-                .set_expiry(Self::upload_expiry(now))
-                .map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
+            if let Err(error) = upload.file.set_expiry(Self::upload_expiry(now), now) {
+                let error = Self::refresh_failed(upload, error);
+                Self::reap(&mut state, Instant::now());
+                return Err(error);
+            }
             upload.receipt_written = now;
         }
         upload.file.append(&bytes).map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
@@ -263,10 +264,12 @@ impl ImagePasteStore {
         let quoted = format!("'{}'", path.replace('\'', "'\\''"));
         // A crash after this point leaves recovery to remove the image: give
         // the agent its full reading time from now, not from upload creation.
-        upload
-            .file
-            .set_expiry(self.clock.now().saturating_add(IMAGE_TTL.as_secs()))
-            .map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
+        let now = self.clock.now();
+        if let Err(error) = upload.file.set_expiry(now.saturating_add(IMAGE_TTL.as_secs()), now) {
+            let error = Self::refresh_failed(upload, error);
+            Self::reap(&mut state, Instant::now());
+            return Err(error);
+        }
         // Input delivery can fail after a partial write. Retain the readable file
         // until TTL and never automatically retry an ambiguous paste.
         upload.committed = true;
@@ -300,6 +303,19 @@ impl ImagePasteStore {
     /// the in-memory deadline by more than RECEIPT_REFRESH.
     fn upload_expiry(now: u64) -> u64 {
         now.saturating_add((UPLOAD_TTL + IMAGE_TTL).as_secs())
+    }
+
+    /// The error for a receipt rewrite that failed. A receipt that had
+    /// (nearly) expired on the wall clock is never revived, since another
+    /// daemon's sweep may already be removing the upload, so the upload ends
+    /// here: it is reaped like one past its deadline.
+    fn refresh_failed(upload: &mut Upload, error: std::io::Error) -> anyhow::Error {
+        if error.kind() != std::io::ErrorKind::TimedOut {
+            return anyhow::anyhow!("image-storage-unavailable");
+        }
+        upload.cleanup_pending = true;
+        upload.deadline = Instant::now();
+        anyhow::anyhow!("image-upload-expired")
     }
 
     pub fn cancel(&self, owner: &ImagePasteOwner, id: &str) -> anyhow::Result<()> {

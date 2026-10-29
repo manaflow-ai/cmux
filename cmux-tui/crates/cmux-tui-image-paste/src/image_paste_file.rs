@@ -72,6 +72,16 @@ pub(crate) struct ImagePasteFile {
 /// `.receipt`; only a crash between the two can leave it behind.
 const NEXT_RECEIPT: &CStr = c".receipt-next";
 
+/// A receipt that has expired, or will within this many seconds, is never
+/// moved later. A recovery sweep in another daemon that shares the storage may
+/// already hold it as expired and be about to remove the upload; reviving it
+/// then would let that sweep unlink a live upload. A live upload refreshes its
+/// receipt long before this (the store keeps it at least 570 s ahead), so only
+/// an upload whose wall clock ran on without it (a suspended machine, a
+/// stalled daemon) is refused. The margin also absorbs a wall clock stepped
+/// back between that sweep's read and this check.
+const RECEIPT_REVIVE_MARGIN: u64 = 300;
+
 impl ImagePasteFile {
     #[cfg(test)]
     pub(crate) fn create(extension: &str) -> std::io::Result<Self> {
@@ -187,7 +197,12 @@ impl ImagePasteFile {
     /// new receipt is written and synced under a private name, then renamed
     /// over `.receipt`, so a sweep reads the old receipt or the new one and
     /// never a torn one. Only the small receipt is rewritten, never image bytes.
-    pub(crate) fn set_expiry(&mut self, expires: u64) -> std::io::Result<()> {
+    /// A receipt within RECEIPT_REVIVE_MARGIN of expiring at `now` is refused
+    /// with `TimedOut`: a sweep may already have claimed it.
+    pub(crate) fn set_expiry(&mut self, expires: u64, now: u64) -> std::io::Result<()> {
+        if self.record.expires < now.saturating_add(RECEIPT_REVIVE_MARGIN) {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
         let (receipt_name, next_name) = (c".receipt", NEXT_RECEIPT);
         if !self.entry_matches(receipt_name, &self.receipt) {
             return Err(std::io::Error::other("temporary image receipt was replaced"));
