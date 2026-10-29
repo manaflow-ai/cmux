@@ -332,7 +332,8 @@ final class TerminalNotificationStore: ObservableObject {
     func reconcileOwnedAttention(
         _ snapshot: OwnedAttentionSnapshot,
         unavailable: Set<OwnedAttentionTarget>,
-        muted: Set<OwnedAttentionTarget>
+        muted: Set<OwnedAttentionTarget>,
+        containerPanelIDs: [OwnedAttentionTarget: UUID] = [:]
     ) throws -> [OwnedAttentionSlot: OwnedAttentionProjectionStatus] {
         if let ownedAttentionStoreID, snapshot.storeID != ownedAttentionStoreID {
             throw OwnedAttentionProjectionError.identityCollision
@@ -343,6 +344,14 @@ final class TerminalNotificationStore: ObservableObject {
         let owned = notifications.filter { $0.ownedAttentionSlot != nil }
         let foreign = notifications.filter { $0.ownedAttentionSlot == nil }
         let destinations = snapshot.states.values.flatMap(\.destinations)
+        var resolvedPanels = containerPanelIDs
+        for destination in destinations {
+            let target = OwnedAttentionTarget(workspaceID: destination.workspaceID, surfaceID: destination.surfaceID)
+            if resolvedPanels[target] == nil {
+                resolvedPanels[target] = AppDelegate.shared?.workspaceFor(tabId: destination.workspaceID)?
+                    .surfaceOwnershipTarget(for: destination.surfaceID)?.containerPanelID
+            }
+        }
         var foreignWorkspaceUnread = Set<UUID>()
         var foreignSurfaceUnread = Set<OwnedAttentionTarget>()
         for row in foreign where !row.isRead {
@@ -353,7 +362,11 @@ final class TerminalNotificationStore: ObservableObject {
         }
         let foreignUnread = Set(destinations.compactMap { destination -> OwnedAttentionTarget? in
             let target = OwnedAttentionTarget(workspaceID: destination.workspaceID, surfaceID: destination.surfaceID)
-            return foreignWorkspaceUnread.contains(destination.workspaceID) || foreignSurfaceUnread.contains(target) ? target : nil
+            let panelTarget = resolvedPanels[target].map {
+                OwnedAttentionTarget(workspaceID: destination.workspaceID, surfaceID: $0)
+            }
+            return foreignWorkspaceUnread.contains(destination.workspaceID) || foreignSurfaceUnread.contains(target) ||
+                (panelTarget.map { foreignSurfaceUnread.contains($0) } ?? false) ? target : nil
         })
         let plan = OwnedAttentionProjection.plan(states: snapshot.states, unavailable: unavailable, muted: muted, foreignUnread: foreignUnread)
         let foreignIDs = Set(foreign.map(\.id))
@@ -372,8 +385,7 @@ final class TerminalNotificationStore: ObservableObject {
         }.map { slot, destination in
             TerminalNotification(
                 id: snapshot.identities[slot]!, tabId: destination.workspaceID, surfaceId: destination.surfaceID,
-                panelId: AppDelegate.shared?.workspaceFor(tabId: destination.workspaceID)?
-                    .surfaceOwnershipTarget(for: destination.surfaceID)?.containerPanelID,
+                panelId: resolvedPanels[slot.target],
                 retargetsToLiveSurfaceOwner: false, title: destination.title, subtitle: "", body: destination.body,
                 createdAt: oldBySlot[slot]?.createdAt ?? Date(), isRead: false, paneFlash: false,
                 ownedAttentionSlot: slot
