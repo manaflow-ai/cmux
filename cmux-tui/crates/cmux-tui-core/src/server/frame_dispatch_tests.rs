@@ -809,19 +809,47 @@ fn shape(value: &Value) -> Value {
     }
 }
 
-/// IPC-5's acceptance: every bench op answers a REQUEST frame with the reply
-/// its line gets (ipc-targets.json `ipc5_ops`, bench-daemon-latency.py). A
-/// v2 operation the schema has no method id for yet takes the frame route
-/// in process, past the header check only a method id can pass.
+/// IPC-5's acceptance ops (bench-daemon-latency.py's ops): the list the
+/// p05-ipc census targets file held as `ipc5_ops` until d6b985ad10d removed
+/// that file; the acceptance is this test's, so the list lives here.
+const IPC5_OPS: [&str; 26] = [
+    "ping",
+    "identify",
+    "list-workspaces",
+    "send",
+    "new-tab",
+    "create-terminal",
+    "split",
+    "close-surface",
+    "close-tabs",
+    "rename-workspace",
+    "select-tab",
+    "select-workspace",
+    "move-tab",
+    "new-frontend-browser-tab",
+    "create-tab-group",
+    "update-tab-group",
+    "add-tabs-to-tab-group",
+    "remove-tabs-from-tab-group",
+    "move-tab-group",
+    "ungroup-tab-group",
+    "close-tab-group",
+    "workspace.create",
+    "tab.create_terminal",
+    "pane.split",
+    "pane.create",
+    "workspace.ensure_home",
+];
+
+/// IPC-5's acceptance: every bench op ([`IPC5_OPS`]) answers a REQUEST
+/// frame with the reply its line gets. A v2 operation the schema has no
+/// method id for yet takes the frame route in process, past the header
+/// check only a method id can pass.
 #[test]
 fn frame_dispatch_bench_ops_equal_as_lines_and_frames() {
-    let targets = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../plans/cmux-next/ipc-targets.json");
-    let targets: Value = serde_json::from_str(&std::fs::read_to_string(targets).unwrap()).unwrap();
-    let ops: Vec<String> = serde_json::from_value(targets["ipc5_ops"].clone()).unwrap();
-    assert!(ops.len() >= 26, "{ops:?}");
     let mut client = Client::granted("bench-ops");
     let mut fixture = BenchFixture::new(&mut client);
-    for (index, name) in ops.iter().enumerate() {
+    for (index, name) in IPC5_OPS.into_iter().enumerate() {
         // Round 0 sets the state rounds 1 (a line) and 2 (a frame) both
         // change, as the bench alternates its writes.
         let body = fixture.before(&mut client, name, 0);
