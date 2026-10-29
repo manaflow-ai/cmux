@@ -1526,6 +1526,8 @@ async fn machine_consent_requires_person_proof_even_on_the_local_socket() {
     assert_eq!(reason(&refused), REASON, "{refused}");
     assert!(!daemon.dir.join("consent.json").exists());
     let mut app = Rpc::person(&daemon.socket, KEY).await;
+    let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(view["consentRequired"], false);
     let granted =
         app.ok("_acpmux/machine_consent_set", json!({"surface":"control","granted":true})).await;
     assert_eq!(granted["consent"]["control"], "granted");
@@ -1536,4 +1538,26 @@ async fn machine_consent_requires_person_proof_even_on_the_local_socket() {
     assert_eq!(revoked["consent"]["control"], "none");
     let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
     assert_eq!(view["consent"]["control"], "none");
+    assert_eq!(view["consentRequired"], true, "a consent-only record still gates access");
+}
+
+#[tokio::test]
+async fn machine_consent_status_is_required_for_joined_or_unreadable_state() {
+    use std::os::unix::fs::PermissionsExt;
+    let daemon = Daemon::start("machine-consent-presence", Some(KEY));
+    let mut app = Rpc::person(&daemon.socket, KEY).await;
+    let path = daemon.dir.join("machine-credential.json");
+    std::fs::write(&path, json!({"credential":"cmm_test","machine_id":"machine_test","team_id":"team_test","name":"test","hub_origin":"https://example.com","last_heartbeat":null,"revoked":false,"wgPublicKey":"key"}).to_string()).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(view["consentRequired"], true);
+    assert_eq!(view["consent"]["screen"], "none");
+    app.ok("_acpmux/machine_consent_set", json!({"surface":"screen","granted":true})).await;
+    let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(view["consentRequired"], true);
+    assert_eq!(view["consent"]["screen"], "granted");
+    std::fs::write(&path, b"invalid").unwrap();
+    let view = app.ok("_acpmux/machine_consent_get", json!({})).await;
+    assert_eq!(view["consentRequired"], true);
+    assert_eq!(view["consent"]["screen"], "none", "unreadable state fails closed");
 }
