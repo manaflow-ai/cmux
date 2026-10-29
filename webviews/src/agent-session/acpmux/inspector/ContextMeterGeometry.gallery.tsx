@@ -1,3 +1,4 @@
+// l10n-allow-file: gallery fixtures, not shipped UI.
 // A deliberately even /context breakdown used by the geometry audit. Five 19% categories and
 // the five percent free track make any separator width visible without synthetic markup.
 import type { CSSProperties } from "react";
