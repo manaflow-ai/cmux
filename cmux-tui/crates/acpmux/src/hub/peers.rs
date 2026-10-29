@@ -660,7 +660,7 @@ impl Hub {
                         });
                         return;
                     }
-                    let summary = Self::remote_summary(&peer, session);
+                    let mut summary = Self::remote_summary(&peer, session);
                     let Some(receipt) = session_receipt(&summary) else { return };
                     let id = receipt.qualified_id();
                     {
