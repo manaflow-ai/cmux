@@ -76,7 +76,7 @@ import Testing
         content.update(next)
         let search = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
         var events: [(String, String?)] = []
-        content.emit = { events.append(($0.rawValue, $1)) }
+        content.emit = { type, id, _ in events.append((type.rawValue, id)) }
         _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
         #expect(events.last?.0 == "submit" && events.last?.1 == "first")
         #expect(content.selectionReason == "none")
