@@ -38,7 +38,7 @@ const PLATFORM_ENV: &str = "CMUX_PLATFORM_URL";
 const TOKEN_ENV: &str = "CMUX_CLOUD_ACCESS_TOKEN";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// A list merge (`machine list`, `device list`) costs at most this.
-const LIST_TIMEOUT: Duration = Duration::from_secs(3);
+pub(super) const LIST_TIMEOUT: Duration = Duration::from_secs(3);
 /// How often `machine add --wait` reads the credentials list.
 const WAIT_EVERY: Duration = Duration::from_secs(2);
 /// A joined machine is online when its last heartbeat is younger than this.
@@ -418,6 +418,19 @@ impl Platform {
     async fn credentials_async(&self) -> Result<Vec<Value>, CallError> {
         let body = self.call(reqwest::Method::GET, "/v1/machines/credentials", None).await?;
         entries(body).ok_or(CallError::Unreadable(200))
+    }
+
+    /// The mesh's daemon ids for `daemon_id` (`GET /v1/mesh/sessions?daemonId=`): the
+    /// address book's `daemons[].daemonId`.
+    pub(super) fn mesh_daemons(&self, daemon_id: &str) -> Result<Vec<String>, CallError> {
+        let path = format!("/v1/mesh/sessions?daemonId={daemon_id}");
+        let body = self.runtime.block_on(self.call(reqwest::Method::GET, &path, None))?;
+        let daemons = body.get("daemons").and_then(Value::as_array).ok_or(CallError::Unreadable(200))?;
+        Ok(daemons
+            .iter()
+            .filter_map(|d| d.get("daemonId").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect())
     }
 
     /// Every joined machine's entry, as the platform lists them.

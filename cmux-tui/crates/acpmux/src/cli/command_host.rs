@@ -166,9 +166,15 @@ pub enum PeerCmd {
         cmd: Option<ApprovalsCmd>,
     },
     /// Check a machine (a peer name or an ssh host) step by step; --fix
-    /// repairs what fails. Without --fix nothing changes.
+    /// repairs what fails. Without --fix nothing changes. `--here` checks
+    /// this machine's one-line join instead (binary, service, daemon,
+    /// credential, hub, heartbeat, consent).
     Doctor {
-        target: String,
+        #[arg(required_unless_present = "here", conflicts_with = "here")]
+        target: Option<String>,
+        /// Check this machine's one-line join (`cmux machine add`).
+        #[arg(long)]
+        here: bool,
         #[arg(long)]
         fix: bool,
         /// A harness profile to check (repeatable).

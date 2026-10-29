@@ -26,6 +26,7 @@ pub mod host_approvals;
 pub mod host_budget;
 pub mod host_candidates;
 pub mod host_enroll;
+pub mod host_join_doctor;
 pub mod host_peering;
 pub mod host_steps;
 pub mod hosts;
