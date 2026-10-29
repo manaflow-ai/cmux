@@ -86,9 +86,15 @@ final class SettingsPageProvider: PageProvider {
     var personBacksGesture: (@MainActor (TimeInterval) -> Bool)?
     /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine: the error to show, or nil.
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
+    /// The Touch ID or password confirm (LocalAuthentication `deviceOwnerAuthentication`) that turns
+    /// Full access or Dedicated agent machine on when the click behind it was not the HID system's
+    /// (``personTurnsOn(_:_:)``); nil, never.
+    var ownerConfirm: (any DeviceOwnerAuthenticating)?
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
-    private var spentFullAccessGesture: TimeInterval?
+    var spentFullAccessGesture: TimeInterval?
+    /// A turn-on confirm is up: a second one waits for no answer and is refused.
+    var confirmingOwner = false
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -157,14 +163,10 @@ final class SettingsPageProvider: PageProvider {
             // commands here without asking, so it needs the person's own click or key in the
             // Settings page, spent once (the host's record, never the page's word): page script
             // alone never turns it on. Turning it off only narrows what the machine may do, so it
-            // needs no gesture (a revoke always works, assistive technology included).
-            if on {
-                guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                      event != spentFullAccessGesture else {
-                    throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-                }
-                spentFullAccessGesture = event
-            }
+            // needs no gesture (a revoke always works, assistive technology included). The click
+            // must also be the HID system's, or the person confirms with Touch ID or the
+            // password (``personTurnsOn(_:_:)``).
+            if on { try await personTurnsOn(.fullAccess, context) }
             return try await Self.host(setDeviceFullAccess, "devices")(id, on).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.devices.join_consent":
             guard let surface = params["surface"]?.stringValue, JoinConsentSurface(rawValue: surface) != nil,
@@ -193,14 +195,9 @@ final class SettingsPageProvider: PageProvider {
             // Turning it on lets that machine take the VM boundary again when this app's own link
             // asks for it (its remote chains then run without the sandbox), so, like Full access,
             // only the person's own click or key in this page turns it on (spent once); off makes
-            // the machine keep the sandbox always, which only narrows, so it needs no gesture.
-            if on {
-                guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
-                      event != spentFullAccessGesture else {
-                    throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-                }
-                spentFullAccessGesture = event
-            }
+            // the machine keep the sandbox always, which only narrows, so it needs no gesture. The
+            // click must also be the HID system's, or the person confirms (``personTurnsOn(_:_:)``).
+            if on { try await personTurnsOn(.vmHost, context) }
             return try await Self.host(setMachineVmHost, "machines")(id, on).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
