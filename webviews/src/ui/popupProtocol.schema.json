@@ -55,6 +55,7 @@
         "submitOnReturn": { "type": "boolean" },
         "autoHighlight": { "$ref": "#/$defs/NativePopupAutoHighlight" },
         "completeOnTab": { "type": "boolean" }
+        ,"editSequence": { "type": "integer", "minimum": 0 }
       }
     },
     "NativePopupSliderStyle": { "type": "string", "enum": ["accent", "minimal"] },
@@ -106,7 +107,8 @@
         "maximum": { "type": "number" },
         "step": { "type": "number" },
         "slider": { "$ref": "#/$defs/NativePopupSlider" },
-        "completion": { "type": "string" }
+        "completion": { "type": "string" },
+        "editSequence": { "type": "integer", "minimum": 0 }
       }
     },
     "NativePopupModel": {
@@ -139,7 +141,8 @@
         "revision": { "type": "integer" },
         "id": { "type": "string" },
         "value": { "type": "string" },
-        "reason": { "type": "string" }
+        "reason": { "type": "string" },
+        "editSequence": { "type": "integer", "minimum": 0 }
       }
     }
   }

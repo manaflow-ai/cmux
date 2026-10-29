@@ -10,8 +10,9 @@ public struct NativePopupField: Codable, Equatable, Sendable {
     public var `submitOnReturn`: Bool?
     public var `autoHighlight`: NativePopupAutoHighlight?
     public var `completeOnTab`: Bool?
+    public var `editSequence`: Int?
 
-    public init(id: String, value: String, placeholder: String, disabled: Bool? = nil, submitOnReturn: Bool? = nil, autoHighlight: NativePopupAutoHighlight? = nil, completeOnTab: Bool? = nil) {
+    public init(id: String, value: String, placeholder: String, disabled: Bool? = nil, submitOnReturn: Bool? = nil, autoHighlight: NativePopupAutoHighlight? = nil, completeOnTab: Bool? = nil, editSequence: Int? = nil) {
         self.id = id
         self.value = value
         self.placeholder = placeholder
@@ -19,5 +20,6 @@ public struct NativePopupField: Codable, Equatable, Sendable {
         self.submitOnReturn = submitOnReturn
         self.autoHighlight = autoHighlight
         self.completeOnTab = completeOnTab
+        self.editSequence = editSequence
     }
 }

@@ -12,6 +12,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     private var rowViews: [(NativePopupRow, NSView)] = []
     private var targets: [NativePopupControlTarget] = []
     private var fields: [String: NSTextField] = [:]
+    fileprivate var localFieldValues: [String: (sequence: Int, value: String)] = [:]
+    private var nextEditSequence = 0
+    private(set) var lastEditSequence: Int?
     private var editableControls: [String: NSControl] = [:]
     var selected: String?
     private var searchHasInput = false
@@ -30,6 +33,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         model = nil; selected = nil; selectionReason = "none"
         searchHasInput = false; pendingCompositionModel = nil
         typeahead = ""; typeaheadTime = 0
+        localFieldValues = [:]; nextEditSequence = 0; lastEditSequence = nil
         // A replacement cannot inherit the old field editor or deferred IME commit.
         for field in fields.values { field.delegate = nil; _ = field.abortEditing() }
         subviews.forEach { $0.removeFromSuperview() }
@@ -37,7 +41,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         search = nil; title = nil
     }
 
-    func update(_ next: NativePopupModel) {
+    func update(_ incoming: NativePopupModel) {
+        let next = preservingLocalEdits(incoming)
         let focused = fields.first { $0.value.currentEditor() != nil }
         let focusedID = focused?.key ?? editableControls.first(where: { $0.value === window?.firstResponder })?.key
         if let editor = focused?.value.currentEditor() as? NSTextView, editor.hasMarkedText() {
@@ -366,6 +371,10 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
               let id = fields.first(where: { $0.value === field })?.key else { return }
         if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
         let value = field.stringValue
+        nextEditSequence += 1
+        let editSequence = nextEditSequence
+        localFieldValues[id] = (editSequence, value)
+        lastEditSequence = editSequence
         let isSearch = field === search
         if isSearch, model?.search?.autoHighlight != nil {
             searchHasInput = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

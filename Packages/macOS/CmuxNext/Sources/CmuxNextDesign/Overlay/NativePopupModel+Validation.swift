@@ -29,6 +29,7 @@ extension NativePopupModel {
         for row in rows {
             guard !row.id.isEmpty, row.id.count <= 128, identifiers.insert(row.id).inserted,
                   row.label.count <= 10_000 else { return false }
+            guard row.editSequence.map({ $0 >= 0 && row.kind == .textField }) ?? true else { return false }
             if let completion = row.completion {
                 guard row.kind == .action, completion.count <= 100_000 else { return false }
             }

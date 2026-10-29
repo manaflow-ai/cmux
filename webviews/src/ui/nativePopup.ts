@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useRef } from "react";
 import { usePopupHost } from "./UiProvider";
 import type { AnchorBox } from "./popupHost";
-import type { NativePopupEvent, NativePopupModel } from "./generated/popupProtocol";
+import type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./generated/popupProtocol";
 
 export type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./generated/popupProtocol";
 
@@ -32,6 +32,7 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
   const revision = useRef(0);
   const openingRevision = useRef(0);
   const shown = useRef(false);
+  const editSequences = useRef(new Map<string, number>());
   const serialized = JSON.stringify(options.model);
 
   useLayoutEffect(() => {
@@ -43,7 +44,12 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
         if (event.revision < openingRevision.current || event.revision > revision.current) return;
         latest.current.onDismiss(event.reason);
       } else {
-        if (event.revision !== revision.current) return;
+        if (event.revision < openingRevision.current || event.revision > revision.current) return;
+        if (event.editSequence !== undefined) {
+          const prior = editSequences.current.get(event.id ?? "") ?? -1;
+          if (event.editSequence <= prior) return;
+          editSequences.current.set(event.id ?? "", event.editSequence);
+        }
         latest.current.onEvent(event);
       }
     });
@@ -58,9 +64,10 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
     if (!transport || !options.open) return;
     const anchor = latest.current.anchor();
     if (!anchor) return;
+    if (!shown.current) editSequences.current.clear();
     const rect = anchor.getBoundingClientRect();
     const model: NativePopupModel = {
-      ...latest.current.model,
+      ...withEditSequences(latest.current.model, editSequences.current),
       schemaVersion: 1,
       id,
       revision: ++revision.current,
@@ -78,4 +85,21 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
   }, [transport, options.open, serialized, id]);
 
   return { available: transport !== undefined };
+}
+
+function withEditSequences(model: NativePopupDescription, sequences: Map<string, number>): NativePopupDescription {
+  const rows = (items: NativePopupRow[]): NativePopupRow[] => items.map((row) => ({
+    ...row,
+    ...(row.kind === "textField" && sequences.has(row.id) ? { editSequence: sequences.get(row.id) } : {}),
+    ...(row.children ? { children: rows(row.children) } : {}),
+  }));
+  return {
+    ...model,
+    ...(model.search && sequences.has(model.search.id)
+      ? { search: { ...model.search, editSequence: sequences.get(model.search.id) } }
+      : {}),
+    rows: rows(model.rows),
+    ...(model.rail ? { rail: rows(model.rail) } : {}),
+    ...(model.footer ? { footer: rows(model.footer) } : {}),
+  };
 }

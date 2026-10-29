@@ -199,7 +199,10 @@ final class DeclarativePopupHost {
             guard let row, row.disabled != true else { return }
         case .dismiss: return
         }
-        deliver(NativePopupEvent(type: type, popupId: model.id, revision: model.revision, id: id, value: value, reason: type == .submit || type == .highlight ? reason : nil))
+        let editSequence: Int? = type == .search || (type == .change && row?.kind == .textField) ? content.lastEditSequence : nil
+        deliver(NativePopupEvent(type: type, popupId: model.id, revision: model.revision, id: id, value: value,
+                                 reason: type == .submit || type == .highlight ? reason : nil,
+                                 editSequence: editSequence))
         if type == .pick, (action?.keepOpen ?? row?.keepOpen) != true { root.hide() }
     }
 

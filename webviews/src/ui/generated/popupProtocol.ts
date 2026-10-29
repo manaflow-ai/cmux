@@ -48,6 +48,7 @@ export interface NativePopupField {
   submitOnReturn?: boolean;
   autoHighlight?: NativePopupAutoHighlight;
   completeOnTab?: boolean;
+  editSequence?: number;
 }
 
 export type NativePopupSliderStyle = "accent" | "minimal";
@@ -92,6 +93,7 @@ export interface NativePopupRow {
   step?: number;
   slider?: NativePopupSlider;
   completion?: string;
+  editSequence?: number;
 }
 
 export interface NativePopupModel {
@@ -119,4 +121,5 @@ export interface NativePopupEvent {
   id?: string;
   value?: string;
   reason?: string;
+  editSequence?: number;
 }
