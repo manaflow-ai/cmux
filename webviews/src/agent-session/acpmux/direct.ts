@@ -7155,7 +7155,10 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
     ...(iconSpec ? { iconSpec } : {}),
     // Terminals and model routers are not chat harness choices. A real launcher can still have
     // a cmux-prefixed ID: only the declared kind determines whether it belongs in the picker.
-    ...(harness.kind === "terminal" || isModelRouterKind(harness.kind) ? { pickable: false } : {}),
+    // acpmux's `pickerHidden`: the cmux model router profile, Claude's automatic fallback.
+    ...(harness.kind === "terminal" || isModelRouterKind(harness.kind) || harness.pickerHidden === true
+      ? { pickable: false }
+      : {}),
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
