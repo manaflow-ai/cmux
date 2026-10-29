@@ -276,9 +276,7 @@ async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value,
             }
         }
         if page.get("hasMore").and_then(Value::as_bool) != Some(true) {
-            // A refused prompt that the receiver did not journal was never taken.
-            let next = if intent["refused"] == true { Next::Fail } else { Next::Retry };
-            return Err(("the receiver has not recorded this message".to_owned(), next));
+            return Err(("the receiver has not recorded this message".to_owned(), Next::Retry));
         }
         let next = events.iter().filter_map(|e| e["seq"].as_u64()).max().unwrap_or(after);
         if next <= after {
@@ -333,16 +331,9 @@ pub(super) fn forward_refused(hub: &Arc<Hub>, id: &str, error: &RpcError) {
             return;
         }
         // A refusal can come back before the acceptance notice it followed (a steer-only
-        // prompt taken, then refused with no turn): the receiver journals a message before it
-        // answers, so one read of its journal settles it (`reconcile_forward`).
-        if next(error) == Next::Fail
-            && let Some(projection) = d
-                .request
-                .pointer_mut("/_meta/acpmux/forwardProjection")
-                .and_then(Value::as_object_mut)
-        {
-            projection.insert("refused".into(), json!(true));
-        }
+        // prompt taken, then refused with no turn), and the receiver's copy may still wait on
+        // its repair: only the receiver's journal settles it, read on the retry schedule
+        // (`reconcile_forward`), as for any unconfirmed intent.
         d.state = State::Held;
         d.error = Some(error.message.clone());
     });
@@ -681,8 +672,8 @@ mod forward_projection_tests {
     }
 
     /// A refusal that came back before its acceptance notice: the receiver's journal says
-    /// whether the message was taken. Taken, the sender gains its copy; not, the intent fails
-    /// after that one read.
+    /// whether the message was taken, also when its copy lands only later (a repair after a
+    /// failed append). Until then the intent stays open, reading on the retry schedule.
     #[tokio::test]
     async fn a_refused_forward_reads_the_receiver_journal_once() {
         let dir = std::env::temp_dir().join(format!("forward-refused-{}", uuid::Uuid::now_v7()));
@@ -742,11 +733,21 @@ mod forward_projection_tests {
         let done = outbox_status(&local, &taken, &json!({"waitMs": 10_000})).await.unwrap();
         assert_eq!(done["status"], "delivered", "{done}");
 
-        let refused = intent("p-refused").await;
-        forward_refused(&local, &refused, &refusal);
-        let done = outbox_status(&local, &refused, &json!({"waitMs": 10_000})).await.unwrap();
-        assert_eq!(done["status"], "failed", "{done}");
-        assert_eq!(done["attempts"], 1, "one read of the journal: {done}");
+        // The receiver's copy is not there at the first read: the intent stays open, and the
+        // copy a repair appends later still gains the sender's.
+        let repaired = intent("p-repaired").await;
+        forward_refused(&local, &repaired, &refusal);
+        let open = outbox_status(&local, &repaired, &json!({"waitMs": 1_000})).await.unwrap();
+        assert_eq!(open["status"], "held", "{open}");
+        assert!(remote.append_message_event(
+            &receiver,
+            sender_meta.clone(),
+            "steer only".into(),
+            "p-repaired".into(),
+            1234
+        ));
+        let done = outbox_status(&local, &repaired, &json!({"waitMs": 10_000})).await.unwrap();
+        assert_eq!(done["status"], "delivered", "{done}");
 
         let page = local
             .events_page(&sender.id, 0, None, 500, None, false, &EventFilter::parse(None).unwrap())
@@ -757,7 +758,7 @@ mod forward_projection_tests {
             .filter(|r| r.kind == "_acpmux/message")
             .map(|r| r.msg["messageId"].clone())
             .collect();
-        assert_eq!(ids, vec![json!("p-taken")]);
+        assert_eq!(ids, vec![json!("p-taken"), json!("p-repaired")]);
         std::fs::remove_dir_all(&dir).ok();
     }
 
