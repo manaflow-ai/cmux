@@ -8,6 +8,8 @@
 // violated in many render and RPC signatures. Refactoring them is separate
 // work from moving the crate into the cmux-tui workspace.
 #![allow(clippy::too_many_arguments, clippy::type_complexity, clippy::result_large_err)]
+// The generated initialize capability reply is intentionally explicit; keep json! expansion bounded.
+#![recursion_limit = "256"]
 // The Windows port lands in steps (src/platform.rs): until the daemon runs
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
