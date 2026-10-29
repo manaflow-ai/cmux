@@ -438,6 +438,8 @@ pub enum Command {
     #[command(hide = true)]
     LimitsCmd { session: String, max: Option<u32>, clear: bool },
     #[command(hide = true)]
+    TurnCapCmd { session: String, minutes: Option<u64>, off: bool, clear: bool },
+    #[command(hide = true)]
     Schema,
     #[command(hide = true)]
     Models {
@@ -911,6 +913,21 @@ pub enum SessionCmd {
         #[arg(long)]
         clear: bool,
     },
+    /// The turn cap: past it, the running turn takes no other agent's message (they wait for the
+    /// next turn, and the agent is told once to end its turn); the person's still go in. Omit
+    /// the flags to show it; setting it takes the app or this socket, never an agent.
+    TurnCap {
+        session: String,
+        /// The cap in minutes (1 to 1440).
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=1440), conflicts_with_all = ["off", "clear"])]
+        minutes: Option<u64>,
+        /// No cap for this session, whatever its default.
+        #[arg(long, conflicts_with = "clear")]
+        off: bool,
+        /// Drop the session's own value: back to its default.
+        #[arg(long)]
+        clear: bool,
+    },
     /// One line per turn.
     History {
         session: String,
@@ -1192,6 +1209,9 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Limits { session, max, clear } => {
                 Command::LimitsCmd { session, max, clear }
+            }
+            SessionCmd::TurnCap { session, minutes, off, clear } => {
+                Command::TurnCapCmd { session, minutes, off, clear }
             }
             SessionCmd::Rules { session, rules, clear } => {
                 Command::RulesCmd { session, rules, clear }

@@ -271,12 +271,20 @@ impl Hub {
         };
         let text = prompt_text(&blocks);
         let running = session.turn();
-        let steer_now = steer && session.steering.load(Ordering::SeqCst) && running.is_some();
+        // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
+        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
+        let capped = running.is_some() && self.turn_cap_holds(session, agent.is_some());
+        let steer_now =
+            steer && session.steering.load(Ordering::SeqCst) && running.is_some() && !capped;
         if steer && opts.steer_only && !steer_now {
-            return Err(RpcError::invalid_params(
-                "steer.unavailable: the session has no running turn that its agent can steer",
-            )
-            .with_data(json!({"reason": "steer.unavailable"})));
+            let why = if capped {
+                "steer.unavailable: the running turn is past its turn cap; other agents' messages wait for its next turn"
+            } else {
+                "steer.unavailable: the session has no running turn that its agent can steer"
+            };
+            return Err(RpcError::invalid_params(why)
+                .with_data(json!({"reason": "steer.unavailable", "turnCap": capped})));
         }
         if !live {
             self.cold_prompt_check(session).await?;
@@ -284,8 +292,6 @@ impl Hub {
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
-        // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
-        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // What it asks of this chat: another agent's only, `result` when it named none.
         let class = crate::prompt_class::of_message(opts.class, agent.is_some());
         if steer_now {
@@ -405,6 +411,7 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        self.arm_turn_cap(session, &turn_id);
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
