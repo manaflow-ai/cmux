@@ -2774,9 +2774,10 @@ jobs:
           # binaries, and the next call must start from this run's again.
           rm -rf assets/run
           cp -R assets/tree assets/run
-          # fetch's read-once copies of write-once commit objects (below), for
-          # this job only; a shell without RUNNER_TEMP gets its own directory.
-          r2_read="${RUNNER_TEMP:-$(mktemp -d)}/r2-read"
+          # fetch's read-once copies of write-once commit objects (below): a new
+          # directory for each run of this step, so nothing read by another run
+          # (or another step on a reused runner) is ever served from it.
+          r2_read="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/r2-read.XXXXXX")"
           # Publishes the tree under KEY, which must be this checkout's key
           # of that version (CMUX-TUI-TREE-KEY-V2: v2, then v1 until B2).
           publish_tree() {
