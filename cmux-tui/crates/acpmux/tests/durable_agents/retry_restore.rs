@@ -152,6 +152,74 @@ async fn non_hosted_outcome_unknown_gets_attempt_one_without_a_retry_delay() {
 }
 
 #[tokio::test]
+async fn blocked_web_retry_is_settled_and_not_rearmed_by_a_later_restart() {
+    let mut daemon =
+        Daemon::with_env("retry-web-ended", "approve-all", &[("ACPMUX_AGENT_HOSTS", "0")]);
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let result = rpc
+        .reply(
+            "session/prompt",
+            json!({"sessionId": session,
+                "prompt": [{"type": "text", "text": "net-fail-once: web retry"}],
+                "_meta": {"acpmux": {"promptId": "web-retry"}}}),
+        )
+        .await;
+    assert!(result.get("error").is_some(), "{result}");
+    let scheduled =
+        daemon.wait_event(&session, "pending Web retry", |e| e["kind"] == "auto_resume_scheduled");
+    let turn_id = scheduled["msg"]["turnId"].as_str().unwrap().to_owned();
+    let events_dir = daemon.home.join("sessions").join(&session).join("events");
+    let mut files: Vec<_> =
+        std::fs::read_dir(&events_dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())).collect();
+    files.sort();
+    let path = files.last().expect("event log");
+    let seq = daemon.events(&session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+    let raised = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": "turn_control",
+        "msg": {"turnId": turn_id.clone(), "control": "web"}});
+    let ended = json!({"seq": seq + 2, "at": 0, "dir": "mux", "kind": "remote_control_ended",
+        "msg": {"mode": "ask"}});
+    let mut log = std::fs::OpenOptions::new().append(true).open(path).unwrap();
+    std::io::Write::write_all(&mut log, format!("{raised}\n{ended}\n").as_bytes()).unwrap();
+    drop(log);
+    daemon.sigkill();
+    drop(rpc);
+
+    daemon.start();
+    let skipped = daemon.wait_event(&session, "blocked retry decision", |e| {
+        e["kind"] == "auto_resume_skipped" && e["msg"]["skipped"] == "remote_control_ended"
+    });
+    assert_eq!(skipped["msg"]["promptId"], "web-retry");
+    assert_eq!(skipped["msg"]["attempt"], 1);
+    assert_eq!(skipped["msg"]["turnId"], turn_id);
+    let mut rpc = daemon.rpc().await;
+    let _ = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    daemon.sigkill();
+    drop(rpc);
+
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(attached["session"]["retry"], Value::Null, "{attached:#}");
+    let events = daemon.events(&session);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e["kind"] == "auto_resume_skipped"
+                && e["msg"]["skipped"] == "remote_control_ended")
+            .count(),
+        1,
+        "{events:#?}"
+    );
+    assert!(!events.iter().any(|e| e["kind"] == "auto_resume_restored"));
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["kind"] == "turn_started" && e["msg"]["promptId"] == "web-retry~resume-1")
+    );
+}
+
+#[tokio::test]
 async fn adopted_running_prompt_resend_joins_its_live_outcome() {
     let mut daemon = Daemon::new("retry-adopted", "approve-all");
     let session = new_session(&daemon).await;

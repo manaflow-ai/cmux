@@ -107,6 +107,19 @@ impl Hub {
             return;
         };
         if control == Control::Web && (ended || floor_cancelled) {
+            let skipped =
+                if floor_cancelled { "remote_floor_cancel" } else { "remote_control_ended" };
+            self.append(
+                session,
+                "mux",
+                "auto_resume_skipped",
+                json!({
+                    "promptId": retry.prompt_id,
+                    "attempt": retry.attempt,
+                    "turnId": turn_id,
+                    "skipped": skipped,
+                }),
+            );
             return;
         }
         let id = format!("{}{SUFFIX}{}", retry.prompt_id, retry.attempt);
