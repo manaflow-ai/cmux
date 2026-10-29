@@ -119,7 +119,7 @@ test("a declarative context menu keeps the page fallback without a native transp
   expect(document.querySelector('[role="menuitem"]')?.textContent).toBe("Open");
 });
 
-test("a native context menu anchors nested SVG targets and routes picks without page rows", async () => {
+test("a native context menu anchors at the pointer over nested SVG and routes picks without page rows", async () => {
   const container = installDom();
   const shown: NativePopupModel[] = [];
   const listeners = new Set<(event: NativePopupEvent) => void>();
@@ -171,14 +171,14 @@ test("a native context menu anchors nested SVG targets and routes picks without 
     );
   });
   const button = container.querySelector("button")!;
-  button.getBoundingClientRect = () => new window.DOMRect(20, 30, 40, 24);
-  const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+  button.getBoundingClientRect = () => new window.DOMRect(20, 30, 440, 240);
+  const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 86, clientY: 64 });
   await act(async () => {
     container.querySelector("[data-target]")!.dispatchEvent(event);
   });
   expect(event.defaultPrevented).toBe(true);
   expect(shown).toHaveLength(1);
-  expect(shown[0]?.anchor).toEqual({ left: 20, top: 30, right: 60, bottom: 54 });
+  expect(shown[0]?.anchor).toEqual({ left: 86, top: 64, right: 86, bottom: 64 });
   expect(document.querySelector('[role="menu"]')).toBeNull();
   const model = shown[0]!;
   await act(async () => {
