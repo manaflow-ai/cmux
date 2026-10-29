@@ -31,6 +31,15 @@ impl FakeClockWatcher {
     /// `hang`: every kind's hang tier but an echo item's (`None`: each
     /// kind's own). Returns the watchdog and its watcher.
     fn new(hang: Option<Duration>) -> (RequestWatchdog, Self) {
+        Self::with_before_ring(hang, None)
+    }
+
+    /// [`Self::new`] whose recording thread (the test's) runs `before_ring`
+    /// right before it takes the `slow_requests` ring.
+    fn with_before_ring(
+        hang: Option<Duration>,
+        before_ring: Option<Box<dyn Fn(&Shared) + Send + Sync>>,
+    ) -> (RequestWatchdog, Self) {
         fn no_thread(_body: Box<dyn FnOnce() + Send>) -> std::io::Result<supervised::Unparker> {
             Ok(supervised::Unparker::current_for_test())
         }
@@ -44,6 +53,7 @@ impl FakeClockWatcher {
         let shared = Arc::get_mut(&mut watchdog.shared).expect("not shared yet");
         shared.clock_for_test = Some(clock.clone());
         shared.hang_for_test = hang;
+        shared.before_ring_for_test = before_ring;
         let shared = watchdog.shared.clone();
         (watchdog, Self { shared, clock, since: 0, next: None, wakes: 0 })
     }
@@ -99,6 +109,31 @@ fn request_watchdog_ledger_counts_a_300ms_request_that_ends_between_ticks() {
     assert_eq!((record.sequence, record.span.as_str()), (1, "mux-conn:workspace.create"));
     assert_eq!(record.duration_ms, 300, "its final duration: {record:?}");
     assert!(watcher.parked(), "parked once it ended");
+}
+
+/// `server-stats` never counts a slow request whose entry its ring lacks:
+/// a snapshot read right before the recording thread takes the ring counts
+/// neither, and one read after counts both.
+#[test]
+fn request_watchdog_counts_a_slow_request_with_its_entry() {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen_in_hook = seen.clone();
+    let (watchdog, mut watcher) = FakeClockWatcher::with_before_ring(
+        None,
+        Some(Box::new(move |shared: &Shared| {
+            let snapshot = shared.snapshot();
+            seen_in_hook.lock().unwrap().push((snapshot.total, snapshot.recent.len()));
+        })),
+    );
+    watcher.advance(10_000);
+    let scope = watchdog.begin(7, CREATE).expect("a free slot");
+    watcher.advance(310_000);
+    drop(scope);
+    watcher.advance(10_000_000);
+
+    let snapshot = watchdog.snapshot();
+    assert_eq!((snapshot.total, snapshot.recent.len()), (1, 1), "{snapshot:?}");
+    assert_eq!(*seen.lock().unwrap(), [(0, 0)], "a total counted before its entry");
 }
 
 #[test]
