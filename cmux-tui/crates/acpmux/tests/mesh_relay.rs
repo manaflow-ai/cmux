@@ -579,6 +579,9 @@ async fn mesh_control_requires_owner_allowlist_and_stamped_daemon_id() {
         },
         body: r#"{"version":1}"#.into(),
         attempt: 1,
+        start_work: None,
+        state: None,
+        subject: None,
     };
 
     let ack = allowed.control(&hub, &base("resume", Some("inst_a"))).await.unwrap();
@@ -741,6 +744,9 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
             body: posted.body,
             mode: posted.mode,
             attempt: 2,
+            start_work: None,
+            state: None,
+            subject: None,
         };
         let restarted = MeshControlHook::new(control_allowlist(), Some(path.clone()));
         assert_eq!(restarted.control(&hub, &duplicate).await.unwrap(), first);
