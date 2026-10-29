@@ -11,6 +11,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     private var rowViews: [(NativePopupRow, NSView)] = []
     private var targets: [NativePopupControlTarget] = []
     private var fields: [String: NSTextField] = [:]
+    private var editableControls: [String: NSControl] = [:]
     private var selected: String?
     private var search: NSSearchField?
     private var title: ThemedLabel?
@@ -66,6 +67,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         subviews.forEach { $0.removeFromSuperview() }
         targets = []
         fields = [:]
+        editableControls = [:]
         search = nil
         title = nil
         if let text = model.title, !text.isEmpty {
@@ -131,6 +133,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
                       let options = row.options, options.indices.contains(control.selectedSegment) else { return }
                 self?.emit(.change, row.id, options[control.selectedSegment].id)
             }
+            editableControls[row.id] = control
             trailing.append(control)
         } else if row.kind == .slider {
             let slider = NSSlider(value: Double(row.value ?? "") ?? row.minimum ?? 0,
@@ -144,8 +147,9 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
                 guard let slider = sender as? NSSlider else { return }
                 let step = row.step ?? 0
                 let value = step > 0 ? ((slider.doubleValue - slider.minValue) / step).rounded() * step + slider.minValue : slider.doubleValue
-                self?.emit(.change, row.id, String(value))
+                self?.emit(.change, row.id, String(min(slider.maxValue, max(slider.minValue, value))))
             }
+            editableControls[row.id] = slider
             trailing.append(slider)
         }
         for action in row.actions ?? [] {
@@ -200,7 +204,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         if row.kind == .submenu { openSubmenu(row, view) }
         else if row.kind == .toggle { emit(.change, row.id, row.checked == true ? "false" : "true") }
         else if row.kind == .action { emit(.pick, row.id, nil) }
-        else { window?.makeFirstResponder(view.subviews.first(where: { $0 is NSControl }) ?? view) }
+        else { window?.makeFirstResponder(editableControls[row.id] ?? view) }
     }
 
     private func paintSelection() {

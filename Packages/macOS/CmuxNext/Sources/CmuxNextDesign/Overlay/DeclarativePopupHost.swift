@@ -93,6 +93,7 @@ final class DeclarativePopupHost {
         shownParent = window
         panel.adoptThemeScope(of: webView)
         surface.applyTheme()
+        popup.dismissalWindow = webView.window
         guard let placed = popup.show(size: NSSize(width: next.width * scale, height: content.contentHeight),
                                       anchor: anchor, in: window, preferred: next.side == .top ? .above : .below,
                                       trailing: next.align == .end, makeKey: opening, entrance: false) else { model = nil; return ["shown": false] }

@@ -25,6 +25,8 @@ public final class NativePopupHost {
     private(set) var dismissalReason = "outside"
     /// A nested popup temporarily owns the keys; ancestor panels remain open.
     var keepsOpenOnKeyLoss: () -> Bool = { false }
+    /// Nested declarative panels observe their owning window, not ancestor popup layout.
+    weak var dismissalWindow: NSWindow?
     /// The control the popup opened from (screen), which it grows from and shrinks toward.
     public private(set) var anchor: CGRect = .zero
     /// Fading out after a hide: gone for the owner and for tests.
@@ -92,7 +94,7 @@ public final class NativePopupHost {
         if opening {
             if entrance { panel.openPopup(pivot: panel.popupPivot(toward: anchor), entrance: true) } else { panel.showPopupAtOnce() }
         }
-        watch(window)
+        watch(dismissalWindow ?? window)
         return (frame, side)
     }
 
