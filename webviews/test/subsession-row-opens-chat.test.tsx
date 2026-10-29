@@ -113,7 +113,7 @@ test("the row family is regular weight in the received line's 26px and 2px margi
   const rule = (selector: string) =>
     new RegExp(`(^|\\n)${selector.replace(/[.\\-]/g, (c) => `\\${c}`)} \\{([^}]*)\\}`).exec(css)?.[2] ?? "";
   expect(rule(".cv-disclosure")).toMatch(/margin:\s*2px 0;/);
-  expect(rule(".cv-disclosure__line")).toMatch(/min-height:\s*26px;/);
+  expect(rule(".cv-disclosure__line")).toMatch(/min-height:\s*calc\(var\(--ds-control-compact\) \+ 2px\);/);
   expect(rule(".cv-disclosure__label")).toMatch(/font-weight:\s*400;/);
   expect(css).not.toMatch(/font-weight:\s*(500|600|bold)/);
 });
