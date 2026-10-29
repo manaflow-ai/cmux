@@ -94,7 +94,7 @@ impl fmt::Display for CloudError {
             ),
             Self::Unavailable(detail) => write!(
                 formatter,
-                "cmux Cloud conversation request failed: {detail}; retry the request; if it keeps failing, run `cmux cloud diagnostics`",
+                "cmux Cloud conversation request failed: {detail}; a change may have gone through, so check the conversation before resending; if it keeps failing, run `cmux cloud diagnostics`",
             ),
             Self::BadRequest(detail) => write!(
                 formatter,
@@ -134,8 +134,10 @@ mod tests {
             retryable: true,
         };
         assert!(rate_limited.to_string().contains("retry the request"));
+        // The outcome of a mutation is unknown: never advise a blind resend.
         let unavailable = CloudError::Unavailable("timeout".into()).to_string();
-        assert!(unavailable.contains("retry the request"));
+        assert!(!unavailable.contains("retry"), "{unavailable}");
+        assert!(unavailable.contains("check the conversation before resending"));
         assert!(unavailable.contains("cmux cloud diagnostics"));
         assert!(CloudError::BadRequest("missing id".into()).to_string().contains("cmux --help"));
     }
