@@ -354,6 +354,10 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
                  "which nothing here builds again; left queued")
             continue
         try:
+            # Read the branch tip before the final job snapshot. A runner can start
+            # while a tip read is retried; the subsequent job read must observe it
+            # before either cancellation write.
+            current_tip = api.tip()
             again, still = read_stuck(api, run.id, now)
         except Unreadable as error:
             log(f"nightly-next run {run.id}: could not be read again ({error}); left alone")
@@ -363,8 +367,8 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
             continue
         try:
             # Discovery and earlier runs' settle waits can span a promotion. Re-evaluate
-            # against the branch's current tip before every write, including force-cancel.
-            path = rebuilt_by(again, api.tip())
+            # against the branch tip read immediately before the final job snapshot.
+            path = rebuilt_by(again, current_tip)
             if path is None:
                 log(f"nightly-next run {run.id}: no current rebuild path; left alone")
                 continue
@@ -375,12 +379,13 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
         state = settle(api, run.id, run.attempt, sleep)
         if state == "running":
             try:
+                current_tip = api.tip()
                 again, still = read_stuck(api, run.id, now)
             except Unreadable:
                 still = None
             if still is not None and again.attempt == run.attempt:
                 try:
-                    if rebuilt_by(again, api.tip()) is None:
+                    if rebuilt_by(again, current_tip) is None:
                         log(f"nightly-next run {run.id}: no current rebuild path; not force-cancelled")
                         continue
                     api.cancel(run.id, force=True)

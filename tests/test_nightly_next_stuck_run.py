@@ -195,7 +195,13 @@ class StuckRun(unittest.TestCase):
 
     def test_a_runner_starting_during_the_final_tip_read_blocks_cancel(self):
         started = [job("decide", runner="bs-1")]
-        gh = FakeGh(runs=[run(7)], jobs={7: [STUCK, STUCK, started]})
+        class StartsOnTip(FakeGh):
+            def __call__(self, args, write):
+                if not write and args[-1].endswith("git/ref/heads/nightly-next"):
+                    self.jobs[7] = [started]
+                return super().__call__(args, write)
+
+        gh = StartsOnTip(runs=[run(7)], jobs={7: [STUCK, STUCK]})
         tick(gh)
         self.assertEqual(gh.writes(), [], "a runner assigned during final validation must be observed")
 
