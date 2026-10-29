@@ -1,8 +1,11 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWakeups
+import Darwin
 
 private typealias JSON = CmuxNextSettings.JSONValue
 
@@ -11,7 +14,8 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// key path (`debug.key`).
 ///
 /// Per run it reports, in ms after the key:
-/// - `key_ms`: the key's synchronous main-thread time (handler included);
+/// - `key_ms`: the key's synchronous main-thread time (handler included, ``keyTurn(_:_:)``); `key_qos` names the
+///   QoS that turn ran at;
 /// - `visible_ms`: the first display frame at which the result shows (Cmd-N: the window shows
 ///   another workspace; Cmd-T, Ctrl-`: the focused pane shows another tab; Cmd-D / Cmd-Shift-D: the
 ///   window's focused pane is a new pane);
@@ -57,15 +61,17 @@ enum DebugInstantCreateBench {
         let before = Probe(controller)
         let (key, modifiers) = command.key
         frames.start()
-        BenchSpans.begin()
         services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }
         defer { services.cache.cef.benchMarks.arm(nil) }
-        let start = ContinuousClock.now
-        if let action = params["run"]?.stringValue {
-            let arguments = params["url"]?.stringValue.map { ["url": ActionValue.string($0)] } ?? [:]
-            _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
-        } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(controller.state.id)], services: services) }
-        let keyMilliseconds = BenchSpans.ms(.now - start)
+        let action = params["run"]?.stringValue, url = params["url"]?.stringValue, windowID = controller.state.id
+        let turn = await keyTurn(services.mainWork.callbackClass(.input, owner: "debug.new_tab.bench_create")) {
+            BenchSpans.begin() // the spans' times count from the key's turn
+            if let action {
+                let arguments = url.map { ["url": ActionValue.string($0)] } ?? [:]
+                _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
+            } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(windowID)], services: services) }
+        }
+        let start = turn.start, keyMilliseconds = turn.milliseconds
         let window = params["window_ms"]?.doubleValue ?? 0
         let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: window, deadline: 5_000)
         let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
@@ -80,6 +86,7 @@ enum DebugInstantCreateBench {
         return .object([
             "command": .string(command.rawValue),
             "key_ms": .number(keyMilliseconds),
+            "key_qos": .string(qosName(turn.qos)),
             "visible_ms": visible.map { .number($0) } ?? .null,
             "confirmed_ms": confirmed.map { .number($0) } ?? .null,
             "page_ms": page.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null,
@@ -90,6 +97,27 @@ enum DebugInstantCreateBench {
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
             "frames": stats,
         ])
+    }
+
+    /// The key's turn: run in this request's main-actor job. Returns when the turn started, its main-thread ms and
+    /// the QoS it ran at (`qos_class_self`, overrides excluded).
+    static func keyTurn(_ inputClass: MainCallbackClass, _ send: @escaping @MainActor () -> Void) async
+        -> (start: ContinuousClock.Instant, milliseconds: Double, qos: UInt32) {
+        let start = ContinuousClock.now
+        send()
+        return (start, BenchSpans.ms(.now - start), qos_class_self().rawValue)
+    }
+
+    /// `qos_class_t` as the bench's JSON names it.
+    static func qosName(_ raw: UInt32) -> String {
+        switch raw {
+        case QOS_CLASS_USER_INTERACTIVE.rawValue: "user_interactive"
+        case QOS_CLASS_USER_INITIATED.rawValue: "user_initiated"
+        case QOS_CLASS_DEFAULT.rawValue: "default"
+        case QOS_CLASS_UTILITY.rawValue: "utility"
+        case QOS_CLASS_BACKGROUND.rawValue: "background"
+        default: "unspecified"
+        }
     }
 
     /// What the window shows, read each frame.
