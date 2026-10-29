@@ -34,7 +34,9 @@ export function githubRepository(value: unknown): string | undefined {
   const parts = path.split("/");
   if (parts.length !== 2) return undefined;
   const [owner, repo] = parts;
-  if (!owner || !repo || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(owner) || !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(repo)) {
+  // A name may start with `.`, `_` or `-` (`acme/.github`), as the native host accepts; `.` and `..` are paths.
+  const valid = (part: string | undefined) => !!part && part !== "." && part !== ".." && /^[\w.-]+$/.test(part);
+  if (!valid(owner) || !valid(repo)) {
     return undefined;
   }
   return `${owner}/${repo}`;
