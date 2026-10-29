@@ -7,55 +7,55 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أي جهاز: سطر واحد"
+            "value": "أي جهاز"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Jeder Rechner: eine Zeile"
+            "value": "Jeder Rechner"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Any machine: one line"
+            "value": "Any machine"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cualquier equipo: una línea"
+            "value": "Cualquier equipo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Toute machine : une ligne"
+            "value": "Toute machine"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "任意のマシン: 1行"
+            "value": "任意のマシン"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "모든 컴퓨터: 한 줄"
+            "value": "모든 컴퓨터"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "任意机器：一行命令"
+            "value": "任意机器"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "任何機器：一行指令"
+            "value": "任何機器"
           }
         }
       }

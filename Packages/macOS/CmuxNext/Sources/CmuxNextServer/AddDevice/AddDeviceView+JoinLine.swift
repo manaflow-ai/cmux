@@ -20,7 +20,12 @@ extension AddDeviceView: NSTextFieldDelegate {
     func buildJoinLine(_ width: CGFloat) {
         guard let join = model.joinLine else { return }
         let compact = joinLineLayout == .compact
-        if !compact, joinLineLayout != .steps {
+        // The help is for making and pasting the line; after the flip or the expiry it is noise.
+        let helps: Bool = switch join.phase {
+        case .idle, .minting, .showing: true
+        case .joined, .expired, .failed: false
+        }
+        if helps, !compact, joinLineLayout != .steps {
             stack.addArrangedSubview(label(AddDeviceStrings.joinLineHelp, font: Typography.body, color: Palette.textSecondary, width: width))
         }
         switch join.phase {
