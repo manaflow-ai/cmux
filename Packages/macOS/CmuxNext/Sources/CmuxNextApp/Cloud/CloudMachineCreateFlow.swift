@@ -95,7 +95,9 @@ struct CloudMachineCreateFlow {
     /// (the backend answers the first machine for it); a fresh one when none.
     /// `environment`: boot it in that Cloud environment (`cloud.environment.boot`)
     /// instead of a plain `cloud.machine.create`; the same confirmation and approval.
-    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, key: String? = nil, gate: Gate = .allowed, environment: String? = nil) async throws -> JSONValue {
+    /// `approved`: the approval an earlier attempt with `key` answered; `onApproved` hears each new answer.
+    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
+                onApproved: @MainActor (String) -> Void = { _ in }, gate: Gate = .allowed, environment: String? = nil) async throws -> JSONValue {
         if case .upgrade(let need) = gate {
             if startedByPerson { _ = await confirm(.upgrade(need)) }
             throw Failure.upgradeRequired(need.reason)
@@ -107,7 +109,8 @@ struct CloudMachineCreateFlow {
         if let name = machine.name { args["name"] = .string(name) }
         if let environment { args["environment"] = .string(environment) }
         let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
-        let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: confirmed) { request in
+        let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: confirmed,
+                                            approved: key == nil ? nil : approved, onApproved: onApproved) { request in
             await confirm(.approval(request: request, machine))
         }
         return answer["machine"] ?? answer
@@ -122,7 +125,10 @@ struct CloudMachineCreateFlow {
 
     /// The first call, then at most `retries` same-key calls after the approval: every pass
     /// returns, throws, or counts one retry, all with `key`. `confirmed`: a person already confirmed in this flow.
-    private func approvalLoop(_ op: String, args: JSONValue, key: String, confirmed: Bool,
+    /// `approved`: the request an earlier attempt with `key` answered; a pending answer naming it waits
+    /// for the approved op (its feed item is closed, so it is not answered again).
+    private func approvalLoop(_ op: String, args: JSONValue, key: String, confirmed: Bool, approved earlier: String? = nil,
+                              onApproved: @MainActor (String) -> Void = { _ in },
                               ask: @MainActor (_ request: String) async -> Bool) async throws -> JSONValue {
         var confirmed = confirmed
         var approved: String?
@@ -132,6 +138,7 @@ struct CloudMachineCreateFlow {
                 return try await run(op, args, key, .user)
             } catch let failure as CloudAppOpFailure where failure.code == CloudAppOpFailure.approvalPending {
                 guard let request = failure.approvalRequest else { throw Failure.noApprovalRequest }
+                if approved == nil, request == earlier { approved = request }
                 if let approved {
                     // The answer is in; the approved op runs in the backend.
                     guard approved == request, attempt < retries else { throw Failure.stillPending(request: request) }
@@ -145,6 +152,7 @@ struct CloudMachineCreateFlow {
                 }
                 try await approve(request, op, args)
                 approved = request
+                onApproved(request)
                 // The call right after the answer is the first same-key retry.
                 attempt = 1
             }

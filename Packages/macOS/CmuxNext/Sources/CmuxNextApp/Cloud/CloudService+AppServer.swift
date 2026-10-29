@@ -45,8 +45,16 @@ extension CloudService {
         }
         let flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps))
         // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
-        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, key: pinned.idempotencyKey,
+        let record: JSONValue
+        do {
+            record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, key: pinned.idempotencyKey,
+                                           approved: pinned.approvedRequest, onApproved: { [weak creation] in creation?.markApproved($0) },
                                            gate: pinned.wasSent ? .allowed : createGate, environment: environment)
+        } catch let failure as CloudAppOpFailure where Self.isDefinitiveRefusal(failure) {
+            // The key's stored answer is this refusal; only an uncertain outcome keeps the key.
+            creation?.renewKey()
+            throw failure
+        }
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
         return machine
     }
@@ -94,6 +102,14 @@ extension CloudService {
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
+    }
+
+    /// The server refused the create before making anything (no plan, the plan's machine limit or
+    /// size), an answer a same-key Retry would only replay. A lost answer, a timeout or a relay that
+    /// is down is uncertain, so it keeps the key.
+    nonisolated static func isDefinitiveRefusal(_ failure: CloudAppOpFailure) -> Bool {
+        ["plan_required", "plan.required", "quota_exceeded", "quota.exceeded", "size_locked", "size.locked"]
+            .contains { failure.code.hasSuffix($0) }
     }
 
     /// The team an app-server create goes to: the install token's team `current`, or, once

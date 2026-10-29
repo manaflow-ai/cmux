@@ -30,6 +30,9 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// The team the first send went to (`X-Cmux-Team-Id`): the key is scoped per team, so every
     /// retry, and the bootstrap and idle-pause calls on the machine, go to this team.
     public var team: String?
+    /// The approval request this create's key was answered with: a Retry while the approved create
+    /// still runs waits for it instead of answering a request that is already closed.
+    public var approvedRequest: String?
     /// The loaded bootstrap (``loadScript(work:)``), started by the create itself once the machine
     /// exists, so the creation's Retry starts it too.
     public var script: CloudMachineBootstrap?

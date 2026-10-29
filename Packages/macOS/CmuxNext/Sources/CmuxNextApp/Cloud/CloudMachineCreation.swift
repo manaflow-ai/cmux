@@ -60,6 +60,21 @@ final class CloudMachineCreation: Identifiable {
         request.wasSent = true
     }
 
+    /// The person answered approval `request` for this create's key.
+    func markApproved(_ request: String) {
+        self.request.approvedRequest = request
+    }
+
+    /// The server refused the create outright and made no machine (``CloudService/isDefinitiveRefusal(_:)``):
+    /// the key's stored answer is that refusal, so a Retry after the person fixes it (frees a slot,
+    /// upgrades) needs a new key, which may also go to another team.
+    func renewKey() {
+        request.idempotencyKey = UUID().uuidString
+        request.wasSent = false
+        request.team = nil
+        request.approvedRequest = nil
+    }
+
     init(windowID: String?, session: CloudMachineSession? = nil, request: CloudMachineRequest = CloudMachineRequest(),
          clock: ContinuousClock = ContinuousClock()) {
         self.windowID = windowID
