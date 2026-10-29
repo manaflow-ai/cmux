@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298";
+pub const ir_sha256 = "2798dcbb7c033ae6cdf04f75d2238dd8204a631c5445ddc1692c66dc85b7985e";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1295,10 +1295,12 @@ pub const SizeParticipant = struct {
 
 pub const SizePolicy = struct {
     fixed: wire.Field(Size) = .absent,
+    handheld_first: ?bool = null,
     mode: ?SizeMode = null,
     priority: ?[]const []const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "handheld_first",
         "mode",
         "priority",
     };

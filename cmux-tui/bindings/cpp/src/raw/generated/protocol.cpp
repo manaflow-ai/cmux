@@ -6288,6 +6288,11 @@ Result<Json> Codec<SizePolicy>::encode(const SizePolicy& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("fixed", std::move(encoded).value());
     }
+    if (value.handheld_first) {
+        auto encoded = encode_value(*value.handheld_first);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("handheld_first", std::move(encoded).value());
+    }
     if (value.mode) {
         auto encoded = encode_value(*value.mode);
         if (!encoded) return std::move(encoded).error();
@@ -6314,6 +6319,12 @@ Result<SizePolicy> Codec<SizePolicy>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.fixed = Field<Size>(std::move(decoded).value());
         }
+    }
+    const Json* field_handheld_first = value.find("handheld_first");
+    if (field_handheld_first) {
+        auto decoded = decode_value<bool>(*field_handheld_first);
+        if (!decoded) return std::move(decoded).error();
+        result.handheld_first = std::move(decoded).value();
     }
     const Json* field_mode = value.find("mode");
     if (field_mode) {

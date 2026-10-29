@@ -82,6 +82,27 @@ private final class FakeController: TerminalSharingSurfaceControlling {
         #expect(store.snapshot(for: id)?.state.size == TerminalGridSize(cols: 120, rows: 40))
     }
 
+    /// Size to My Window on the Mac turns iPhone First off, so the Mac
+    /// takes the grid from an attached phone.
+    @Test func sizeToMeOnTheMacLeavesIPhoneFirst() {
+        let (store, controller, id) = fixture(policy: .standard)
+        defer { withExtendedLifetime(controller) {} }
+        #expect(store.snapshot(for: id)?.state.size == TerminalGridSize(cols: 90, rows: 50))
+        #expect(store.sizeToMe(surfaceID: id))
+        #expect(store.snapshot(for: id)?.state.policy == .latest)
+        #expect(store.snapshot(for: id)?.state.owners == ["mac:1"])
+    }
+
+    @Test func setChoiceSwitchesBetweenIPhoneFirstAndAMode() {
+        let (store, controller, id) = fixture(policy: .standard)
+        defer { withExtendedLifetime(controller) {} }
+        #expect(store.setChoice(.mode(.smallest), surfaceID: id))
+        #expect(store.snapshot(for: id)?.state.policy == .fitEveryone)
+        #expect(store.snapshot(for: id)?.state.size == TerminalGridSize(cols: 50, rows: 30))
+        #expect(store.setChoice(.handheldFirst, surfaceID: id))
+        #expect(store.snapshot(for: id)?.state.policy == .standard)
+    }
+
     @Test func sizeToMeInPriorityMovesMeToTheTop() {
         let (store, controller, id) = fixture(policy: TerminalSizingPolicy(mode: .priority, priority: ["u_a/iphone"]))
         defer { withExtendedLifetime(controller) {} }

@@ -25,6 +25,25 @@ import Testing
         )
     }
 
+    /// A host created without an explicit policy (every local Mac terminal)
+    /// gives an open phone its whole viewport, even where the Mac pane is
+    /// smaller, and hands the grid back to the pane when the phone leaves.
+    @Test func defaultPolicyLetsAnOpenPhoneSetTheWholeGrid() {
+        let pane = TerminalGridSize(cols: 120, rows: 24)
+        var h = LocalTerminalSizingHost(
+            macParticipant: me.participant(id: "mac:pane", deviceKind: .mac, viewport: pane),
+            initialSize: pane
+        )
+        h.syncPhones([phone("a", cols: 54, rows: 44)])
+        #expect(h.state.owners == ["mobile:a"])
+        #expect(h.applyTarget == .grid(TerminalGridSize(cols: 54, rows: 44)))
+        h.noteActivity("mac:pane")
+        #expect(h.applyTarget == .grid(TerminalGridSize(cols: 54, rows: 44)))
+        h.syncPhones([])
+        #expect(h.state.owners == ["mac:pane"])
+        #expect(h.applyTarget == .uncapped)
+    }
+
     @Test func defaultFitsEveryoneIncludingMyPhone() {
         var h = host(policy: .fitEveryone)
         h.syncPhones([phone("a")])

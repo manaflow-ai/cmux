@@ -12,11 +12,13 @@ import java.util.Objects;
 
 public final class SizePolicy implements WireValue {
     private final Field<Size> fixed;
+    private final Field<Boolean> handheldFirst;
     private final Field<SizeMode> mode;
     private final Field<List<String>> priority;
 
     private SizePolicy(Builder builder) {
         this.fixed = builder.fixed;
+        this.handheldFirst = builder.handheldFirst;
         this.mode = builder.mode;
         this.priority = builder.priority.map(value -> List.copyOf(value));
     }
@@ -24,6 +26,7 @@ public final class SizePolicy implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<Size> fixed() { return fixed; }
+    public Field<Boolean> handheldFirst() { return handheldFirst; }
     public Field<SizeMode> mode() { return mode; }
     public Field<List<String>> priority() { return priority; }
 
@@ -33,6 +36,10 @@ public final class SizePolicy implements WireValue {
         Object rawFixed = Wire.optional(object, "fixed");
         if (!Wire.isMissing(rawFixed)) {
             builder.fixed(rawFixed == null ? null : Size.fromWire(rawFixed));
+        }
+        Object rawHandheldFirst = Wire.optional(object, "handheld_first");
+        if (!Wire.isMissing(rawHandheldFirst)) {
+            builder.handheldFirst(Wire.bool(rawHandheldFirst, "SizePolicy.handheld_first"));
         }
         Object rawMode = Wire.optional(object, "mode");
         if (!Wire.isMissing(rawMode)) {
@@ -49,6 +56,7 @@ public final class SizePolicy implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "fixed", fixed);
+        Wire.put(object, "handheld_first", handheldFirst);
         Wire.put(object, "mode", mode);
         Wire.put(object, "priority", priority);
         return Collections.unmodifiableMap(object);
@@ -57,22 +65,27 @@ public final class SizePolicy implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SizePolicy that)) return false;
-        return Objects.equals(fixed, that.fixed) && Objects.equals(mode, that.mode) && Objects.equals(priority, that.priority);
+        return Objects.equals(fixed, that.fixed) && Objects.equals(handheldFirst, that.handheldFirst) && Objects.equals(mode, that.mode) && Objects.equals(priority, that.priority);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(fixed, mode, priority); }
+    public int hashCode() { return Objects.hash(fixed, handheldFirst, mode, priority); }
 
     @Override
     public String toString() { return "SizePolicy" + toWire(); }
 
     public static final class Builder {
         private Field<Size> fixed = Field.omitted();
+        private Field<Boolean> handheldFirst = Field.omitted();
         private Field<SizeMode> mode = Field.omitted();
         private Field<List<String>> priority = Field.omitted();
 
         public Builder fixed(Size value) {
             this.fixed = Field.ofNullable(value);
+            return this;
+        }
+        public Builder handheldFirst(Boolean value) {
+            this.handheldFirst = Field.of(value);
             return this;
         }
         public Builder mode(SizeMode value) {

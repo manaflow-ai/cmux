@@ -2786,14 +2786,14 @@ Params:
 | --- | --- | --- | --- |
 | `surface` | `Id` | exactly one of `surface`/`workspace` | Terminal surface |
 | `workspace` | `Id` | exactly one of `surface`/`workspace` | Existing workspace |
-| `policy` | `object{mode,priority?,fixed?}` or `null` | required | `mode`: `latest`, `smallest`, `largest`, `priority`, `fixed`; `priority`: array of priority keys; `fixed`: `object{cols,rows}`; `null` clears |
+| `policy` | `object{mode,priority?,fixed?,handheld_first?}` or `null` | required | `mode`: `latest`, `smallest`, `largest`, `priority`, `fixed`; `priority`: array of priority keys; `fixed`: `object{cols,rows}`; `handheld_first`: boolean, absent is `false` (the default policy, used when nothing is set, has it `true`); `null` clears |
 
 Result: `object{state}` for a surface (the new size state), `object{}` for a
 workspace.
 
 ```json
 {"id":7,"cmd":"set-size-policy","surface":4,"policy":{"mode":"smallest"}}
-{"id":7,"ok":true,"data":{"state":{"generation":5,"cols":118,"rows":30,"reason":"smallest","owners":["c1","c3"],"policy":{"mode":"smallest","priority":[],"fixed":null},"participants":[]}}}
+{"id":7,"ok":true,"data":{"state":{"generation":5,"cols":118,"rows":30,"reason":"smallest","owners":["c1","c3"],"policy":{"mode":"smallest","priority":[],"fixed":null,"handheld_first":false},"participants":[]}}}
 ```
 
 ### set-size-counts

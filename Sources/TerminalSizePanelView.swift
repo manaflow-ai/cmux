@@ -47,7 +47,7 @@ struct TerminalSizePanelView: View {
         let snapshot = display.snapshot
         return VStack(alignment: .leading, spacing: 8) {
             header(presentation)
-            modeRow(snapshot.state.policy.mode)
+            modeRow(snapshot.state.policy.choice)
             if snapshot.state.policy.mode == .fixed {
                 fixedSizeEditor(snapshot.state.policy.fixed ?? snapshot.state.size)
             }
@@ -74,19 +74,19 @@ struct TerminalSizePanelView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func modeRow(_ mode: TerminalSizingMode) -> some View {
+    private func modeRow(_ choice: TerminalSizingChoice) -> some View {
         HStack(spacing: 8) {
             Text(String(localized: "terminalSharing.panel.sizeLabel", defaultValue: "Size"))
             Spacer(minLength: 8)
             Picker(
                 String(localized: "terminalSharing.panel.sizeLabel", defaultValue: "Size"),
                 selection: Binding(
-                    get: { mode },
-                    set: { _ = store.setMode($0, surfaceID: surfaceID) }
+                    get: { choice },
+                    set: { _ = store.setChoice($0, surfaceID: surfaceID) }
                 )
             ) {
-                ForEach(TerminalSizingMode.allCases, id: \.self) { mode in
-                    Text(TerminalSharingDisplay.modeTitle(mode)).tag(mode)
+                ForEach(TerminalSizingChoice.allCases, id: \.self) { choice in
+                    Text(TerminalSharingDisplay.choiceTitle(choice)).tag(choice)
                 }
             }
             .pickerStyle(.menu)

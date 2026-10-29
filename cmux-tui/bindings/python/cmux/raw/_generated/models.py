@@ -1142,6 +1142,7 @@ class SizeParticipant:
 class SizePolicy:
     __cmux_schema_path__: ClassVar[str] = 'types/SizePolicy'
     fixed: Union[Size, None, MissingType] = field(default=MISSING)
+    handheld_first: Union[bool, MissingType] = field(default=MISSING)
     mode: Union[SizeMode, MissingType] = field(default=MISSING)
     priority: Union[List[str], MissingType] = field(default=MISSING)
 

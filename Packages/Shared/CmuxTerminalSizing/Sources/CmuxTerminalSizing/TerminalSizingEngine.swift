@@ -19,7 +19,7 @@ public struct TerminalSizingEngine: Sendable {
     /// - Parameters:
     ///   - initialSize: the grid before anyone reports, usually the PTY's current size.
     ///   - policy: the effective policy (workspace default or terminal override).
-    public init(initialSize: TerminalGridSize, policy: TerminalSizingPolicy = .fitEveryone) {
+    public init(initialSize: TerminalGridSize, policy: TerminalSizingPolicy = .standard) {
         self.policy = policy
         self.held = initialSize.clamped
         self.state = TerminalSizingState(
@@ -100,6 +100,8 @@ public struct TerminalSizingEngine: Sendable {
         let p = entry.participant
         guard p.viewport != nil else { return false }
         if let explicit = p.countsOverride { return explicit }
+        // iPhone First: an open phone always counts, so it can own the grid.
+        if policy.handheldFirst && p.deviceKind.isHandheld { return true }
         // Fit-everyone modes promise to count every attached view; the handheld
         // deferral only stops a phone from taking the grid by activity.
         if policy.mode == .smallest || policy.mode == .largest { return true }
@@ -120,6 +122,13 @@ public struct TerminalSizingEngine: Sendable {
         guard !counting.isEmpty else { return (held, [], .held) }
         func newest(_ list: [Entry]) -> Entry {
             list.max { $0.activity < $1.activity }!
+        }
+        if policy.handheldFirst {
+            let handhelds = counting.filter { $0.participant.deviceKind.isHandheld }
+            if !handhelds.isEmpty {
+                let owner = newest(handhelds)
+                return (owner.participant.viewport!, [owner.participant.id], .latest)
+            }
         }
         switch policy.mode {
         case .latest, .fixed:

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
+/* cmux-tui mux protocol 12, IR 2798dcbb7c033ae6cdf04f75d2238dd8204a631c5445ddc1692c66dc85b7985e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -726,6 +726,7 @@ export type SizeParticipant = {
 
 export type SizePolicy = {
   "fixed"?: (Size) | null;
+  "handheld_first"?: boolean;
   "mode"?: SizeMode;
   "priority"?: Array<string>;
 };
