@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeupsTestSupport
 import CoreGraphics
 import Testing
 
@@ -53,9 +54,11 @@ struct CommandScrollColumnsTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         var pages: [NSWindow] = []
+        /// The layout's deadline clock: the page's answer deadline moves only when a test advances it.
+        let clock = ManualClock()
 
         init(model: LayoutModel, arbiter: (any PageCommandScrollArbiter)? = nil) {
-            root = LayoutRootView(model: model, contentProvider: provider, pageCommandScroll: arbiter)
+            root = LayoutRootView(model: model, contentProvider: provider, scrollbarClock: clock, pageCommandScroll: arbiter)
             root.context.reduceMotionOverride = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
@@ -77,10 +80,9 @@ struct CommandScrollColumnsTests {
 
         func settle() { for _ in 0..<600 { if !root.advanceFrame(1.0 / 120) { break } } }
 
-        /// Waits for the page's answer (or its deadline) to be applied.
+        /// Waits for the page's answer to be applied.
         func answered() async {
             await root.pageProbeTask?.value
-            await root.pageProbeDeadlineTask?.value
         }
     }
 
@@ -224,13 +226,15 @@ struct CommandScrollColumnsTests {
     @Test func aPageThatDoesNotAnswerInTimeLosesTheGestureToTheColumns() async throws {
         let arbiter = FakeArbiter(answer: true, waits: true)
         let h = Harness(model: Base.columnsModel(modifier: .command), arbiter: arbiter)
-        h.root.pageProbeDeadline = .zero
         let page = try h.page(over: "p2")
         let point = try h.center("p2")
         #expect(Base.scroll(h.root, from: page, at: point, dx: -30, phase: .began, command: true))
         #expect(Base.scroll(h.root, from: page, at: point, dx: -30, phase: .changed, command: true))
-        await h.root.pageProbeDeadlineTask?.value
         let strip = try #require(h.root.screenViews["s"])
+        #expect(!strip.isUserScrolling, "held while the page is asked")
+        try await h.clock.waitForSleeper()
+        h.clock.advance(by: h.root.pageProbeDeadline)
+        for _ in 0..<100 where !strip.isUserScrolling { await Task.yield() }
         #expect(strip.isUserScrolling, "the deadline gave the gesture to the columns")
         arbiter.release()
         await h.root.pageProbeTask?.value
