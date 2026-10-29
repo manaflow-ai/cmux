@@ -46,6 +46,7 @@ public final class WindowOverlayHost {
     /// A detach waiting for its empty frame to be drawn before the panel orders out
     /// (``detachAfterEmptyFrame()``); a re-attach meanwhile cancels it.
     var detachGeneration = 0
+    var detachPending = false
     /// The window is closing: nothing takes key status back.
     var isTearingDown = false
     /// Where the app host centers its panel (tests pass an off-screen rect).
@@ -178,12 +179,15 @@ public final class WindowOverlayHost {
     }
 
     /// Whether the panel is attached to the window now.
-    public var isPanelAttached: Bool { isAppHost ? panel.isVisible : panel.parent === window && window != nil }
+    /// A panel leaving (``detachAfterEmptyFrame()``) is no longer attached: nothing new goes on it
+    /// (planes, the agent cursor) while it waits for its empty frame.
+    public var isPanelAttached: Bool { isAppHost ? panel.isVisible : panel.parent === window && window != nil && !detachPending }
 
     func tearDown() {
         isTearingDown = true
         // A detach still waiting for its empty frame is moot: the panel closes below.
         detachGeneration += 1
+        detachPending = false
         for handle in handles { handle.dismiss() }
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
@@ -211,13 +215,14 @@ public final class WindowOverlayHost {
             if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
             // A detach still waiting for its empty frame: the panel stays (it never left).
             detachGeneration += 1
+            detachPending = false
             if panel.parent !== window {
                 window.themeScope.adopt(panel)
                 window.addChildWindow(panel, ordered: .above)
                 observeWindow(window)
             }
             reassertOrder()
-        } else if panel.parent === window {
+        } else if panel.parent === window, !detachPending {
             detachAfterEmptyFrame()
         }
         placeAgentCursor()
@@ -333,16 +338,20 @@ extension WindowOverlayHost {
     /// fading in from zero (debug.dialog_strip: 2 opens in 10 with a fresh attach, 0 in 20 while
     /// the panel stayed attached). Ordered out with an empty surface, any later attach shows at
     /// once. A re-attach in between cancels the detach; the panel never left.
+    ///
+    /// The host stops using the panel at once (``isPanelAttached`` is false): the agent cursor and
+    /// the window's planes go back to the window this turn; only the order-out waits.
     func detachAfterEmptyFrame() {
         detachGeneration += 1
+        detachPending = true
         let generation = detachGeneration
         AfterFrameCommit().run { [weak self] in
-            guard let self, generation == detachGeneration, let window, panel.parent === window else { return }
-            guard handles.isEmpty, fadingOut == 0, !planesWantPanel else { return }
+            guard let self, generation == detachGeneration, detachPending else { return }
+            detachPending = false
+            guard let window, panel.parent === window else { return }
             window.removeChildWindow(panel)
             panel.orderOut(nil)
             stopObservingWindow()
-            placeAgentCursor()
             onPanelChange?()
         }
     }
