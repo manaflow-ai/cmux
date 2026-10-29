@@ -404,7 +404,8 @@ class Tests(unittest.TestCase):
         fake.fail("GET", "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1", 429,
                   Retry_After="30")
         out = self.sweep(fake)
-        self.assertIn("glaeda-route App budget spent", out)
+        self.assertNotIn("glaeda-route App budget spent", out)
+        self.assertIn("is not a spent hourly budget", out)
         self.assertEqual(fake.posts, [])
 
     def test_a_secondary_limit_with_budget_left_opens_no_app_hour(self):
@@ -414,7 +415,8 @@ class Tests(unittest.TestCase):
                           finished={2: "2026-10-26T04:25:00Z"})
         fake.fail("GET", "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1", 429,
                   X_RateLimit_Remaining="9000", Retry_After="30", X_RateLimit_Reset=str(int(reset.timestamp())))
-        self.sweep(fake)
+        out = self.sweep(fake)
+        self.assertNotIn("glaeda-route App budget spent", out)
         self.assertEqual(fake.posts, [])
 
     def test_a_permission_refusal_opens_no_app_hour(self):
@@ -424,7 +426,8 @@ class Tests(unittest.TestCase):
                           finished={2: "2026-10-26T04:25:00Z"})
         fake.fail("GET", "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1", 403,
                   X_RateLimit_Remaining="4000", X_RateLimit_Reset=str(int(reset.timestamp())))
-        self.sweep(fake)
+        out = self.sweep(fake)
+        self.assertNotIn("glaeda-route App budget spent", out)
         self.assertEqual(fake.posts, [])
 
     def test_a_spent_workflow_token_budget_is_not_called_the_apps(self):

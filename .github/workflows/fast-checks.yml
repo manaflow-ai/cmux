@@ -181,6 +181,18 @@ jobs:
             (cd "$workspace" && bun install --frozen-lockfile)
           done
 
+      # The cloud backend (backend/, on feat-cmux-next) is one Bun workspace with
+      # its own lockfile: its apps' tests (vitest with the Workers pool in
+      # backend/apps/api, bun test in backend/apps/home-server) import from
+      # backend/node_modules, which no other install provides.
+      - name: Install backend workspace dependencies
+        if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
+        run: |
+          if [[ -f backend/package.json && -f backend/bun.lock ]]; then
+            echo "bun install --frozen-lockfile in backend"
+            (cd backend && bun install --frozen-lockfile)
+          fi
+
       - name: Prepare full webview tests
         if: inputs.setup == 'webviews'
         run: |
